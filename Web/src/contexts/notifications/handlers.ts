@@ -64,6 +64,62 @@ export function rememberEvent(
   const operationId = eventOperationId(value);
   if (!operationId) return true;
 
+  if (type === 'scheduled_prefill' && phase !== 'waiting' && phase !== 'handoff') {
+    if (events.terminals.has(operationId)) return false;
+    events.versions ??= new Map();
+    const previous = events.versions.get(operationId);
+    const epoch = body.eventEpoch;
+    const sequence = body.eventSequence;
+    const versioned =
+      typeof epoch === 'string' &&
+      epoch.length > 0 &&
+      typeof sequence === 'number' &&
+      Number.isSafeInteger(sequence) &&
+      sequence > 0;
+    if (previous && !versioned) return false;
+    if (
+      previous &&
+      typeof body.daemonInstanceId === 'string' &&
+      previous.daemonInstanceId &&
+      previous.daemonInstanceId !== body.daemonInstanceId
+    )
+      return false;
+    if (versioned) {
+      if (previous && previous.epoch !== epoch) {
+        if (previous.retired.has(epoch) || events.terminals.has(operationId)) return false;
+        events.pending ??= new Map();
+        const pending = events.pending.get(operationId);
+        if (
+          !pending ||
+          pending.body.eventEpoch !== epoch ||
+          (pending.phase !== 'complete' &&
+            (phase === 'complete' || sequence > Number(pending.body.eventSequence)))
+        ) {
+          events.pending.set(operationId, {
+            type,
+            phase,
+            eventName,
+            body: { ...body },
+            revision: events.revision
+          });
+          if (events.pending.size > 128) events.pending.delete(events.pending.keys().next().value!);
+          if (events.requestRecovery) queueMicrotask(events.requestRecovery);
+        }
+        return false;
+      }
+      if (previous && sequence <= previous.sequence) return false;
+      events.versions.set(operationId, {
+        epoch,
+        sequence,
+        daemonInstanceId:
+          typeof body.daemonInstanceId === 'string'
+            ? body.daemonInstanceId
+            : previous?.daemonInstanceId,
+        retired: previous?.retired ?? new Set()
+      });
+    } else if (phase === 'started' && events.records.get(operationId)?.progress) return false;
+  }
+
   if (phase === 'handoff') {
     const nextOperationId = body.nextOperationId;
     if (
@@ -146,6 +202,10 @@ export function rememberEvent(
       )
         continue;
       events.records.delete(id);
+      if (events.terminals.has(id)) {
+        events.versions?.delete(id);
+        events.pending?.delete(id);
+      }
     }
   }
   return true;
@@ -956,19 +1016,31 @@ export function createStatusAwareProgressHandler<T>(
         existing?.id ?? (hidden && operationId ? operationCardId(operationId) : notificationId);
       if (!existing) cancelAutoDismissTimer?.(id);
       const detailMessage = config.getDetailMessage?.(event);
+      const stage = (event as { stage?: string }).stage;
+      const transitionOnly =
+        config.type === 'scheduled_prefill' &&
+        existing &&
+        (stage === 'recovering' ||
+          stage === 'cancelling' ||
+          (stage === 'running' &&
+            !(event as { stageKey?: string }).stageKey &&
+            config.getProgress(event) == null));
       const card: UnifiedNotification = {
         ...existing,
         id,
         type: config.type,
-        status: existing?.details?.cancelRequested
-          ? 'cancelling'
-          : promoteStatus(existing?.status ?? 'running'),
+        status:
+          existing?.details?.cancelRequested ||
+          (config.type === 'scheduled_prefill' && stage === 'cancelling')
+            ? 'cancelling'
+            : promoteStatus(existing?.status ?? 'running'),
         controlOnly: hidden || undefined,
-        message: config.getMessage(event),
-        progress: config.getProgress(event),
+        message: transitionOnly ? existing.message : config.getMessage(event),
+        progress: transitionOnly ? existing.progress : config.getProgress(event),
         ...(config.getDetailMessage && {
-          detailMessage:
-            config.type === 'eviction_scan'
+          detailMessage: transitionOnly
+            ? existing.detailMessage
+            : config.type === 'eviction_scan'
               ? (detailMessage ?? existing?.detailMessage)
               : detailMessage
         }),
@@ -980,10 +1052,17 @@ export function createStatusAwareProgressHandler<T>(
         instanceVersion: existing?.instanceVersion ?? 1,
         details: mergeEventDetails(existing?.details, {
           ...config.getDetails?.(event),
+          ...(config.type === 'scheduled_prefill' ? { connectionRecovering: false } : {}),
           handoffPending: undefined,
           ...(operationId ? { operationId } : {})
         })
       };
+      if (
+        config.type === 'scheduled_prefill' &&
+        existing &&
+        JSON.stringify(card) === JSON.stringify(existing)
+      )
+        return prev;
       persistNotification(config.storageKey, card, config.storesCardsById);
       return existing ? prev.map((n) => (n === existing ? card : n)) : [...prev, card];
     });

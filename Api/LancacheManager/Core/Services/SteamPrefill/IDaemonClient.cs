@@ -213,6 +213,18 @@ public interface IDaemonClient : IDisposable
     /// </summary>
     Task CancelPrefillAsync(CancellationToken cancellationToken = default);
 
+    Task<PrefillResult> PrefillAsync(Guid runId, string daemonInstanceId, DaemonRunOptions options,
+        List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This daemon client does not implement protocol version 2.");
+
+    Task<DaemonRunSnapshot> CancelPrefillAsync(Guid runId, string daemonInstanceId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This daemon client does not implement targeted cancellation.");
+
+    Task<DaemonOperationPage> GetOperationAsync(Guid runId, string daemonInstanceId, int offset = 0,
+        int limit = 100, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This daemon client does not implement operation recovery.");
+
     /// <summary>
     /// Get owned games.
     /// </summary>

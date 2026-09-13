@@ -1015,17 +1015,35 @@ export type RiotMappingProgressEvent = MappingProgressEvent;
 export type RiotMappingCompleteEvent = MappingCompleteEvent;
 
 export interface ScheduledPrefillStartedEvent {
+  stage?: string;
+  message?: string;
+  stageKey?: string | null;
+  stageContext?: Record<string, string | number | boolean | null> | null;
+  recovering?: boolean;
+  eventEpoch?: string;
+  eventSequence?: number;
+  daemonInstanceId?: string | null;
   /** This service's own operation, which is what its card cancels. */
   operationId: string;
   /** The service this event opens a card for. Null on the run-level event, which has no card. */
   serviceId?: string | null;
-  serviceCount: number;
+  serviceCount?: number;
+  scheduleId?: string | null;
+  scheduleName?: string | null;
+  runOperationId?: string | null;
   showNotification?: boolean;
 }
 
 export interface ScheduledPrefillProgressEvent {
+  eventEpoch?: string;
+  eventSequence?: number;
+  recovering?: boolean;
+  daemonInstanceId?: string | null;
   operationId: string;
   serviceId: string;
+  scheduleId?: string | null;
+  scheduleName?: string | null;
+  runOperationId?: string | null;
   stage: string;
   message: string;
   /**
@@ -1046,9 +1064,19 @@ export interface ScheduledPrefillProgressEvent {
 }
 
 export interface ScheduledPrefillCompletedEvent {
+  stage?: string;
+  message?: string;
+  stageContext?: Record<string, string | number | boolean | null> | null;
+  recovering?: boolean;
+  eventEpoch?: string;
+  eventSequence?: number;
+  daemonInstanceId?: string | null;
   operationId: string | null;
   /** The service whose card this closes. Null on the run-level event, which has no card. */
   serviceId?: string | null;
+  scheduleId?: string | null;
+  scheduleName?: string | null;
+  runOperationId?: string | null;
   success: boolean;
   error?: string | null;
   /**

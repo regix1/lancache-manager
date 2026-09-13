@@ -100,6 +100,15 @@ public static class ScheduledPrefillRunGates
         out string skipMessage,
         out string skipStageKey)
     {
+        if (persistentSession?.Capabilities?.SupportsConcurrentPrefill == true)
+        {
+            var busy = persistentSession.Recovering || persistentSession.AdmissionClosed
+                || persistentSession.Runs.Values.Count(run => run.TerminalCompletedFlag != 2)
+                    >= persistentSession.Capabilities.MaxConcurrentRuns;
+            skipMessage = busy ? "The prefill daemon has no available run slots" : string.Empty;
+            skipStageKey = busy ? "errors.prefill.runLimit" : string.Empty;
+            return busy;
+        }
         if (persistentSession is { Status: DaemonSessionStatus.Active, IsPersistent: true, IsPrefilling: true })
         {
             skipMessage = "A prefill is already in progress";

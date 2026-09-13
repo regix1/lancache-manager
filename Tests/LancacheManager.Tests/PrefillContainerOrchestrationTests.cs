@@ -10,6 +10,7 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
@@ -27,7 +28,7 @@ namespace LancacheManager.Tests;
 /// <c>PersistentLoginValidityClockTests</c>) by proving the whole <see cref="PrefillDaemonServiceBase.StartAsync"/>
 /// path wires those decisions to the right container operations and DB row transitions.
 /// </summary>
-public sealed class PrefillContainerOrchestrationTests : IDisposable
+public sealed partial class PrefillContainerOrchestrationTests : IDisposable
 {
     private const string SteamPersistentContainerName = "steam-daemon-persistent";
 
@@ -458,7 +459,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
             new RecordingContainerGateway(),
             () => client = new ScriptedLoginDaemonClient());
 
-        await daemon.CreateSessionAsync(Guid.NewGuid(), sessionType: SessionType.Guest, isPersistent: false);
+        await daemon.CreateSessionAsync(await SeedGuestAsync(dbFactory), sessionType: SessionType.Guest, isPersistent: false);
 
         Assert.Null(daemon.LastHeadlessSelfAuthAttempt);
         Assert.NotNull(client);
@@ -947,10 +948,11 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     // Helpers
     // ==================================================================================================
 
-    private static (DbContextOptions<AppDbContext> Options, IDbContextFactory<AppDbContext> Factory) NewDatabase()
+    private static (DbContextOptions<AppDbContext> Options, IDbContextFactory<AppDbContext> Factory) NewDatabase(params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"prefill_orchestration_{Guid.NewGuid():N}")
+            .AddInterceptors(interceptors)
             .Options;
         return (options, new PooledDbFactory(options));
     }

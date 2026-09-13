@@ -106,7 +106,7 @@ public class ScheduledPrefillRunVisibilityTests
             new ScheduledPrefillServiceRunState(
                 serviceConfig.ServiceId,
                 serviceConfig.ScheduleId,
-                serviceConfig.ScheduleName),
+                serviceConfig.ScheduleName, true),
             CancellationToken.None);
 
         var complete = typeof(ScheduledPrefillService)

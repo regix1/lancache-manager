@@ -18,6 +18,11 @@ public sealed record DaemonTransportLabels(string Connection, string Endpoint);
 /// </summary>
 public class SocketPrefillProgress
 {
+    [JsonPropertyName("daemonInstanceId")]
+    public string? DaemonInstanceId { get; set; }
+    [JsonPropertyName("sequence")]
+    public long Sequence { get; set; }
+
     /// <summary>Prefill command identifier. Null when an older daemon omits run correlation.</summary>
     [JsonPropertyName("operationId")]
     public string? OperationId { get; set; }

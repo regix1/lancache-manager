@@ -6,6 +6,7 @@ import type {
   PersistentPrefillContainerDto
 } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
+import { ScheduledPrefillContainerSettings } from './ScheduledPrefillContainerSettings';
 import {
   ScheduledPrefillDownloadFields,
   ScheduledPrefillNotificationFields,
@@ -14,8 +15,12 @@ import {
 import { SCHEDULED_PREFILL_PLATFORM_UI } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './types';
+import { PrefillProgressCard } from '@components/features/prefill/PrefillProgressCard';
+import { getPrefillRunProgress } from '@components/features/prefill/hooks/prefillTypes';
 
 interface ScheduledPrefillPlatformSectionProps {
+  cancellingRunIds?: string[];
+  runErrors?: Record<string, string>;
   serviceKey: ScheduledPrefillServiceKey;
   scheduleControls?: ReactNode;
   containerSettings?: (disabled: boolean) => ReactNode;
@@ -37,7 +42,7 @@ interface ScheduledPrefillPlatformSectionProps {
   onStart: () => void;
   onLogin: (reuseIntegration: boolean) => void;
   onDownload: () => void;
-  onCancelDownload: () => void;
+  onCancelDownload: (runId?: string) => void;
 }
 
 export function ScheduledPrefillPlatformSection({
@@ -62,7 +67,9 @@ export function ScheduledPrefillPlatformSection({
   onStart,
   onLogin,
   onDownload,
-  onCancelDownload
+  onCancelDownload,
+  cancellingRunIds,
+  runErrors
 }: ScheduledPrefillPlatformSectionProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
@@ -80,7 +87,6 @@ export function ScheduledPrefillPlatformSection({
       <div className="scheduled-prefill-platform-section__blocks">
         <ScheduledPrefillPersistentCard
           scheduleControls={scheduleControls}
-          containerSettings={containerSettings}
           gameSelectionLoading={gameSelectionLoading}
           onSelectGames={onSelectGames}
           onClearGames={onClearGames}
@@ -101,6 +107,33 @@ export function ScheduledPrefillPlatformSection({
           onDownload={onDownload}
           onCancelDownload={onCancelDownload}
         />
+
+        {containerSettings && (
+          <ScheduledPrefillContainerSettings disabled={fieldsDisabled}>
+            {containerSettings(fieldsDisabled)}
+          </ScheduledPrefillContainerSettings>
+        )}
+
+        {container?.runs && container.runs.length > 0 && (
+          <section className="scheduled-prefill-run-history">
+            <h4 className="scheduled-prefill-platform-block__title">{t('prefill.runs.history')}</h4>
+            <div className="scheduled-prefill-run-history__list">
+              {container.runs.map((run) => (
+                <PrefillProgressCard
+                  key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
+                  run={run}
+                  progress={getPrefillRunProgress(run)}
+                  onCancel={() => onCancelDownload(run.runId)}
+                  isCancelling={
+                    run.cancelRequested || Boolean(cancellingRunIds?.includes(run.runId))
+                  }
+                  error={runErrors?.[run.runId]}
+                  disabled={fieldsDisabled}
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
         <Card
           padding="md"

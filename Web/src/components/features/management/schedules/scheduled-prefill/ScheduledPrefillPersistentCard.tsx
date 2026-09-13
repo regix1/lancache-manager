@@ -1,6 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -20,6 +18,10 @@ import {
 import { usePersistentLoginStoreState } from './persistentLoginStore';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
+import {
+  canStartPrefill,
+  supportsConcurrentPrefill
+} from '@components/features/prefill/hooks/prefillTypes';
 
 // Matches StatusDot's `tone` prop exactly (@components/common/StatusDot) so statusDisplay.tone can be
 // passed straight through.
@@ -34,7 +36,6 @@ interface StatusDisplay {
 export function ScheduledPrefillPersistentCard({
   serviceKey,
   scheduleControls,
-  containerSettings,
   gameSelectionLoading = false,
   onSelectGames,
   onClearGames,
@@ -55,8 +56,6 @@ export function ScheduledPrefillPersistentCard({
   onCancelDownload
 }: ScheduledPrefillPersistentCardProps) {
   const { t } = useTranslation();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsId = useId();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const containersKey = `${baseKey}.persistentContainers`;
   const authExpiresAt = useFormattedDateTime(container?.authExpiresAtUtc);
@@ -191,14 +190,14 @@ export function ScheduledPrefillPersistentCard({
         {t(`${containersKey}.manualLogin`)}
       </Button>
     );
-  } else if (isPrefilling) {
+  } else if (isPrefilling && !supportsConcurrentPrefill(container)) {
     primaryAction = (
       <Button
         type="button"
         variant="filled"
         color="stop"
         size={SCHEDULED_PREFILL_BUTTON_SIZE}
-        onClick={onCancelDownload}
+        onClick={() => onCancelDownload(container?.runId ?? undefined)}
         disabled={disabled || action === 'download' || !container?.runId}
         loading={action === 'cancel'}
       >
@@ -213,7 +212,11 @@ export function ScheduledPrefillPersistentCard({
         color="run"
         size={SCHEDULED_PREFILL_BUTTON_SIZE}
         onClick={onDownload}
-        disabled={selectionDisabled || action === 'cancel'}
+        disabled={
+          selectionDisabled ||
+          action === 'cancel' ||
+          (container !== undefined && !canStartPrefill(container))
+        }
         loading={action === 'download'}
       >
         {t(`${baseKey}.persistentContainer.downloadNow`)}
@@ -293,7 +296,7 @@ export function ScheduledPrefillPersistentCard({
               </Alert>
             )}
 
-            {isPrefilling && container && (
+            {isPrefilling && container && !supportsConcurrentPrefill(container) && (
               <p className="scheduled-prefill-persistent-card__downloading">
                 {container.currentAppName
                   ? t(`${baseKey}.persistentContainer.downloadProgress`, {
@@ -306,7 +309,7 @@ export function ScheduledPrefillPersistentCard({
               </p>
             )}
 
-            {isPrefilling && (
+            {isPrefilling && !supportsConcurrentPrefill(container) && (
               <div
                 className="scheduled-prefill-persistent-card__progress"
                 role="progressbar"
@@ -407,38 +410,18 @@ export function ScheduledPrefillPersistentCard({
                 </Button>
               )}
             </footer>
-          </>
-        )}
-        {containerSettings && (
-          <div className="scheduled-prefill-persistent-card__settings">
-            <Button
-              type="button"
-              variant="transparent"
-              size={SCHEDULED_PREFILL_BUTTON_SIZE}
-              className="scheduled-prefill-persistent-card__settings-toggle"
-              disabled={disabled}
-              aria-expanded={settingsOpen}
-              aria-controls={settingsId}
-              onClick={() => setSettingsOpen((open) => !open)}
-              leftSection={
-                <ChevronDown
-                  size={16}
-                  aria-hidden="true"
-                  className={`transition-transform duration-300 motion-reduce:transition-none ${settingsOpen ? 'rotate-180' : ''}`}
-                />
-              }
-            >
-              {t(`${baseKey}.settings.sharedContainerSettings`)}
-            </Button>
-            <CollapsibleRegion
-              open={settingsOpen}
-              contentClassName="scheduled-prefill-persistent-card__settings-content"
-            >
-              <div id={settingsId} className="flex flex-col gap-4">
-                {containerSettings(disabled)}
+            {supportsConcurrentPrefill(container) && container && (
+              <div className="space-y-1">
+                <p className="text-sm text-themed-muted">
+                  {t('prefill.runs.capacity', {
+                    count: container.activeRunCount ?? 0,
+                    limit: container.maxConcurrentRuns ?? 1
+                  })}
+                </p>
+                <p className="text-xs text-themed-muted">{t('prefill.runs.capacityHelp')}</p>
               </div>
-            </CollapsibleRegion>
-          </div>
+            )}
+          </>
         )}
       </fieldset>
     </Card>

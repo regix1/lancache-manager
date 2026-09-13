@@ -5,6 +5,13 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public class DaemonSessionDto
 {
+    public IReadOnlyList<DaemonRunStatus> Runs { get; set; } = [];
+    /// <summary>The negotiated daemon instance. Null before status negotiation or for legacy daemons.</summary>
+    public string? DaemonInstanceId { get; set; }
+    public IReadOnlyList<string> Features { get; set; } = [];
+    public int MaxConcurrentRuns { get; set; } = 1;
+    public int ActiveRunCount { get; set; }
+    public bool Recovering { get; set; }
     public string Id { get; set; } = string.Empty;
     public Guid UserId { get; set; }
     public string ContainerName { get; set; } = string.Empty;
@@ -122,9 +129,18 @@ public class DaemonSessionDto
 
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
+        var capabilities = session.Capabilities is { SupportsConcurrentPrefill: true } negotiated ? negotiated : null;
         return new DaemonSessionDto
         {
             Id = session.Id,
+            Runs = session.Runs.Values.OrderBy(run => run.Snapshot.StartedAt).ThenBy(run => run.PrefillRunId)
+                .Select(FromRun).ToArray(),
+            DaemonInstanceId = session.Capabilities?.DaemonInstanceId,
+            Features = capabilities?.Features?.ToArray() ?? [],
+            MaxConcurrentRuns = capabilities?.MaxConcurrentRuns ?? 1,
+            ActiveRunCount = session.Runs.IsEmpty ? (session.IsPrefilling ? 1 : 0)
+                : session.Runs.Values.Count(run => run.TerminalCompletedFlag != 2),
+            Recovering = session.Recovering,
             UserId = session.UserId,
             ContainerName = session.ContainerName,
             Status = session.Status.ToString(),
@@ -153,4 +169,22 @@ public class DaemonSessionDto
             LastPrefillStatus = session.LastPrefillStatus
         };
     }
+
+    public static DaemonRunStatus FromRun(DaemonRun run) => new()
+    {
+        RunId = run.PrefillRunId,
+        SessionId = run.SessionId,
+        DaemonInstanceId = run.DaemonInstanceId,
+        ScheduleId = run.PrefillScheduleId,
+        ScheduleName = run.ScheduleName,
+        Options = run.Options,
+        NotificationMode = run.NotificationMode,
+        ParentOperationId = run.ParentOperationId,
+        Snapshot = run.Snapshot,
+        Progress = run.LastProgress,
+        Recovering = run.Recovering,
+        CancelRequested = run.CancelRequested,
+        HistoryIncomplete = run.HistoryIncomplete,
+        CompletedAtUtc = run.CompletedAtUtc
+    };
 }

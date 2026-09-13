@@ -12,6 +12,11 @@ import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import { resolveCachedAppIds } from '@components/features/prefill/cachedApps';
+import {
+  canStartPrefill,
+  isPrefillRunActive,
+  mergePrefillRuns
+} from '@components/features/prefill/hooks/prefillTypes';
 import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import {
@@ -300,6 +305,9 @@ export function ScheduledPrefillConfigModal({
   const [persistentError, setPersistentError] = useState<string | null>(null);
   const [persistentAction, setPersistentAction] =
     useState<ScheduledPrefillPersistentActionState | null>(null);
+  const [cancellingRunIds, setCancellingRunIds] = useState<string[]>([]);
+  const cancellingRunsRef = useRef(new Set<string>());
+  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [persistentValidityDays, setPersistentValidityDays] = useState(
     DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
   );
@@ -406,7 +414,14 @@ export function ScheduledPrefillConfigModal({
           const nextContainers = await ApiService.getPersistentPrefillContainers(controller.signal);
           if (controller.signal.aborted || persistentContainersRequestRef.current !== request)
             return;
-          setPersistentContainers(nextContainers);
+          setPersistentContainers((current) =>
+            nextContainers.map((container) => {
+              const previous = current?.find((item) => item.sessionId === container.sessionId);
+              return previous?.runs && container.runs
+                ? { ...container, runs: mergePrefillRuns(previous.runs, container.runs) }
+                : container;
+            })
+          );
           setPersistentError(null);
         } while (request.again && !controller.signal.aborted);
       } catch (error: unknown) {
@@ -1985,7 +2000,7 @@ export function ScheduledPrefillConfigModal({
       setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresAuth`));
       return;
     }
-    if (container.isPrefilling || !schedule) {
+    if (!canStartPrefill(container) || !schedule || !schedule.enabled) {
       return;
     }
 
@@ -2015,24 +2030,49 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
-  const handleCancelPersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
+  const handleCancelPersistentDownload = async (
+    serviceKey: ScheduledPrefillServiceKey,
+    runId?: string
+  ) => {
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
-    if (!container?.isRunning || !container.isPrefilling || !container.runId) {
+    const targetId = runId ?? container?.runId;
+    const run = container?.runs?.find((item) => item.runId === targetId);
+    if (
+      !container?.isRunning ||
+      !targetId ||
+      cancellingRunsRef.current.has(targetId) ||
+      (run && (!isPrefillRunActive(run) || run.cancelRequested))
+    ) {
       return;
     }
-    setPersistentAction({ serviceKey, action: 'cancel' });
-    setPersistentError(null);
+    cancellingRunsRef.current.add(targetId);
+    setCancellingRunIds([...cancellingRunsRef.current]);
+    setRunErrors((errors) => ({ ...errors, [targetId]: '' }));
 
     try {
       // Addressed to the run this card is showing, so a click that lands after a replacement run
       // started cannot cancel the newer one.
-      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, container.runId);
-      void loadPersistentContainers();
+      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, targetId);
+      setPersistentContainers(
+        (current) =>
+          current?.map((item) =>
+            item.sessionId === container.sessionId
+              ? {
+                  ...item,
+                  runs: item.runs?.map((itemRun) =>
+                    itemRun.runId === targetId ? { ...itemRun, cancelRequested: true } : itemRun
+                  )
+                }
+              : item
+          ) ?? current
+      );
+      await loadPersistentContainers();
     } catch (error: unknown) {
-      setPersistentError(getErrorMessage(error));
+      setRunErrors((errors) => ({ ...errors, [targetId]: getErrorMessage(error) }));
     } finally {
-      setPersistentAction(null);
+      cancellingRunsRef.current.delete(targetId);
+      setCancellingRunIds([...cancellingRunsRef.current]);
     }
   };
 
@@ -2316,9 +2356,6 @@ export function ScheduledPrefillConfigModal({
                       <ScheduledPrefillPlatformsPanel
                         containerSettings={(containerDisabled) => (
                           <>
-                            <p className="scheduled-prefill-config-modal__global-help">
-                              {t(`${baseKey}.settings.description`)}
-                            </p>
                             <div className="scheduled-prefill-config-modal__settings-list">
                               <div className="scheduled-prefill-config-modal__setting-row">
                                 <div className="scheduled-prefill-config-modal__setting-copy">
@@ -2464,9 +2501,11 @@ export function ScheduledPrefillConfigModal({
                         onDownload={(serviceKey, scheduleId) =>
                           void handlePersistentDownload(serviceKey, scheduleId)
                         }
-                        onCancelDownload={(serviceKey) =>
-                          void handleCancelPersistentDownload(serviceKey)
+                        onCancelDownload={(serviceKey, runId) =>
+                          void handleCancelPersistentDownload(serviceKey, runId)
                         }
+                        cancellingRunIds={cancellingRunIds}
+                        runErrors={runErrors}
                       />
                     ) : (
                       <div className="scheduled-prefill-config-modal__empty">

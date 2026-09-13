@@ -4,7 +4,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -278,6 +277,9 @@ public class ScheduledPrefillServiceTests
 
         var ranAt = DateTime.UtcNow;
         stateService.SetScheduledPrefillServiceLastActualRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"), ranAt);
+        stateService.SetScheduledPrefillServiceLastActualRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"), ranAt.AddHours(-2));
+        Assert.Equal(ranAt, stateService.GetScheduledPrefillServiceLastActualRun(
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")));
 
         // Durable across restart: persist to disk, drop the in-memory cache, and reload.
         stateService.SaveState(stateService.GetState());
@@ -700,6 +702,74 @@ public class ScheduledPrefillServiceTests
     }
 
     [Fact]
+    public async Task DueTick_PreservesDetachedClaimAsync()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+        using var service = harness.Service;
+        var scheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot);
+        harness.Notifications.HoldStarted = scheduleId;
+        Assert.NotNull(service.TriggerServiceRun(PrefillPlatform.Riot, scheduleId));
+        await harness.Notifications.StartedHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        harness.Notifications.HoldStarted = null;
+        try
+        {
+            await InvokeExecuteWorkAsync(service).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal("signalr.scheduledPrefill.skippedOverlap", harness.Notifications.Terminals[scheduleId].StageKey);
+            Assert.Contains("Scheduled Prefill - BattleNet - Default", harness.Tracker.RegisteredNames);
+            Assert.Null(service.TriggerServiceRun(PrefillPlatform.Riot, scheduleId));
+            Assert.Equal(1, harness.Tracker.ActiveCount);
+        }
+        finally
+        {
+            harness.Notifications.ReleaseStarted.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+        Assert.Equal(0, harness.Tracker.ActiveCount);
+    }
+
+    [Theory]
+    [InlineData(1, false, false)]
+    [InlineData(2, false, false)]
+    [InlineData(3, false, false)]
+    [InlineData(null, true, false)]
+    [InlineData(null, false, true)]
+    public async Task FailedRun_ReleasesRegisteredAttemptsAsync(
+        int? failRegistration, bool failStarted, bool failCompleted)
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+        using var service = harness.Service;
+        harness.Tracker.FailRegistration = failRegistration;
+        harness.Notifications.FailNextStarted = failStarted;
+        harness.Notifications.FailCompleted = failCompleted;
+        Assert.NotNull(await Record.ExceptionAsync(() => InvokeExecuteWorkAsync(service)));
+        Assert.Equal(0, harness.Tracker.ActiveCount);
+        Assert.Equal(harness.Tracker.RegisteredNames.Length, harness.Tracker.CompletedCount);
+        harness.Tracker.FailRegistration = null;
+        harness.Notifications.FailCompleted = false;
+        Assert.NotNull(service.TriggerServiceRun(PrefillPlatform.Riot,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
+        await service.StopAsync(CancellationToken.None);
+        Assert.Equal(0, harness.Tracker.ActiveCount);
+    }
+
+    [Fact]
+    public async Task RegistrationFailure_ReleasesPlatformAsync()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+        using var service = harness.Service;
+        var scheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot);
+        harness.Tracker.FailRegistration = 1;
+        Assert.Throws<IOException>(() => service.TriggerServiceRun(PrefillPlatform.Riot, scheduleId));
+        harness.Tracker.FailRegistration = null;
+        Assert.NotNull(service.TriggerServiceRun(PrefillPlatform.Riot, scheduleId));
+        await service.StopAsync(CancellationToken.None);
+        Assert.Equal(0, harness.Tracker.ActiveCount);
+    }
+
+    [Fact]
     public async Task TriggerServiceRun_StartsWhileAnotherPlatformIsAlreadyRunning()
     {
         var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
@@ -721,11 +791,12 @@ public class ScheduledPrefillServiceTests
     }
 
     [Fact]
-    public async Task ExecuteWorkAsync_RunsNamedRecordsForOnePlatformSequentially()
+    public async Task ExecuteWork_SkipsOverlapBeforeCompletionAsync()
     {
         var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
         using var provider = harness.Provider;
         var config = BuildConfig(steamEnabled: false, steamIntervalHours: 24d);
+        config.BattleNet.Schedules.Clear();
         var firstId = Guid.Parse("88888888-8888-8888-8888-888888888881");
         var secondId = Guid.Parse("88888888-8888-8888-8888-888888888882");
         config.Riot.Schedules.Clear();
@@ -758,16 +829,31 @@ public class ScheduledPrefillServiceTests
             }
         ]);
         ((PrefillConfigStateServiceProxy)harness.StateService).Config = config;
-
-        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Notifications.HoldStarted = firstId;
+        var run = InvokeExecuteWorkAsync(harness.Service);
+        await harness.Notifications.StartedHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            Assert.Equal(secondId, await harness.Notifications.NextCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal("skipped", harness.Notifications.Terminals[secondId].Status);
+            Assert.Equal("signalr.scheduledPrefill.skippedOverlap", harness.Notifications.Terminals[secondId].StageKey);
+            Assert.Contains("was not queued", harness.Notifications.Terminals[secondId].Error, StringComparison.Ordinal);
+            Assert.Equal("Weekly selected", harness.Notifications.Terminals[secondId].Name);
+            Assert.Null(harness.Service.TriggerServiceRun(PrefillPlatform.Riot, secondId));
+        }
+        finally
+        {
+            harness.Notifications.ReleaseStarted.TrySetResult();
+            await run.WaitAsync(TimeSpan.FromSeconds(5));
+        }
         harness.Service.Dispose();
 
         Assert.Equal(
         [
             (SignalREvents.ScheduledPrefillStarted, firstId),
-            (SignalREvents.ScheduledPrefillCompleted, firstId),
             (SignalREvents.ScheduledPrefillStarted, secondId),
-            (SignalREvents.ScheduledPrefillCompleted, secondId)
+            (SignalREvents.ScheduledPrefillCompleted, secondId),
+            (SignalREvents.ScheduledPrefillCompleted, firstId)
         ],
             harness.Notifications.Lifecycle);
     }
@@ -843,7 +929,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.Steam,
                 scheduleId,
-                "Default")
+                "Default", true)
         });
 
         var replacement = ScheduledPrefillConfigFactory.CreateDefault();
@@ -867,7 +953,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.Xbox,
                 scheduleId,
-                "Weekly Linux")
+                "Weekly Linux", false)
         });
 
         var status = Assert.IsType<ScheduledPrefillRunStatusDto>(
@@ -877,6 +963,7 @@ public class ScheduledPrefillServiceTests
         Assert.True(status.IsRunning);
         Assert.Equal(scheduleId, service.ScheduleId);
         Assert.Equal("Weekly Linux", service.Name);
+        Assert.False(service.ShowNotification);
         Assert.Equal(operationId.ToString(), service.OperationId);
     }
 
@@ -897,7 +984,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.BattleNet,
                 ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
-                "Default")
+                "Default", true)
         });
 
         var schedule = Assert.IsType<ScheduledPrefillServiceScheduleDto[]>(
@@ -954,7 +1041,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.BattleNet,
                 ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
-                "Default")
+                "Default", true)
         });
 
         Assert.IsType<ConflictObjectResult>(controller.RunService(
@@ -1031,7 +1118,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Steam,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
-            "Default");
+            "Default", true);
         // What the card held the moment the service threw.
         state.Record("running", "Prefill in progress", "signalr.scheduledPrefill.running", 42d);
 
@@ -1052,7 +1139,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Steam,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
-            "Default");
+            "Default", true);
 
         var terminal = await CompleteServiceRunForTestAsync(
             state, ScheduledPrefillServiceRunResult.Failed, failureMessage: "The socket connection was aborted");
@@ -1068,7 +1155,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Steam,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
-            "Default");
+            "Default", true);
         state.Record("failed", "Prefill stalled (no progress)", "signalr.scheduledPrefill.failedStalled", 99d);
 
         var terminal = await CompleteServiceRunForTestAsync(
@@ -1084,7 +1171,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Xbox,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Xbox),
-            "Default");
+            "Default", true);
         state.Record("skipped", "No running persistent container for Xbox", "signalr.scheduledPrefill.skippedNoContainer", 99d);
 
         var terminal = await CompleteServiceRunForTestAsync(
@@ -1221,6 +1308,13 @@ public class ScheduledPrefillServiceTests
         /// <summary>Makes the next run-level ScheduledPrefillStarted throw, then clears itself.</summary>
         public bool FailNextStarted { get; set; }
 
+        public Guid? HoldStarted { get; set; }
+        public TaskCompletionSource StartedHeld { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<Guid> NextCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Dictionary<Guid, (string? Status, string? StageKey, string? Error, string? Name)> Terminals { get; } = [];
+        public bool FailCompleted { get; set; }
+
         public List<(string EventName, Guid ScheduleId)> Lifecycle { get; } = [];
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
@@ -1234,8 +1328,27 @@ public class ScheduledPrefillServiceTests
                 lock (_sync)
                 {
                     Lifecycle.Add((lifecycleEvent, scheduleId));
+                    if (lifecycleEvent == SignalREvents.ScheduledPrefillCompleted)
+                    {
+                        var message = args[1]!;
+                        var type = message.GetType();
+                        Terminals[scheduleId] = (
+                            type.GetProperty("status")?.GetValue(message) as string,
+                            type.GetProperty("stageKey")?.GetValue(message) as string,
+                            type.GetProperty("error")?.GetValue(message) as string,
+                            type.GetProperty("name")?.GetValue(message) as string);
+                        NextCompleted.TrySetResult(scheduleId);
+                    }
+                }
+                if (lifecycleEvent == SignalREvents.ScheduledPrefillStarted && scheduleId == HoldStarted)
+                {
+                    StartedHeld.TrySetResult();
+                    return ReleaseStarted.Task;
                 }
             }
+
+            if (FailCompleted && args?[0] as string == SignalREvents.ScheduledPrefillCompleted)
+                throw new IOException("completion unavailable");
 
             if (FailNextStarted
                 && targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
@@ -1263,8 +1376,13 @@ public class ScheduledPrefillServiceTests
     {
         private readonly object _sync = new();
         private readonly List<string> _registeredNames = [];
+        private readonly HashSet<Guid> _completed = [];
+        private readonly Dictionary<Guid, CancellationTokenSource> _tokens = [];
+        public int? FailRegistration { get; set; }
+        public int CompletedCount { get { lock (_sync) return _completed.Count; } }
+        public int ActiveCount { get { lock (_sync) return _tokens.Count; } }
 
-        public IReadOnlyList<string> RegisteredNames
+        public string[] RegisteredNames
         {
             get { lock (_sync) return _registeredNames.ToArray(); }
         }
@@ -1276,10 +1394,22 @@ public class ScheduledPrefillServiceTests
             {
                 lock (_sync)
                 {
+                    if (_registeredNames.Count + 1 == FailRegistration)
+                        throw new IOException("registration unavailable");
                     _registeredNames.Add(name);
+                    var id = Guid.NewGuid();
+                    _tokens.Add(id, (CancellationTokenSource)args[2]!);
+                    return id;
                 }
+            }
 
-                return Guid.NewGuid();
+            if (targetMethod?.Name == nameof(IUnifiedOperationTracker.CompleteOperation) && args?[0] is Guid completed)
+            {
+                lock (_sync)
+                {
+                    Assert.True(_completed.Add(completed));
+                    if (_tokens.Remove(completed, out var token)) token.Dispose();
+                }
             }
 
             return targetMethod?.ReturnType == typeof(Guid) ? Guid.NewGuid() : null;

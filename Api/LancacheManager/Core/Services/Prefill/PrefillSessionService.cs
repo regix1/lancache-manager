@@ -3,6 +3,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace LancacheManager.Core.Services;
 
@@ -48,6 +49,16 @@ public class PrefillSessionService
     /// </summary>
     public static bool IsTerminatableByAdmin(DaemonSession session) =>
         !session.IsPersistent && !IsPersistentContainerName(session.ContainerName);
+
+    internal static bool IsTerminatableByAdmin(PrefillSession session) =>
+        !session.IsPersistent && !IsPersistentContainerName(session.ContainerName);
+
+    internal async Task<UserSession?> GetGuestSessionAsync(Guid userId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.UserSessions.AsNoTracking()
+            .FirstOrDefaultAsync(session => session.Id == userId && session.SessionType == SessionType.Guest);
+    }
 
     #region Ban Management
 
@@ -612,12 +623,171 @@ public class PrefillSessionService
             session.Status = PrefillSessionStatus.Cleaned;
             session.TerminationReason = "Orphaned container terminated on startup";
             await context.SaveChangesAsync();
+            await InterruptRunsAsync(session.SessionId, "instance-changed", CancellationToken.None);
         }
     }
 
     #endregion
 
     #region Prefill History
+
+    internal async Task CreateRunAsync(DaemonRun run, string source, CancellationToken cancellationToken)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        context.PrefillRuns.Add(new PrefillRun
+        {
+            Id = run.PrefillRunId,
+            SessionId = run.SessionId,
+            DaemonInstanceId = run.DaemonInstanceId,
+            Source = source,
+            ScheduleId = run.PrefillScheduleId,
+            ScheduleName = run.ScheduleName,
+            NotificationMode = run.NotificationMode,
+            ParentOperationId = run.ParentOperationId,
+            OptionsJson = JsonSerializer.Serialize(run.Options),
+            SnapshotJson = JsonSerializer.Serialize(run.Snapshot),
+            StartedAtUtc = run.Snapshot.StartedAt.UtcDateTime,
+            State = run.Snapshot.State
+        });
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    internal async Task InterruptRunsAsync(string sessionId, string reason, CancellationToken cancellationToken)
+    {
+        var saved = await GetRunsAsync(sessionId, cancellationToken);
+        foreach (var row in saved.Where(row => row.CompletedAtUtc is null))
+        {
+            var snapshot = JsonSerializer.Deserialize<DaemonRunSnapshot>(row.SnapshotJson)
+                ?? throw new JsonException("Persisted run snapshot is null.");
+            var run = new DaemonRun
+            {
+                PrefillRunId = row.Id,
+                SessionId = sessionId,
+                DaemonInstanceId = row.DaemonInstanceId,
+                Snapshot = snapshot,
+                HistoryIncomplete = true,
+                Options = JsonSerializer.Deserialize<DaemonRunOptions>(row.OptionsJson)
+                    ?? throw new JsonException("Persisted run options are null.")
+            };
+            await SaveRunAsync(run, snapshot with
+            {
+                State = "failed",
+                Reason = reason,
+                Sequence = snapshot.Sequence + 1,
+                UpdatedAt = DateTimeOffset.UtcNow
+            }, [], true, cancellationToken);
+        }
+    }
+
+    internal async Task<List<PrefillRun>> GetRunsAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var cutoff = DateTime.UtcNow.AddHours(-24);
+        var active = await context.PrefillRuns.AsNoTracking().Where(r => r.SessionId == sessionId && r.CompletedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        var recent = await context.PrefillRuns.AsNoTracking().Where(r => r.SessionId == sessionId && r.CompletedAtUtc > cutoff)
+            .OrderByDescending(r => r.CompletedAtUtc).Take(256).ToListAsync(cancellationToken);
+        return [.. active, .. recent];
+    }
+
+    internal async Task SetRunCancellationAsync(Guid runId, CancellationToken cancellationToken, string? reason = null)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var saved = await context.PrefillRuns.SingleOrDefaultAsync(r => r.Id == runId && r.CompletedAtUtc == null,
+            cancellationToken);
+        if (saved is null) return;
+        saved.CancelRequested = true;
+        saved.Reason = reason ?? saved.Reason;
+        saved.Revision++;
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    internal async Task<(bool Applied, List<DaemonRunItem> Items)> SaveRunAsync(
+        DaemonRun run, DaemonRunSnapshot snapshot, IReadOnlyList<DaemonRunItem> items,
+        bool terminal, CancellationToken cancellationToken)
+    {
+        await using var executionContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var execution = executionContext.Database.CreateExecutionStrategy();
+        return await execution.ExecuteAsync<(bool Applied, List<DaemonRunItem> Items)>(async attemptToken =>
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync(attemptToken);
+            await using var transaction = await context.Database.BeginTransactionAsync(attemptToken);
+            var saved = await context.PrefillRuns.SingleAsync(r => r.Id == run.PrefillRunId, attemptToken);
+            if (saved.CompletedAtUtc.HasValue || saved.DaemonInstanceId != snapshot.DaemonInstanceId
+                || snapshot.Sequence < saved.Sequence)
+                return (false, []);
+
+            var changed = new List<DaemonRunItem>();
+            var history = await context.PrefillHistoryEntries.Where(e => e.RunId == run.PrefillRunId)
+                .ToDictionaryAsync(e => e.AppId, StringComparer.Ordinal, attemptToken);
+            foreach (var item in items)
+            {
+                var completed = false;
+                if (history.TryGetValue(item.AppId, out var entry))
+                {
+                    if (entry.Sequence >= item.Sequence)
+                        continue;
+                    completed = entry.CompletedAtUtc.HasValue;
+                }
+                else
+                {
+                    entry = new PrefillHistoryEntry
+                    {
+                        RunId = run.PrefillRunId,
+                        SessionId = run.SessionId,
+                        AppId = item.AppId,
+                        StartedAtUtc = run.Snapshot.StartedAt.UtcDateTime
+                    };
+                    context.PrefillHistoryEntries.Add(entry);
+                    history.Add(item.AppId, entry);
+                }
+                entry.Sequence = item.Sequence;
+                entry.AppName = item.Name is { Length: > 200 } ? item.Name[..200] : item.Name;
+                entry.BytesDownloaded = Math.Max(entry.BytesDownloaded, item.BytesTransferred);
+                entry.TotalBytes = Math.Max(entry.TotalBytes, item.TotalBytes ?? 0);
+                entry.Reason = item.Reason is { Length: > 500 } ? item.Reason[..500] : item.Reason;
+                if (!completed) entry.Status = (item.Result ?? item.State) switch
+                {
+                    "success" or "completed" => PrefillHistoryEntryStatus.Completed,
+                    "already_cached" => PrefillHistoryEntryStatus.Cached,
+                    "failed" => PrefillHistoryEntryStatus.Failed,
+                    "cancelled" => PrefillHistoryEntryStatus.Cancelled,
+                    "skipped" => PrefillHistoryEntryStatus.Skipped,
+                    _ => PrefillHistoryEntryStatus.InProgress
+                };
+                if (!completed && entry.Status != PrefillHistoryEntryStatus.InProgress)
+                    entry.CompletedAtUtc = snapshot.UpdatedAt.UtcDateTime;
+                if (!completed) changed.Add(item);
+            }
+            if (terminal)
+            {
+                foreach (var entry in history.Values.Where(e => e.Status == PrefillHistoryEntryStatus.InProgress))
+                {
+                    entry.Status = snapshot.State == "cancelled" ? PrefillHistoryEntryStatus.Cancelled : PrefillHistoryEntryStatus.Failed;
+                    entry.CompletedAtUtc = snapshot.UpdatedAt.UtcDateTime;
+                    entry.Reason = snapshot.Reason ?? "outcome-unknown";
+                }
+                saved.CompletedAtUtc = snapshot.UpdatedAt.UtcDateTime;
+            }
+            saved.Revision++;
+            saved.Sequence = snapshot.Sequence;
+            saved.State = snapshot.State;
+            saved.Reason = snapshot.Reason is { Length: > 500 } ? snapshot.Reason[..500] : snapshot.Reason ?? run.CancelReason;
+            saved.SnapshotJson = JsonSerializer.Serialize(snapshot);
+            saved.HistoryIncomplete = run.HistoryIncomplete;
+            try
+            {
+                await context.SaveChangesAsync(attemptToken);
+                await transaction.CommitAsync(attemptToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Another owner persisted this run first; its committed outcome is authoritative.
+                return (false, []);
+            }
+            return (true, changed);
+        }, cancellationToken);
+    }
 
     /// <summary>
     /// Records the start of a game prefill.
@@ -633,7 +803,7 @@ public class PrefillSessionService
         // Check if this app was just completed or cached (within last 5 seconds) - don't create duplicate
         var recentCutoff = DateTime.UtcNow.AddSeconds(-5);
         var recentlyFinished = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId)
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.RunId == null)
             .Where(e => (e.Status == PrefillHistoryEntryStatus.Completed || e.Status == PrefillHistoryEntryStatus.Cached) && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
             .AnyAsync();
 
@@ -646,7 +816,7 @@ public class PrefillSessionService
         // Clean up any stale "InProgress" entries for this app in this session
         // This prevents duplicate entries when prefill is restarted or interrupted
         var staleEntries = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == PrefillHistoryEntryStatus.InProgress)
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.RunId == null && e.Status == PrefillHistoryEntryStatus.InProgress)
             .ToListAsync();
 
         if (staleEntries.Count > 0)
@@ -696,7 +866,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var entry = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == PrefillHistoryEntryStatus.InProgress)
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.RunId == null && e.Status == PrefillHistoryEntryStatus.InProgress)
             .OrderByDescending(e => e.StartedAtUtc)
             .FirstOrDefaultAsync();
 
@@ -746,7 +916,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var entries = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.Status == PrefillHistoryEntryStatus.InProgress)
+            .Where(e => e.SessionId == sessionId && e.RunId == null && e.Status == PrefillHistoryEntryStatus.InProgress)
             .ToListAsync();
 
         foreach (var entry in entries)

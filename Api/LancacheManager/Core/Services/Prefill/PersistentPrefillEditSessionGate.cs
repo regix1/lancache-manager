@@ -87,11 +87,11 @@ internal sealed class PersistentPrefillEditActionLease
     public Task<PersistentPrefillEditActionRecord> Completion =>
         _state?.Completion.Task ?? _rejectedCompletion;
 
-    public void ConfirmEffect(PersistentPrefillEditResourceKind kind)
+    public void ConfirmEffect(PersistentPrefillEditResourceKind kind, Guid? runId = null)
     {
         if (_gate is not null && _state is not null)
         {
-            _gate.ConfirmEditActionEffect(_state, kind);
+            _gate.ConfirmEditActionEffect(_state, kind, runId);
         }
     }
 
@@ -156,7 +156,7 @@ internal sealed class PersistentPrefillEditSessionGate
     private readonly Dictionary<string, EditSessionState> _editSessions = new(StringComparer.Ordinal);
     private readonly List<StartState> _starts = [];
     private readonly Dictionary<
-        (PersistentPrefillEditResourceKind Kind, string SessionId),
+        (PersistentPrefillEditResourceKind Kind, string SessionId, Guid? RunId),
         PersistentPrefillEditResourceOwnership> _resourceOwners = [];
     private long _sequence;
     private long _resourceRevision;
@@ -281,7 +281,7 @@ internal sealed class PersistentPrefillEditSessionGate
 
     internal void ConfirmEditActionEffect(
         PersistentPrefillEditActionState action,
-        PersistentPrefillEditResourceKind kind)
+        PersistentPrefillEditResourceKind kind, Guid? runId = null)
     {
         lock (_sync)
         {
@@ -292,13 +292,13 @@ internal sealed class PersistentPrefillEditSessionGate
             }
 
             action.ConfirmedEffects.Add(kind);
-            _resourceOwners[(kind, action.SessionId)] =
+            _resourceOwners[(kind, action.SessionId, runId)] =
                 new PersistentPrefillEditResourceOwnership(
                     kind,
                     action.SessionId,
                     action.EditSessionId,
                     action.EditActionId,
-                    ++_resourceRevision);
+                    ++_resourceRevision, runId);
         }
     }
 
@@ -349,7 +349,7 @@ internal sealed class PersistentPrefillEditSessionGate
     {
         lock (_sync)
         {
-            var key = (ownership.Kind, ownership.SessionId);
+            var key = (ownership.Kind, ownership.SessionId, ownership.RunId);
             if (!_resourceOwners.TryGetValue(key, out var current)
                 || current.Revision != ownership.Revision
                 || !string.Equals(

@@ -17,7 +17,16 @@ import {
   COMPLETION_NOTIFICATION_WINDOW_MS,
   CANCEL_WATCHDOG_MS
 } from './prefillConstants';
-import type { PrefillProgress, BackgroundCompletion } from './prefillTypes';
+import {
+  applyPrefillRunProgress,
+  canStartPrefill,
+  isPrefillRunActive,
+  mergePrefillRuns,
+  supportsConcurrentPrefill,
+  type PrefillRun,
+  type PrefillProgress,
+  type BackgroundCompletion
+} from './prefillTypes';
 
 interface UsePrefillSignalROptions {
   onSessionEnd?: () => void;
@@ -34,6 +43,10 @@ interface UsePrefillSignalROptions {
 }
 
 interface UsePrefillSignalRReturn {
+  runs: PrefillRun[];
+  runErrors: Record<string, string>;
+  canStart: boolean;
+  refreshRuns: () => Promise<void>;
   // Connection
   hubConnection: React.RefObject<HubConnection | null>;
   isConnecting: boolean;
@@ -67,7 +80,7 @@ interface UsePrefillSignalRReturn {
   expectedAppCountRef: React.RefObject<number>;
 
   // Cancel orchestration
-  cancelPrefill: () => Promise<void>;
+  cancelPrefill: (runId?: string) => Promise<void>;
   isCancellingState: boolean;
 }
 
@@ -121,6 +134,35 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
   // State
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
+  const [runs, setRuns] = useState<PrefillRun[]>([]);
+  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
+  const runsRef = useRef<PrefillRun[]>([]);
+  const runsRequestRef = useRef<Promise<void> | null>(null);
+  const runsAgainRef = useRef(false);
+  const cancelRunsRef = useRef(new Set<string>());
+  const pendingProgressRef = useRef(new Map<string, PrefillProgress>());
+  const updateRuns = useCallback((incoming: PrefillRun[]) => {
+    const currentSessionId = sessionRef.current?.id;
+    runsRef.current = mergePrefillRuns(
+      runsRef.current.filter((run) => run.sessionId === currentSessionId),
+      incoming.filter((run) => run.sessionId === currentSessionId)
+    );
+    for (const progress of pendingProgressRef.current.values()) {
+      runsRef.current = applyPrefillRunProgress(runsRef.current, progress);
+      if (runsRef.current.some((run) => run.runId === progress.operationId))
+        pendingProgressRef.current.delete(progress.operationId!);
+    }
+    setRuns(runsRef.current);
+  }, []);
+  useEffect(() => {
+    runsRef.current = runsRef.current.filter((run) => run.sessionId === session?.id);
+    setRuns(runsRef.current);
+    setRunErrors({});
+    cancelRunsRef.current.clear();
+  }, [session?.id]);
+  useEffect(() => {
+    if (session?.runs) updateRuns(session.runs);
+  }, [session, updateRuns]);
   const [isConnecting, setIsConnecting] = useState(false);
   // Reactive "the hub socket is up" flag, driven by the connection lifecycle below. Consumers
   // depend on it to re-run one-shot reads (e.g. the size estimate) once the socket returns.
@@ -219,6 +261,39 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   // visibilitychange to bind the real bar without waiting for the next broadcast tick.
   const rehydratePrefillProgress = useCallback(
     async (connection: HubConnection, sessionId: string): Promise<void> => {
+      if (supportsConcurrentPrefill(sessionRef.current) || runsRef.current.length > 0) {
+        if (runsRequestRef.current) {
+          runsAgainRef.current = true;
+          return runsRequestRef.current;
+        }
+        const request = (async () => {
+          try {
+            do {
+              runsAgainRef.current = false;
+              const currentRuns = await connection.invoke<PrefillRun[]>(
+                'GetPrefillRuns',
+                sessionId
+              );
+              if (sessionRef.current?.id !== sessionId) return;
+              updateRuns(currentRuns);
+              setError(null);
+            } while (runsAgainRef.current);
+          } catch (error: unknown) {
+            if (sessionRef.current?.id !== sessionId) return;
+            updateRuns(
+              runsRef.current.map((run) =>
+                isPrefillRunActive(run) ? { ...run, recovering: true } : run
+              )
+            );
+            setError(t('prefill.progress.reconnectingMessage'));
+            console.warn('Prefill run refresh:', getErrorMessage(error));
+          } finally {
+            runsRequestRef.current = null;
+          }
+        })();
+        runsRequestRef.current = request;
+        return request;
+      }
       try {
         const snapshot = (await connection.invoke('GetCurrentPrefillProgress', sessionId)) as
           | (PrefillProgress & { totalApps?: number })
@@ -252,49 +327,105 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Non-critical: the next live PrefillProgress tick will still bind the bar.
       }
     },
-    [expectedAppCountRef]
+    [expectedAppCountRef, updateRuns, t]
+  );
+
+  const refreshRuns = useCallback(async () => {
+    const connection = hubConnection.current;
+    const currentSession = sessionRef.current;
+    if (connection && currentSession) await rehydratePrefillProgress(connection, currentSession.id);
+  }, [rehydratePrefillProgress]);
+
+  const applyRunProgress = useCallback(
+    (progress: PrefillProgress) => {
+      const existing = runsRef.current.find((run) => run.runId === progress.operationId);
+      if (!existing) {
+        const previous = pendingProgressRef.current.get(progress.operationId!);
+        if (!previous || (progress.sequence ?? -1) > (previous.sequence ?? -1))
+          pendingProgressRef.current.set(progress.operationId!, progress);
+        void refreshRuns();
+        return;
+      }
+      runsRef.current = applyPrefillRunProgress(runsRef.current, progress);
+      setRuns(runsRef.current);
+      if (['completed', 'failed', 'cancelled'].includes(progress.state)) void refreshRuns();
+    },
+    [refreshRuns]
   );
 
   // Cancel orchestration: hard-stop the local animation queue (so a cancelled prefill can't keep
   // painting), flip the reactive "Cancelling..." button state, invoke the session-scoped hub
   // cancel, and arm a watchdog that force-clears the bar if no terminal event arrives. Terminal
   // events (handled in usePrefillEventHandlers) clear the watchdog + cancelling state.
-  const cancelPrefill = useCallback(async (): Promise<void> => {
-    const connection = hubConnection.current;
-    const currentSession = sessionRef.current;
-    if (!connection || !currentSession) return;
+  const cancelPrefill = useCallback(
+    async (runId?: string): Promise<void> => {
+      const connection = hubConnection.current;
+      const currentSession = sessionRef.current;
+      if (!connection || !currentSession) return;
 
-    isCancelling.current = true;
-    setIsCancellingState(true);
-    stopAnimations();
-    addLog('info', t('prefill.log.cancellingPrefill'));
+      if (runId) {
+        const run = runsRef.current.find((item) => item.runId === runId);
+        if (
+          !run ||
+          !isPrefillRunActive(run) ||
+          cancelRunsRef.current.has(runId) ||
+          run.cancelRequested
+        )
+          return;
+        cancelRunsRef.current.add(runId);
+        updateRuns([{ ...run, cancelRequested: true }]);
+        setRunErrors((errors) => ({ ...errors, [runId]: '' }));
+        try {
+          await connection.invoke('CancelPrefillRunAsync', currentSession.id, runId);
+          await refreshRuns();
+        } catch (error: unknown) {
+          if (sessionRef.current?.id !== currentSession.id) return;
+          runsRef.current = runsRef.current.map((item) =>
+            item.runId === runId ? { ...item, cancelRequested: false } : item
+          );
+          setRuns(runsRef.current);
+          setRunErrors((errors) => ({ ...errors, [runId]: t('prefill.log.failedCancelPrefill') }));
+          console.warn('Prefill cancellation:', getErrorMessage(error));
+        } finally {
+          cancelRunsRef.current.delete(runId);
+        }
+        return;
+      }
+      if (runsRef.current.some(isPrefillRunActive)) return;
 
-    if (cancelWatchdogRef.current !== null) {
-      clearTimeout(cancelWatchdogRef.current);
-    }
-    cancelWatchdogRef.current = setTimeout(() => {
-      cancelWatchdogRef.current = null;
-      // No terminal event arrived in time - force the bar away so the UI can't get stuck.
+      isCancelling.current = true;
+      setIsCancellingState(true);
       stopAnimations();
-      setPrefillProgress(null);
-      setIsPrefillActive(false);
-      setIsCancellingState(false);
-      isCancelling.current = false;
-      sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-    }, CANCEL_WATCHDOG_MS);
+      addLog('info', t('prefill.log.cancellingPrefill'));
 
-    try {
-      await connection.invoke('CancelPrefillAsync', currentSession.id);
-    } catch {
-      isCancelling.current = false;
-      setIsCancellingState(false);
       if (cancelWatchdogRef.current !== null) {
         clearTimeout(cancelWatchdogRef.current);
-        cancelWatchdogRef.current = null;
       }
-      addLog('error', t('prefill.log.failedCancelPrefill'));
-    }
-  }, [stopAnimations, addLog, t]);
+      cancelWatchdogRef.current = setTimeout(() => {
+        cancelWatchdogRef.current = null;
+        // No terminal event arrived in time - force the bar away so the UI can't get stuck.
+        stopAnimations();
+        setPrefillProgress(null);
+        setIsPrefillActive(false);
+        setIsCancellingState(false);
+        isCancelling.current = false;
+        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
+      }, CANCEL_WATCHDOG_MS);
+
+      try {
+        await connection.invoke('CancelPrefillAsync', currentSession.id);
+      } catch {
+        isCancelling.current = false;
+        setIsCancellingState(false);
+        if (cancelWatchdogRef.current !== null) {
+          clearTimeout(cancelWatchdogRef.current);
+          cancelWatchdogRef.current = null;
+        }
+        addLog('error', t('prefill.log.failedCancelPrefill'));
+      }
+    },
+    [stopAnimations, addLog, t, updateRuns, refreshRuns]
+  );
 
   const connectToHub = useCallback(async (): Promise<HubConnection | null> => {
     // Serialize concurrent connection attempts - only one connection should be created
@@ -335,6 +466,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         // Register all event handlers
         registerPrefillEventHandlers(connection, {
+          applyRunProgress,
           addLog,
           onAuthStateChanged,
           setSession,
@@ -368,7 +500,14 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         // Keep the reactive isConnected flag in step with the socket. These handlers are
         // additive to the ones registerPrefillEventHandlers registers, so both run.
-        connection.onreconnecting(() => setIsConnected(false));
+        connection.onreconnecting(() => {
+          setIsConnected(false);
+          updateRuns(
+            runsRef.current.map((run) =>
+              isPrefillRunActive(run) ? { ...run, recovering: true } : run
+            )
+          );
+        });
         connection.onreconnected(() => setIsConnected(true));
         connection.onclose(() => setIsConnected(false));
 
@@ -406,7 +545,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     currentAnimationAppIdRef,
     isProcessingAnimationRef,
     rehydratePrefillProgress,
-    seedReconnectingProgressFromSession
+    seedReconnectingProgressFromSession,
+    applyRunProgress,
+    updateRuns
   ]);
 
   const initializeSession = useCallback(async () => {
@@ -452,12 +593,20 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         await connection.invoke('SubscribeToSessionAsync', activeSession.id);
 
         setSession(activeSession);
+        sessionRef.current = activeSession;
         setTimeRemaining(activeSession.timeRemainingSeconds);
         setIsLoggedIn(activeSession.authState === 'Authenticated');
 
         // Server truth: a prefill is already running on the daemon. Seed the bar immediately
         // (state 'reconnecting' until the snapshot binds), then fetch the live snapshot. This
         // is what fixes the "already-running prefill shows no bar / no cancel" core bug.
+        if (supportsConcurrentPrefill(activeSession)) {
+          updateRuns(activeSession.runs ?? []);
+          await rehydratePrefillProgress(connection, activeSession.id);
+          setIsPrefillActive(false);
+          setPrefillProgress(null);
+          return;
+        }
         if (activeSession.isPrefilling) {
           setIsPrefillActive(true);
           setPrefillProgress(seedReconnectingProgressFromSession(activeSession));
@@ -577,7 +726,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     serviceNameKey,
     t,
     rehydratePrefillProgress,
-    seedReconnectingProgressFromSession
+    seedReconnectingProgressFromSession,
+    updateRuns
   ]);
 
   const createSession = useCallback(
@@ -707,6 +857,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             await conn.invoke('SubscribeToSessionAsync', sess.id);
             await rehydratePrefillProgress(conn, sess.id);
 
+            if (supportsConcurrentPrefill(sess)) return;
+
             const lastResult = (await conn.invoke('GetLastPrefillResult', sess.id)) as {
               status: string;
               completedAt: string;
@@ -745,6 +897,21 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   }, [rehydratePrefillProgress, isCompletionDismissed, t]);
 
   return {
+    runs,
+    runErrors,
+    canStart:
+      !!session &&
+      isConnected &&
+      canStartPrefill({
+        ...session,
+        runs,
+        isPrefilling: supportsConcurrentPrefill(session)
+          ? runs.some(isPrefillRunActive)
+          : isPrefillActive,
+        activeRunCount:
+          runs.length > 0 ? runs.filter(isPrefillRunActive).length : session.activeRunCount
+      }),
+    refreshRuns,
     // Connection
     hubConnection,
     isConnecting,
@@ -763,7 +930,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     // Progress
     prefillProgress,
     setPrefillProgress,
-    isPrefillActive,
+    isPrefillActive: supportsConcurrentPrefill(session)
+      ? runs.some(isPrefillRunActive)
+      : isPrefillActive,
     setIsPrefillActive,
 
     // Session management

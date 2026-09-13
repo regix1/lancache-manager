@@ -12,6 +12,12 @@ public class PrefillHistoryEntry
     [Key]
     public long Id { get; set; }
 
+    public Guid? RunId { get; set; }
+    public long Sequence { get; set; }
+    [MaxLength(500)]
+    public string? Reason { get; set; }
+    public PrefillRun? Run { get; set; }
+
     /// <summary>
     /// The session ID this entry belongs to (FK to PrefillSession.SessionId; varchar(50) column).
     /// </summary>

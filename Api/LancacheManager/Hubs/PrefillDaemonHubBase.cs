@@ -111,17 +111,26 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
             var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
 
-            // Resolve the session type so guest/temporary containers get the manager-enforced lifetime
-            // cap; only a guest is capped (PrefillDaemonServiceBase.cs:1633, 1815). Re-validate from the
-            // cookie token (mirrors OnConnectedAsync); a session that cannot be resolved is treated as a
-            // guest so the cap is applied conservatively.
             var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
             var userSession = string.IsNullOrEmpty(rawToken) ? null : await _sessionService.ValidateSessionAsync(rawToken);
-            var sessionType = userSession == null ? SessionType.Guest : userSession.SessionType;
+            if (userSession == null || userSession.Id != authSessionId.Value
+                || (!_sessionService.CanManage(userSession) && !(GetPrefillExpiry(userSession) > DateTime.UtcNow)))
+                throw new ForbiddenException("Session access is no longer valid.");
+            var sessionType = userSession.SessionType;
 
             _logger.LogInformation("Creating {Hub} session for auth session {SessionId} (type {SessionType})",
                 HubDisplayName, authSessionId, sessionType);
             var session = await _daemonService.CreateSessionAsync(authSessionId.Value, ipAddress, userAgent, sessionType);
+
+            var current = await _sessionService.GetSessionByIdAsync(authSessionId.Value);
+            if (current == null || current.IsRevoked || current.ExpiresAtUtc <= DateTime.UtcNow
+                || current.SessionType != sessionType
+                || (!_sessionService.CanManage(current) && !(GetPrefillExpiry(current) > DateTime.UtcNow))
+                || !ReferenceEquals(_daemonService.GetSession(session.Id), session))
+            {
+                await _daemonService.TerminateSessionAsync(session.Id, "Session access is no longer valid", force: true);
+                throw new ForbiddenException("Session access is no longer valid.");
+            }
 
             _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
 
@@ -233,6 +242,18 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
 
         _logger.LogInformation("Cancelling prefill for {Hub} session {SessionId}", HubDisplayName, sessionId);
         await _daemonService.CancelPrefillAsync(sessionId);
+    }
+
+    public async Task CancelPrefillRunAsync(string sessionId, Guid runId)
+    {
+        ValidateSessionAccess(sessionId, out _);
+        await _daemonService.CancelPrefillRunAsync(sessionId, runId);
+    }
+
+    public IReadOnlyList<DaemonRunStatus> GetPrefillRuns(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out _, allowPersistentAccountHolder: true);
+        return _daemonService.GetRuns(sessionId);
     }
 
     /// <summary>

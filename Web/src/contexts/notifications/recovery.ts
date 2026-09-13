@@ -25,7 +25,10 @@ import {
   applyPredecessor,
   rememberEvent,
   persistNotification,
-  clearPersistedNotificationIfTargeted
+  clearPersistedNotificationIfTargeted,
+  buildStartedHandler,
+  buildProgressHandler,
+  buildCompleteHandler
 } from './handlers';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
@@ -38,6 +41,7 @@ import type { OperationStatusResponse } from './recoveryStatusResponses';
 export type FetchWithAuth = (url: string) => Promise<Response>;
 
 interface RecoveryPass {
+  connectionGeneration?: number;
   startedAt: Date;
   revision: number;
   starting: readonly UnifiedNotification[];
@@ -51,7 +55,10 @@ function canRecover(
   type: NotificationType,
   _operationId?: string
 ): boolean {
-  return !pass || !pass.changed.has(type);
+  return (
+    !pass ||
+    (pass.connectionGeneration === pass.events.connectionGeneration && !pass.changed.has(type))
+  );
 }
 
 // ============================================================================
@@ -121,12 +128,50 @@ function reconcileRecoveredCard(
   }
   if (isTerminalNotificationStatus(existing.status)) return existing;
 
+  if (existing.type === 'scheduled_prefill') {
+    const previous = existing.details;
+    const incoming = recovered.details;
+    if (
+      previous?.daemonInstanceId &&
+      incoming?.daemonInstanceId &&
+      previous.daemonInstanceId !== incoming.daemonInstanceId
+    )
+      return existing;
+    if (previous?.eventEpoch && (!incoming?.eventEpoch || incoming.eventSequence === undefined))
+      return existing;
+    if (
+      previous?.eventEpoch &&
+      incoming?.eventEpoch === previous.eventEpoch &&
+      previous.eventSequence !== undefined &&
+      incoming.eventSequence! < previous.eventSequence
+    )
+      return existing;
+    if (
+      previous?.eventEpoch &&
+      incoming?.eventEpoch === previous.eventEpoch &&
+      incoming.eventSequence === previous.eventSequence
+    )
+      return previous.connectionRecovering
+        ? { ...existing, details: { ...previous, connectionRecovering: false } }
+        : existing;
+  }
+
   const merged: UnifiedNotification = {
     ...existing,
     controlOnly: recovered.controlOnly,
     status: existing.details?.cancelRequested ? 'cancelling' : recovered.status,
-    details: { ...existing.details, ...mergeableDetails(recovered.details) }
+    details: {
+      ...existing.details,
+      ...mergeableDetails(recovered.details),
+      ...(existing.type === 'scheduled_prefill' ? { connectionRecovering: false } : {})
+    }
   };
+
+  if (
+    existing.type === 'scheduled_prefill' &&
+    (recovered.details?.recovering || recovered.details?.stage === 'cancelling')
+  )
+    return merged;
 
   if (recovered.progress === undefined) {
     return existing.details?.handoffPending && recovered.message.trim()
@@ -490,6 +535,13 @@ function createSimpleRecoveryFunction<TData>(
           let next = prev.filter((n) => n.id !== errorId);
           for (const snapshot of cards) {
             const id = snapshot.details?.operationId;
+            const version = id ? pass?.events.versions?.get(id) : undefined;
+            if (
+              version &&
+              snapshot.details?.eventEpoch &&
+              version.retired.has(snapshot.details.eventEpoch)
+            )
+              continue;
             const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === type);
             if (pass && entry)
               next = applyPredecessor(
@@ -542,6 +594,59 @@ function createSimpleRecoveryFunction<TData>(
               );
             persistNotification(storageKey, card, !!config.recoverCards);
             next = existing ? next.map((n) => (n === existing ? card : n)) : [...next, card];
+            if (
+              type === 'scheduled_prefill' &&
+              id &&
+              pass &&
+              entry &&
+              !isTerminalNotificationStatus(card.status)
+            ) {
+              const epoch = card.details?.eventEpoch;
+              const sequence = card.details?.eventSequence;
+              if (epoch && sequence !== undefined) {
+                pass.events.versions ??= new Map();
+                const known = pass.events.versions.get(id);
+                const retired = new Set(known?.retired);
+                if (known && known.epoch !== epoch) retired.add(known.epoch);
+                pass.events.versions.set(id, {
+                  epoch,
+                  sequence,
+                  daemonInstanceId: card.details?.daemonInstanceId,
+                  retired
+                });
+                const pending = pass.events.pending?.get(id);
+                if (pending?.body.eventEpoch === epoch) {
+                  pass.events.pending?.delete(id);
+                  const update: SetNotifications = (change) => {
+                    next = typeof change === 'function' ? change(next) : change;
+                  };
+                  if (pending.phase === 'complete')
+                    buildCompleteHandler(
+                      entry,
+                      update,
+                      scheduleAutoDismiss,
+                      pass.events
+                    )?.(pending.body);
+                  else if (pending.phase === 'progress' && entry.progress)
+                    buildProgressHandler(
+                      entry,
+                      entry.progress,
+                      update,
+                      scheduleAutoDismiss,
+                      pass.cancelAutoDismissTimer,
+                      pass.events
+                    )(pending.body);
+                  else if (pending.phase === 'started' && entry.started)
+                    buildStartedHandler(
+                      entry,
+                      entry.started,
+                      update,
+                      pass.cancelAutoDismissTimer,
+                      pass.events
+                    )(pending.body);
+                }
+              }
+            }
           }
           return next;
         });
@@ -552,6 +657,12 @@ function createSimpleRecoveryFunction<TData>(
             .filter((n) => n.id !== errorId)
             .flatMap((n) => {
               if (n.type !== type || (n.status !== 'running' && n.status !== 'cancelling'))
+                return [n];
+              if (
+                type === 'scheduled_prefill' &&
+                n.details?.operationId &&
+                pass?.events.pending?.has(n.details.operationId)
+              )
                 return [n];
               if (operationId && n.details?.operationId && n.details.operationId !== operationId)
                 return [n];
@@ -577,6 +688,20 @@ function createSimpleRecoveryFunction<TData>(
       }
     } catch (error: unknown) {
       setNotifications((prev) => {
+        if (!canRecover(pass, type)) return prev;
+        if (type === 'scheduled_prefill') {
+          console.warn('Unable to reconcile scheduled prefill runs', {
+            endpoint: config.apiEndpoint,
+            error
+          });
+          return prev.map((card) =>
+            card.type === type &&
+            !isTerminalNotificationStatus(card.status) &&
+            !card.details?.connectionRecovering
+              ? { ...card, details: { ...card.details, connectionRecovering: true } }
+              : card
+          );
+        }
         if (!canRecover(pass, type) || prev.some((n) => n.id === errorId)) return prev;
         scheduleAutoDismiss(errorId);
         return [
@@ -956,6 +1081,7 @@ export function createRecoveryRunner(
   let trailing = false;
   const recover = async (): Promise<void> => {
     const pass: RecoveryPass = {
+      connectionGeneration: events.current.connectionGeneration,
       startedAt: new Date(),
       revision: events.current.revision,
       starting: [...getNotifications()],

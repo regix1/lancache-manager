@@ -41,6 +41,8 @@ public sealed class ScheduledPrefillRunServiceStatus
     /// <summary>This platform's own operation id, which its card is keyed on and its cancel targets.</summary>
     public required string OperationId { get; init; }
 
+    public required bool ShowNotification { get; init; }
+
     /// <summary>The stage its last progress event reported, e.g. "running" or "needs-login".</summary>
     public required string Stage { get; init; }
 
@@ -52,6 +54,16 @@ public sealed class ScheduledPrefillRunServiceStatus
 
     /// <summary>The percent its bar was last moved to.</summary>
     public double? PercentComplete { get; init; }
+
+    public Guid EventEpoch { get; init; }
+    public long EventSequence { get; init; }
+    public string? DaemonInstanceId { get; init; }
+    public IReadOnlyDictionary<string, object?>? StageContext { get; init; }
+    public long? BytesDownloaded { get; init; }
+    public long? TotalBytes { get; init; }
+    public string? DownloadSessionId { get; init; }
+    public string? NeedsLoginReason { get; init; }
+    public bool Recovering { get; init; }
 }
 
 /// <summary>

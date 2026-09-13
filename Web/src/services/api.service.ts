@@ -18,6 +18,7 @@ import type {
   CacheSizeUnavailableInfo,
   CacheSizeScanStartInfo,
   QueuedOperationResponse,
+  TriggerAllResponse,
   ClientStat,
   ServiceStat,
   ProcessingStatus,
@@ -82,6 +83,7 @@ import type {
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
+import type { PrefillRun } from '../components/features/prefill/hooks/prefillTypes';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto,
@@ -3756,7 +3758,10 @@ class ApiService {
           {
             service,
             sessionId: options.sessionId,
-            appIds: options.appIds,
+            appIds:
+              options.all || options.recent || options.recentlyPurchased || options.top
+                ? undefined
+                : options.appIds,
             all: options.all ?? false,
             recent: options.recent ?? false,
             recentlyPurchased: options.recentlyPurchased ?? false,
@@ -3888,21 +3893,13 @@ class ApiService {
     }
   }
 
-  static async runAllSchedules(): Promise<{
-    triggeredCount: number;
-    alreadyRunningCount?: number;
-    skippedCount?: number;
-    skippedReason?: string;
-  }> {
+  static async runAllSchedules(): Promise<TriggerAllResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/run-all`,
         this.getFetchOptions({ method: 'POST' })
       );
-      return await this.handleResponse<{
-        triggeredCount: number;
-        alreadyRunningCount?: number;
-      }>(res);
+      return await this.handleResponse<TriggerAllResponse>(res);
     } catch (error: unknown) {
       console.error('runAllSchedules error:', error);
       throw error;
@@ -4321,6 +4318,12 @@ export interface NetworkDiagnostics {
 }
 
 export interface DaemonSessionDto {
+  runs?: PrefillRun[];
+  daemonInstanceId?: string | null;
+  features?: string[];
+  maxConcurrentRuns?: number;
+  activeRunCount?: number;
+  recovering?: boolean;
   id: string;
   userId: string;
   containerName: string;
@@ -4373,6 +4376,9 @@ export interface BannedPrefillUserDto {
 }
 
 export interface PrefillHistoryEntryDto {
+  runId?: string | null;
+  sequence?: number;
+  reason?: string | null;
   id: number;
   sessionId: string;
   appId: string;

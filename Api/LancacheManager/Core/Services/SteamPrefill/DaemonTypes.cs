@@ -106,6 +106,39 @@ public sealed record LogoutOutcome(bool Success, bool RequiresLogin);
 
 public class DaemonStatus
 {
+    [JsonPropertyName("protocolVersion")]
+    public int ProtocolVersion { get; set; }
+    /// <summary>Negotiated capabilities. Null for legacy daemons that do not advertise them.</summary>
+    [JsonPropertyName("features")]
+    public List<string>? Features { get; set; }
+    /// <summary>The process identity. Null when the daemon uses the legacy protocol.</summary>
+    [JsonPropertyName("daemonInstanceId")]
+    public string? DaemonInstanceId { get; set; }
+    [JsonPropertyName("maxConcurrentRuns")]
+    public int MaxConcurrentRuns { get; set; }
+    [JsonPropertyName("maxConcurrentRequests")]
+    public int MaxConcurrentRequests { get; set; }
+    /// <summary>Active retained operations. Null when the daemon uses the legacy protocol.</summary>
+    [JsonPropertyName("activeOperations")]
+    public List<DaemonRunSnapshot>? ActiveOperations { get; set; }
+    /// <summary>Recent completed operations. Null when the daemon uses the legacy protocol.</summary>
+    [JsonPropertyName("recentOperations")]
+    public List<DaemonRunSnapshot>? RecentOperations { get; set; }
+    [JsonPropertyName("retentionHours")]
+    public int RetentionHours { get; set; }
+    [JsonPropertyName("retentionOperations")]
+    public int RetentionOperations { get; set; }
+    [JsonPropertyName("retentionItems")]
+    public int RetentionItems { get; set; }
+
+    [JsonIgnore]
+    public bool SupportsConcurrentPrefill => ProtocolVersion >= 2
+        && Guid.TryParse(DaemonInstanceId, out var instance) && instance != Guid.Empty
+        && MaxConcurrentRuns is >= 1 and <= 16 && MaxConcurrentRequests is >= 1 and <= 128
+        && Features is not null && ActiveOperations is not null && RecentOperations is not null
+        && new[] { "concurrentPrefill", "operationProgress", "targetedCancel", "inlineSelection", "activeOperations" }
+            .All(feature => Features.Contains(feature, StringComparer.Ordinal));
+
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
 
@@ -372,6 +405,13 @@ public class EncryptedCredentialResponse
 
 public class PrefillResult
 {
+    /// <summary>The accepting daemon instance. Null for legacy responses and rejected starts.</summary>
+    [JsonPropertyName("daemonInstanceId")]
+    public string? DaemonInstanceId { get; set; }
+    /// <summary>The accepted run state. Null for legacy responses that await completion.</summary>
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
+
     /// <summary>Failure classification. Null on success or when the failure is unclassified.</summary>
     [JsonPropertyName("errorCode")]
     public string? ErrorCode { get; set; }

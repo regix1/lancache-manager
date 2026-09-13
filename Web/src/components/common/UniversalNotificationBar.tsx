@@ -243,15 +243,14 @@ const UniversalNotificationBar: React.FC = () => {
     // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
     // runs are unaffected: they never arrive as 'generic'.
     const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
-    // Scheduled prefill runs five platforms under one service key and each picks its own style, so
-    // its cards resolve per platform first. The platform is only on the card id, which is minted as
-    // `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}` (notificationRegistry's
-    // scheduledPrefillCardId), and the suffix is the wire name the backend keys the map by. A
-    // platform that chose nothing is absent from the map and falls back to the service's own style.
+    // Old persisted cards have only a platform suffix; current cards retain the canonical service.
     const platform =
-      notification.type === 'scheduled_prefill' &&
-      notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
-        ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
+      notification.type === 'scheduled_prefill'
+        ? /^(Steam|Epic|Xbox|BattleNet|Riot)$/.test(notification.details?.service ?? '')
+          ? notification.details?.service
+          : new RegExp(
+              `^${NOTIFICATION_IDS.SCHEDULED_PREFILL}_(Steam|Epic|Xbox|BattleNet|Riot)$`
+            ).exec(notification.id)?.[1]
         : undefined;
     // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
     // picks its style per platform in the config modal, so a platform that has chosen nothing takes

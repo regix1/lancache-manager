@@ -5,6 +5,15 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public class DaemonSession
 {
+    public System.Collections.Concurrent.ConcurrentDictionary<Guid, DaemonRun> Runs { get; } = new();
+    public DaemonStatus? Capabilities { get; set; }
+    public bool Recovering { get; set; }
+    public bool AdmissionClosed { get; set; }
+    public SemaphoreSlim RecoveryWork { get; } = new(1, 1);
+    public DateTime NextRecoveryAtUtc { get; set; }
+    public DaemonRun? CurrentRun => Runs.Values.Where(run => run.TerminalCompletedFlag != 2)
+        .OrderBy(run => run.Snapshot.StartedAt).ThenBy(run => run.PrefillRunId).FirstOrDefault()
+        ?? Runs.Values.OrderByDescending(run => run.CompletedAtUtc).ThenBy(run => run.PrefillRunId).FirstOrDefault();
     public string Id { get; init; } = string.Empty;
     public Guid UserId { get; init; }
     public string ContainerId { get; set; } = string.Empty;
@@ -14,14 +23,17 @@ public class DaemonSession
     public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;
     public string? ErrorMessage { get; set; }
     public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
-    public bool IsPrefilling { get; set; }
+    private bool _isPrefilling = false;
+    public bool IsPrefilling { get => Runs.IsEmpty ? _isPrefilling : Runs.Values.Any(run => run.TerminalCompletedFlag != 2); set => _isPrefilling = value; }
 
     /// <summary>
     /// Identifies the current or most recently completed prefill on this session. A new start replaces
     /// it before the session enters the prefilling state, allowing cancel requests to reject a stale run.
     /// </summary>
-    public Guid? PrefillRunId { get; set; }
-    public Guid? PrefillScheduleId { get; set; }
+    private Guid? _prefillRunId = null;
+    public Guid? PrefillRunId { get => CurrentRun?.PrefillRunId ?? _prefillRunId; set => _prefillRunId = value; }
+    private Guid? _prefillScheduleId = null;
+    public Guid? PrefillScheduleId { get => CurrentRun is { } run ? run.PrefillScheduleId : _prefillScheduleId; set => _prefillScheduleId = value; }
 
     /// <summary>
     /// The daemon's real "Login failed: &lt;reason&gt;" text from the most recent
@@ -113,7 +125,8 @@ public class DaemonSession
     /// socket state (not the start ack), so it stays <see cref="PrefillState.Downloading"/>
     /// for the duration of the real download.
     /// </summary>
-    public PrefillState PrefillState { get; set; } = PrefillState.Idle;
+    private PrefillState _prefillState = PrefillState.Idle;
+    public PrefillState PrefillState { get => CurrentRun?.PrefillState ?? _prefillState; set => _prefillState = value; }
 
     /// <summary>
     /// The latest live <see cref="PrefillProgress"/> snapshot broadcast for this session,
@@ -122,7 +135,8 @@ public class DaemonSession
     /// progress tick in NotifyPrefillProgressAsync (before broadcasting) and cleared by the
     /// terminal funnel. Null when no prefill is in flight.
     /// </summary>
-    public PrefillProgress? LastProgress { get; set; }
+    private PrefillProgress? _lastProgress = null;
+    public PrefillProgress? LastProgress { get => CurrentRun is { } run ? run.LastProgress : _lastProgress; set => _lastProgress = value; }
 
     /// <summary>
     /// UTC ticks of the last progress tick that transferred new bytes (i.e. where
@@ -164,7 +178,8 @@ public class DaemonSession
     /// </summary>
     public long ProgressSequence;
 
-    public DateTime? PrefillStartedAt { get; set; }
+    private DateTime? _prefillStartedAt = null;
+    public DateTime? PrefillStartedAt { get => CurrentRun?.Snapshot.StartedAt.UtcDateTime ?? _prefillStartedAt; set => _prefillStartedAt = value; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
@@ -213,8 +228,10 @@ public class DaemonSession
     /// <summary>
     /// Current prefill progress info for admin visibility
     /// </summary>
-    public string? CurrentAppId { get; set; }
-    public string? CurrentAppName { get; set; }
+    private string? _currentAppId = null;
+    public string? CurrentAppId { get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue ? null : run.Snapshot.CurrentItem?.AppId : _currentAppId; set => _currentAppId = value; }
+    private string? _currentAppName = null;
+    public string? CurrentAppName { get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue ? null : run.Snapshot.CurrentItem?.Name : _currentAppName; set => _currentAppName = value; }
 
     /// <summary>
     /// Previous app ID for tracking history transitions
@@ -226,7 +243,8 @@ public class DaemonSession
     /// Total bytes transferred during this session (cumulative across all games)
     /// This includes completed games + current game progress for real-time display
     /// </summary>
-    public long TotalBytesTransferred { get; set; }
+    private long _totalBytesTransferred = 0;
+    public long TotalBytesTransferred { get => CurrentRun?.Snapshot.BytesTransferred ?? _totalBytesTransferred; set => _totalBytesTransferred = value; }
 
     /// <summary>
     /// Bytes from completed games (used to calculate TotalBytesTransferred)
@@ -257,9 +275,17 @@ public class DaemonSession
     /// Last prefill completion result - used for background completion detection
     /// when client was disconnected during prefill
     /// </summary>
-    public DateTime? LastPrefillCompletedAt { get; set; }
-    public int? LastPrefillDurationSeconds { get; set; }
-    public string? LastPrefillStatus { get; set; }
+    private DateTime? _lastPrefillCompletedAt = null;
+    public DateTime? LastPrefillCompletedAt { get => CurrentRun is { } run ? run.CompletedAtUtc : _lastPrefillCompletedAt; set => _lastPrefillCompletedAt = value; }
+    private int? _lastPrefillDurationSeconds;
+    public int? LastPrefillDurationSeconds
+    {
+        get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue
+            ? (int)(run.Snapshot.UpdatedAt - run.Snapshot.StartedAt).TotalSeconds : null : _lastPrefillDurationSeconds;
+        set => _lastPrefillDurationSeconds = value;
+    }
+    private string? _lastPrefillStatus = null;
+    public string? LastPrefillStatus { get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue ? run.Snapshot.State : null : _lastPrefillStatus; set => _lastPrefillStatus = value; }
 
     public IDaemonClient Client { get; set; } = null!;
 

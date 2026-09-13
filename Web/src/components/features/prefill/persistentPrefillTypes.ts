@@ -1,10 +1,17 @@
 import type { ScheduledPrefillSchedule } from '../management/schedules/scheduled-prefill/types';
+import type { PrefillRun } from './hooks/prefillTypes';
 
 export type PersistentPrefillServiceId = 'Steam' | 'Epic' | 'Xbox' | 'BattleNet' | 'Riot';
 
 export type PersistentPrefillServiceKey = 'steam' | 'epic' | 'xbox' | 'battleNet' | 'riot';
 
 export interface PersistentPrefillContainerDto {
+  runs?: PrefillRun[];
+  daemonInstanceId?: string | null;
+  features?: string[];
+  maxConcurrentRuns?: number;
+  activeRunCount?: number;
+  recovering?: boolean;
   sessionId: string;
   service: PersistentPrefillServiceId;
   isRunning: boolean;

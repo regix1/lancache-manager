@@ -153,6 +153,12 @@ public sealed class PersistentLogoutResponseDto
 /// <summary>Typed view of a persistent prefill session.</summary>
 public sealed class PersistentPrefillSessionDto
 {
+    public IReadOnlyList<DaemonRunStatus> Runs { get; init; } = [];
+    public string? DaemonInstanceId { get; init; }
+    public IReadOnlyList<string> Features { get; init; } = [];
+    public int MaxConcurrentRuns { get; init; } = 1;
+    public int ActiveRunCount { get; init; }
+    public bool Recovering { get; init; }
     /// <summary>Daemon session id.</summary>
     public required string SessionId { get; init; }
 

@@ -43,13 +43,16 @@ internal sealed class FakeContainer
 /// In-memory <see cref="IPrefillContainerGateway"/> that simulates a Docker container inventory so the
 /// prefill daemon startup reconcile (cleanup -&gt; re-adopt -&gt; recreate) can be driven end-to-end
 /// without a live Docker daemon. Records every container operation (a docker spy) and supports
-/// per-operation failure injection. Not thread-safe by design - the daemon drives it sequentially.
+/// per-operation failure injection. Inventory mutations are serialized while request barriers wait outside the lock.
 /// </summary>
 internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 {
     private readonly List<FakeContainer> _containers = new();
+    private readonly object _sync = new();
     private Exception? _pendingCreateFailure;
     private Exception? _pendingRemoveFailure;
+    private Exception? _pendingKillFailure;
+    private Exception? _createdFailure;
 
     public RecordingContainerGateway(bool available = true)
     {
@@ -62,35 +65,46 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     public bool IsAvailable { get; private set; }
     public bool Disposed { get; private set; }
     public bool HoldStartContainer { get; set; }
+    public bool CompleteStartAfterCancellation { get; set; }
+    public bool HoldCreateContainer { get; set; }
+    public TaskCompletionSource CreateContainerEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseCreateContainer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public List<(string Id, ContainerRemoveParameters Parameters)> Removals { get; } = new();
     public TaskCompletionSource StartContainerEntered { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseStartContainer { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public int CountOf(string opPrefix) => Calls.Count(c => c.StartsWith(opPrefix, StringComparison.Ordinal));
-    public int DestructiveCallCount =>
-        Calls.Count(c => c.StartsWith("Stop:", StringComparison.Ordinal)
+    public int CountOf(string opPrefix) { lock (_sync) return Calls.Count(c => c.StartsWith(opPrefix, StringComparison.Ordinal)); }
+    public int DestructiveCallCount
+    {
+        get { lock (_sync) return Calls.Count(c => c.StartsWith("Stop:", StringComparison.Ordinal)
                       || c.StartsWith("Kill:", StringComparison.Ordinal)
                       || c.StartsWith("Remove:", StringComparison.Ordinal)
-                      || c.StartsWith("RemoveVolume:", StringComparison.Ordinal));
+                      || c.StartsWith("RemoveVolume:", StringComparison.Ordinal)); }
+    }
 
     public FakeContainer AddContainer(FakeContainer container)
     {
-        _containers.Add(container);
+        lock (_sync) _containers.Add(container);
         return container;
     }
 
-    public bool ContainsContainer(string id) => _containers.Any(c => c.Id == id);
-    public int ContainerCount => _containers.Count;
-    public FakeContainer? FindByName(string name) =>
-        _containers.FirstOrDefault(c => c.Name.TrimStart('/') == name.TrimStart('/'));
+    public bool ContainsContainer(string id) { lock (_sync) return _containers.Any(c => c.Id == id); }
+    public int ContainerCount { get { lock (_sync) return _containers.Count; } }
+    public FakeContainer? FindByName(string name)
+    {
+        lock (_sync) return _containers.FirstOrDefault(c => c.Name.TrimStart('/') == name.TrimStart('/'));
+    }
 
     /// <summary>Injects a failure on the next <see cref="CreateContainerAsync"/> call (cleared after it fires).</summary>
-    public void FailNextCreateContainer(Exception failure) => _pendingCreateFailure = failure;
+    public void FailNextCreateContainer(Exception failure) { lock (_sync) _pendingCreateFailure = failure; }
+    public void FailCreatedContainer(Exception failure) { lock (_sync) _createdFailure = failure; }
+    public void FailNextKillContainer(Exception failure) { lock (_sync) _pendingKillFailure = failure; }
 
     /// <summary>Injects a failure on the next <see cref="RemoveContainerAsync"/> call (cleared after it fires). The
     /// op is still logged to <see cref="Calls"/> before it throws, matching a real Docker call that reached the daemon.</summary>
-    public void FailNextRemoveContainer(Exception failure) => _pendingRemoveFailure = failure;
+    public void FailNextRemoveContainer(Exception failure) { lock (_sync) _pendingRemoveFailure = failure; }
 
     public void Connect(Uri dockerUri) => IsAvailable = true;
     public void Reset() => IsAvailable = false;
@@ -101,30 +115,33 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public Task<IList<ContainerListResponse>> ListContainersAsync(ContainersListParameters parameters, CancellationToken cancellationToken)
     {
-        Calls.Add("List");
-        IEnumerable<FakeContainer> query = _containers;
-
-        if (parameters.All == false)
+        lock (_sync)
         {
-            query = query.Where(c => c.Running);
-        }
+            Calls.Add("List");
+            IEnumerable<FakeContainer> query = _containers;
 
-        if (parameters.Filters != null)
-        {
-            if (parameters.Filters.TryGetValue("name", out var nameFilters) && nameFilters.Count > 0)
+            if (parameters.All == false)
             {
-                // Docker's name filter is a substring match.
-                query = query.Where(c => nameFilters.Keys.Any(n => c.Name.Contains(n, StringComparison.Ordinal)));
+                query = query.Where(c => c.Running);
             }
 
-            if (parameters.Filters.TryGetValue("label", out var labelFilters) && labelFilters.Count > 0)
+            if (parameters.Filters != null)
             {
-                query = query.Where(c => labelFilters.Keys.All(l => MatchesLabel(c, l)));
-            }
-        }
+                if (parameters.Filters.TryGetValue("name", out var nameFilters) && nameFilters.Count > 0)
+                {
+                    // Docker's name filter is a substring match.
+                    query = query.Where(c => nameFilters.Keys.Any(n => c.Name.Contains(n, StringComparison.Ordinal)));
+                }
 
-        IList<ContainerListResponse> result = query.Select(c => c.ToListResponse()).ToList();
-        return Task.FromResult(result);
+                if (parameters.Filters.TryGetValue("label", out var labelFilters) && labelFilters.Count > 0)
+                {
+                    query = query.Where(c => labelFilters.Keys.All(l => MatchesLabel(c, l)));
+                }
+            }
+
+            IList<ContainerListResponse> result = query.Select(c => c.ToListResponse()).ToList();
+            return Task.FromResult(result);
+        }
     }
 
     private static bool MatchesLabel(FakeContainer container, string labelFilter)
@@ -140,119 +157,154 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         return container.Labels.TryGetValue(key, out var actual) && actual == value;
     }
 
-    public Task<CreateContainerResponse> CreateContainerAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
+    public async Task<CreateContainerResponse> CreateContainerAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
     {
-        Calls.Add($"Create:{parameters.Name}");
-
-        if (_pendingCreateFailure != null)
+        string id;
+        Exception? failure;
+        lock (_sync)
         {
-            var failure = _pendingCreateFailure;
-            _pendingCreateFailure = null;
-            throw failure;
+            Calls.Add($"Create:{parameters.Name}");
+            if (_pendingCreateFailure != null)
+            {
+                var rejected = _pendingCreateFailure;
+                _pendingCreateFailure = null;
+                throw rejected;
+            }
+            id = Guid.NewGuid().ToString("N");
+            _containers.Add(new FakeContainer
+            {
+                Id = id, Name = parameters.Name ?? id, Running = false,
+                Labels = parameters.Labels != null ? new Dictionary<string, string>(parameters.Labels) : new(),
+                Env = parameters.Env != null ? new List<string>(parameters.Env) : new()
+            });
+            failure = _createdFailure;
+            _createdFailure = null;
         }
-
-        var id = Guid.NewGuid().ToString("N");
-        _containers.Add(new FakeContainer
-        {
-            Id = id,
-            Name = parameters.Name ?? id,
-            Running = false,
-            Labels = parameters.Labels != null ? new Dictionary<string, string>(parameters.Labels) : new(),
-            Env = parameters.Env != null ? new List<string>(parameters.Env) : new()
-        });
-
-        return Task.FromResult(new CreateContainerResponse { ID = id });
+        CreateContainerEntered.TrySetResult();
+        if (HoldCreateContainer)
+            await ReleaseCreateContainer.Task;
+        if (failure != null)
+            throw failure;
+        return new CreateContainerResponse { ID = id };
     }
 
     public async Task<bool> StartContainerAsync(
-        string id,
-        ContainerStartParameters? parameters,
-        CancellationToken cancellationToken)
+        string id, ContainerStartParameters? parameters, CancellationToken cancellationToken)
     {
-        Calls.Add($"Start:{id}");
-        var container = _containers.FirstOrDefault(c => c.Id == id);
-        if (container != null)
+        lock (_sync)
         {
-            container.Running = true;
+            Calls.Add($"Start:{id}");
+            if (!CompleteStartAfterCancellation)
+            {
+                var container = _containers.FirstOrDefault(c => c.Id == id);
+                if (container != null)
+                    container.Running = true;
+            }
         }
-
         StartContainerEntered.TrySetResult();
-        if (HoldStartContainer)
+        if (CompleteStartAfterCancellation)
         {
-            await ReleaseStartContainer.Task.WaitAsync(cancellationToken);
+            await ReleaseStartContainer.Task;
+            lock (_sync)
+            {
+                var container = _containers.FirstOrDefault(c => c.Id == id);
+                if (container != null)
+                    container.Running = true;
+                Calls.Add($"StartCompleted:{id}");
+            }
         }
-
+        else if (HoldStartContainer)
+            await ReleaseStartContainer.Task.WaitAsync(cancellationToken);
         return true;
     }
 
     public Task<bool> StopContainerAsync(string id, ContainerStopParameters parameters, CancellationToken cancellationToken)
     {
-        Calls.Add($"Stop:{id}");
-        var container = _containers.FirstOrDefault(c => c.Id == id);
-        if (container != null)
+        lock (_sync)
         {
-            container.Running = false;
-        }
+            Calls.Add($"Stop:{id}");
+            var container = _containers.FirstOrDefault(c => c.Id == id);
+            if (container != null)
+            {
+                container.Running = false;
+            }
 
-        return Task.FromResult(true);
+            return Task.FromResult(true);
+        }
     }
 
     public Task KillContainerAsync(string id, ContainerKillParameters parameters, CancellationToken cancellationToken)
     {
-        Calls.Add($"Kill:{id}");
-        var container = _containers.FirstOrDefault(c => c.Id == id);
-        if (container != null)
+        lock (_sync)
         {
-            container.Running = false;
+            Calls.Add($"Kill:{id}");
+            if (_pendingKillFailure != null)
+            {
+                var failure = _pendingKillFailure;
+                _pendingKillFailure = null;
+                return Task.FromException(failure);
+            }
+            var container = _containers.FirstOrDefault(c => c.Id == id);
+            if (container != null)
+                container.Running = false;
+            return Task.CompletedTask;
         }
-
-        return Task.CompletedTask;
     }
 
     public Task RemoveContainerAsync(string id, ContainerRemoveParameters parameters, CancellationToken cancellationToken)
     {
-        Calls.Add($"Remove:{id}");
-        if (_pendingRemoveFailure != null)
+        lock (_sync)
         {
-            var failure = _pendingRemoveFailure;
-            _pendingRemoveFailure = null;
-            return Task.FromException(failure);
+            Calls.Add($"Remove:{id}");
+            Removals.Add((id, new ContainerRemoveParameters
+            {
+                Force = parameters.Force, RemoveVolumes = parameters.RemoveVolumes
+            }));
+            if (_pendingRemoveFailure != null)
+            {
+                var failure = _pendingRemoveFailure;
+                _pendingRemoveFailure = null;
+                return Task.FromException(failure);
+            }
+            _containers.RemoveAll(c => c.Id == id);
+            return Task.CompletedTask;
         }
-        _containers.RemoveAll(c => c.Id == id);
-        return Task.CompletedTask;
     }
 
     public Task<ContainerInspectResponse> InspectContainerAsync(string id, CancellationToken cancellationToken)
     {
-        Calls.Add($"Inspect:{id}");
-        var container = _containers.FirstOrDefault(c => c.Id == id)
-            ?? throw new DockerContainerNotFoundException(System.Net.HttpStatusCode.NotFound, $"No such container: {id}");
-        return Task.FromResult(container.ToInspectResponse());
+        lock (_sync)
+        {
+            Calls.Add($"Inspect:{id}");
+            var container = _containers.FirstOrDefault(c => c.Id == id)
+                ?? throw new DockerContainerNotFoundException(System.Net.HttpStatusCode.NotFound, $"No such container: {id}");
+            return Task.FromResult(container.ToInspectResponse());
+        }
     }
 
     public Task<MultiplexedStream> GetContainerLogsAsync(string id, bool tty, ContainerLogsParameters parameters, CancellationToken cancellationToken)
     {
         // Only reached on a socket-connect failure diagnostic path, which the orchestration fakes never hit.
-        Calls.Add($"Logs:{id}");
+        lock (_sync) Calls.Add($"Logs:{id}");
         throw new NotSupportedException("Container log streaming is not simulated by the recording gateway.");
     }
 
     public Task RemoveVolumeAsync(string name, bool force, CancellationToken cancellationToken)
     {
-        Calls.Add($"RemoveVolume:{name}");
+        lock (_sync) Calls.Add($"RemoveVolume:{name}");
         return Task.CompletedTask;
     }
 
     public Task CreateImageAsync(ImagesCreateParameters parameters, AuthConfig? authConfig, IProgress<JSONMessage> progress, CancellationToken cancellationToken)
     {
         // Simulates a successful image pull.
-        Calls.Add("CreateImage");
+        lock (_sync) Calls.Add("CreateImage");
         return Task.CompletedTask;
     }
 
     public Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken)
     {
-        Calls.Add($"InspectImage:{name}");
+        lock (_sync) Calls.Add($"InspectImage:{name}");
         return Task.FromResult(new ImageInspectResponse { ID = "sha256:testimageid0000" });
     }
 
@@ -320,6 +372,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
     public Func<Action?, CancellationToken, Task<PrefillResult>>? DispatchHandler { get; set; }
     public Func<List<string>, CancellationToken, Task>? SelectionHandler { get; set; }
+    public Func<CancellationToken, Task>? ShutdownHandler { get; set; }
     public int PrefillCount { get; private set; }
     public int SelectionCount { get; private set; }
 
@@ -394,7 +447,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public Task<CacheStatusResult> CheckCacheStatusAsync(List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task ShutdownAsync(CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+        => ShutdownHandler is null ? throw new NotSupportedException() : ShutdownHandler(cancellationToken);
     public void ClearPendingChallenges() { }
 }
 

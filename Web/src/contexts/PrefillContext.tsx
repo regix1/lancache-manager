@@ -4,7 +4,15 @@ import {
   type LogEntry,
   type LogEntryType
 } from '@components/features/prefill/ActivityLog.utils';
-import type { BackgroundCompletion } from '@components/features/prefill/hooks/prefillTypes';
+import {
+  isPrefillRunActive,
+  mergePrefillRuns,
+  prefillRunKey,
+  retainPrefillCompletions,
+  type BackgroundCompletion,
+  type PrefillCompletion,
+  type PrefillRun
+} from '@components/features/prefill/hooks/prefillTypes';
 import { PrefillContext } from './PrefillContext.types';
 import { STORAGE_KEYS } from '@utils/constants';
 import { sessionStore } from '@utils/storage';
@@ -12,6 +20,7 @@ import { sessionStore } from '@utils/storage';
 const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
 const DISMISSED_COMPLETION_KEY = 'prefill_dismissed_completion_at';
+const RUN_COMPLETIONS_KEY = 'prefill_run_completions';
 const MAX_LOG_ENTRIES = 500; // Limit stored entries to prevent storage bloat
 const LOG_DEDUPE_WINDOW_MS = 2000; // Deduplicate identical logs within 2 seconds
 
@@ -54,6 +63,45 @@ const restoreBackgroundCompletion = (): BackgroundCompletion | null =>
   sessionStore.getJSON<BackgroundCompletion>(BACKGROUND_COMPLETION_KEY);
 
 export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) => {
+  const [runCompletions, setRunCompletions] = useState<PrefillRun[]>([]);
+  const completionsRef = useRef<PrefillCompletion[]>(
+    retainPrefillCompletions(sessionStore.getJSON<PrefillCompletion[]>(RUN_COMPLETIONS_KEY) ?? [])
+  );
+  const recordRunCompletion = useCallback((run: PrefillRun) => {
+    if (isPrefillRunActive(run)) return;
+    const key = prefillRunKey(run);
+    const entries = retainPrefillCompletions(completionsRef.current);
+    if (!entries.some((entry) => entry.key === key)) {
+      entries.push({ key, completedAt: Date.now(), dismissed: false });
+    }
+    completionsRef.current = retainPrefillCompletions(entries);
+    sessionStore.setJSON(RUN_COMPLETIONS_KEY, completionsRef.current);
+    setRunCompletions((current) => {
+      const previous = current.find((entry) => prefillRunKey(entry) === key);
+      if (previous && previous.snapshot.sequence >= run.snapshot.sequence) return current;
+      return mergePrefillRuns(current, [run]).filter((entry) =>
+        completionsRef.current.some(
+          (completion) => completion.key === prefillRunKey(entry) && !completion.dismissed
+        )
+      );
+    });
+  }, []);
+  const dismissRunCompletion = useCallback((run: PrefillRun) => {
+    const key = prefillRunKey(run);
+    completionsRef.current = retainPrefillCompletions([
+      ...completionsRef.current.filter((entry) => entry.key !== key),
+      { key, completedAt: Date.now(), dismissed: true }
+    ]);
+    sessionStore.setJSON(RUN_COMPLETIONS_KEY, completionsRef.current);
+    setRunCompletions((current) => current.filter((entry) => prefillRunKey(entry) !== key));
+  }, []);
+  const isRunCompletionDismissed = useCallback(
+    (run: PrefillRun) =>
+      retainPrefillCompletions(completionsRef.current).some(
+        (entry) => entry.key === prefillRunKey(run) && entry.dismissed
+      ),
+    []
+  );
   const [logEntries, setLogEntries] = useState<LogEntry[]>(() => restoreLogsFromStorage());
   const [backgroundCompletion, setBackgroundCompletionState] =
     useState<BackgroundCompletion | null>(() => restoreBackgroundCompletion());
@@ -168,6 +216,10 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
   }, []);
 
   const value = {
+    runCompletions,
+    recordRunCompletion,
+    dismissRunCompletion,
+    isRunCompletionDismissed,
     logEntries,
     addLog,
     clearLogs,

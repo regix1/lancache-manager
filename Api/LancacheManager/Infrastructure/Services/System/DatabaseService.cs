@@ -54,6 +54,7 @@ public class DatabaseService
         "Events",
         "EventDownloads",
         "PrefillSessions",
+        "PrefillRuns",
         "PrefillHistoryEntries",
         "PrefillCachedDepots",
         "PrefillCachedApps",

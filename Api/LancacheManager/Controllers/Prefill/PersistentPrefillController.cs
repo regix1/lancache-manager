@@ -252,9 +252,17 @@ public class PersistentPrefillController : ControllerBase
                 var effectiveRelogin = ComputeEffectiveRelogin(session.ExpiresAt, daemonAuthExpiresAtUtc);
                 var remaining = (effectiveRelogin - nowUtc).TotalSeconds;
                 long remainingSeconds = remaining > 0 ? (long)remaining : 0L;
+                var capabilities = session.Capabilities is { SupportsConcurrentPrefill: true } negotiated ? negotiated : null;
 
                 results.Add(new PersistentPrefillSessionDto
                 {
+                    Runs = daemon.GetRuns(session.Id),
+                    DaemonInstanceId = session.Capabilities?.DaemonInstanceId,
+                    Features = capabilities?.Features?.ToArray() ?? [],
+                    MaxConcurrentRuns = capabilities?.MaxConcurrentRuns ?? 1,
+                    ActiveRunCount = session.Runs.IsEmpty ? (session.IsPrefilling ? 1 : 0)
+                        : session.Runs.Values.Count(run => run.TerminalCompletedFlag != 2),
+                    Recovering = session.Recovering,
                     SessionId = session.Id,
                     Service = ParsePlatform(session.Platform),
                     IsRunning = isRunning,
@@ -444,6 +452,15 @@ public class PersistentPrefillController : ControllerBase
         var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
+            if (session.Capabilities?.SupportsConcurrentPrefill == true)
+            {
+                var result = await daemon!.PrefillAsync(session.Id, request.All, request.Recent,
+                    request.RecentlyPurchased, request.Top, request.Force, request.OperatingSystems,
+                    request.MaxConcurrency, cancellationToken, appIds: request.AppIds);
+                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill, result.RunId);
+                outcome = PersistentPrefillEditActionOutcome.Succeeded;
+                return Ok(result);
+            }
             if (!daemon!.PersistentEditSessionGate.TryEnterMutation(out var mutation))
             {
                 outcome = PersistentPrefillEditActionOutcome.Conflict;
@@ -508,12 +525,14 @@ public class PersistentPrefillController : ControllerBase
                     }
                 }
 
-                if (request.AppIds is not null)
+                if (request.AppIds is not null && claimedSession.Capabilities?.SupportsConcurrentPrefill != true)
                 {
                     await daemon.SetSelectedAppsAsync(claimedSession.Id, request.AppIds, cancellationToken);
                     editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
                 }
 
+                if (claimedSession.Capabilities?.SupportsConcurrentPrefill == true)
+                    await mutation!.DisposeAsync();
                 var result = await daemon.PrefillAsync(
                     claimedSession.Id,
                     all: request.All,
@@ -523,7 +542,7 @@ public class PersistentPrefillController : ControllerBase
                     force: request.Force,
                     operatingSystems: request.OperatingSystems,
                     maxConcurrency: request.MaxConcurrency,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken, appIds: request.AppIds);
 
                 if (result.RequiresLogin)
                 {
@@ -543,7 +562,7 @@ public class PersistentPrefillController : ControllerBase
 
                 if (result.Success)
                 {
-                    editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill);
+                    editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill, result.RunId);
                     outcome = PersistentPrefillEditActionOutcome.Succeeded;
                 }
 
@@ -592,6 +611,14 @@ public class PersistentPrefillController : ControllerBase
             return error;
         }
 
+        if (!session!.Runs.IsEmpty)
+        {
+            if (request.RunId.HasValue)
+                await daemon!.CancelPrefillRunAsync(session.Id, request.RunId.Value, cancellationToken);
+            else await daemon!.CancelPrefillAsync(session.Id, cancellationToken);
+            return Ok();
+        }
+
         if (!daemon!.PersistentEditSessionGate.TryEnterMutation(out var mutation))
         {
             return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
@@ -623,6 +650,15 @@ public class PersistentPrefillController : ControllerBase
             await daemon.CancelPrefillAsync(claimedSession!.Id, cancellationToken);
             return Ok();
         }
+    }
+
+    [HttpGet("runs")]
+    public ActionResult<IReadOnlyList<DaemonRunStatus>> GetRuns(
+        [FromQuery] PrefillPlatform service, [FromQuery] string? sessionId = null)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(service, sessionId);
+        if (error is not null) return error;
+        return Ok(daemon!.GetRuns(session!.Id));
     }
 
     [HttpGet("integration-login")]
@@ -1083,7 +1119,14 @@ public class PersistentPrefillController : ControllerBase
                 if (TryGetExactPersistentSession(daemon, ownership.SessionId, out var prefillSession)
                     && prefillSession.IsPrefilling)
                 {
-                    await daemon.CancelPrefillAsync(prefillSession.Id, cancellationToken);
+                    if (ownership.RunId.HasValue)
+                    {
+                        await daemon.CancelPrefillRunAsync(prefillSession.Id, ownership.RunId.Value, cancellationToken);
+                        if (daemon.GetRun(prefillSession.Id, ownership.RunId.Value) is { } run)
+                            await run.Completion.Task.WaitAsync(cancellationToken);
+                    }
+                    else if (prefillSession.Runs.IsEmpty)
+                        await daemon.CancelPrefillAsync(prefillSession.Id, cancellationToken);
                 }
 
                 daemon.PersistentEditSessionGate.CompleteCompensation(editSessionId, ownership);
@@ -1095,6 +1138,7 @@ public class PersistentPrefillController : ControllerBase
             {
                 if (TryGetExactPersistentSession(daemon, ownership.SessionId, out var loginSession))
                 {
+                    if (!loginSession.Runs.IsEmpty && loginSession.IsPrefilling) continue;
                     var status = await daemon.GetSessionStatusAsync(
                         loginSession.Id,
                         cancellationToken);
@@ -1182,6 +1226,8 @@ public class PersistentPrefillController : ControllerBase
     {
         while (true)
         {
+            if (daemon.GetSession(start.SessionId) is { Runs.IsEmpty: false, IsPrefilling: true })
+                return false;
             var stopped = await daemon.StopPersistentSessionIfOwnedByEditAsync(
                 start.SessionId,
                 () => daemon.PersistentEditSessionGate.CanStopStartedSession(editSessionId, start),
@@ -1218,6 +1264,8 @@ public class PersistentPrefillController : ControllerBase
     {
         while (true)
         {
+            if (daemon.GetSession(sessionId) is { Runs.IsEmpty: false, IsPrefilling: true })
+                return false;
             var stopped = await daemon.StopPersistentSessionIfOwnedByEditAsync(
                 sessionId,
                 () => daemon.PersistentEditSessionGate.CanStopUntrackedSession(sessionId),

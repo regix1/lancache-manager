@@ -1,4 +1,6 @@
 using LancacheManager.Models;
+using LancacheManager.Core.Services.SteamPrefill;
+using System.Collections.ObjectModel;
 
 namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
 
@@ -33,21 +35,22 @@ public sealed class ScheduledPrefillOperationMetadata
 /// notification card after a page reload, and the run-status lookup on the Schedules card, which
 /// tells a per-platform operation apart from the run-level one so several platforms running at once
 /// cannot make it report the wrong operation. The platform's run writes it while the endpoint reads
-/// it, so each field uses volatile reads and writes. [19][25][28]
+/// it, so the complete display and its publication sequence share one lock.
 /// </summary>
 public sealed class ScheduledPrefillServiceRunState
 {
-    private string _stage = "starting";
-    private string _message = string.Empty;
-    private string? _stageKey;
-    private double _percentComplete;
-    private bool _hasPercentComplete;
+    private readonly object _gate = new();
+    private ScheduledPrefillSnapshot _snapshot = new();
+    private bool _completed;
+    private DaemonRun? _run;
+    private DaemonSession? _session;
 
-    public ScheduledPrefillServiceRunState(PrefillPlatform serviceId, Guid scheduleId, string name)
+    public ScheduledPrefillServiceRunState(PrefillPlatform serviceId, Guid scheduleId, string name, bool showNotification)
     {
         ServiceId = serviceId;
         ScheduleId = scheduleId;
         Name = name;
+        ShowNotification = showNotification;
     }
 
     /// <summary>The platform this operation prefills.</summary>
@@ -57,19 +60,27 @@ public sealed class ScheduledPrefillServiceRunState
 
     public string Name { get; }
 
+    public bool ShowNotification { get; }
+
+    public DateTime? CompletedAtUtc { get; set; }
+    public bool Detached { get; set; }
+
     /// <summary>The stage the last progress event reported, e.g. "running" or "needs-login".</summary>
-    public string Stage => Volatile.Read(ref _stage);
+    public string Stage => Snapshot.Stage;
 
     /// <summary>The English sentence that event put on the card.</summary>
-    public string Message => Volatile.Read(ref _message);
+    public string Message => Snapshot.Message;
 
     /// <summary>The i18n key naming that same sentence, null when the text has no key.</summary>
-    public string? StageKey => Volatile.Read(ref _stageKey);
+    public string? StageKey => Snapshot.StageKey;
 
     /// <summary>The percent the card's bar was last moved to.</summary>
-    public double? PercentComplete => Volatile.Read(ref _hasPercentComplete)
-        ? Volatile.Read(ref _percentComplete)
-        : null;
+    public double? PercentComplete => Snapshot.PercentComplete;
+
+    public ScheduledPrefillSnapshot Snapshot
+    {
+        get { lock (_gate) return _snapshot; }
+    }
 
     /// <summary>
     /// Records what the platform's latest progress event put on its card. A null
@@ -78,25 +89,61 @@ public sealed class ScheduledPrefillServiceRunState
     /// <paramref name="clearPercent"/> when the event explicitly establishes that no truthful
     /// denominator is available.
     /// </summary>
-    public void Record(
+    public ScheduledPrefillSnapshot? Record(
         string stage,
         string message,
         string? stageKey,
         double? percentComplete,
-        bool clearPercent = false)
+        bool clearPercent = false,
+        Dictionary<string, object?>? stageContext = null,
+        long? bytesDownloaded = null,
+        long? totalBytes = null,
+        string? downloadSessionId = null,
+        string? needsLoginReason = null,
+        DaemonRun? run = null,
+        DaemonSession? session = null,
+        bool ordinaryProgress = false,
+        bool terminal = false,
+        bool resume = false,
+        bool started = false)
     {
-        Volatile.Write(ref _stage, stage);
-        Volatile.Write(ref _message, message);
-        Volatile.Write(ref _stageKey, stageKey);
+        lock (_gate)
+        {
+            if (_completed) return null;
+            _run ??= run;
+            _session ??= session;
+            if (ordinaryProgress && (_snapshot.Stage == "cancelling" || _snapshot.Stage == "recovering" && !resume
+                || _run?.Recovering == true || _session?.Recovering == true || _run?.CancelRequested == true))
+                return null;
 
-        if (percentComplete.HasValue)
-        {
-            Volatile.Write(ref _percentComplete, percentComplete.Value);
-            Volatile.Write(ref _hasPercentComplete, true);
-        }
-        else if (clearPercent)
-        {
-            Volatile.Write(ref _hasPercentComplete, false);
+            if (!terminal && !started && stage is ("recovering" or "cancelling") && _snapshot.Stage == stage)
+                return null;
+
+            if (terminal && string.IsNullOrEmpty(message))
+            {
+                message = stage == "cancelled" ? "Prefill stopped" : _snapshot.Message;
+                stageKey = stage == "cancelled" ? "signalr.scheduledPrefill.stopped" : _snapshot.StageKey;
+                stageContext = _snapshot.StageContext?.ToDictionary(pair => pair.Key, pair => pair.Value);
+            }
+
+            _snapshot = _snapshot with
+            {
+                EventSequence = _snapshot.EventSequence + 1,
+                DaemonInstanceId = _run?.DaemonInstanceId ?? _snapshot.DaemonInstanceId,
+                Stage = stage,
+                Message = message,
+                StageKey = stageKey,
+                StageContext = stageContext is null ? null
+                    : new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(stageContext)),
+                PercentComplete = percentComplete ?? (clearPercent ? null : _snapshot.PercentComplete),
+                BytesDownloaded = bytesDownloaded ?? _snapshot.BytesDownloaded,
+                TotalBytes = totalBytes ?? _snapshot.TotalBytes,
+                DownloadSessionId = downloadSessionId ?? _snapshot.DownloadSessionId,
+                NeedsLoginReason = needsLoginReason ?? (terminal ? _snapshot.NeedsLoginReason : null),
+                Recovering = stage == "recovering"
+            };
+            _completed = terminal;
+            return _snapshot;
         }
     }
 }

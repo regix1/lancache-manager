@@ -12,6 +12,8 @@ public sealed class QueuedOperationResponse
 {
     public bool? ShowNotification { get; init; }
 
+    public bool? FollowUpQueued { get; init; }
+
     public Guid OperationId { get; init; }
 
     /// <summary>True when the operation was parked in the wait-queue.</summary>

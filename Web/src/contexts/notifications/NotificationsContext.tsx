@@ -97,6 +97,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             continue;
           }
           if (parsed.status === 'running') {
+            if (
+              parsed.type === 'scheduled_prefill' &&
+              parsed.details?.operationId &&
+              parsed.details.eventEpoch &&
+              typeof parsed.details.eventSequence === 'number'
+            ) {
+              events.current.versions ??= new Map();
+              events.current.versions.set(parsed.details.operationId, {
+                epoch: parsed.details.eventEpoch,
+                sequence: parsed.details.eventSequence,
+                daemonInstanceId: parsed.details.daemonInstanceId,
+                retired: new Set()
+              });
+            }
             // Strip cancel-intent flags: they are live-session UI state. A persisted
             // cancelRequested (X clicked before the operationId arrived) would re-arm the
             // deferred-cancel watchdog after reload, and the NEXT operation of this type to
@@ -131,6 +145,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const requestRecovery = useCallback(() => {
     void recoveryRef.current?.();
   }, []);
+  events.current.requestRecovery = requestRecovery;
   const signalR = useSignalR();
   const { authMode, isLoading: authLoading } = useAuth();
   const isAdmin = authMode === 'authenticated';
@@ -543,6 +558,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // Re-run recovery on every connect, including the first one: the page-load recovery above can
   // seed a running card before the hub subscription is live, so a completion emitted in that gap
   // would otherwise leave the card running forever.
+  React.useEffect(() => {
+    events.current.connectionGeneration = (events.current.connectionGeneration ?? 0) + 1;
+    if (signalR.isConnected) return;
+    setNotifications((current) =>
+      current.map((card) =>
+        card.type === 'scheduled_prefill' &&
+        !isTerminalNotificationStatus(card.status) &&
+        !card.details?.connectionRecovering
+          ? { ...card, details: { ...card.details, connectionRecovering: true } }
+          : card
+      )
+    );
+  }, [signalR.isConnected]);
+
   useReconnectRefetch(signalR.isConnected, () => {
     // Skip if not admin - all recovery endpoints require admin access
     if (authLoading || !isAdmin) return;

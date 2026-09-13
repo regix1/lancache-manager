@@ -30,6 +30,77 @@ public class ScheduleRunGateTests
     private const string DownloadReason = "A client download is writing to the cache right now.";
     private const string EvictionKey = "cacheReconciliation";
 
+    [Fact]
+    public async Task ScheduledPrefill_RejectsDuplicateRunsAsync()
+    {
+        using var service = new ConfigurableRunGateProbeService();
+        var tracker = CreateRealTracker();
+        var registry = CreateRegistry([service], CacheScanGateHarness.Idle(), tracker);
+        var first = await registry.TriggerRunAsync(service.ScheduleServiceKey);
+        Assert.False(first.Status.IsRunning);
+        var duplicates = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(() => registry.TriggerRunAsync(service.ScheduleServiceKey))));
+        Assert.All(duplicates, duplicate =>
+        {
+            Assert.True(duplicate.Status.IsRunning);
+            Assert.False(duplicate.FollowUpQueued);
+            Assert.Null(duplicate.Status.OperationId);
+        });
+        Assert.True(service.TakePendingManualRun(out var notice));
+        var starting = await registry.TriggerAllAsync();
+        Assert.Equal(0, starting.TriggeredCount);
+        Assert.Equal(1, starting.AlreadyRunningCount);
+        Assert.Equal(0, starting.FollowUpCount);
+        Assert.False(service.HasPendingRun);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var run = service.InvokeRunScheduledWorkAsync(RunTrigger.Manual, CancellationToken.None, notice,
+            async _ => { entered.SetResult(); await release.Task; });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var running = await registry.TriggerRunAsync(service.ScheduleServiceKey);
+            Assert.True(running.Status.IsRunning);
+            Assert.False(running.FollowUpQueued);
+            Assert.Empty(tracker.GetActiveOperations());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await run.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.False(service.HasPendingRun);
+        Assert.False((await registry.TriggerRunAsync(service.ScheduleServiceKey)).Status.IsRunning);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartGate_RejectsSuccessorsAndReleasesClaimsAsync(bool throws)
+    {
+        using var service = new RunGateProbeService("no-follow-up-probe", queueManualRuns: false);
+        var previous = ScheduledServiceBase.ScheduleRunGate;
+        ScheduledServiceBase.ScheduleRunGate = (key, trigger) =>
+        {
+            if (key != service.ServiceKey) return previous?.Invoke(key, trigger);
+            Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual), out _, out var followUp));
+            Assert.False(followUp);
+            if (throws) throw new IOException("gate unavailable");
+            return "not ready";
+        };
+        try
+        {
+            await service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None);
+            Assert.False(service.WorkRan);
+            Assert.False(service.HasPendingRun);
+            Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual), out _, out _));
+        }
+        finally
+        {
+            ScheduledServiceBase.ScheduleRunGate = previous;
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -171,10 +242,12 @@ public class ScheduleRunGateTests
         Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
     }
 
-    [Fact]
-    public async Task CancellationDuringAdmissionDoesNotStartOrStampWork()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationDuringAdmissionDoesNotStartOrStampWork(bool queueManualRuns)
     {
-        using var service = new RunGateProbeService(EvictionKey);
+        using var service = new RunGateProbeService(EvictionKey, queueManualRuns);
         var tracker = CreateRealTracker();
         var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
         var lastRun = DateTime.UtcNow.AddHours(-1);
@@ -188,6 +261,9 @@ public class ScheduleRunGateTests
         Assert.False(result.RunFailed);
         Assert.False(service.WorkRan);
         Assert.Equal(lastRun, service.LastRunUtc);
+        Assert.False(service.EndBroadcast);
+        Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual), out _, out var followUp));
+        Assert.False(followUp);
     }
 
     [Fact]
@@ -601,7 +677,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(EvictionKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (status, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.NotNull(skippedReason);
         Assert.False(status.IsRunning);
@@ -614,7 +690,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(EvictionKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Idle());
 
-        var (status, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.Null(skippedReason);
         Assert.False(status.IsRunning);
@@ -631,7 +707,7 @@ public class ScheduleRunGateTests
         using var cts = new CancellationTokenSource();
         tracker.RegisterOperation(OperationType.EvictionScan, EvictionKey, cts);
 
-        var (status, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.Null(skippedReason);
         Assert.True(status.IsRunning);
@@ -695,7 +771,7 @@ public class ScheduleRunGateTests
             CacheScanGateHarness.Downloading(),
             CreateRealTracker());
 
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) =
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, _) =
             await registry.TriggerAllAsync();
 
         // Both are asked the same question. The eviction scan walks the cache tree and declines; log
@@ -720,7 +796,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(serviceKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (_, skippedReason, _) = await registry.TriggerRunAsync(serviceKey);
+        var (_, skippedReason, _, _) = await registry.TriggerRunAsync(serviceKey);
 
         Assert.Null(skippedReason);
         Assert.True(service.HasPendingRun);
@@ -735,7 +811,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(serviceKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (_, skippedReason, _) = await registry.TriggerRunAsync(serviceKey);
+        var (_, skippedReason, _, _) = await registry.TriggerRunAsync(serviceKey);
 
         Assert.NotNull(skippedReason);
         Assert.False(service.HasPendingRun);
@@ -1006,7 +1082,7 @@ public class ScheduleRunGateTests
         CacheScanGateHarness.MakeBusy(snapshot);
         var registry = CreateRegistry([service, asksLater], gate);
 
-        var (_, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (_, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
         Assert.NotNull(skippedReason);
         // The answer says the run is kept rather than telling the person to try again, which is what
         // the gate's own sentence does for the controllers.
@@ -1168,7 +1244,7 @@ public class ScheduleRunGateTests
             CacheScanGateHarness.Idle(),
             CreateRealTracker());
 
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) =
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, _) =
             await registry.TriggerAllAsync();
 
         Assert.Equal(2, triggeredCount);
@@ -1528,7 +1604,7 @@ public class ScheduleRunGateTests
     // back: another test class's service loop must not inherit this one's answer, and must not
     // inherit a startup wait over a tracker this class threw away either.
     private static ServiceScheduleRegistry CreateRegistry(
-        IReadOnlyList<ScheduledBackgroundService> services,
+        IReadOnlyList<ScheduledServiceBase> services,
         CacheScanGate gate,
         UnifiedOperationTracker? tracker = null,
         ISignalRNotificationService? notifications = null)
@@ -1613,15 +1689,50 @@ public class ScheduleRunGateTests
         }
     }
 
+    private sealed class ConfigurableRunGateProbeService : ConfigurableScheduledService
+    {
+        public ConfigurableRunGateProbeService()
+            : base(NullLogger<ConfigurableRunGateProbeService>.Instance, TimeSpan.FromHours(1))
+        {
+        }
+
+        public string ScheduleServiceKey => "scheduledPrefill";
+        protected override string ServiceName => ScheduleServiceKey;
+        protected override bool QueueManualRuns => false;
+        public bool HasPendingRun => HasPendingManualRun();
+
+        public bool TakePendingManualRun(out RunNotice? notice) => ConsumePendingManualRun(out notice);
+
+        public Task<(bool ShuttingDown, bool RunFailed)> InvokeRunScheduledWorkAsync(
+            RunTrigger trigger,
+            CancellationToken stoppingToken,
+            RunNotice? notice,
+            Func<CancellationToken, Task> executeWork)
+            => RunScheduledWorkAsync(
+                ScheduleServiceKey,
+                trigger,
+                executeWork,
+                stoppingToken,
+                "{ServiceName} probe run failed",
+                () => { },
+                notice);
+
+        protected override Task ExecuteWorkAsync(CancellationToken stoppingToken) => Task.CompletedTask;
+    }
+
     private sealed class RunGateProbeService : ScheduledBackgroundService
     {
         private readonly string _serviceKey;
 
-        public RunGateProbeService(string serviceKey)
+        public RunGateProbeService(string serviceKey, bool queueManualRuns = true)
             : base(NullLogger<RunGateProbeService>.Instance, new ConfigurationBuilder().Build())
         {
             _serviceKey = serviceKey;
+            QueueManualRuns = queueManualRuns;
         }
+
+        protected override bool QueueManualRuns { get; }
+        protected override TimeSpan ErrorRetryDelay => TimeSpan.Zero;
 
         public override string ServiceKey => _serviceKey;
         protected override string ServiceName => _serviceKey;

@@ -160,12 +160,13 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
 
         // Enforce thread limit for guest users
         var userSession = HttpContext.GetUserSession();
-        if (userSession != null && request?.MaxConcurrency != null)
+        if (userSession != null)
         {
             var effectiveLimit = ResolveThreadLimit(userSession);
-            if (effectiveLimit.HasValue && request.MaxConcurrency > effectiveLimit.Value)
+            if (effectiveLimit.HasValue)
             {
-                request.MaxConcurrency = effectiveLimit.Value;
+                request ??= new StartPrefillRequest();
+                request.MaxConcurrency = Math.Min(request.MaxConcurrency ?? effectiveLimit.Value, effectiveLimit.Value);
             }
         }
 
@@ -181,7 +182,8 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
                 top: request?.Top,
                 force: request?.Force ?? false,
                 operatingSystems: request?.OperatingSystems,
-                maxConcurrency: request?.MaxConcurrency);
+                maxConcurrency: request?.MaxConcurrency, appIds: request?.AppIds,
+                cancellationToken: HttpContext.RequestAborted);
 
             if (result.RequiresLogin)
             {
@@ -235,6 +237,23 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
             maxSessionsPerUser = 1,
             sessionTimeoutMinutes = 120
         });
+    }
+
+    [HttpGet("sessions/{sessionId}/runs")]
+    public ActionResult<IReadOnlyList<DaemonRunStatus>> GetRuns(string sessionId)
+    {
+        var ownershipResult = ValidateSessionOwnership(sessionId);
+        if (ownershipResult is not null) return ownershipResult;
+        return Ok(_daemonService.GetRuns(sessionId));
+    }
+
+    [HttpPost("sessions/{sessionId}/runs/{runId:guid}/cancel")]
+    public async Task<ActionResult> CancelPrefillRunAsync(string sessionId, Guid runId, CancellationToken cancellationToken)
+    {
+        var ownershipResult = ValidateSessionOwnership(sessionId);
+        if (ownershipResult is not null) return ownershipResult;
+        await _daemonService.CancelPrefillRunAsync(sessionId, runId, cancellationToken);
+        return Ok();
     }
 
     /// <summary>

@@ -22,6 +22,8 @@ import type {
 } from './types';
 
 interface ScheduledPrefillPlatformsPanelProps {
+  cancellingRunIds?: string[];
+  runErrors?: Record<string, string>;
   config: ScheduledPrefillConfigDto;
   containerSettings?: (disabled: boolean) => ReactNode;
   initialServiceKey?: ScheduledPrefillServiceKey;
@@ -52,7 +54,7 @@ interface ScheduledPrefillPlatformsPanelProps {
   onSelectGames: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   onClearGames: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   onDownload: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
-  onCancelDownload: (serviceKey: ScheduledPrefillServiceKey) => void;
+  onCancelDownload: (serviceKey: ScheduledPrefillServiceKey, runId?: string) => void;
 }
 
 export function ScheduledPrefillPlatformsPanel({
@@ -80,7 +82,9 @@ export function ScheduledPrefillPlatformsPanel({
   onSelectGames,
   onClearGames,
   onDownload,
-  onCancelDownload
+  onCancelDownload,
+  cancellingRunIds,
+  runErrors
 }: ScheduledPrefillPlatformsPanelProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
@@ -313,7 +317,9 @@ export function ScheduledPrefillPlatformsPanel({
               onStart={() => onStart(activeServiceKey)}
               onLogin={(reuseIntegration) => onLogin(activeServiceKey, reuseIntegration)}
               onDownload={() => onDownload(activeServiceKey, activeSchedule.id)}
-              onCancelDownload={() => onCancelDownload(activeServiceKey)}
+              onCancelDownload={(runId) => onCancelDownload(activeServiceKey, runId)}
+              cancellingRunIds={cancellingRunIds}
+              runErrors={runErrors}
             />
           )}
         </div>

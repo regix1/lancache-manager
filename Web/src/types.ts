@@ -79,8 +79,18 @@ export interface QueuedOperationResponse {
   operationId: string;
   queued: boolean;
   alreadyRunning: boolean;
+  followUpQueued?: boolean | null;
   status: 'waiting' | 'started' | 'alreadyRunning' | 'skipped';
   /** Set only with `status: 'skipped'`: why the run was refused before it started. */
+  skippedReason?: string;
+}
+
+export interface TriggerAllResponse {
+  triggeredCount: number;
+  alreadyRunningCount?: number;
+  /** Older servers counted every already-running service as a follow-up. */
+  followUpCount?: number;
+  skippedCount?: number;
   skippedReason?: string;
 }
 

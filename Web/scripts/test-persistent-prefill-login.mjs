@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import typescript from 'typescript';
-import { bindLifted, liftHookCallback, parseSource } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback, parseSource, compileToUrl } from './transpile-module.mjs';
+
+const { supportsConcurrentPrefill, canStartPrefill, getPrefillRunProgress } = await import(
+  await compileToUrl('../src/components/features/prefill/hooks/prefillTypes.ts')
+);
 
 const path =
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx';
@@ -49,6 +53,9 @@ const components = Object.fromEntries(
   ].map((name) => [name, name])
 );
 const bindings = {
+  supportsConcurrentPrefill,
+  canStartPrefill,
+  getPrefillRunProgress,
   ...components,
   h: (type, props, ...children) => ({ type, props: props ?? {}, children }),
   Fragment: 'fragment',
@@ -56,6 +63,7 @@ const bindings = {
   useRef: (value) => ({ current: value }),
   useState: (value) => [value, () => undefined],
   useId: () => 'container-settings',
+  useMediaQuery: () => false,
   useTranslation: () => ({ t: translate }),
   useFormattedDateTime: () => '',
   usePersistentLoginStoreState: () => ({ sessionUnavailableState: null }),

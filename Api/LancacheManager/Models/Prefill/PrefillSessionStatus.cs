@@ -27,5 +27,6 @@ public enum PrefillHistoryEntryStatus
     Completed,
     Cached,
     Failed,
-    Cancelled
+    Cancelled,
+    Skipped
 }

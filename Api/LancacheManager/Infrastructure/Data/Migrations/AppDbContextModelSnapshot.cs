@@ -935,6 +935,16 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -961,7 +971,89 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("StartedAtUtc")
                         .HasDatabaseName("IX_PrefillHistoryEntries_StartedAtUtc");
 
+                    b.HasIndex("RunId", "AppId")
+                        .IsUnique()
+                        .HasFilter("\"RunId\" IS NOT NULL");
+
                     b.ToTable("PrefillHistoryEntries");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.PrefillRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CancelRequested")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DaemonInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)");
+
+                    b.Property<bool>("HistoryIncomplete")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NotificationMode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("OptionsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ParentOperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ScheduleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ScheduleName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "CompletedAtUtc");
+
+                    b.ToTable("PrefillRuns");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.PrefillSession", b =>
@@ -1460,8 +1552,27 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("LancacheManager.Models.PrefillHistoryEntry", b =>
                 {
+                    b.HasOne("LancacheManager.Models.PrefillRun", "Run")
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.HasOne("LancacheManager.Models.PrefillSession", "Session")
                         .WithMany("PrefillHistory")
+                        .HasForeignKey("SessionId")
+                        .HasPrincipalKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Run");
+
+                    b.Navigation("Session");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.PrefillRun", b =>
+                {
+                    b.HasOne("LancacheManager.Models.PrefillSession", "Session")
+                        .WithMany()
                         .HasForeignKey("SessionId")
                         .HasPrincipalKey("SessionId")
                         .OnDelete(DeleteBehavior.Cascade)

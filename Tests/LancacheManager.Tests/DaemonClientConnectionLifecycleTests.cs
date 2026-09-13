@@ -316,6 +316,66 @@ public sealed class DaemonClientConnectionLifecycleTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ConcurrentProtocolAsync(bool useTcp)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var id = Guid.NewGuid();
+        var instance = Guid.NewGuid().ToString();
+        var options = new DaemonRunOptions { AppIds = ["10"], MaxConcurrency = 3 };
+        var snapshot = new DaemonRunSnapshot
+        {
+            OperationId = id.ToString(),
+            DaemonInstanceId = instance,
+            StartedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Sequence = 1
+        };
+        var page = new DaemonOperationPage(snapshot, options, true, 1,
+            [new DaemonRunItem { AppId = "10", Depots = [new DepotManifestProgressInfo
+                { DepotId = 20, ManifestId = 30, TotalBytes = 40 }] }], null);
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var statusRequest = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("status", statusRequest.Type);
+            await WriteResponseAsync(stream, statusRequest.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(RunClient.Capabilities(instance), json));
+            var start = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("prefill", start.Type);
+            Assert.Equal(id.ToString(), start.Id);
+            await WriteResponseAsync(stream, start.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(new PrefillResult
+                { Success = true, RunId = id, DaemonInstanceId = instance, State = "started" }, json));
+            var query = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("get-operation", query.Type);
+            await WriteResponseAsync(stream, query.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(page, json));
+            var cancel = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("cancel-prefill", cancel.Type);
+            await WriteResponseAsync(stream, cancel.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(snapshot with { State = "cancelling" }, json));
+            await release.Task.WaitAsync(timeout.Token);
+        }, timeout.Token);
+        try
+        {
+            Assert.True((await client.GetStatusAsync(timeout.Token))!.SupportsConcurrentPrefill);
+            Assert.Equal(id, (await client.PrefillAsync(id, instance, options, cancellationToken: timeout.Token)).RunId);
+            var result = await client.GetOperationAsync(id, instance, cancellationToken: timeout.Token);
+            Assert.Equal(30UL, Assert.Single(Assert.Single(result.Items).Depots!).ManifestId);
+            Assert.Equal("cancelling", (await client.CancelPrefillAsync(id, instance, timeout.Token)).State);
+        }
+        finally { release.TrySetResult(); }
+        await server;
+    }
+
+    [Theory]
     [InlineData("auth-lost", "errors.steam.signInLost")]
     [InlineData("game-details-unavailable", "errors.steam.gameDetailsUnavailable")]
     [InlineData(null, "errors.prefill.requestFailed")]

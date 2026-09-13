@@ -235,13 +235,14 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        var (status, skippedReason, showNotification) = await _registry.TriggerRunAsync(serviceKey);
+        var (status, skippedReason, showNotification, followUpQueued) = await _registry.TriggerRunAsync(serviceKey);
         if (skippedReason is not null)
         {
             // The run is retained until downloads finish; its waiting event owns the acknowledgment.
             return Accepted(new QueuedOperationResponse
             {
                 Status = "skipped",
+                FollowUpQueued = followUpQueued,
                 ShowNotification = showNotification,
                 SkippedReason = skippedReason
             });
@@ -260,6 +261,7 @@ public class ScheduleController : ControllerBase
             return Accepted(new QueuedOperationResponse
             {
                 Status = "alreadyRunning",
+                FollowUpQueued = followUpQueued,
                 ShowNotification = showNotification,
                 AlreadyRunning = true,
                 OperationId = activeOperationId
@@ -269,6 +271,7 @@ public class ScheduleController : ControllerBase
         return Accepted(new QueuedOperationResponse
         {
             Status = "started",
+            FollowUpQueued = followUpQueued,
             ShowNotification = showNotification
         });
     }
@@ -293,7 +296,7 @@ public class ScheduleController : ControllerBase
     [ProducesResponseType(typeof(TriggerAllResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) = await _registry.TriggerAllAsync();
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, followUpCount) = await _registry.TriggerAllAsync();
         // As with the single-service run above, each woken service loop broadcasts its own run
         // start/end. A snapshot here would capture every service as not-yet-running and could race
         // those STARTs, so don't broadcast it.
@@ -301,6 +304,7 @@ public class ScheduleController : ControllerBase
         {
             TriggeredCount = triggeredCount,
             AlreadyRunningCount = alreadyRunningCount,
+            FollowUpCount = followUpCount,
             SkippedCount = skippedCount,
             SkippedReason = skippedReason
         });

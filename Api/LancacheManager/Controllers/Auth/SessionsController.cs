@@ -148,23 +148,43 @@ public class SessionsController : ControllerBase
     {
         var currentSession = HttpContext.GetUserSession();
         if (!await _sessionService.CallerMaySeeSessionAsync(currentSession, id))
-        {
             return NotFound(ApiResponse.NotFound("Session"));
-        }
-
-        var success = await _sessionService.RevokeSessionAsync(id);
-        if (!success)
-        {
+        var target = await _sessionService.GetSessionByIdAsync(id);
+        if (target == null)
             return NotFound(ApiResponse.NotFound("Session"));
-        }
 
-        // Broadcast session revoked
-        await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+        using var scope = _scopeFactory.CreateScope();
+        var guest = target.SessionType == SessionType.Guest;
+        if (guest)
+            PrefillDaemonServiceBase.GuestGate.EnterStop(id);
+        var cleanup = guest
+            ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider),
+                id, "Guest access revoked", currentSession?.Id.ToString())
+            : Task.FromResult(new GuestPrefillStopResult(0, 0));
+        GuestPrefillStopResult stopped;
+        try
         {
-            sessionId = id.ToString(),
-            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType.ToString().ToLowerInvariant() : "unknown"
-        });
-
+            if (!await _sessionService.RevokeSessionAsync(id))
+                return NotFound(ApiResponse.NotFound("Session"));
+            if (!target.IsRevoked)
+                await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+                {
+                    sessionId = id.ToString(),
+                    sessionType = target.SessionType.ToString().ToLowerInvariant()
+                });
+        }
+        finally
+        {
+            try { stopped = await cleanup; }
+            finally { if (guest) PrefillDaemonServiceBase.GuestGate.ExitStop(id); }
+        }
+        if (!stopped.Success)
+        {
+            var error = ApiResponse.Error("Session access was revoked, but prefill cleanup is incomplete. Retry this action.",
+                $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
+            error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
+        }
         return Ok(MessageResponse.Ok("Session revoked"));
     }
 
@@ -182,24 +202,49 @@ public class SessionsController : ControllerBase
     {
         var currentSession = HttpContext.GetUserSession();
         if (!await _sessionService.CallerMaySeeSessionAsync(currentSession, id))
-        {
             return NotFound(ApiResponse.NotFound("Session"));
-        }
-
-        var success = await _sessionService.DeleteSessionAsync(id);
-        if (!success)
-        {
+        var target = await _sessionService.GetSessionByIdAsync(id);
+        if (target == null)
             return NotFound(ApiResponse.NotFound("Session"));
-        }
-
-        // Broadcast session deleted (permanently removed)
-        await _signalR.NotifyAllAsync(SignalREvents.UserSessionDeleted, new
+        var guest = target.SessionType == SessionType.Guest;
+        using var scope = _scopeFactory.CreateScope();
+        if (guest)
+            PrefillDaemonServiceBase.GuestGate.EnterStop(id);
+        var cleanup = guest
+            ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider),
+                id, "Guest session deleted", currentSession?.Id.ToString())
+            : Task.FromResult(new GuestPrefillStopResult(0, 0));
+        try
         {
-            sessionId = id.ToString(),
-            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType.ToString().ToLowerInvariant() : "unknown"
-        });
-
-        return Ok(MessageResponse.Ok("Session permanently deleted"));
+            if (guest)
+            {
+                if (!await _sessionService.RevokeSessionAsync(id))
+                    return NotFound(ApiResponse.NotFound("Session"));
+                if (!target.IsRevoked)
+                    await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new { sessionId = id.ToString(), sessionType = "guest" });
+                var stopped = await cleanup;
+                if (!stopped.Success)
+                {
+                    var error = ApiResponse.Error("Session access was revoked, but deletion is waiting for prefill cleanup. Retry this action.",
+                        $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
+                    error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
+                }
+            }
+            if (!await _sessionService.DeleteSessionAsync(id))
+                return NotFound(ApiResponse.NotFound("Session"));
+            await _signalR.NotifyAllAsync(SignalREvents.UserSessionDeleted, new
+            {
+                sessionId = id.ToString(),
+                sessionType = target.SessionType.ToString().ToLowerInvariant()
+            });
+            return Ok(MessageResponse.Ok("Session permanently deleted"));
+        }
+        finally
+        {
+            try { await cleanup; }
+            finally { if (guest) PrefillDaemonServiceBase.GuestGate.ExitStop(id); }
+        }
     }
 
     /// <summary>
@@ -300,14 +345,56 @@ public class SessionsController : ControllerBase
     [ProducesResponseType(typeof(SessionClearGuestsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SessionClearGuestsResponse>> ClearGuestsAsync()
     {
-        var count = await _sessionService.RevokeAllGuestSessionsAsync();
-
-        await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
+        var pendingOwners = PrefillDaemonServiceBase.GuestGate.GetPendingOwners();
+        var active = await _sessionService.GetActiveSessionsAsync();
+        var targets = active.Where(session => session.SessionType == SessionType.Guest).ToDictionary(session => session.Id);
+        foreach (var id in pendingOwners)
         {
-            clearedCount = count,
-            sessionType = "guest"
-        });
-
+            var session = await _sessionService.GetSessionByIdAsync(id);
+            if (session?.SessionType == SessionType.Guest)
+                targets.TryAdd(id, session);
+        }
+        using var scope = _scopeFactory.CreateScope();
+        var daemons = PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider).ToArray();
+        foreach (var id in targets.Keys)
+            PrefillDaemonServiceBase.GuestGate.EnterStop(id);
+        var cleanups = targets.Keys.Select(id => PrefillDaemonServiceBase.TerminateGuestSessionsAsync(
+            daemons, id, "Guest sessions cleared", HttpContext.GetUserSession()?.Id.ToString())).ToArray();
+        var count = 0;
+        var failures = new List<Exception>();
+        GuestPrefillStopResult[] stopped;
+        try
+        {
+            foreach (var target in targets.Values)
+            {
+                try
+                {
+                    if (await _sessionService.RevokeSessionAsync(target.Id) && !target.IsRevoked)
+                        count++;
+                }
+                catch (Exception ex) { failures.Add(ex); }
+            }
+            if (count != 0)
+                await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new { clearedCount = count, sessionType = "guest" });
+        }
+        finally
+        {
+            try { stopped = await Task.WhenAll(cleanups); }
+            finally
+            {
+                foreach (var id in targets.Keys)
+                    PrefillDaemonServiceBase.GuestGate.ExitStop(id);
+            }
+        }
+        if (failures.Count != 0)
+            throw new AggregateException("Some guest sessions could not be revoked.", failures);
+        if (stopped.Any(result => !result.Success))
+        {
+            var error = ApiResponse.Error("Guest access was revoked, but prefill cleanup is incomplete. Retry this action.",
+                $"{count} sessions revoked; {stopped.Sum(result => result.FailedSessions)} sessions and {stopped.Sum(result => result.PendingStarts)} starts still require cleanup.");
+            error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
+        }
         return Ok(new SessionClearGuestsResponse { Success = true, ClearedCount = count });
     }
 

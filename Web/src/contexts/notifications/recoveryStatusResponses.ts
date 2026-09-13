@@ -84,9 +84,21 @@ export interface LogRemovalStatusResponse {
 
 /** One running service of the run, carrying what that service's card needs to be rebuilt. */
 interface ScheduledPrefillServiceRunStatus {
+  eventEpoch?: string;
+  eventSequence?: number;
+  recovering?: boolean;
+  stageContext?: Record<string, string | number | boolean | null> | null;
+  bytesDownloaded?: number | null;
+  totalBytes?: number | null;
+  downloadSessionId?: string | null;
+  needsLoginReason?: string | null;
+  daemonInstanceId?: string | null;
   serviceId: string;
   /** That service's own tracked operation, so the rebuilt card cancels only that service. */
-  operationId?: string | null;
+  operationId: string;
+  scheduleId?: string | null;
+  scheduleName?: string | null;
+  showNotification?: boolean;
   stage: string;
   message?: string | null;
   stageKey?: string | null;

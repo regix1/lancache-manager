@@ -1336,7 +1336,9 @@ public class StateService : IStateService
     {
         UpdateState(state =>
         {
-            state.ScheduledPrefillServiceLastActualRunUtc[platform] = lastRunUtc;
+            if (!state.ScheduledPrefillServiceLastActualRunUtc.TryGetValue(platform, out var previous)
+                || lastRunUtc > previous)
+                state.ScheduledPrefillServiceLastActualRunUtc[platform] = lastRunUtc;
         });
     }
 

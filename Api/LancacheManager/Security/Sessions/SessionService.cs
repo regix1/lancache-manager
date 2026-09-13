@@ -756,32 +756,6 @@ public class SessionService
         return true;
     }
 
-    public async Task<int> RevokeAllGuestSessionsAsync()
-    {
-        var now = DateTime.UtcNow;
-        using var context = _dbContextFactory.CreateDbContext();
-
-        // Capture the ids being revoked up front so their presence can be cleared individually — the
-        // bulk ExecuteUpdateAsync returns only a row count, not the affected keys.
-        var revokedIds = await context.UserSessions
-            .Where(s => s.SessionType == SessionType.Guest && !s.IsRevoked)
-            .Select(s => s.Id)
-            .ToListAsync();
-
-        var count = await context.UserSessions
-            .Where(s => s.SessionType == SessionType.Guest && !s.IsRevoked)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.IsRevoked, true)
-                .SetProperty(x => x.RevokedAtUtc, now));
-
-        _logger.LogInformation("Revoked {Count} guest sessions", count);
-        foreach (var id in revokedIds)
-        {
-            _connectionTrackingService?.DisconnectSession(id);
-            await ReportSessionPresenceAsync(id, false);
-        }
-        return count;
-    }
 
     /// <summary>
     /// Deletes all sessions from PostgreSQL. Called when a new API key is generated on startup

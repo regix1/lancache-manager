@@ -1759,10 +1759,20 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     try {
-      await ApiService.runAllSchedules();
+      const result = await ApiService.runAllSchedules();
       await fetchSchedules();
 
       flashAll();
+      const activeCount = result.alreadyRunningCount ?? 0;
+      const notQueuedCount = activeCount - (result.followUpCount ?? activeCount);
+      if (notQueuedCount > 0) {
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: t('management.schedules.runAllAlreadyRunning', { count: notQueuedCount }),
+          details: { notificationType: 'info' }
+        });
+      }
     } catch (err: unknown) {
       addNotification({
         type: 'generic',
@@ -1815,14 +1825,24 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               : t('management.schedules.runNowSkipped', { service: displayName }),
             details: { notificationType: 'warning', serviceKey: key }
           });
+        } else if (result.alreadyRunning && result.followUpQueued === false) {
+          clearPending(key);
+          setCompletedKeys((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+          if (result.showNotification === false) return;
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: t('management.schedules.runNowAlreadyRunning', { service: displayName }),
+            details: { notificationType: 'info', serviceKey: key }
+          });
         } else if (result.showNotification === false) {
           return;
         } else if (result.alreadyRunning) {
-          // The click still armed the service's pending-run flag, so one more run follows the
-          // one in progress - say that rather than only "already running", which reads as a
-          // no-op. Nothing is cleared here on purpose: the SchedulesUpdated handler retires the
-          // pending flag once server truth actually lands, so clearing it on this response would
-          // re-enable the button while the run it queued behind is still going.
+          // Generic services and older servers retain their existing follow-up behavior.
           addNotification({
             type: 'generic',
             status: 'completed',

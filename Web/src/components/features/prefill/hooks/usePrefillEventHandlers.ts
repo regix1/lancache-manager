@@ -5,11 +5,17 @@ import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '@/i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
-import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from './prefillTypes';
+import {
+  supportsConcurrentPrefill,
+  type PrefillProgress,
+  type BackgroundCompletion,
+  type CachedAnimationItem
+} from './prefillTypes';
 import { STORAGE_KEYS } from '@utils/constants';
 import { sessionStore } from '@utils/storage';
 
 interface UsePrefillEventHandlersOptions {
+  applyRunProgress?: (progress: PrefillProgress) => void;
   addLog: (type: LogEntryType, message: string, details?: string) => void;
   onAuthStateChanged: (state: DaemonAuthState) => void;
   setSession: React.Dispatch<React.SetStateAction<PrefillSessionDto | null>>;
@@ -136,6 +142,7 @@ export function registerPrefillEventHandlers(
 
   // Handle session subscribed confirmation
   connection.on(getEventName('SessionSubscribed', serviceId), (sessionDto: PrefillSessionDto) => {
+    sessionRef.current = sessionDto;
     setSession(sessionDto);
     setTimeRemaining(sessionDto.timeRemainingSeconds);
     setIsLoggedIn(sessionDto.authState === 'Authenticated');
@@ -146,7 +153,7 @@ export function registerPrefillEventHandlers(
     // the real bar binds from that push. Adding the invoke too is a redundant, racy double-write
     // (two snapshots + the live tick) that can flicker the bar backward. The visibilitychange /
     // onreconnected paths keep the invoke because there is no fresh subscribe replay there.
-    if (sessionDto.isPrefilling) {
+    if (sessionDto.isPrefilling && !supportsConcurrentPrefill(sessionDto)) {
       setIsPrefillActive(true);
       setPrefillProgress((prev) => prev ?? seedReconnectingProgressFromSession(sessionDto));
     }
@@ -194,7 +201,17 @@ export function registerPrefillEventHandlers(
   // Handle prefill progress updates
   connection.on(
     getEventName('PrefillProgress', serviceId),
-    ({ progress }: { sessionId: string; progress: PrefillProgress & { totalApps: number } }) => {
+    ({
+      sessionId,
+      progress
+    }: {
+      sessionId: string;
+      progress: PrefillProgress & { totalApps: number };
+    }) => {
+      if (progress.operationId && progress.daemonInstanceId) {
+        if (sessionRef.current?.id === sessionId) options.applyRunProgress?.(progress);
+        return;
+      }
       const isFinalState =
         progress.state === 'completed' ||
         progress.state === 'failed' ||
@@ -324,12 +341,21 @@ export function registerPrefillEventHandlers(
     ({
       sessionId: stateSessionId,
       state,
-      durationSeconds
+      durationSeconds,
+      operationId,
+      daemonInstanceId
     }: {
       sessionId: string;
       state: string;
       durationSeconds?: number;
+      operationId?: string;
+      daemonInstanceId?: string;
     }) => {
+      if (operationId && daemonInstanceId) {
+        if (sessionRef.current?.id === stateSessionId)
+          void rehydratePrefillProgress(connection, stateSessionId);
+        return;
+      }
       if (state === 'started') {
         setIsPrefillActive(true);
         setIsCancellingState(false);
@@ -459,6 +485,8 @@ export function registerPrefillEventHandlers(
         // Re-bind the live progress bar from server truth (the daemon may still be prefilling
         // after the socket drop). CONTRACT: GetCurrentPrefillProgress.
         await rehydratePrefillProgress(connection, currentSession.id);
+
+        if (supportsConcurrentPrefill(currentSession)) return;
 
         const lastResult = (await connection.invoke('GetLastPrefillResult', currentSession.id)) as {
           status: string;

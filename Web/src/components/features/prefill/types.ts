@@ -15,8 +15,15 @@ import type { DropdownOption } from '@components/ui/EnhancedDropdown';
 import type { MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import type { NetworkDiagnostics } from '@services/api.service';
 import type { DaemonSessionStatus, DaemonAuthState } from '@/types/operations';
+import type { PrefillRun } from './hooks/prefillTypes';
 
 export interface PrefillSessionDto {
+  runs?: PrefillRun[];
+  daemonInstanceId?: string | null;
+  features?: string[];
+  maxConcurrentRuns?: number;
+  activeRunCount?: number;
+  recovering?: boolean;
   id: string;
   userId: string;
   containerId: string;

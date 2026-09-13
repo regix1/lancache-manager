@@ -8,6 +8,12 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public class PrefillProgress
 {
+    public string? DaemonInstanceId { get; set; }
+    public long Sequence { get; set; }
+    public int SkippedApps { get; set; }
+    public int CancelledApps { get; set; }
+    public string? Reason { get; set; }
+
     /// <summary>Prefill command identifier. Null for progress from an older daemon.</summary>
     public string? OperationId { get; set; }
     /// <summary>Failure classification. Null when no classified failure was reported.</summary>

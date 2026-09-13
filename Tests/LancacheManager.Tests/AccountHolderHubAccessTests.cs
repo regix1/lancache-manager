@@ -28,6 +28,49 @@ namespace LancacheManager.Tests;
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class AccountHolderHubAccessTests
 {
+    [Theory]
+    [InlineData("revoked")]
+    [InlineData("deleted")]
+    [InlineData("expired")]
+    [InlineData("grant")]
+    [InlineData("owner")]
+    [InlineData("cookie")]
+    public async Task GuestAuthorizationAsync(string change)
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var scope = host.Application.Services.CreateScope();
+        var request = await SessionCookieAsync(host, scope, SessionType.Guest,
+            session => session.SteamPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(1));
+        var (hub, connection) = await ConnectToSteamDaemonHubAsync(host, scope, request);
+        var owner = Assert.IsType<Guid>(connection.Items["SessionId"]);
+        var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+        if (change == "revoked")
+            await sessions.RevokeSessionAsync(owner);
+        else if (change == "deleted")
+            await sessions.DeleteSessionAsync(owner);
+        else if (change == "owner")
+        {
+            var replacement = await SessionCookieAsync(host, scope, SessionType.Guest,
+                session => session.SteamPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(1));
+            request.Request.Headers.Cookie = replacement.Request.Headers.Cookie;
+        }
+        else if (change == "cookie")
+            request.Request.Headers.Cookie = "";
+        else
+        {
+            await using var database = await host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContextAsync();
+            var row = await database.UserSessions.SingleAsync(session => session.Id == owner);
+            if (change == "expired") row.ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-1);
+            else row.SteamPrefillExpiresAtUtc = null;
+            await database.SaveChangesAsync();
+        }
+        var error = await Assert.ThrowsAsync<HubException>(() => hub.CreateSessionAsync());
+        Assert.Equal("Session access is no longer valid.", error.Message);
+        Assert.Empty(host.Application.Services.GetRequiredService<SteamDaemonService>().GetUserSessions(owner));
+    }
+
     [Fact]
     public async Task SharedManagementAccessEndsOnlyAfterASecureModeIsSaved()
     {

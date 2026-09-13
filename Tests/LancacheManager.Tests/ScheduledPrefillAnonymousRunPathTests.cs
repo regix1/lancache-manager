@@ -30,6 +30,109 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledPrefillAnonymousRunPathTests
 {
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("failed")]
+    [InlineData("needs-login")]
+    public async Task DueSchedules_FirstPlatformRecordWinsAsync(string outcome)
+    {
+        var (steam, steamClient) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
+        var (riot, riotClient) = CreateRunnablePersistentDaemon(PrefillPlatform.Riot);
+        using var steamLifetime = steam;
+        using var riotLifetime = riot;
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        config.BattleNet.Schedules.Clear();
+        var first = new ScheduledPrefillSchedule
+        {
+            Id = config.Steam.Schedules[0].Id,
+            Name = "Daily selected",
+            Enabled = true,
+            IntervalHours = -1,
+            SelectedAppIds = ["10"],
+            NotificationMode = NotificationMode.Silent,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        };
+        config.Steam.Schedules.Clear();
+        config.Steam.Schedules.Add(first);
+        var second = new ScheduledPrefillSchedule
+        {
+            Id = Guid.NewGuid(),
+            Name = "Weekly selected",
+            Enabled = true,
+            IntervalHours = -1,
+            SelectedAppIds = ["20"],
+            NotificationMode = NotificationMode.All,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        };
+        config.Steam.Schedules.Add(second);
+        var riotSchedule = new ScheduledPrefillSchedule
+        {
+            Id = config.Riot.Schedules[0].Id,
+            Name = "Default",
+            Enabled = true,
+            IntervalHours = -1,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        };
+        config.Riot.Schedules.Clear();
+        config.Riot.Schedules.Add(riotSchedule);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        steamClient.PrefillHandler = async token =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(token);
+            var session = steam.GetActivePersistentSession()!;
+            session.IsPrefilling = false;
+            session.TotalBytesTransferred = 1024;
+            return new PrefillResult { Success = outcome == "completed", RequiresLogin = outcome == "needs-login" };
+        };
+        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
+        ((RecordingNotificationsProxy)(object)state).Config = config;
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        var skipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ((RecordingNotificationsProxy)(object)notifications).Notification = (eventName, message) =>
+        {
+            if (eventName == SignalREvents.ScheduledPrefillCompleted
+                && message.GetType().GetProperty("scheduleId")?.GetValue(message) is Guid id && id == second.Id)
+            {
+                Assert.Equal("skipped", message.GetType().GetProperty("status")!.GetValue(message));
+                Assert.Equal("signalr.scheduledPrefill.skippedOverlap", message.GetType().GetProperty("stageKey")!.GetValue(message));
+                skipped.TrySetResult();
+            }
+        };
+        using var services = new ServiceCollection()
+            .AddSingleton((SteamDaemonService)steam).AddSingleton((RiotDaemonService)riot)
+            .AddSingleton(tracker).AddSingleton(notifications).BuildServiceProvider();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            services.GetRequiredService<IServiceScopeFactory>(), state);
+        var execute = typeof(ScheduledPrefillService).GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var run = (Task)execute.Invoke(scheduler, [CancellationToken.None])!;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await skipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await riotClient.PrefillStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(riotClient.PrefillCalled);
+            Assert.Equal(["10"], steamClient.SelectedAppIdsSent);
+            Assert.Equal(1, steamClient.PrefillCalls);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await run.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.Equal(1, steamClient.PrefillCalls);
+        Assert.Equal(["10"], steamClient.SelectedAppIdsSent);
+        var calls = ((RecordingNotificationsProxy)(object)state).Calls;
+        Assert.Contains(calls, call => call.Method == nameof(IStateService.SetScheduledPrefillServiceLastRun)
+            && call.Args[0] as string == second.Id.ToString("N"));
+        Assert.DoesNotContain(calls, call => call.Method == nameof(IStateService.SetScheduledPrefillServiceLastActualRun)
+            && call.Args[0] as string == second.Id.ToString("N"));
+        await (Task)execute.Invoke(scheduler, [CancellationToken.None])!;
+        Assert.Equal(1, steamClient.PrefillCalls);
+    }
+
     private static readonly Guid SystemUserId = ScheduledPrefillConstants.DeriveSystemUserId();
 
     public static IEnumerable<object[]> AnonymousServices()
@@ -160,7 +263,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
         var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None })!;
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None, true })!;
         Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
         var stateCalls = ((RecordingNotificationsProxy)(object)state).Calls;
         Assert.Single(stateCalls, c => c.Method == nameof(IStateService.SetScheduledPrefillServiceLastRun));
@@ -209,7 +312,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
         var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None })!;
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None, true })!;
 
         Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
         var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
@@ -583,7 +686,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             new ScheduledPrefillServiceRunState(
                 serviceConfig.ServiceId,
                 serviceConfig.ScheduleId,
-                serviceConfig.ScheduleName),
+                serviceConfig.ScheduleName, false),
             CancellationToken.None);
 
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
@@ -777,6 +880,9 @@ public class ScheduledPrefillAnonymousRunPathTests
     // ScheduledPrefillServiceTests.CancellingTrackerProxy).
     private class RecordingNotificationsProxy : DispatchProxy
     {
+        private readonly object _sync = new();
+        public ScheduledPrefillConfigDto Config { get; set; } = ScheduledPrefillConfigFactory.CreateDefault();
+        public Action<string, object>? Notification { get; set; }
         public List<(string Method, object?[] Args)> Calls { get; } = new();
         public List<string> Stages { get; } = new();
         public List<bool> ShowNotificationValues { get; } = new();
@@ -800,61 +906,67 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            if (targetMethod is not null)
+            lock (_sync)
             {
-                Calls.Add((targetMethod.Name, args ?? []));
+                if (targetMethod is not null)
+                {
+                    Calls.Add((targetMethod.Name, args ?? []));
+                }
+                if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillConfig))
+                {
+                    return Config;
+                }
+
+                if (targetMethod?.Name == nameof(IUnifiedOperationTracker.RegisterOperation)) return Guid.NewGuid();
+
+                if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync) && args is { Length: >= 2 })
+                {
+                    Notification?.Invoke((string)args[0]!, args[1]!);
+                    var stageProperty = args[1]?.GetType().GetProperty("stage");
+                    if (stageProperty?.GetValue(args[1]) is string stage)
+                    {
+                        Stages.Add(stage);
+                    }
+
+                    var messageProperty = args[1]?.GetType().GetProperty("message");
+                    if (messageProperty?.GetValue(args[1]) is string message)
+                    {
+                        Messages.Add(message);
+                    }
+
+                    var stageKeyProperty = args[1]?.GetType().GetProperty("stageKey");
+                    if (stageKeyProperty is not null)
+                    {
+                        StageKeys.Add(stageKeyProperty.GetValue(args[1]) as string);
+                    }
+
+                    var percentProperty = args[1]?.GetType().GetProperty("percentComplete");
+                    if (percentProperty is not null)
+                    {
+                        PercentCompleteValues.Add((double?)percentProperty.GetValue(args[1]));
+                    }
+
+                    var bytesProperty = args[1]?.GetType().GetProperty("bytesDownloaded");
+                    if (bytesProperty is not null)
+                    {
+                        BytesDownloaded.Add((long?)bytesProperty.GetValue(args[1]));
+                    }
+
+                    var totalBytesProperty = args[1]?.GetType().GetProperty("totalBytes");
+                    if (totalBytesProperty is not null)
+                    {
+                        TotalBytes.Add((long?)totalBytesProperty.GetValue(args[1]));
+                    }
+
+                    var showNotificationProperty = args[1]?.GetType().GetProperty("showNotification");
+                    if (showNotificationProperty?.GetValue(args[1]) is bool showNotification)
+                    {
+                        ShowNotificationValues.Add(showNotification);
+                    }
+                }
+
+                return DefaultReturnValue(targetMethod);
             }
-            if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillConfig))
-            {
-                return ScheduledPrefillConfigFactory.CreateDefault();
-            }
-
-            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync) && args is { Length: >= 2 })
-            {
-                var stageProperty = args[1]?.GetType().GetProperty("stage");
-                if (stageProperty?.GetValue(args[1]) is string stage)
-                {
-                    Stages.Add(stage);
-                }
-
-                var messageProperty = args[1]?.GetType().GetProperty("message");
-                if (messageProperty?.GetValue(args[1]) is string message)
-                {
-                    Messages.Add(message);
-                }
-
-                var stageKeyProperty = args[1]?.GetType().GetProperty("stageKey");
-                if (stageKeyProperty is not null)
-                {
-                    StageKeys.Add(stageKeyProperty.GetValue(args[1]) as string);
-                }
-
-                var percentProperty = args[1]?.GetType().GetProperty("percentComplete");
-                if (percentProperty is not null)
-                {
-                    PercentCompleteValues.Add((double?)percentProperty.GetValue(args[1]));
-                }
-
-                var bytesProperty = args[1]?.GetType().GetProperty("bytesDownloaded");
-                if (bytesProperty is not null)
-                {
-                    BytesDownloaded.Add((long?)bytesProperty.GetValue(args[1]));
-                }
-
-                var totalBytesProperty = args[1]?.GetType().GetProperty("totalBytes");
-                if (totalBytesProperty is not null)
-                {
-                    TotalBytes.Add((long?)totalBytesProperty.GetValue(args[1]));
-                }
-
-                var showNotificationProperty = args[1]?.GetType().GetProperty("showNotification");
-                if (showNotificationProperty?.GetValue(args[1]) is bool showNotification)
-                {
-                    ShowNotificationValues.Add(showNotification);
-                }
-            }
-
-            return DefaultReturnValue(targetMethod);
         }
     }
 
@@ -918,6 +1030,8 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         public List<string>? SelectedAppIdsSent { get; private set; }
         public bool PrefillCalled { get; private set; }
+        public int PrefillCalls { get; private set; }
+        public TaskCompletionSource PrefillStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string LiveStatus { get; set; } = "logged-in";
         public bool RequiresLogin { get; set; }
         public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
@@ -1000,6 +1114,8 @@ public class ScheduledPrefillAnonymousRunPathTests
             Action? onCommandDispatched = null)
         {
             PrefillCalled = true;
+            PrefillCalls++;
+            PrefillStarted.TrySetResult();
             onCommandDispatched?.Invoke();
             Assert.NotNull(_session.PrefillScheduleId);
             if (PrefillHandler is not null)

@@ -161,16 +161,30 @@ public class ScheduledPrefillConfigController : ControllerBase
                 ? metadata.ShowNotification
                 : true,
             Services = serviceStates
-                .Select(pair => new ScheduledPrefillRunServiceStatus
+                .Select(pair =>
                 {
-                    ServiceId = pair.State!.ServiceId,
-                    ScheduleId = pair.State.ScheduleId,
-                    Name = pair.State.Name,
-                    OperationId = pair.Operation.Id.ToString(),
-                    Stage = pair.State.Stage,
-                    Message = pair.State.Message,
-                    StageKey = pair.State.StageKey,
-                    PercentComplete = pair.State.PercentComplete
+                    var snapshot = pair.State!.Snapshot;
+                    return new ScheduledPrefillRunServiceStatus
+                    {
+                        ServiceId = pair.State.ServiceId,
+                        ScheduleId = pair.State.ScheduleId,
+                        Name = pair.State.Name,
+                        ShowNotification = pair.State.ShowNotification,
+                        OperationId = pair.Operation.Id.ToString(),
+                        Stage = snapshot.Stage,
+                        Message = snapshot.Message,
+                        StageKey = snapshot.StageKey,
+                        PercentComplete = snapshot.PercentComplete,
+                        EventEpoch = snapshot.EventEpoch,
+                        EventSequence = snapshot.EventSequence,
+                        DaemonInstanceId = snapshot.DaemonInstanceId,
+                        StageContext = snapshot.StageContext,
+                        BytesDownloaded = snapshot.BytesDownloaded,
+                        TotalBytes = snapshot.TotalBytes,
+                        DownloadSessionId = snapshot.DownloadSessionId,
+                        NeedsLoginReason = snapshot.NeedsLoginReason,
+                        Recovering = snapshot.Recovering
+                    };
                 })
                 .ToArray()
         });

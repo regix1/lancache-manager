@@ -42,6 +42,7 @@ import ApiService, {
 import type { PrefillSessionStatus } from '@/types/operations';
 import { GAME_SERVICES, type GameServiceId } from '@/types/gameService';
 import { getErrorMessage } from '@utils/error';
+import { ApiError } from '@services/apiError';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { formatBytes } from '@utils/formatters';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
@@ -53,6 +54,8 @@ import { useMockMode } from '@contexts/useMockMode';
 import { cleanIpAddress } from '@components/features/user/types';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { PrefillProgressCard } from '@components/features/prefill/PrefillProgressCard';
+import { getPrefillRunProgress } from '@components/features/prefill/hooks/prefillTypes';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
 import '../managementSectionContent.css';
@@ -109,6 +112,8 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
         return t('management.prefillSessions.historyStatusBadges.error');
       case 'cancelled':
         return t('management.prefillSessions.historyStatusBadges.cancelled');
+      case 'skipped':
+        return t('prefill.runs.skipped');
       case 'cached':
         return t('management.prefillSessions.historyStatusBadges.cached');
       default:
@@ -411,11 +416,19 @@ const SessionCard: React.FC<{
 
       <CollapsibleRegion open={isHistoryExpanded} contentClassName="mgmt-row-detail">
         <div className="session-detail">
+          {isDaemonSession &&
+            session.runs?.map((run) => (
+              <PrefillProgressCard
+                key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
+                run={run}
+                progress={getPrefillRunProgress(run)}
+              />
+            ))}
           <p className="mgmt-subhead caps-label">
             {t('management.prefillSessions.labels.prefillHistory')}
           </p>
 
-          {isLoadingHistory ? (
+          {isLoadingHistory && historyData.length === 0 ? (
             <div className="flex items-center gap-2 text-xs text-themed-muted">
               <LoadingSpinner inline size="xs" />
               {t('management.prefillSessions.labels.loadingHistory')}
@@ -442,6 +455,9 @@ const SessionCard: React.FC<{
                         />
                       </div>
                       <div className="mgmt-row__meta session-row__meta">
+                        {entry.runId && (
+                          <span>{t('prefill.runs.name', { id: entry.runId.slice(0, 8) })}</span>
+                        )}
                         <span>
                           {t('management.prefillSessions.historyStarted')}{' '}
                           <FormattedTimestamp timestamp={entry.startedAtUtc} />
@@ -710,6 +726,13 @@ const PersistentContainerCard: React.FC<{
 
       <CollapsibleRegion open={isSchedulesExpanded} contentClassName="mgmt-row-detail">
         <div className="session-detail">
+          {container.runs?.map((run) => (
+            <PrefillProgressCard
+              key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
+              run={run}
+              progress={getPrefillRunProgress(run)}
+            />
+          ))}
           <p className="mgmt-subhead caps-label">{t(`${baseKey}.schedules`)}</p>
           {schedules.length === 0 ? (
             <EmptyState variant="text" title={t(`${baseKey}.noSchedules`)} />
@@ -1065,10 +1088,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     try {
       await ApiService.terminatePrefillSession(sessionId, 'Terminated by admin');
       onSuccess(t('management.prefillSessions.actions.terminateSession'));
-      await loadSessions();
-    } catch (error) {
+    } catch (error: unknown) {
       onError(getErrorMessage(error));
     } finally {
+      await loadSessions();
       setTerminatingSession(null);
     }
   };
@@ -1079,10 +1102,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       const result = await ApiService.terminateAllPrefillSessions('Bulk termination by admin');
       onSuccess(t('management.prefillSessions.terminatedCount', { count: result.count }));
       setTerminateAllConfirm(false);
-      await loadSessions();
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status === 503) setTerminateAllConfirm(false);
       onError(getErrorMessage(error));
     } finally {
+      await loadSessions();
       setTerminatingAll(false);
     }
   };
@@ -1097,10 +1121,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       );
       onSuccess(t('management.prefillSessions.actions.banUser'));
       setBanConfirm(null);
-      await Promise.all([loadSessions(), loadBans()]);
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status === 503) setBanConfirm(null);
       onError(getErrorMessage(error));
     } finally {
+      await Promise.all([loadSessions(), loadBans()]);
       setBanningSession(null);
     }
   };

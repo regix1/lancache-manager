@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
@@ -89,30 +89,6 @@ export function PrefillHomePage({
       xboxPrefillEnabled
     ]
   );
-
-  // Services a guest has access to (admins always see all cards).
-  const enabledServices = useMemo<readonly PrefillServiceConfig[]>(
-    () => PREFILL_SERVICES.filter((service: PrefillServiceConfig) => enabledByService[service.id]),
-    [enabledByService]
-  );
-
-  // If the user is a guest with access to exactly one service, skip the home page
-  // and go directly to that service's panel.
-  // Don't auto-redirect if there's already an error (e.g. Docker not running) to
-  // avoid an infinite redirect loop.
-  useEffect(() => {
-    if (isAdmin) return;
-    if (error) return;
-    if (enabledServices.length !== 1) return;
-    onServiceStart(enabledServices[0].id);
-  }, [isAdmin, enabledServices, onServiceStart, error]);
-
-  // If a guest only has one service, the effect above fires immediately, so
-  // we render nothing to avoid a flash of the home page.
-  // Show the home page if there's an error so the user can see it.
-  if (!isAdmin && enabledServices.length === 1 && !error) {
-    return null;
-  }
 
   return (
     <div className="prefill-home">

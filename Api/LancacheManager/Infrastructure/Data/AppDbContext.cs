@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<BannedPrefillUser> BannedPrefillUsers { get; set; }
     public DbSet<PrefillSession> PrefillSessions { get; set; }
     public DbSet<PrefillHistoryEntry> PrefillHistoryEntries { get; set; }
+    public DbSet<PrefillRun> PrefillRuns => Set<PrefillRun>();
     public DbSet<PrefillCachedDepot> PrefillCachedDepots { get; set; }
     public DbSet<CacheSnapshot> CacheSnapshots { get; set; }
     public DbSet<EpicGameMapping> EpicGameMappings { get; set; }
@@ -434,6 +435,20 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PrefillHistoryEntry>()
             .HasIndex(h => h.SessionId)
             .HasDatabaseName("IX_PrefillHistoryEntries_SessionId");
+
+        modelBuilder.Entity<PrefillRun>()
+            .HasOne(r => r.Session).WithMany().HasForeignKey(r => r.SessionId)
+            .HasPrincipalKey(s => s.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PrefillRun>()
+            .Property(r => r.Revision).IsConcurrencyToken();
+        modelBuilder.Entity<PrefillRun>()
+            .HasIndex(r => new { r.SessionId, r.CompletedAtUtc });
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .HasOne(h => h.Run).WithMany().HasForeignKey(h => h.RunId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .HasIndex(h => new { h.RunId, h.AppId }).IsUnique()
+            .HasFilter("\"RunId\" IS NOT NULL");
 
         modelBuilder.Entity<PrefillHistoryEntry>()
             .HasIndex(h => h.AppId)

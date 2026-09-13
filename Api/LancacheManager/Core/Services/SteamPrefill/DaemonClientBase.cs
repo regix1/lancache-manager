@@ -32,6 +32,8 @@ public abstract class DaemonClientBase : IDaemonClient
     private CancellationTokenSource? _receiveCts;
     private bool _disposed;
     private volatile bool _isAuthenticated;
+    private long _statusGeneration;
+    private DaemonStatus? _status;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly object _transportSync = new();
@@ -594,7 +596,7 @@ public abstract class DaemonClientBase : IDaemonClient
         TimeSpan? timeout,
         CancellationToken cancellationToken,
         Action? onCommandDispatched = null,
-        string? commandId = null)
+        string? commandId = null, long? expectedGeneration = null)
     {
         var command = new CommandRequest
         {
@@ -605,7 +607,7 @@ public abstract class DaemonClientBase : IDaemonClient
         };
 
         var generation = _connectionLifecycle.CurrentGeneration;
-        if (generation == 0)
+        if (generation == 0 || (expectedGeneration.HasValue && generation != expectedGeneration.Value))
         {
             throw new IOException("Not connected to daemon");
         }
@@ -672,20 +674,42 @@ public abstract class DaemonClientBase : IDaemonClient
     {
         try
         {
-            var response = await SendCommandAsync("status", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+            await EnsureConnectedAsync(cancellationToken);
+            var generation = _connectionLifecycle.CurrentGeneration;
+            var response = await SendCoreAsync("status", null, TimeSpan.FromSeconds(10), cancellationToken,
+                expectedGeneration: generation);
             if (response.Success && response.Data is JsonElement element)
             {
                 // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
                 var accountName = DaemonStatus.ParseAccountDisplayName(element);
-                return new DaemonStatus
+                DaemonStatus status;
+                try
                 {
-                    Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean() ? "logged-in" : "not-logged-in",
-                    Message = element.TryGetProperty("isInitialized", out var init) && init.GetBoolean() ? "Initialized" : "Not initialized",
-                    AuthExpiryUtc = DaemonStatus.ParseAuthExpiry(element),
-                    AccountDisplayName = accountName,
-                    DisplayName = accountName,
-                    Timestamp = DateTime.UtcNow
-                };
+                    status = JsonSerializer.Deserialize<DaemonStatus>(element.GetRawText(), _jsonOptions)
+                        ?? new DaemonStatus();
+                }
+                catch (JsonException ex)
+                {
+                    // An older or partially upgraded daemon remains usable through the exclusive protocol.
+                    _logger?.LogWarning(ex, "Daemon capabilities are malformed; using exclusive prefill");
+                    status = new DaemonStatus();
+                }
+                status.Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean()
+                    ? "logged-in" : "not-logged-in";
+                status.Message = element.TryGetProperty("isInitialized", out var init) && init.GetBoolean()
+                    ? "Initialized" : "Not initialized";
+                status.AuthExpiryUtc = DaemonStatus.ParseAuthExpiry(element);
+                status.AccountDisplayName = accountName;
+                status.DisplayName = accountName;
+                status.Timestamp = DateTime.UtcNow;
+                if (_connectionLifecycle.CurrentGeneration != generation)
+                {
+                    // A completed response remains valid for legacy status display, but cannot authorize a new run.
+                    status.Features = [];
+                }
+                _status = status;
+                _statusGeneration = generation;
+                return status;
             }
             return null;
         }
@@ -1362,6 +1386,85 @@ public abstract class DaemonClientBase : IDaemonClient
 
         return await ReadResultAsync<CacheStatusResult>("check-cache-status", parameters,
             TimeSpan.FromMinutes(10), cancellationToken);
+    }
+
+    public async Task<DaemonRunSnapshot> CancelPrefillAsync(Guid runId, string daemonInstanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("cancel-prefill", new Dictionary<string, string>
+        {
+            ["operationId"] = runId.ToString(),
+            ["daemonInstanceId"] = daemonInstanceId
+        }, TimeSpan.FromSeconds(10), cancellationToken);
+        if (!response.Success)
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+        if (response.Data is not JsonElement element)
+            throw new JsonException("Required cancellation result is absent.");
+        var snapshot = JsonSerializer.Deserialize<DaemonRunSnapshot>(element.GetRawText(), _jsonOptions)
+            ?? throw new JsonException("Required cancellation result is null.");
+        if (snapshot.OperationId != runId.ToString() || snapshot.DaemonInstanceId != daemonInstanceId)
+            throw new JsonException("Cancellation acknowledgement has a different operation identity.");
+        return snapshot;
+    }
+
+    public async Task<DaemonOperationPage> GetOperationAsync(Guid runId, string daemonInstanceId,
+        int offset = 0, int limit = 100, CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-operation", new Dictionary<string, string>
+        {
+            ["operationId"] = runId.ToString(),
+            ["daemonInstanceId"] = daemonInstanceId,
+            ["offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["limit"] = limit.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        }, TimeSpan.FromSeconds(10), cancellationToken);
+        if (!response.Success)
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+        if (response.Data is not JsonElement element)
+            throw new JsonException("Required operation page is absent.");
+        return JsonSerializer.Deserialize<DaemonOperationPage>(element.GetRawText(), _jsonOptions)
+            ?? throw new JsonException("Required operation page is null.");
+    }
+
+    public async Task<PrefillResult> PrefillAsync(Guid runId, string daemonInstanceId, DaemonRunOptions options,
+        List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+    {
+        var generation = _statusGeneration;
+        if (generation == 0 || generation != _connectionLifecycle.CurrentGeneration
+            || _status?.SupportsConcurrentPrefill != true || _status.DaemonInstanceId != daemonInstanceId)
+            throw new DaemonCommandException("instance-changed");
+
+        var parameters = new Dictionary<string, string>
+        {
+            ["protocolVersion"] = "2",
+            ["daemonInstanceId"] = daemonInstanceId,
+            ["force"] = options.Force ? "true" : "false",
+            ["maxConcurrency"] = options.MaxConcurrency.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["os"] = FormatOperatingSystems(options.OperatingSystems.ToList())
+        };
+        if (options.AppIds is not null)
+            parameters["appIds"] = JsonSerializer.Serialize(options.AppIds, _jsonOptions);
+        switch (options.Selection)
+        {
+            case "all": parameters["all"] = "true"; break;
+            case "recent": parameters["recent"] = "true"; break;
+            case "recently_purchased": parameters["recently_purchased"] = "true"; break;
+            case "top": parameters["top"] = options.TopCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                ?? throw new ArgumentException("A top selection requires a count.", nameof(options)); break;
+        }
+        if (cachedDepots is { Count: > 0 })
+            parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
+        var response = await SendCoreAsync("prefill", parameters, TimeSpan.FromSeconds(30), cancellationToken,
+            commandId: runId.ToString(), expectedGeneration: generation);
+        if (!response.Success || response.RequiresLogin == true)
+            return new PrefillResult { Success = false, RunId = runId, ErrorCode = response.ErrorCode,
+                RequiresLogin = response.RequiresLogin == true };
+        if (response.Data is not JsonElement element)
+            throw new JsonException("Required prefill acknowledgement is absent.");
+        var result = JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
+            ?? throw new JsonException("Required prefill acknowledgement is null.");
+        if (result.RunId != runId || result.DaemonInstanceId != daemonInstanceId)
+            throw new JsonException("Prefill acknowledgement has a different operation identity.");
+        return result;
     }
 
     private async Task<T> ReadResultAsync<T>(string command, Dictionary<string, string>? parameters,

@@ -30,6 +30,8 @@ public abstract class ScheduledServiceBase : BackgroundService
     private RunNotice? _manualNotice;
     private RunNotice? _deferredNotice;
     private RunNotice? _currentNotice;
+    private RunNotice? _startingNotice;
+    protected virtual bool QueueManualRuns => true;
     public RunNotice CurrentRunNotice
     {
         get => _currentNotice ??= new RunNotice(EffectiveNotificationMode, CurrentRunTrigger);
@@ -50,12 +52,33 @@ public abstract class ScheduledServiceBase : BackgroundService
 
     public RunNotice TriggerImmediateRun(RunNotice notice, Action<RunNotice>? admitted = null)
     {
+        TryTriggerImmediateRun(notice, out var retained, out _,
+            admitted is null ? null : (selected, _) => admitted(selected));
+        return retained;
+    }
+
+    public bool TryTriggerImmediateRun(
+        RunNotice notice,
+        out RunNotice retained,
+        out bool followUpQueued,
+        Action<RunNotice, bool>? admitted = null)
+    {
         lock (IntervalLock)
         {
+            var busy = _startingNotice is not null || IsCurrentlyExecuting;
+            if (!QueueManualRuns && (busy || _pendingManualRun != 0))
+            {
+                retained = _manualNotice ?? _startingNotice ?? CurrentRunNotice;
+                followUpQueued = false;
+                return false;
+            }
+
             _manualNotice ??= notice;
-            admitted?.Invoke(_manualNotice);
+            retained = _manualNotice;
+            followUpQueued = busy;
+            admitted?.Invoke(_manualNotice, followUpQueued);
             TriggerImmediateRun();
-            return _manualNotice;
+            return true;
         }
     }
 
@@ -141,7 +164,14 @@ public abstract class ScheduledServiceBase : BackgroundService
     public bool IsCurrentlyExecuting
     {
         get => _isCurrentlyExecuting;
-        protected set => _isCurrentlyExecuting = value;
+        protected set
+        {
+            lock (IntervalLock)
+            {
+                _isCurrentlyExecuting = value;
+                if (!value && QueueManualRuns) _startingNotice = null;
+            }
+        }
     }
 
     /// <summary>
@@ -165,6 +195,7 @@ public abstract class ScheduledServiceBase : BackgroundService
             var pending = Interlocked.Exchange(ref _pendingManualRun, 0) == 1;
             notice = pending ? _manualNotice ?? new RunNotice(EffectiveNotificationMode, RunTrigger.Manual) : null;
             _manualNotice = null;
+            _startingNotice = notice;
             return pending;
         }
     }
@@ -189,6 +220,7 @@ public abstract class ScheduledServiceBase : BackgroundService
             var pending = Interlocked.Exchange(ref _pendingDeferredRun, 0) == 1;
             notice = pending ? _deferredNotice ?? new RunNotice(EffectiveNotificationMode, RunTrigger.Scheduled) : null;
             _deferredNotice = null;
+            if (pending) _startingNotice ??= notice;
             return pending;
         }
     }
@@ -202,6 +234,10 @@ public abstract class ScheduledServiceBase : BackgroundService
         // iteration observes it when it computes CurrentRunTrigger.
         lock (IntervalLock)
         {
+            if (!QueueManualRuns && (_startingNotice is not null || IsCurrentlyExecuting || _pendingManualRun != 0))
+            {
+                return;
+            }
             _manualNotice ??= new RunNotice(EffectiveNotificationMode, RunTrigger.Manual);
             Interlocked.Exchange(ref _pendingManualRun, 1);
             CancelIntervalDelay();
@@ -575,38 +611,46 @@ public abstract class ScheduledServiceBase : BackgroundService
         Action broadcastEnd,
         RunNotice? notice = null)
     {
-        // Asked before the try is entered, so a declined run never reaches the finally below: it
-        // leaves LastRunUtc on the time of the last run that really happened, never flips
-        // IsCurrentlyExecuting, and broadcasts no end for a run that had no start. RunFailed stays
-        // false because a decline is not a failure, so the caller sleeps its ordinary interval
-        // instead of backing off and retrying a minute later.
-        // The pending Run Now flag has already been taken by the loop above by the time this runs, so
-        // a manual attempt refused here is gone. That is why the trigger is handed over: whoever
-        // answers has to report a refused manual attempt rather than let the click disappear.
-        SelectRunNotice(trigger, notice);
-        var runNotice = CurrentRunNotice;
-        if (runNotice.Cancelled)
+        // Keep the consumed notice owned through the gate and terminal publication. A natural tick
+        // absorbs an earlier manual request only when this service does not retain follow-up runs.
+        RunNotice runNotice;
+        lock (IntervalLock)
         {
-            RunCompleted?.Invoke(runNotice, serviceKey, null, true);
-            return (false, false);
+            if (!QueueManualRuns && _pendingManualRun != 0 && _startingNotice is null)
+            {
+                notice = _manualNotice;
+                trigger = RunTrigger.Manual;
+                _manualNotice = null;
+                _pendingManualRun = 0;
+            }
+            SelectRunNotice(trigger, notice);
+            runNotice = CurrentRunNotice;
+            _startingNotice = runNotice;
         }
-        var runDenial = ScheduleRunGate?.Invoke(serviceKey, CurrentRunTrigger);
-        if (runDenial is not null)
-        {
-            _logger.LogInformation("{ServiceName} run skipped: {Reason}", ServiceName, runDenial);
-            return (false, false);
-        }
-
-        runNotice = CurrentRunNotice;
-        IsCurrentlyExecuting = true;
+        var startNotice = runNotice;
         var workStarted = false;
+        var executionEntered = false;
+        var declined = false;
         var runFailed = false;
         var shuttingDown = false;
         string? error = null;
-        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, runNotice.Token);
+        CancellationTokenSource? runCts = null;
         try
         {
             if (runNotice.Cancelled) return (false, false);
+            stoppingToken.ThrowIfCancellationRequested();
+            var runDenial = ScheduleRunGate?.Invoke(serviceKey, CurrentRunTrigger);
+            if (runDenial is not null)
+            {
+                declined = true;
+                _logger.LogInformation("{ServiceName} run skipped: {Reason}", ServiceName, runDenial);
+                return (false, false);
+            }
+            runNotice = CurrentRunNotice;
+            if (runNotice.Cancelled) return (false, false);
+            runCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, runNotice.Token);
+            IsCurrentlyExecuting = true;
+            executionEntered = true;
             runCts.Token.ThrowIfCancellationRequested();
             workStarted = true;
             await executeWork(runCts.Token);
@@ -618,7 +662,7 @@ public abstract class ScheduledServiceBase : BackgroundService
             // instead of silently ending the service loop.
             shuttingDown = true;
         }
-        catch (OperationCanceledException) when (runNotice.Cancelled || runCts.IsCancellationRequested)
+        catch (OperationCanceledException) when (runNotice.Cancelled || runCts?.IsCancellationRequested == true)
         {
             // A cancelled admission does not change the next scheduled occurrence.
         }
@@ -643,11 +687,21 @@ public abstract class ScheduledServiceBase : BackgroundService
             {
                 LastRunUtc = DateTime.UtcNow;
             }
-            IsCurrentlyExecuting = false;
-            if (!shuttingDown) RunCompleted?.Invoke(runNotice, serviceKey, error, runNotice.Cancelled || runCts.IsCancellationRequested);
-            // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
-            // the dot clears - including on the failed-run path.
-            broadcastEnd();
+            try
+            {
+                IsCurrentlyExecuting = false;
+                if (!shuttingDown && !declined)
+                    RunCompleted?.Invoke(runNotice, serviceKey, error, runNotice.Cancelled || runCts?.IsCancellationRequested == true);
+                if (executionEntered) broadcastEnd();
+            }
+            finally
+            {
+                runCts?.Dispose();
+                lock (IntervalLock)
+                {
+                    if (ReferenceEquals(_startingNotice, startNotice)) _startingNotice = null;
+                }
+            }
         }
 
         // Back off AFTER the finally above has cleared the flag and broadcast the end, so a

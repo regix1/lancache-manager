@@ -277,11 +277,41 @@ const ANNOUNCEMENT_MIN_INTERVAL_MS = 5000;
 
 /** Rate-limit screen-reader updates while keeping stage/terminal changes immediate. */
 function useNotificationAnnouncement(notification: UnifiedNotification): string {
-  const accessibleText =
+  const { t } = useTranslation();
+  const recovering =
+    notification.details?.recovering === true ||
+    notification.details?.connectionRecovering === true;
+  const cancelling =
+    notification.status === 'cancelling' || notification.details?.cancelRequested === true;
+  const terminalText =
+    notification.type === 'scheduled_prefill' && isTerminalNotificationStatus(notification.status)
+      ? notification.status === 'cancelled' || notification.details?.cancelled
+        ? t('prefill.runs.cancelled')
+        : notification.status === 'failed'
+          ? t('prefill.runs.failed')
+          : notification.status === 'skipped'
+            ? t('prefill.runs.skipped')
+            : t('prefill.runs.completed')
+      : null;
+  const accessibleText = [
+    terminalText,
     notification.progressAriaValueText ??
-    [notification.message, notification.detailMessage].filter(Boolean).join(' ');
+      [
+        cancelling ? t('prefill.progress.cancelling') : null,
+        recovering ? t('prefill.progress.reconnecting') : null,
+        notification.message,
+        notification.detailMessage
+      ]
+        .filter(Boolean)
+        .join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ');
   const [announcement, setAnnouncement] = useState(accessibleText);
   const lastAnnouncementRef = useRef({
+    text: accessibleText,
+    recovering,
+    cancelling,
     at: Date.now(),
     message: notification.message,
     wholePercent: Math.floor(notification.progress ?? 0),
@@ -294,20 +324,34 @@ function useNotificationAnnouncement(notification: UnifiedNotification): string 
     const terminal = isTerminalNotificationStatus(notification.status);
     const previous = lastAnnouncementRef.current;
     const shouldAnnounce =
-      notification.message !== previous.message ||
+      recovering !== previous.recovering ||
+      cancelling !== previous.cancelling ||
+      (notification.message !== previous.message && notification.type !== 'scheduled_prefill') ||
       (terminal && !previous.terminal) ||
-      (wholePercent !== previous.wholePercent && now - previous.at >= ANNOUNCEMENT_MIN_INTERVAL_MS);
+      ((wholePercent !== previous.wholePercent || accessibleText !== previous.text) &&
+        now - previous.at >= ANNOUNCEMENT_MIN_INTERVAL_MS);
 
     if (shouldAnnounce) {
-      setAnnouncement(accessibleText);
+      if (accessibleText !== previous.text) setAnnouncement(accessibleText);
       lastAnnouncementRef.current = {
+        text: accessibleText,
+        recovering,
+        cancelling,
         at: now,
         message: notification.message,
         wholePercent,
         terminal
       };
     }
-  }, [accessibleText, notification.message, notification.progress, notification.status]);
+  }, [
+    accessibleText,
+    notification.message,
+    notification.progress,
+    notification.status,
+    notification.type,
+    recovering,
+    cancelling
+  ]);
 
   return announcement;
 }
@@ -436,6 +480,13 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
 
         <div className={titleKey ? 'notification-card__body' : undefined}>
           {renderTitle()}
+
+          {(notification.details?.recovering || notification.details?.connectionRecovering) &&
+            !isTerminalNotificationStatus(notification.status) && (
+              <p className="text-xs text-themed-muted mt-0.5">
+                {t('prefill.progress.reconnectingMessage')}
+              </p>
+            )}
 
           {/* Detail message (except for service_removal which shows details differently) */}
           {notification.detailMessage && notification.type !== 'service_removal' && (

@@ -91,11 +91,11 @@ public class PrefillAdminController : ControllerBase
         var (sessions, totalCount) = await _sessionService.GetSessionsAsync(caller, page, pageSize, status, platform);
 
         // Also get in-memory sessions for live data from all services
-        var steamSessions = _steamDaemonService.GetAllSessions();
-        var epicSessions = _epicDaemonService.GetAllSessions();
-        var battleNetSessions = _battleNetDaemonService.GetAllSessions();
-        var riotSessions = _riotDaemonService.GetAllSessions();
-        var xboxSessions = _xboxDaemonService.GetAllSessions();
+        var steamSessions = _steamDaemonService.GetAllSessions(includeTerminating: true);
+        var epicSessions = _epicDaemonService.GetAllSessions(includeTerminating: true);
+        var battleNetSessions = _battleNetDaemonService.GetAllSessions(includeTerminating: true);
+        var riotSessions = _riotDaemonService.GetAllSessions(includeTerminating: true);
+        var xboxSessions = _xboxDaemonService.GetAllSessions(includeTerminating: true);
         var liveSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).Concat(riotSessions).Concat(xboxSessions).ToList();
 
         // Enrich DB sessions with live data.
@@ -127,14 +127,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     private (string? Ip, string? Source) GetLastPrefillCacheRouting()
     {
-        var services = new PrefillDaemonServiceBase[]
-        {
-            _steamDaemonService,
-            _epicDaemonService,
-            _battleNetDaemonService,
-            _riotDaemonService,
-            _xboxDaemonService
-        };
+        var services = GetDaemons();
 
         var withIp = services.FirstOrDefault(s => s.LastInjectedLancacheIp != null);
         if (withIp != null)
@@ -160,11 +153,7 @@ public class PrefillAdminController : ControllerBase
     public async Task<ActionResult<List<DaemonSessionDto>>> GetActiveSessionsAsync()
     {
         var caller = HttpContext.GetUserSession();
-        var sessions = _steamDaemonService.GetAllSessions()
-            .Concat(_epicDaemonService.GetAllSessions())
-            .Concat(_battleNetDaemonService.GetAllSessions())
-            .Concat(_riotDaemonService.GetAllSessions())
-            .Concat(_xboxDaemonService.GetAllSessions())
+        var sessions = GetDaemons().SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true))
             .ToList();
 
         var visible = new List<DaemonSessionDto>();
@@ -220,35 +209,49 @@ public class PrefillAdminController : ControllerBase
         string sessionId,
         [FromBody] TerminateSessionRequest? request = null)
     {
+        if (!await _sessionService.CallerMaySeeSessionAsync(HttpContext.GetUserSession(), sessionId))
+            return NotFound(ApiResponse.NotFound("Session"));
         var adminSessionId = HttpContext.GetRequiredSessionId();
-        var adminSessionIdString = adminSessionId.ToString();
         var reason = request?.Reason ?? "Terminated by admin";
-        var force = request?.Force ?? false;
-
-        var targetSession = _steamDaemonService.GetAllSessions()
-            .Concat(_epicDaemonService.GetAllSessions())
-            .Concat(_battleNetDaemonService.GetAllSessions())
-            .Concat(_riotDaemonService.GetAllSessions())
-            .Concat(_xboxDaemonService.GetAllSessions())
-            .FirstOrDefault(s => s.Id == sessionId);
-
-        if (targetSession != null && !PrefillSessionService.IsTerminatableByAdmin(targetSession))
+        var target = GetDaemons().SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true))
+            .FirstOrDefault(session => session.Id == sessionId);
+        var history = target == null ? await _sessionService.GetSessionAsync(sessionId) : null;
+        if ((target != null && !PrefillSessionService.IsTerminatableByAdmin(target))
+            || (history != null && !PrefillSessionService.IsTerminatableByAdmin(history)))
+            return BadRequest(ApiResponse.Error("This session belongs to a persistent container. Stop it from Management > Schedules instead."));
+        var owner = target?.IsTemporary == true ? target.UserId : history?.CreatedBySessionId;
+        var guest = owner.HasValue ? await _sessionService.GetGuestSessionAsync(owner.Value) : null;
+        if (guest != null)
+            PrefillDaemonServiceBase.GuestGate.EnterStop(guest.Id);
+        try
         {
-            return BadRequest(ApiResponse.Error(
-                "This session belongs to a persistent container and cannot be terminated here. Stop it from Management > Schedules (PersistentPrefillController.StopAsync) instead."));
+            var stopped = guest != null
+                ? await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(GetDaemons(), guest.Id, reason, adminSessionId.ToString())
+                : await StopSessionAsync(sessionId, reason, request?.Force ?? false, adminSessionId.ToString());
+            if (!stopped.Success)
+            {
+                var error = ApiResponse.Error("Prefill cleanup is incomplete. Retry this action.",
+                    $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
+                error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
+            }
+            return Ok(new MessageOnlyResponse { Message = "Session terminated" });
         }
+        finally { if (guest != null) PrefillDaemonServiceBase.GuestGate.ExitStop(guest.Id); }
+    }
 
-        _logger.LogWarning("Admin session {AdminId} terminating session {SessionId}: {Reason}",
-            adminSessionId, sessionId, reason);
+    private PrefillDaemonServiceBase[] GetDaemons() =>
+        [_steamDaemonService, _epicDaemonService, _battleNetDaemonService, _riotDaemonService, _xboxDaemonService];
 
-        // Try each service in turn; the ones that don't own the session ignore it
-        await _steamDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
-        await _epicDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
-        await _battleNetDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
-        await _riotDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
-        await _xboxDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
-
-        return Ok(new MessageOnlyResponse { Message = "Session terminated" });
+    private async Task<GuestPrefillStopResult> StopSessionAsync(string sessionId, string reason, bool force, string terminatedBy)
+    {
+        var stops = GetDaemons().Select(daemon => daemon.TerminateSessionAsync(sessionId, reason, force, terminatedBy)).ToArray();
+        try { await Task.WhenAll(stops); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Session {SessionId} cleanup is incomplete; unfinished stages remain available for retry", sessionId);
+        }
+        return new GuestPrefillStopResult(stops.Count(stop => !stop.IsCompletedSuccessfully), 0);
     }
 
     /// <summary>
@@ -264,7 +267,7 @@ public class PrefillAdminController : ControllerBase
         UserSession? caller)
     {
         var terminatable = new List<DaemonSession>();
-        foreach (var session in service.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin))
+        foreach (var session in service.GetAllSessions(includeTerminating: true).Where(PrefillSessionService.IsTerminatableByAdmin))
         {
             if (await _sessionService.CallerMaySeeSessionAsync(caller, session.Id))
             {
@@ -307,29 +310,20 @@ public class PrefillAdminController : ControllerBase
         _logger.LogWarning("Admin session {AdminId} terminating all {Count} non-persistent sessions: {Reason}",
             adminSessionId, count, reason);
 
-        foreach (var session in steamSessions)
+        var stops = steamSessions.Select(session => _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString))
+            .Concat(epicSessions.Select(session => _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
+            .Concat(battleNetSessions.Select(session => _battleNetDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
+            .Concat(riotSessions.Select(session => _riotDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
+            .Concat(xboxSessions.Select(session => _xboxDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
+            .ToArray();
+        try { await Task.WhenAll(stops); }
+        catch (Exception)
         {
-            await _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
-        }
-
-        foreach (var session in epicSessions)
-        {
-            await _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
-        }
-
-        foreach (var session in battleNetSessions)
-        {
-            await _battleNetDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
-        }
-
-        foreach (var session in riotSessions)
-        {
-            await _riotDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
-        }
-
-        foreach (var session in xboxSessions)
-        {
-            await _xboxDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
+            var failed = stops.Count(stop => !stop.IsCompletedSuccessfully);
+            var error = ApiResponse.Error("Some prefill sessions could not be terminated. Retry this action.",
+                $"{count - failed} sessions terminated; {failed} sessions still require cleanup.");
+            error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
         }
 
         return Ok(new TerminatedSessionsResponse { Count = count });
@@ -392,35 +386,43 @@ public class PrefillAdminController : ControllerBase
         [FromBody] BanRequest request)
     {
         if (!await _sessionService.CallerMaySeeSessionAsync(HttpContext.GetUserSession(), sessionId))
-        {
             return NotFound(ApiResponse.NotFound("Session"));
-        }
-
-        var adminSessionId = HttpContext.GetRequiredSessionId();
-        var adminSessionIdString = adminSessionId.ToString();
-
-        var ban = await _sessionService.BanUserBySessionAsync(
-            sessionId,
-            request.Reason,
-            adminSessionIdString,
-            request.ExpiresAt);
-
-        if (ban == null)
+        var adminSessionId = HttpContext.GetRequiredSessionId().ToString();
+        var target = GetDaemons().SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true))
+            .FirstOrDefault(session => session.Id == sessionId);
+        var history = target == null ? await _sessionService.GetSessionAsync(sessionId) : null;
+        if ((target != null && !PrefillSessionService.IsTerminatableByAdmin(target))
+            || (history != null && !PrefillSessionService.IsTerminatableByAdmin(history)))
+            return BadRequest(ApiResponse.Error("This session belongs to a persistent container. Stop it from Management > Schedules instead."));
+        var owner = target?.IsTemporary == true ? target.UserId : history?.CreatedBySessionId;
+        var guest = owner.HasValue ? await _sessionService.GetGuestSessionAsync(owner.Value) : null;
+        if (guest != null)
+            PrefillDaemonServiceBase.GuestGate.EnterStop(guest.Id);
+        var cleanup = guest != null
+            ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(GetDaemons(), guest.Id, "Banned by admin", adminSessionId)
+            : Task.FromResult(new GuestPrefillStopResult(0, 0));
+        try
         {
-            return BadRequest(ApiResponse.Error("Could not ban user - session not found or has no identity to ban."));
+            var ban = await _sessionService.BanUserBySessionAsync(sessionId, request.Reason, adminSessionId, request.ExpiresAt);
+            if (ban == null)
+                return BadRequest(ApiResponse.Error("Could not ban user - session not found or has no identity to ban."));
+            var stopped = guest != null
+                ? await cleanup
+                : await StopSessionAsync(sessionId, "Banned by admin", force: true, adminSessionId);
+            if (!stopped.Success)
+            {
+                var error = ApiResponse.Error("The ban was saved, but prefill cleanup is incomplete. Retry this action.",
+                    $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
+                error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
+            }
+            return Ok(ToBanDto(ban));
         }
-
-        // Also terminate the session (try all services since we don't know the platform)
-        await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
-        await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
-        await _battleNetDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
-        await _riotDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
-        await _xboxDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
-
-        _logger.LogWarning("Admin session {AdminId} banned prefill user (username={Username}, userId={BannedUserId}) from session {SessionId}. Reason: {Reason}",
-            adminSessionId, ban.Username ?? "(none)", ban.BannedUserId, sessionId, request.Reason);
-
-        return Ok(ToBanDto(ban));
+        finally
+        {
+            try { await cleanup; }
+            finally { if (guest != null) PrefillDaemonServiceBase.GuestGate.ExitStop(guest.Id); }
+        }
     }
 
     /// <summary>

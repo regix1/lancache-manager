@@ -74,6 +74,13 @@ export interface NotificationTerminal {
 
 /** Values retained for this mounted notification session, independent of card dismissal. */
 export interface NotificationEvents {
+  connectionGeneration?: number;
+  requestRecovery?: () => void;
+  versions?: Map<
+    string,
+    { epoch: string; sequence: number; daemonInstanceId?: string; retired: Set<string> }
+  >;
+  pending?: Map<string, NotificationEvent>;
   revision: number;
   records: Map<string, Partial<Record<NotificationEvent['phase'], NotificationEvent>>>;
   handoffs: Map<string, OperationWaitingCompleteEvent>;
@@ -135,6 +142,15 @@ export interface UnifiedNotification {
     directoriesProcessed?: number;
     bytesDeleted?: number;
     operationId?: string;
+    eventEpoch?: string;
+    eventSequence?: number;
+    daemonInstanceId?: string;
+    stage?: string;
+    recovering?: boolean;
+    connectionRecovering?: boolean;
+    scheduleId?: string;
+    scheduleName?: string;
+    runOperationId?: string;
     previousOperationId?: string | null;
     /** The visible message still belongs to the predecessor operation. */
     handoffPending?: boolean;

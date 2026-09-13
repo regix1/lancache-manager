@@ -1,16 +1,23 @@
 import { useTranslation } from 'react-i18next';
+import { useContext, useEffect, useId, useState } from 'react';
+import { PrefillContext } from '@contexts/PrefillContext.types';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
-import { Download } from 'lucide-react';
+import { ChevronDown, Download } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatSpeed, formatPercent } from '@utils/formatters';
 import { formatTimeRemaining, formatEtaShort } from './types';
-import type { PrefillProgress } from './hooks/prefillTypes';
+import { isPrefillRunActive, type PrefillRun, type PrefillProgress } from './hooks/prefillTypes';
+import { Alert } from '../../ui/Alert';
+import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 
 interface PrefillProgressCardProps {
+  run?: PrefillRun;
+  error?: string;
+  disabled?: boolean;
   progress: PrefillProgress;
-  onCancel: () => void;
+  onCancel?: () => void;
   /** When true the Cancel button shows a disabled "Cancelling..." state. */
   isCancelling?: boolean;
 }
@@ -18,9 +25,19 @@ interface PrefillProgressCardProps {
 export function PrefillProgressCard({
   progress,
   onCancel,
-  isCancelling = false
+  isCancelling = false,
+  run,
+  error,
+  disabled = false
 }: PrefillProgressCardProps) {
   const { t } = useTranslation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsId = useId();
+  const completionContext = useContext(PrefillContext);
+  const recordRunCompletion = completionContext?.recordRunCompletion;
+  useEffect(() => {
+    if (run && !isPrefillRunActive(run)) recordRunCompletion?.(run);
+  }, [run, recordRunCompletion]);
 
   const getStateLabel = () => {
     switch (progress.state) {
@@ -80,6 +97,215 @@ export function PrefillProgressCard({
     (progress.currentAppName || t('prefill.progress.appId', { id: progress.currentAppId })) +
     (progress.state === 'app_completed' ? ` - ${t('prefill.progress.complete')}` : '') +
     (progress.state === 'already_cached' ? ` - ${t('prefill.progress.upToDate')}` : '');
+
+  if (run) {
+    const active = isPrefillRunActive(run);
+    if (!active && completionContext?.isRunCompletionDismissed(run)) return null;
+    const { snapshot } = run;
+    const name = run.scheduleName || t('prefill.runs.name', { id: run.runId.slice(0, 8) });
+    const finished =
+      snapshot.completedApps +
+      snapshot.cachedApps +
+      snapshot.failedApps +
+      snapshot.skippedApps +
+      snapshot.cancelledApps;
+    const label =
+      run.recovering && active
+        ? t('prefill.progress.reconnecting')
+        : active
+          ? getStateLabel()
+          : t(`prefill.runs.${snapshot.state}`);
+    const reasonKey =
+      snapshot.reason === 'skippedOverlap'
+        ? 'prefill.runs.overlap'
+        : snapshot.reason === 'instance-changed'
+          ? 'errors.prefill.instanceChanged'
+          : snapshot.reason === 'outcome-unknown'
+            ? 'errors.prefill.outcomeUnknown'
+            : snapshot.reason === 'runtime-exceeded'
+              ? 'signalr.scheduledPrefill.failedMaxRuntime'
+              : snapshot.reason === 'operation-not-found'
+                ? 'errors.prefill.operationNotFound'
+                : null;
+    const itemsText = t('prefill.runs.items', {
+      count: finished,
+      total: snapshot.totalApps
+    });
+    const transferredText = t('prefill.runs.transferred', {
+      size: formatBytes(snapshot.bytesTransferred)
+    });
+    const outcomesText =
+      snapshot.failedApps > 0 || snapshot.skippedApps > 0 || snapshot.cancelledApps > 0
+        ? t('prefill.runs.outcomes', {
+            completed: snapshot.completedApps + snapshot.cachedApps,
+            failed: snapshot.failedApps,
+            skipped: snapshot.skippedApps,
+            cancelled: snapshot.cancelledApps
+          })
+        : null;
+    return (
+      <section data-prefill-run={run.runId} aria-label={name}>
+        <Card
+          padding={active ? 'md' : 'sm'}
+          className={`overflow-hidden prefill-progress-card${
+            active ? '' : ' prefill-progress-card--terminal'
+          }`}
+        >
+          <div className="prefill-progress-card__body">
+            <div className="prefill-run-heading">
+              <div className="min-w-0">
+                <h4 className="font-medium text-themed-primary break-words">{name}</h4>
+                <p className="text-sm text-themed-muted" role="status">
+                  {label}
+                </p>
+              </div>
+              {active && onCancel && (
+                <Button
+                  type="button"
+                  size="md"
+                  variant="filled"
+                  color="stop"
+                  onClick={onCancel}
+                  disabled={disabled || isCancelling}
+                  aria-label={t('prefill.runs.cancel', { name })}
+                >
+                  {isCancelling && <LoadingSpinner inline size="xs" />}
+                  {isCancelling ? t('prefill.progress.cancelling') : t('common.cancel')}
+                </Button>
+              )}
+              {!active && completionContext && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="filled"
+                  color="secondary"
+                  disabled={disabled}
+                  onClick={() => completionContext.dismissRunCompletion(run)}
+                  aria-label={`${t('common.dismiss')}: ${name}`}
+                >
+                  {t('common.dismiss')}
+                </Button>
+              )}
+            </div>
+            {active && progress.currentAppId && progress.currentAppId !== '0' && (
+              <p className="text-sm text-themed-primary break-words">
+                {progress.currentAppName ||
+                  t('prefill.progress.appId', { id: progress.currentAppId })}
+              </p>
+            )}
+            {active && !run.recovering && progress.state === 'downloading' && (
+              <>
+                <progress
+                  className="prefill-run-progress"
+                  max={100}
+                  value={appPercent}
+                  aria-label={t('prefill.runs.gameProgress', { name })}
+                />
+                <p className="prefill-run-counts text-xs text-themed-muted">
+                  <span>
+                    {formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.totalBytes)}
+                  </span>
+                  <span>{formatSpeed(progress.bytesPerSecond)}</span>
+                </p>
+              </>
+            )}
+            {run.recovering && active && (
+              <p className="text-sm text-themed-muted">
+                {t('prefill.progress.reconnectingMessage')}
+              </p>
+            )}
+            {active ? (
+              <>
+                <p className="prefill-run-counts text-sm text-themed-muted">
+                  <span>{itemsText}</span>
+                  <span>{transferredText}</span>
+                </p>
+                {outcomesText && <p className="text-sm text-themed-muted">{outcomesText}</p>}
+              </>
+            ) : (
+              <dl className="prefill-run-terminal-summary">
+                <div>
+                  <dt>{t('prefill.runs.processedLabel')}</dt>
+                  <dd>{itemsText}</dd>
+                </div>
+                <div>
+                  <dt>{t('prefill.runs.transferredLabel')}</dt>
+                  <dd>{transferredText}</dd>
+                </div>
+                {outcomesText && (
+                  <div>
+                    <dt>{t('prefill.runs.resultsLabel')}</dt>
+                    <dd>{outcomesText}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+            {reasonKey && <p className="text-sm text-themed-muted">{t(reasonKey)}</p>}
+            {run.historyIncomplete && (
+              <Alert color="yellow">{t('prefill.runs.historyIncomplete')}</Alert>
+            )}
+            {error && <Alert color="red">{error}</Alert>}
+            <div className="text-sm text-themed-muted">
+              <button
+                type="button"
+                className="prefill-run-details"
+                disabled={disabled}
+                aria-expanded={detailsOpen}
+                aria-controls={detailsId}
+                onClick={() => setDetailsOpen((open) => !open)}
+              >
+                <ChevronDown
+                  size={16}
+                  aria-hidden="true"
+                  className={`prefill-run-details__icon${
+                    detailsOpen ? ' prefill-run-details__icon--open' : ''
+                  }`}
+                />
+                <span>{t('prefill.runs.details')}</span>
+              </button>
+              <CollapsibleRegion
+                open={detailsOpen}
+                className="prefill-run-details-region"
+                contentClassName="prefill-run-details-content"
+              >
+                <dl id={detailsId} className="prefill-run-detail-grid">
+                  <div className="prefill-run-detail-grid__item">
+                    <dt>{t('prefill.runs.startedLabel')}</dt>
+                    <dd>{new Date(snapshot.startedAt).toLocaleString()}</dd>
+                  </div>
+                  <div className="prefill-run-detail-grid__item">
+                    <dt>{t('prefill.runs.selectionLabel')}</dt>
+                    <dd>
+                      {t('prefill.runs.selectionValue', {
+                        selection: run.options.selection,
+                        count: snapshot.totalApps
+                      })}
+                    </dd>
+                  </div>
+                  {run.options.operatingSystems.length > 0 && (
+                    <div className="prefill-run-detail-grid__item">
+                      <dt>{t('prefill.runs.platformsLabel')}</dt>
+                      <dd>{run.options.operatingSystems.join(', ')}</dd>
+                    </div>
+                  )}
+                  {run.options.appIds && (
+                    <div className="prefill-run-detail-grid__item">
+                      <dt>{t('prefill.runs.appIdsLabel')}</dt>
+                      <dd className="tabular-nums">{run.options.appIds.join(', ')}</dd>
+                    </div>
+                  )}
+                  <div className="prefill-run-detail-grid__item prefill-run-detail-grid__item--wide">
+                    <dt>{t('prefill.runs.identifierLabel')}</dt>
+                    <dd className="prefill-run-detail-grid__identifier">{run.runId}</dd>
+                  </div>
+                </dl>
+              </CollapsibleRegion>
+            </div>
+          </div>
+        </Card>
+      </section>
+    );
+  }
 
   return (
     <Card padding="md" className="overflow-hidden prefill-progress-card">

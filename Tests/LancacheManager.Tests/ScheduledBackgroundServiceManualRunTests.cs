@@ -207,6 +207,77 @@ public class ScheduledBackgroundServiceManualRunTests
 public class ConfigurableScheduledServiceManualRunTests
 {
     [Fact]
+    public async Task ManualRunAdmission_RejectsPendingStartingAndExecutingDuplicates()
+    {
+        using var service = new GatedConfigurableProbeService(TimeSpan.Zero, queueManualRuns: false);
+        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        var acknowledgments = 0;
+        Assert.True(service.TryTriggerImmediateRun(first, out var retained, out var followUp,
+            (_, _) => acknowledgments++));
+        Assert.Same(first, retained);
+        Assert.False(followUp);
+        Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual),
+            out retained, out followUp, (_, _) => acknowledgments++));
+        Assert.Same(first, retained);
+        Assert.False(followUp);
+        Assert.True(service.TakePendingManualRun(out var consumed));
+        service.TriggerImmediateRun();
+        Assert.Same(first, service.TriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual)));
+        Assert.False(service.HasPendingRun);
+
+        var run = service.InvokeRunAsync(consumed);
+        await service.FirstRunStarted.WaitAsync(Timeout);
+        Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual),
+            out retained, out followUp, (_, _) => acknowledgments++));
+        Assert.Same(first, retained);
+        Assert.False(followUp);
+        service.ReleaseFirstRun();
+        await run.WaitAsync(Timeout);
+        Assert.False(service.HasPendingRun);
+        Assert.Equal(1, service.RunCount);
+        Assert.Equal(1, acknowledgments);
+        Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual),
+            out _, out followUp));
+        Assert.False(followUp);
+    }
+
+    [Fact]
+    public async Task NaturalRun_AbsorbsPendingManualNoticeAndCancellationReleasesClaim()
+    {
+        using var service = new GatedConfigurableProbeService(TimeSpan.Zero, queueManualRuns: false);
+        var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        service.TriggerImmediateRun(notice);
+        service.ReleaseFirstRun();
+        await service.InvokeRunAsync(null);
+        Assert.Same(notice, service.CurrentRunNotice);
+        Assert.Equal(RunTrigger.Manual, service.CurrentRunNotice.Trigger);
+        Assert.False(service.HasPendingRun);
+
+        var cancelled = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        service.TriggerImmediateRun(cancelled);
+        service.CancelPendingRun(cancelled);
+        Assert.False(service.HasPendingRun);
+        Assert.True(service.TryTriggerImmediateRun(cancelled, out _, out _));
+        Assert.True(service.TakePendingManualRun(out var consumed));
+        using var stop = new CancellationTokenSource();
+        stop.Cancel();
+        await service.InvokeRunAsync(consumed, stop.Token);
+        Assert.True(service.TryTriggerImmediateRun(notice, out _, out _));
+    }
+
+    [Fact]
+    public void GenericManualRun_ReportsFollowUpWhileConsumedNoticeHasNotStarted()
+    {
+        using var service = new GatedConfigurableProbeService(TimeSpan.Zero);
+        service.TriggerImmediateRun();
+        Assert.True(service.TakePendingManualRun(out _));
+        Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual),
+            out _, out var followUp));
+        Assert.True(followUp);
+        Assert.True(service.HasPendingRun);
+    }
+
+    [Fact]
     public void ConsumedNoticesStaySeparateFromLaterPendingRequests()
     {
         using var service = new GatedConfigurableProbeService(TimeSpan.FromHours(1));
@@ -290,10 +361,19 @@ public class ConfigurableScheduledServiceManualRunTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _runCount;
 
-        public GatedConfigurableProbeService(TimeSpan interval)
+        public GatedConfigurableProbeService(TimeSpan interval, bool queueManualRuns = true)
             : base(NullLogger<GatedConfigurableProbeService>.Instance, interval)
         {
+            QueueManualRuns = queueManualRuns;
         }
+
+        protected override bool QueueManualRuns { get; }
+        public bool HasPendingRun => HasPendingManualRun();
+        public int RunCount => Volatile.Read(ref _runCount);
+        public Task<(bool ShuttingDown, bool RunFailed)> InvokeRunAsync(
+            RunNotice? notice, CancellationToken token = default)
+            => RunScheduledWorkAsync(ServiceName, RunTrigger.Scheduled, ExecuteWorkAsync, token,
+                "{ServiceName} failed", () => { }, notice);
 
         public Task FirstRunStarted => _firstRunStarted.Task;
         public Task SecondRunCompleted => _secondRunCompleted.Task;

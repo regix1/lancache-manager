@@ -103,6 +103,7 @@ public class PrefillCacheStatusRequest
 
 public class StartPrefillRequest
 {
+    public List<string>? AppIds { get; set; }
     public bool All { get; set; }
     public bool Recent { get; set; }
     public bool RecentlyPurchased { get; set; }

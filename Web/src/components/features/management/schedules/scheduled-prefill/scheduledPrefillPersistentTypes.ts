@@ -20,7 +20,6 @@ export interface ScheduledPrefillPersistentActionState {
 
 export interface ScheduledPrefillPersistentCardProps {
   scheduleControls?: ReactNode;
-  containerSettings?: (disabled: boolean) => ReactNode;
   gameSelectionLoading?: boolean;
   onSelectGames: () => void;
   onClearGames: () => void;
@@ -40,5 +39,5 @@ export interface ScheduledPrefillPersistentCardProps {
   onStart: () => void;
   onLogin: (reuseIntegration: boolean) => void;
   onDownload: () => void;
-  onCancelDownload: () => void;
+  onCancelDownload: (runId?: string) => void;
 }

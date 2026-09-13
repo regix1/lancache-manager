@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bindLifted, liftHookCallback, liftConstArrow } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback, liftConstArrow, compileToUrl } from './transpile-module.mjs';
+
+const { canStartPrefill, mergePrefillRuns } = await import(
+  await compileToUrl('../src/components/features/prefill/hooks/prefillTypes.ts')
+);
 
 const path =
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx';
@@ -11,6 +15,7 @@ const create = () => {
   const state = { loading: false, containers: null, error: null };
   const ref = { current: null };
   const load = bindLifted(arrow, {
+    mergePrefillRuns,
     persistentContainersRequestRef: ref,
     ApiService: {
       getPersistentPrefillContainers: (signal) =>
@@ -22,7 +27,7 @@ const create = () => {
       state.loading = value;
     },
     setPersistentContainers: (value) => {
-      state.containers = value;
+      state.containers = typeof value === 'function' ? value(state.containers) : value;
     },
     setPersistentError: (value) => {
       state.error = value;
@@ -104,7 +109,8 @@ test('download rejection refreshes before restoring the action error', async () 
   let action = null;
   const order = [];
   const download = bindLifted(liftConstArrow(path, 'handlePersistentDownload'), {
-    config: { steam: { schedules: [{ id: 'schedule' }] } },
+    config: { steam: { schedules: [{ id: 'schedule', enabled: true }] } },
+    canStartPrefill,
     getPersistentServiceId: () => 'Steam',
     persistentContainerByService: new Map([
       ['Steam', { isRunning: true, isAuthenticated: true, sessionId: 'session' }]
@@ -153,7 +159,8 @@ test('download rejection joins a successful refresh before restoring its error',
   let action = null;
   const request = run.load();
   const download = bindLifted(liftConstArrow(path, 'handlePersistentDownload'), {
-    config: { steam: { schedules: [{ id: 'schedule' }] } },
+    config: { steam: { schedules: [{ id: 'schedule', enabled: true }] } },
+    canStartPrefill,
     getPersistentServiceId: () => 'Steam',
     persistentContainerByService: new Map([
       ['Steam', { isRunning: true, isAuthenticated: true, sessionId: 'session' }]

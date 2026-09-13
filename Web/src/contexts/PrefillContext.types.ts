@@ -1,8 +1,15 @@
 import { createContext } from 'react';
 import type { LogEntry, LogEntryType } from '@components/features/prefill/ActivityLog.utils';
-import type { BackgroundCompletion } from '@components/features/prefill/hooks/prefillTypes';
+import type {
+  BackgroundCompletion,
+  PrefillRun
+} from '@components/features/prefill/hooks/prefillTypes';
 
 interface PrefillContextType {
+  runCompletions: PrefillRun[];
+  recordRunCompletion: (run: PrefillRun) => void;
+  dismissRunCompletion: (run: PrefillRun) => void;
+  isRunCompletionDismissed: (run: PrefillRun) => boolean;
   logEntries: LogEntry[];
   addLog: (type: LogEntryType, message: string, details?: string) => void;
   clearLogs: () => void;

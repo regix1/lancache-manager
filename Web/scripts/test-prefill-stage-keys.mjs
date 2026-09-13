@@ -93,6 +93,72 @@ await translator.init({
 });
 
 globalThis.testTranslator = translator;
+
+test('both capacity surfaces render active downloads separately from saved schedules in both locales', async () => {
+  const paths = [
+    'src/components/features/prefill/PrefillCommandButtons.tsx',
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx'
+  ];
+  for (const path of paths) {
+    const source = parseSource(path, ts.ScriptKind.TSX);
+    const call = findSoleNode(
+      source,
+      'capacity translation',
+      (node) =>
+        ts.isCallExpression(node) &&
+        node.arguments[0]?.getText(source) === "'prefill.runs.capacity'"
+    );
+    let region = call.parent;
+    while (
+      region &&
+      !(
+        ts.isJsxElement(region) && region.getText(source).includes("t('prefill.runs.capacityHelp')")
+      )
+    )
+      region = region.parent;
+    assert.ok(region, `${path} keeps capacity and explanation together`);
+    const compiled = ts.transpileModule(`const render = () => (${region.getText(source)});`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, jsxFactory: 'h' }
+    }).outputText;
+    const render = new Function(
+      'h',
+      't',
+      'activeRunCount',
+      'maxConcurrentRuns',
+      'container',
+      `${compiled}\nreturn render();`
+    );
+    const h = (type, props, ...children) => ({ type, props, children });
+    for (const language of ['en', 'zh']) {
+      await translator.changeLanguage(language);
+      for (const count of [0, 1, 4]) {
+        const tree = render(h, translator.t.bind(translator), count, 4, {
+          activeRunCount: count,
+          maxConcurrentRuns: 4
+        });
+        assert.equal(tree.type, 'div');
+        assert.equal(tree.props.className, 'space-y-1');
+        const paragraphs = tree.children.filter((child) => child?.type === 'p');
+        assert.equal(paragraphs.length, 2);
+        const [label, help] = paragraphs.map((paragraph) => paragraph.children.join(''));
+        assert.equal(
+          label,
+          language === 'en'
+            ? `${count} of 4 simultaneous download${count === 1 ? '' : 's'} active`
+            : `当前有 ${count} 个同时下载任务（上限 4 个）`
+        );
+        assert.equal(
+          help,
+          language === 'en'
+            ? 'Saved schedules use a slot only while downloading.'
+            : '已保存的计划仅在下载时占用名额。'
+        );
+        assert.doesNotMatch(label + help, /{{|prefill\.runs\.|run slots in use/);
+      }
+    }
+  }
+});
+
 const i18nStub = moduleUrl('export default globalThis.testTranslator;');
 
 const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
@@ -460,4 +526,30 @@ test('every scheduled prefill and session key is translated with the same placeh
   }
 
   assert.deepEqual(missing, []);
+});
+
+test('concurrency refusals and runtime failures have matching localized messages', async () => {
+  for (const key of [
+    'runLimit',
+    'operationConflict',
+    'operationNotFound',
+    'instanceChanged',
+    'ambiguousOperation',
+    'outcomeUnknown'
+  ]) {
+    const stageKey = `errors.prefill.${key}`;
+    assert.equal(typeof en.errors.prefill[key], 'string');
+    assert.equal(typeof zh.errors.prefill[key], 'string');
+    assert.equal(
+      await shownFor({ stageKey, error: en.errors.prefill[key] }, 'zh'),
+      zh.errors.prefill[key]
+    );
+  }
+  assert.equal(typeof en.signalr.scheduledPrefill.failedMaxRuntime, 'string');
+  assert.equal(typeof zh.signalr.scheduledPrefill.failedMaxRuntime, 'string');
+  for (const [key, value] of Object.entries(en.prefill.runs)) {
+    assert.equal(typeof zh.prefill.runs[key], 'string');
+    const tokens = (text) => [...text.matchAll(/{{(\w+)}}/g)].map((match) => match[1]).sort();
+    assert.deepEqual(tokens(value), tokens(zh.prefill.runs[key]));
+  }
 });

@@ -43,7 +43,8 @@ internal sealed record PersistentPrefillEditResourceOwnership(
     string SessionId,
     string? EditSessionId,
     string? EditActionId,
-    long Revision);
+    long Revision,
+    Guid? RunId = null);
 
 internal sealed class PersistentPrefillEditActionState
 {

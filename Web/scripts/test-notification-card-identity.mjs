@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 import {
@@ -34,7 +35,14 @@ const i18nStub = {
   t: (key, params) => (params ? `${key}|${Object.values(params).join('|')}` : key)
 };
 
-const registryFile = parseSource(REGISTRY_PATH);
+const registryFile = process.env.NOTIFICATION_SOURCE
+  ? ts.createSourceFile(
+      REGISTRY_PATH,
+      readFileSync(process.env.NOTIFICATION_SOURCE, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true
+    )
+  : parseSource(REGISTRY_PATH);
 
 const registryArray = findSoleNode(
   registryFile,
@@ -162,6 +170,9 @@ const liftScheduledPrefillEntry = async () => {
     scheduledPrefillSentence,
     scheduledPrefillServiceLabel,
     scheduledPrefillServiceMessage,
+    scheduledPrefillDetails: process.env.NOTIFICATION_SOURCE
+      ? undefined
+      : registryFunction('scheduledPrefillDetails', {}),
     formatScheduledPrefillDetailMessage: (event) => `bytes:${event.bytesDownloaded ?? 0}`,
     NOTIFICATION_IDS: constants.NOTIFICATION_IDS,
     NOTIFICATION_STORAGE_KEYS: constants.NOTIFICATION_STORAGE_KEYS,
@@ -196,7 +207,12 @@ const progressEvent = (serviceId, operationId, message) => ({
 const driveScheduledPrefill = async () => {
   globalThis.localStorage = new MemoryStorage();
   globalThis.testI18n = i18nStub;
-  const { createStatusAwareProgressHandler, createCompletionHandler } = await loadHandlers();
+  const {
+    createStartedHandler,
+    createStatusAwareProgressHandler,
+    createCompletionHandler,
+    applyPredecessor
+  } = await loadHandlers();
   const { entry, scheduledPrefillCardId, storageKey } = await liftScheduledPrefillEntry();
   const cards = newCardList();
 
@@ -207,7 +223,19 @@ const driveScheduledPrefill = async () => {
     entry.progress,
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.cancelAutoDismissTimer
+    cards.cancelAutoDismissTimer,
+    cards.events.current
+  );
+
+  const onStarted = liftHandlerBuilder('buildStartedHandler', {
+    createStartedHandler,
+    applyPredecessor
+  })(
+    entry,
+    entry.started,
+    cards.setNotifications,
+    cards.cancelAutoDismissTimer,
+    cards.events.current
   );
 
   const onComplete = liftHandlerBuilder('buildCompleteHandler', { createCompletionHandler })(
@@ -217,10 +245,105 @@ const driveScheduledPrefill = async () => {
     cards.events?.current
   );
 
-  return { cards, entry, onProgress, onComplete, scheduledPrefillCardId, storageKey };
+  return { cards, entry, onStarted, onProgress, onComplete, scheduledPrefillCardId, storageKey };
 };
 
 const persisted = (storageKey) => JSON.parse(globalThis.localStorage.getItem(storageKey) ?? 'null');
+
+test('same-platform overlap completes its own named attempt without changing the active card', async () => {
+  const { cards, onStarted, onProgress, onComplete, storageKey } = await driveScheduledPrefill();
+  const active = {
+    ...progressEvent('Steam', 'active', 'Downloading game'),
+    scheduleId: 'first',
+    scheduleName: 'Evening library',
+    runOperationId: 'tick'
+  };
+  const skipped = {
+    operationId: 'overlap',
+    serviceId: 'Steam',
+    scheduleId: 'second',
+    scheduleName: 'New releases',
+    runOperationId: 'tick',
+    showNotification: true
+  };
+  onStarted(active);
+  onProgress(active);
+  const original = cards.state[0];
+  onStarted(skipped);
+  onComplete({
+    ...skipped,
+    success: true,
+    status: 'skipped',
+    stageKey: 'signalr.scheduledPrefill.skippedOverlap',
+    error: 'Another schedule is using this platform. This attempt was skipped and was not queued.'
+  });
+  assert.equal(cards.state.length, 2);
+  assert.equal(
+    cards.state.find((card) => card.details.operationId === 'active'),
+    original
+  );
+  const terminal = cards.state.find((card) => card.details.operationId === 'overlap');
+  assert.equal(terminal.status, 'skipped');
+  assert.notEqual(terminal.id, original.id);
+  assert.match(terminal.message, /New releases/);
+  assert.match(terminal.message, /skippedOverlap|not queued/);
+  assert.equal(terminal.details.service, 'Steam');
+  assert.equal(terminal.details.scheduleId, 'second');
+  assert.equal(terminal.details.runOperationId, 'tick');
+  assert.deepEqual(Object.keys(persisted(storageKey)), [original.id]);
+  onStarted(skipped);
+  onProgress({ ...active, operationId: 'overlap', message: 'Late progress' });
+  assert.equal(
+    cards.state.find((card) => card.details.operationId === 'overlap'),
+    terminal
+  );
+  assert.equal(
+    cards.state.find((card) => card.details.operationId === 'active'),
+    original
+  );
+  cards.state = [original];
+  onStarted(skipped);
+  onProgress({ ...active, operationId: 'overlap' });
+  onComplete({ ...skipped, success: true, status: 'skipped' });
+  assert.deepEqual(cards.state, [original]);
+});
+
+test('terminal-first and silent overlap events never create a running successor', async () => {
+  for (const showNotification of [true, false]) {
+    const { cards, onStarted, onProgress, onComplete } = await driveScheduledPrefill();
+    const active = {
+      ...progressEvent('Steam', 'active', 'Downloading'),
+      showNotification: !showNotification
+    };
+    const skipped = {
+      ...progressEvent('Steam', 'overlap', 'Not queued'),
+      scheduleName: 'Skipped schedule',
+      showNotification
+    };
+    onProgress(active);
+    const original = cards.state[0];
+    onComplete({
+      ...skipped,
+      success: true,
+      status: 'skipped',
+      stageKey: 'signalr.scheduledPrefill.skippedOverlap',
+      error: 'Not queued'
+    });
+    onStarted(skipped);
+    onProgress(skipped);
+    assert.equal(
+      cards.state.find((card) => card.details.operationId === 'active'),
+      original
+    );
+    const terminal = cards.state.find((card) => card.details.operationId === 'overlap');
+    if (showNotification) {
+      assert.equal(terminal.status, 'skipped');
+      assert.match(terminal.message, /Skipped schedule/);
+    } else {
+      assert.equal(terminal, undefined);
+    }
+  }
+});
 
 const recoveryFile = parseSource('src/contexts/notifications/recovery.ts');
 
@@ -293,6 +416,91 @@ test('recovery strips cancelPending with the other browser-only cancel flags', a
   );
 });
 
+test('recovery keeps legacy operation identity and each named attempt visibility', async () => {
+  const { cards, entry, onProgress, onComplete, scheduledPrefillCardId } =
+    await driveScheduledPrefill();
+  const recover = await liftRecovery();
+  onProgress(progressEvent('Steam', 'active', 'Downloading'));
+  cards.state[0] = {
+    ...cards.state[0],
+    id: scheduledPrefillCardId('Steam'),
+    details: { operationId: 'active' }
+  };
+  const legacyId = cards.state[0].id;
+  const runStatus = {
+    isRunning: true,
+    operationId: 'tick',
+    showNotification: true,
+    services: [
+      {
+        serviceId: 'Steam',
+        operationId: 'active',
+        scheduleId: 'first',
+        scheduleName: 'Library',
+        showNotification: true,
+        stage: 'running',
+        message: 'Downloading'
+      },
+      {
+        serviceId: 'Epic',
+        operationId: 'silent',
+        scheduleId: 'second',
+        scheduleName: 'Private',
+        showNotification: false,
+        stage: 'running',
+        message: 'Downloading'
+      }
+    ]
+  };
+  const refresh = recover(
+    entry.recovery,
+    entry.type,
+    entry.id,
+    entry.storageKey,
+    async () => ({ ok: true, json: async () => runStatus }),
+    cards.setNotifications,
+    cards.scheduleAutoDismiss
+  );
+  await refresh();
+  await refresh();
+  assert.equal(cards.state.length, 2);
+  const active = cards.state.find((card) => card.details.operationId === 'active');
+  assert.equal(active.id, legacyId);
+  assert.equal(active.details.service, 'Steam');
+  assert.equal(active.details.scheduleName, 'Library');
+  assert.equal(active.details.runOperationId, 'tick');
+  assert.equal(cards.state.find((card) => card.details.operationId === 'silent').controlOnly, true);
+  onComplete({ operationId: 'active', serviceId: 'Steam', success: true });
+  const terminal = cards.state.find((card) => card.details.operationId === 'active');
+  await refresh();
+  assert.equal(
+    cards.state.find((card) => card.details.operationId === 'active'),
+    terminal
+  );
+  cards.state = cards.state.filter((card) => card !== terminal);
+  await recover(
+    entry.recovery,
+    entry.type,
+    entry.id,
+    entry.storageKey,
+    async () => ({ ok: true, json: async () => runStatus }),
+    cards.setNotifications,
+    cards.scheduleAutoDismiss,
+    {
+      startedAt: new Date(),
+      revision: cards.events.current.revision,
+      starting: cards.state,
+      events: cards.events.current,
+      changed: new Set(),
+      cancelAutoDismissTimer: cards.cancelAutoDismissTimer
+    }
+  )();
+  assert.equal(
+    cards.state.some((card) => card.details.operationId === 'active'),
+    false
+  );
+});
+
 test('a reload mid-run rebuilds a card for every service still running', async () => {
   const { cards, entry, scheduledPrefillCardId } = await driveScheduledPrefill();
   const createSimpleRecoveryFunction = await liftRecovery();
@@ -331,7 +539,10 @@ test('a reload mid-run rebuilds a card for every service still running', async (
 
   assert.deepEqual(
     cards.state.map((card) => card.id),
-    [scheduledPrefillCardId('Steam'), scheduledPrefillCardId('Epic')]
+    [
+      scheduledPrefillCardId('Steam', 'operation-steam'),
+      scheduledPrefillCardId('Epic', 'operation-epic')
+    ]
   );
   assert.deepEqual(
     cards.state.map((card) => card.details.operationId),
@@ -386,12 +597,16 @@ test('a recovery poll leaves the card of a service that already finished alone',
     cards.scheduleAutoDismiss
   )();
 
-  const epic = cards.state.find((card) => card.id === scheduledPrefillCardId('Epic'));
+  const epic = cards.state.find(
+    (card) => card.id === scheduledPrefillCardId('Epic', 'operation-epic')
+  );
   assert.ok(epic, 'the finished service kept its card');
   assert.equal(epic.status, 'completed');
   assert.match(epic.message, /epic/);
 
-  const steam = cards.state.find((card) => card.id === scheduledPrefillCardId('Steam'));
+  const steam = cards.state.find(
+    (card) => card.id === scheduledPrefillCardId('Steam', 'operation-steam')
+  );
   assert.equal(steam.status, 'running');
   assert.equal(cards.state.length, 2);
 });
@@ -417,13 +632,16 @@ test('a run that has finished stale-completes every card it left behind', async 
   assert.deepEqual(
     cards.state.map((card) => [card.id, card.status]),
     [
-      [scheduledPrefillCardId('Steam'), 'completed'],
-      [scheduledPrefillCardId('Epic'), 'completed']
+      [scheduledPrefillCardId('Steam', 'operation-steam'), 'completed'],
+      [scheduledPrefillCardId('Epic', 'operation-epic'), 'completed']
     ]
   );
   assert.deepEqual(
     cards.dismissals.map(([id]) => id).filter((id) => id.startsWith(entry.id)),
-    [scheduledPrefillCardId('Steam'), scheduledPrefillCardId('Epic')]
+    [
+      scheduledPrefillCardId('Steam', 'operation-steam'),
+      scheduledPrefillCardId('Epic', 'operation-epic')
+    ]
   );
 });
 
@@ -436,7 +654,10 @@ test('two services running at once each get their own card', async () => {
   assert.equal(cards.state.length, 2);
   assert.deepEqual(
     cards.state.map((card) => card.id),
-    [scheduledPrefillCardId('Steam'), scheduledPrefillCardId('Epic')]
+    [
+      scheduledPrefillCardId('Steam', 'operation-steam'),
+      scheduledPrefillCardId('Epic', 'operation-epic')
+    ]
   );
 
   // Each card keeps its own service in its own line: neither overwrote the other.
@@ -457,8 +678,8 @@ test('both cards are persisted under the one key so a reload restores them all',
   onProgress(progressEvent('Epic', 'operation-epic', 'Downloading an Epic game'));
 
   assert.deepEqual(Object.keys(persisted(storageKey)), [
-    scheduledPrefillCardId('Steam'),
-    scheduledPrefillCardId('Epic')
+    scheduledPrefillCardId('Steam', 'operation-steam'),
+    scheduledPrefillCardId('Epic', 'operation-epic')
   ]);
 });
 
@@ -476,15 +697,21 @@ test('one service finishing leaves the other running, on screen and in storage',
     showNotification: true
   });
 
-  const steam = cards.state.find((card) => card.id === scheduledPrefillCardId('Steam'));
-  const epic = cards.state.find((card) => card.id === scheduledPrefillCardId('Epic'));
+  const steam = cards.state.find(
+    (card) => card.id === scheduledPrefillCardId('Steam', 'operation-steam')
+  );
+  const epic = cards.state.find(
+    (card) => card.id === scheduledPrefillCardId('Epic', 'operation-epic')
+  );
   assert.equal(steam.status, 'completed');
   assert.match(steam.message, /steam/);
   assert.equal(epic.status, 'running');
   assert.match(epic.message, /epic/);
 
   // The finished service's card is the only one cleared: the key still holds the running one.
-  assert.deepEqual(Object.keys(persisted(storageKey)), [scheduledPrefillCardId('Epic')]);
+  assert.deepEqual(Object.keys(persisted(storageKey)), [
+    scheduledPrefillCardId('Epic', 'operation-epic')
+  ]);
 });
 
 test('a service that skipped closes as skipped and keeps the line saying why', async () => {
@@ -501,7 +728,9 @@ test('a service that skipped closes as skipped and keeps the line saying why', a
   });
   onProgress(progressEvent('Epic', 'operation-epic', 'Downloading an Epic game'));
 
-  const skipLine = cards.state.find((card) => card.id === scheduledPrefillCardId('Steam')).message;
+  const skipLine = cards.state.find(
+    (card) => card.id === scheduledPrefillCardId('Steam', 'operation-steam')
+  ).message;
   assert.match(skipLine, /events\.skipped\|.*steam/);
 
   onComplete({
@@ -513,11 +742,15 @@ test('a service that skipped closes as skipped and keeps the line saying why', a
     showNotification: true
   });
 
-  const steam = cards.state.find((card) => card.id === scheduledPrefillCardId('Steam'));
+  const steam = cards.state.find(
+    (card) => card.id === scheduledPrefillCardId('Steam', 'operation-steam')
+  );
   assert.equal(steam.status, 'skipped');
   assert.equal(steam.message, skipLine);
   assert.doesNotMatch(steam.message, /completed|failed/);
-  assert.deepEqual(Object.keys(persisted(storageKey)), [scheduledPrefillCardId('Epic')]);
+  assert.deepEqual(Object.keys(persisted(storageKey)), [
+    scheduledPrefillCardId('Epic', 'operation-epic')
+  ]);
 });
 
 test('the run-level start and terminal open and close no card of their own', async () => {
@@ -666,6 +899,37 @@ test('full, condensed, background and mobile subsets retain chronological order'
   assert.deepEqual(result.compactControls, ['k1', 'k2']);
   assert.deepEqual(result.fullItems, ['f1', 'f2', 'f3']);
   assert.deepEqual(result.condensed, ['d1', 'd2', 'f4', 'f5']);
+});
+
+test('platform display mode uses canonical details and only exact legacy platform ids', () => {
+  const classify = bindLifted(
+    `(sorted, displayModes) => { let fullOrder = 0; return ${barInitializer('classified')}; }`,
+    {
+      isTerminalNotificationStatus: () => false,
+      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: { scheduled_prefill: 'scheduledPrefill' },
+      platformDisplayModeKey: (key, platform) => `${key}:${platform}`,
+      NOTIFICATION_IDS: { SCHEDULED_PREFILL: 'scheduled_prefill' },
+      TYPES_WITH_A_CARD_PER_ENTITY: new Set(['scheduled_prefill']),
+      MOBILE_FULL_CARD_CAP: 3,
+      isMobile: false
+    }
+  );
+  const cards = [
+    { id: 'scheduled_prefill_Steam_active', details: { service: 'Steam' } },
+    { id: 'operation_silent', controlOnly: true, details: { service: 'Steam' } },
+    { id: 'scheduled_prefill_BattleNet', details: { service: 'Battle.net' } },
+    { id: 'scheduled_prefill_Steam_unknown' },
+    { id: 'scheduled_prefill_Epic', details: { service: 'Epic' } }
+  ].map((card) => ({ type: 'scheduled_prefill', status: 'running', ...card }));
+  const result = classify(cards, {
+    'scheduledPrefill:Steam': 'condensed',
+    'scheduledPrefill:BattleNet': 'condensed',
+    'scheduledPrefill:Epic': 'full'
+  });
+  assert.deepEqual(
+    result.map((item) => item.condensed),
+    [true, true, true, false, false]
+  );
 });
 
 /** The shipped `groupKey` expression, called with the item and the set it reads. */

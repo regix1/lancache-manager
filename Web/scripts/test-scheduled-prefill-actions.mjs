@@ -32,14 +32,126 @@ const persistentCardSource = parseSource(
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx',
   ts.ScriptKind.TSX
 );
+const containerSettingsSource = parseSource(
+  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillContainerSettings.tsx',
+  ts.ScriptKind.TSX
+);
+const progressCardSource = parseSource(
+  'src/components/features/prefill/PrefillProgressCard.tsx',
+  ts.ScriptKind.TSX
+);
 const actionMenuSource = parseSource('src/components/ui/ActionMenu.tsx', ts.ScriptKind.TSX);
 const schedulesCss = readFileSync(
   new URL('../src/components/features/management/schedules/SchedulesSection.css', import.meta.url),
   'utf8'
 );
+const prefillCss = readFileSync(
+  new URL('../src/styles/features/prefill.css', import.meta.url),
+  'utf8'
+);
 const focusUrl = await compileToUrl('../src/utils/focus.ts');
 const { getFocusable } = await import(focusUrl);
 globalThis.HTMLInputElement = class HTMLInputElement {};
+
+test('Run Now clears only optimistic state when no follow-up was queued, including silent responses', async () => {
+  const file = process.env.SCHEDULE_ACTION_SOURCE
+    ? ts.createSourceFile(
+        'SchedulesSection.tsx',
+        readFileSync(process.env.SCHEDULE_ACTION_SOURCE, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX
+      )
+    : parseSource(
+        'src/components/features/management/schedules/SchedulesSection.tsx',
+        ts.ScriptKind.TSX
+      );
+  const declaration = findSoleNode(
+    file,
+    'handleRunNow callback',
+    (node) =>
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(file) === 'handleRunNow' &&
+      node.initializer.getText(file).includes('ApiService.triggerSchedule')
+  );
+  for (const showNotification of [true, false]) {
+    for (const followUpQueued of [false, true, undefined]) {
+      const notifications = [];
+      const pending = new Set();
+      let completed = { other: 'completed' };
+      const run = bindLifted(declaration.initializer.arguments[0].getText(file), {
+        t: (key) => key,
+        markStarting: (key) => pending.add(key),
+        clearPending: (key) => pending.delete(key),
+        setCompletedKeys: (update) => {
+          completed = update(completed);
+        },
+        setTimeout: () => undefined,
+        cacheQueuedReasonKey: 'queued',
+        ApiService: {
+          triggerSchedule: async () => ({
+            alreadyRunning: true,
+            status: 'alreadyRunning',
+            showNotification,
+            followUpQueued
+          })
+        },
+        addNotification: (notification) => notifications.push(notification),
+        getErrorMessage: (error) => error.message
+      });
+      await run('scheduledPrefill');
+      assert.equal(pending.has('scheduledPrefill'), followUpQueued !== false);
+      assert.equal(completed.other, 'completed');
+      assert.equal(completed.scheduledPrefill, followUpQueued === false ? undefined : 'navigate');
+      assert.equal(notifications.length, showNotification ? 1 : 0);
+      if (showNotification)
+        assert.equal(
+          notifications[0].message,
+          followUpQueued === false
+            ? 'management.schedules.runNowAlreadyRunning'
+            : 'management.schedules.runNowQueuedNext'
+        );
+    }
+  }
+});
+
+test('Run All acknowledges active services without inventing follow-up runs', async () => {
+  const source = liftHookCallback(
+    'src/components/features/management/schedules/SchedulesSection.tsx',
+    'useCallback',
+    'ApiService.runAllSchedules()'
+  );
+  for (const followUpCount of [0, 1, 2, undefined]) {
+    const notifications = [];
+    const steps = [];
+    const run = bindLifted(source, {
+      setRunningAll: (value) => steps.push(['busy', value]),
+      setRunAllConfirmOpen: (value) => steps.push(['confirm', value]),
+      ApiService: {
+        runAllSchedules: async () => ({ triggeredCount: 3, alreadyRunningCount: 2, followUpCount })
+      },
+      fetchSchedules: async () => steps.push(['refresh']),
+      flashAll: () => steps.push(['flash']),
+      addNotification: (notification) => notifications.push(notification),
+      t: (key, values) => `${key}:${values.count}`,
+      getErrorMessage: (error) => error.message
+    });
+    await run();
+    assert.deepEqual(steps, [
+      ['busy', true],
+      ['refresh'],
+      ['flash'],
+      ['busy', false],
+      ['confirm', false]
+    ]);
+    assert.equal(notifications.length, followUpCount !== undefined && followUpCount < 2 ? 1 : 0);
+    if (notifications.length)
+      assert.equal(
+        notifications[0].message,
+        `management.schedules.runAllAlreadyRunning:${2 - followUpCount}`
+      );
+  }
+});
 
 const anchoredSource = parseSource('src/hooks/useAnchoredPanel.ts');
 const { clampToViewport, MENU_GUTTER_PX } = await import(
@@ -793,14 +905,32 @@ test('an off schedule keeps its record row live and disables every control below
   );
   assert.equal(getAttribute(controls, persistentCardSource, 'disabled'), 'disabled');
 
-  const settingsToggle = getMenuItems(card, persistentCardSource, 'Button').find(
+  const settings = getComponent(containerSettingsSource, 'ScheduledPrefillContainerSettings');
+  const settingsToggle = getMenuItems(settings, containerSettingsSource, 'Button').find(
     (button) =>
       hasAttribute(button, 'className') &&
-      getAttribute(button, persistentCardSource, 'className') ===
-        '"scheduled-prefill-persistent-card__settings-toggle"'
+      getAttribute(button, containerSettingsSource, 'className') ===
+        '"scheduled-prefill-container-settings__toggle"'
   );
   assert.ok(settingsToggle, 'shared container settings has a toggle');
-  assert.equal(getAttribute(settingsToggle, persistentCardSource, 'disabled'), 'disabled');
+  assert.equal(getAttribute(settingsToggle, containerSettingsSource, 'disabled'), 'disabled');
+  assert.match(
+    containerSettingsSource.text,
+    /useMediaQuery\('\(max-width: 767\.98px\)'\)[\s\S]*?visible = !isMobile \|\| open/,
+    'shared container settings stay expanded outside the mobile disclosure breakpoint'
+  );
+  assert.match(
+    containerSettingsSource.text,
+    /<CollapsibleRegion[\s\S]*?open=\{visible\}/,
+    'the shared region follows the responsive visibility state'
+  );
+  assert.ok(
+    platformSectionSource.text.indexOf('<ScheduledPrefillPersistentCard') <
+      platformSectionSource.text.indexOf('<ScheduledPrefillContainerSettings') &&
+      platformSectionSource.text.indexOf('<ScheduledPrefillContainerSettings') <
+        platformSectionSource.text.indexOf('scheduled-prefill-run-history'),
+    'container controls, shared settings, and run history remain separate ordered sections'
+  );
 
   const panel = getComponent(panelSource, 'ScheduledPrefillPlatformsPanel');
   const recordTrigger = getMenuItems(panel, panelSource, 'Button').find(
@@ -817,6 +947,54 @@ test('an off schedule keeps its record row live and disables every control below
     configModalSource.text,
     /containerSettings=\{\(containerDisabled\) =>[\s\S]*?disabled:\s*containerDisabled \|\|\s*!config[\s\S]*?disabled=\{containerDisabled \|\| clearingLogins\}/,
     'custom shared-setting controls receive the selected schedule gate explicitly'
+  );
+});
+
+test('completed prefill runs stay compact and animate their details disclosure', () => {
+  assert.match(
+    progressCardSource.text,
+    /padding=\{active \? 'md' : 'sm'\}[\s\S]*?prefill-progress-card--terminal/,
+    'completed run cards use the compact padding recipe'
+  );
+  assert.doesNotMatch(
+    progressCardSource.text,
+    /<details\b|<summary\b/,
+    'run details no longer use the instant native disclosure'
+  );
+  assert.match(
+    progressCardSource.text,
+    /aria-expanded=\{detailsOpen\}[\s\S]*?<CollapsibleRegion[\s\S]*?open=\{detailsOpen\}/,
+    'the details button and animated region share one accessible open state'
+  );
+  assert.match(
+    prefillCss,
+    /\.prefill-run-details-region\.collapsible-region\s*\{\s*transition: grid-template-rows 200ms cubic-bezier\(0\.23, 1, 0\.32, 1\);/,
+    'run details use the short shared disclosure motion'
+  );
+  assert.match(
+    prefillCss,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.prefill-run-details__icon[\s\S]*?transition: none;/,
+    'run details honor reduced motion'
+  );
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-platform-block--container-settings\s*\{\s*background: var\(--theme-accent-muted\);\s*border-color: var\(--theme-border-primary\);/,
+    'the login and restart surface uses a distinct tint with the standard card border'
+  );
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-run-history \.prefill-progress-card\s*\{\s*background: var\(--theme-info-bg\);\s*border-color: var\(--theme-info-muted\);/,
+    'scheduled run cards use a distinct information tint'
+  );
+  assert.match(
+    progressCardSource.text,
+    /<dl className="prefill-run-terminal-summary">[\s\S]*?<dt>\{t\('prefill\.runs\.processedLabel'\)\}<\/dt>[\s\S]*?<dt>\{t\('prefill\.runs\.transferredLabel'\)\}<\/dt>[\s\S]*?<dt>\{t\('prefill\.runs\.resultsLabel'\)\}<\/dt>/,
+    'completed run summaries use labeled definition-list structure'
+  );
+  assert.match(
+    progressCardSource.text,
+    /<dl[^>]*prefill-run-detail-grid[\s\S]*?<dt>\{t\('prefill\.runs\.startedLabel'\)\}<\/dt>[\s\S]*?<dt>\{t\('prefill\.runs\.identifierLabel'\)\}<\/dt>/,
+    'expanded run details use labeled definition-list structure'
   );
 });
 

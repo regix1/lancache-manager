@@ -1,6 +1,7 @@
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using System.Text.Json;
 
 namespace LancacheManager.Core.Services;
 
@@ -124,6 +125,7 @@ public abstract partial class PrefillDaemonServiceBase
             var newAuthState = status.Status switch
             {
                 "awaiting-login" => DaemonAuthState.NotAuthenticated,
+                "not-logged-in" when status.SupportsConcurrentPrefill && Platform.RequiresLogin() => DaemonAuthState.NotAuthenticated,
                 "logged-in" => DaemonAuthState.Authenticated,
                 _ => session.AuthState
             };
@@ -206,6 +208,16 @@ public abstract partial class PrefillDaemonServiceBase
                 // Notify when auth state changes FROM authenticated to non-authenticated
                 else if (previousAuthState == DaemonAuthState.Authenticated && newAuthState != DaemonAuthState.Authenticated)
                 {
+                    await Task.WhenAll(session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0).Select(async run =>
+                    {
+                        try { await CancelPrefillRunAsync(session.Id, run.PrefillRunId, reason: "auth-lost"); }
+                        catch (Exception ex)
+                        {
+                            run.Recovering = true;
+                            session.Recovering = true;
+                            _logger.LogWarning(ex, "Authentication loss awaits reconciliation for prefill {RunId}", run.PrefillRunId);
+                        }
+                    }));
                     // Check if any other daemons are still authenticated
                     if (!IsAnyDaemonAuthenticated())
                     {
@@ -244,6 +256,15 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
+            if (!session.Runs.IsEmpty || session.Capabilities?.SupportsConcurrentPrefill == true)
+            {
+                if (IsSessionLive(session) && Guid.TryParse(socketProgress.OperationId, out var id)
+                    && session.Runs.TryGetValue(id, out var run)
+                    && run.DaemonInstanceId == socketProgress.DaemonInstanceId
+                    && socketProgress.Sequence > run.Snapshot.Sequence && run.TerminalCompletedFlag == 0)
+                    await ReconcileRunAsync(session, run, session.CancellationTokenSource.Token);
+                return;
+            }
             Guid? runId;
             lock (session.PrefillLock)
             {
@@ -320,24 +341,22 @@ public abstract partial class PrefillDaemonServiceBase
     /// Broadcasts a payload to all subscribed connections for a session.
     /// On error, removes the failing connectionId from the session's subscriptions unless removeOnError is false.
     /// </summary>
-    private async Task BroadcastToSubscribersAsync(DaemonSession session, string eventName, object payload, bool removeOnError = true)
+    private async Task BroadcastToSubscribersAsync(DaemonSession session, string eventName, object payload)
     {
-        foreach (var connectionId in session.SubscribedConnections.ToList())
+        string[] connections;
+        lock (session.PrefillLock) connections = session.SubscribedConnections.ToArray();
+        await Task.WhenAll(connections.Select(async connectionId =>
         {
             try
             {
-                await SendToClientAsync(connectionId, eventName, payload);
+                await SendToClientAsync(connectionId, eventName, payload).WaitAsync(TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {
-                if (removeOnError)
-                {
-                    _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}, removing subscription", eventName, connectionId);
-                    session.SubscribedConnections.Remove(connectionId);
-                }
-                // When removeOnError is false, silently ignore the error
+                _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}, removing subscription", eventName, connectionId);
+                lock (session.PrefillLock) session.SubscribedConnections.Remove(connectionId);
             }
-        }
+        }));
     }
 
     protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
@@ -631,6 +650,14 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     protected async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
     {
+        if (!session.Runs.IsEmpty)
+        {
+            if (IsSessionLive(session) && Guid.TryParse(progress.OperationId, out var id)
+                && session.Runs.TryGetValue(id, out var run) && run.DaemonInstanceId == progress.DaemonInstanceId
+                && progress.Sequence > run.Snapshot.Sequence && run.TerminalCompletedFlag == 0)
+                await ReconcileRunAsync(session, run, session.CancellationTokenSource.Token);
+            return;
+        }
         Guid? runId;
         lock (session.PrefillLock)
         {
@@ -864,14 +891,350 @@ public abstract partial class PrefillDaemonServiceBase
         await _notifications.NotifyAllAsync(EventPrefillHistoryUpdated, historyEvent);
     }
 
-    private async Task NotifySessionEndedAsync(DaemonSession session, string reason)
+    private async Task<List<PrefillRun>> LoadRunsAsync(DaemonSession session, CancellationToken cancellationToken)
     {
-        // NotifySessionEndedAsync does NOT remove connectionId on error (session is ending anyway)
-        await BroadcastToSubscribersAsync(session, EventSessionEnded,
-            new { sessionId = session.Id, reason }, removeOnError: false);
-
-        // The session has ended; clear its presence/downloading dots and recompute this platform's
-        // aggregate (the persistent container may have gone with it).
-        await ReportSessionActivityAsync(session, present: false);
+        var saved = await _sessionService.GetRunsAsync(session.Id, cancellationToken);
+        foreach (var row in saved.Where(row => row.CompletedAtUtc is null
+            || row.CompletedAtUtc > DateTime.UtcNow.AddHours(-24)).OrderByDescending(row => row.StartedAtUtc))
+        {
+            if (session.Runs.ContainsKey(row.Id)) continue;
+            if (row.CompletedAtUtc.HasValue && session.Runs.Values.Count(run => run.TerminalCompletedFlag == 2) >= 256)
+                continue;
+            var snapshot = JsonSerializer.Deserialize<DaemonRunSnapshot>(row.SnapshotJson)
+                ?? throw new JsonException("Persisted run snapshot is null.");
+            var options = JsonSerializer.Deserialize<DaemonRunOptions>(row.OptionsJson)
+                ?? throw new JsonException("Persisted run options are null.");
+            var restored = new DaemonRun
+            {
+                PrefillRunId = row.Id,
+                SessionId = session.Id,
+                DaemonInstanceId = row.DaemonInstanceId,
+                PrefillScheduleId = row.ScheduleId,
+                ScheduleName = row.ScheduleName,
+                NotificationMode = row.NotificationMode,
+                ParentOperationId = row.ParentOperationId,
+                Options = options,
+                Snapshot = snapshot,
+                CancelRequested = row.CancelRequested,
+                CancelReason = row.CancelRequested && row.Reason is "stalled" or "auth-lost" ? row.Reason : null,
+                HistoryIncomplete = row.HistoryIncomplete,
+                CompletedAtUtc = row.CompletedAtUtc,
+                Recovering = !row.CompletedAtUtc.HasValue,
+                TerminalCompletedFlag = row.CompletedAtUtc.HasValue ? 2 : 0,
+                LastProgressBytes = snapshot.BytesTransferred,
+                LastProgressTicksUtc = snapshot.UpdatedAt.UtcTicks,
+                PrefillState = row.State switch
+                {
+                    "completed" => PrefillState.Completed,
+                    "cancelled" => PrefillState.Cancelled,
+                    "failed" => PrefillState.Failed,
+                    _ => PrefillState.Downloading
+                }
+            };
+            session.Runs.TryAdd(row.Id, restored);
+            if (restored.TerminalCompletedFlag == 2)
+                restored.Completion.TrySetResult(DaemonSessionDto.FromRun(restored));
+        }
+        return saved;
     }
+
+    public async Task RefreshRunsAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session) || !IsSessionLive(session)) return;
+        try
+        {
+            var status = await session.Client.GetStatusAsync(cancellationToken);
+            if (status is null)
+            {
+                if (!session.Runs.IsEmpty) session.Recovering = true;
+                return;
+            }
+            await RecoverRunsAsync(session, status, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            session.Recovering = true;
+            session.NextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(10);
+            _logger.LogWarning(ex, "Could not reconcile prefill runs for session {SessionId}", sessionId);
+        }
+    }
+
+    internal async Task RecoverRunsAsync(DaemonSession session, DaemonStatus status, CancellationToken cancellationToken)
+    {
+        if (!await session.RecoveryWork.WaitAsync(0, cancellationToken)) return;
+        try
+        {
+            if (!IsSessionLive(session)) return;
+            if (!status.SupportsConcurrentPrefill)
+            {
+                session.Capabilities = status;
+                session.Recovering = session.Runs.Values.Any(run => run.TerminalCompletedFlag != 2);
+                if (!session.Recovering) session.Runs.Clear();
+                return;
+            }
+            session.Recovering = session.Recovering || session.Capabilities?.DaemonInstanceId != status.DaemonInstanceId;
+            foreach (var expired in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 2)
+                .OrderByDescending(run => run.CompletedAtUtc).Select((run, index) => (run, index))
+                .Where(entry => entry.index >= 256 || entry.run.CompletedAtUtc < DateTime.UtcNow.AddHours(-24)))
+                session.Runs.TryRemove(expired.run.PrefillRunId, out _);
+            var saved = await LoadRunsAsync(session, cancellationToken);
+            session.Capabilities = status;
+            var inventory = status.ActiveOperations!.Concat(status.RecentOperations!).ToArray();
+            foreach (var snapshot in inventory)
+            {
+                if (snapshot.DaemonInstanceId != status.DaemonInstanceId
+                    || !Guid.TryParse(snapshot.OperationId, out var id) || id == Guid.Empty)
+                    throw new JsonException("Daemon operation inventory has an invalid identity.");
+                if (session.Runs.ContainsKey(id) || saved.Any(row => row.Id == id)) continue;
+                var page = await session.Client.GetOperationAsync(id, snapshot.DaemonInstanceId,
+                    cancellationToken: cancellationToken);
+                var adopted = new DaemonRun
+                {
+                    PrefillRunId = id,
+                    SessionId = session.Id,
+                    DaemonInstanceId = snapshot.DaemonInstanceId,
+                    Options = page.Options,
+                    Snapshot = snapshot with { Sequence = 0 },
+                    Recovering = true
+                };
+                await _sessionService.CreateRunAsync(adopted, "recovered", cancellationToken);
+                session.Runs.TryAdd(id, adopted);
+            }
+            foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
+            {
+                if (run.AdmissionPending) continue;
+                if (run.DaemonInstanceId != status.DaemonInstanceId)
+                {
+                    await run.PrefillWork.WaitAsync(cancellationToken);
+                    try
+                    {
+                        if (run.TerminalCompletedFlag != 0 || run.AdmissionPending) continue;
+                        run.HistoryIncomplete = true;
+                        await FinishRunAsync(session, run, run.Snapshot with
+                        {
+                            State = "failed",
+                            Reason = "instance-changed",
+                            Sequence = run.Snapshot.Sequence + 1,
+                            UpdatedAt = DateTimeOffset.UtcNow
+                        }, [], cancellationToken);
+                    }
+                    finally { run.PrefillWork.Release(); }
+                    continue;
+                }
+                await ReconcileRunAsync(session, run, cancellationToken,
+                    inventory.FirstOrDefault(snapshot => snapshot.OperationId == run.PrefillRunId.ToString()));
+                if (run.CancelRequested && run.TerminalCompletedFlag == 0)
+                    await session.Client.CancelPrefillAsync(run.PrefillRunId, run.DaemonInstanceId, cancellationToken);
+            }
+            session.Recovering = session.Runs.Values.Any(run => run.Recovering && run.TerminalCompletedFlag == 0);
+            session.NextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(10);
+            await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+        }
+        finally { session.RecoveryWork.Release(); }
+    }
+
+    private async Task ReconcileRunAsync(DaemonSession session, DaemonRun run, CancellationToken cancellationToken,
+        DaemonRunSnapshot? retained = null)
+    {
+        // Busy callbacks are coalesced; the retained operation page supplies every item transition.
+        if (!await run.PrefillWork.WaitAsync(0, cancellationToken)) return;
+        try
+        {
+            if (!IsSessionLive(session) || run.TerminalCompletedFlag != 0) return;
+            var items = new List<DaemonRunItem>();
+            var offset = 0;
+            DaemonRunSnapshot? snapshot = null;
+            bool? firstTerminal = null;
+            while (true)
+            {
+                var page = await session.Client.GetOperationAsync(run.PrefillRunId, run.DaemonInstanceId,
+                    offset, cancellationToken: cancellationToken);
+                if (page.Operation.OperationId != run.PrefillRunId.ToString()
+                    || page.Operation.DaemonInstanceId != run.DaemonInstanceId || page.Items is null)
+                    throw new JsonException("Operation page has a different run identity.");
+                var terminal = page.Operation.State is "completed" or "failed" or "cancelled";
+                firstTerminal ??= terminal;
+                if (terminal && firstTerminal == false)
+                {
+                    items.Clear(); offset = 0; snapshot = null; firstTerminal = true;
+                    continue;
+                }
+                if (snapshot is null || page.Operation.Sequence >= snapshot.Sequence) snapshot = page.Operation;
+                items.AddRange(page.Items);
+                if (page.NextOffset is null)
+                {
+                    if (terminal && items.Select(item => item.AppId).Distinct(StringComparer.Ordinal).Count() != page.TotalItems)
+                        run.HistoryIncomplete = true;
+                    break;
+                }
+                if (page.NextOffset <= offset || page.NextOffset > page.TotalItems)
+                    throw new JsonException("Operation page does not advance its item offset.");
+                offset = page.NextOffset.Value;
+            }
+            if (!IsSessionLive(session) || snapshot!.Sequence < run.Snapshot.Sequence) return;
+            if (snapshot.State is "completed" or "failed" or "cancelled")
+                await FinishRunAsync(session, run, snapshot, items, cancellationToken);
+            else
+            {
+                var stored = await _sessionService.SaveRunAsync(run, snapshot, items, false, cancellationToken);
+                if (!stored.Applied) return;
+                ApplyRunSnapshot(run, snapshot, items);
+                await PublishRunAsync(session, run, stored.Items, false);
+            }
+        }
+        catch (DaemonCommandException ex) when (ex.ErrorCode == "operation-not-found")
+        {
+            run.HistoryIncomplete = true;
+            if (retained is null)
+            {
+                var status = await session.Client.GetStatusAsync(cancellationToken);
+                if (status?.DaemonInstanceId == run.DaemonInstanceId)
+                    retained = (status.ActiveOperations ?? []).Concat(status.RecentOperations ?? [])
+                        .FirstOrDefault(snapshot => snapshot.OperationId == run.PrefillRunId.ToString());
+            }
+            var outcome = retained is { State: "completed" or "failed" or "cancelled" } ? retained
+                : run.Snapshot with
+                {
+                    State = "failed",
+                    Reason = "outcome-unknown",
+                    Sequence = run.Snapshot.Sequence + 1,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+            await FinishRunAsync(session, run, outcome, [], cancellationToken);
+        }
+        finally { run.PrefillWork.Release(); }
+    }
+
+    private async Task FinishRunAsync(DaemonSession session, DaemonRun run, DaemonRunSnapshot snapshot,
+        IReadOnlyList<DaemonRunItem> items, CancellationToken cancellationToken, bool containerStopped = false)
+    {
+        if (run.TerminalCompletedFlag != 0 || (!containerStopped && !IsSessionLive(session))) return;
+        if (snapshot.State == "cancelled" && run.CancelReason is "stalled" or "auth-lost" or "runtime-exceeded")
+            snapshot = snapshot with { State = "failed", Reason = run.CancelReason };
+        if (snapshot.FailedApps > 0 && snapshot.State == "completed") snapshot = snapshot with { State = "failed" };
+        var stored = await _sessionService.SaveRunAsync(run, snapshot, items, true, cancellationToken);
+        if (!stored.Applied) return;
+        run.TerminalCompletedFlag = 1;
+        ApplyRunSnapshot(run, snapshot, items);
+        run.CompletedAtUtc = snapshot.UpdatedAt.UtcDateTime;
+        run.PrefillState = snapshot.State switch
+        {
+            "completed" => PrefillState.Completed,
+            "cancelled" => PrefillState.Cancelled,
+            _ => PrefillState.Failed
+        };
+        Volatile.Write(ref run.LastProgressTicksUtc, 0);
+        try { await PublishRunAsync(session, run, stored.Items, true); }
+        finally
+        {
+            run.TerminalCompletedFlag = 2;
+            run.Completion.TrySetResult(DaemonSessionDto.FromRun(run));
+        }
+    }
+
+    private static void ApplyRunSnapshot(DaemonRun run, DaemonRunSnapshot snapshot, IReadOnlyList<DaemonRunItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (!run.Items.TryGetValue(item.AppId, out var previous) || item.Sequence > previous.Sequence)
+                run.Items[item.AppId] = item;
+        }
+        var elapsed = (snapshot.UpdatedAt - run.Snapshot.UpdatedAt).TotalSeconds;
+        var bytesPerSecond = elapsed > 0 ? Math.Max(0, snapshot.BytesTransferred - run.Snapshot.BytesTransferred) / elapsed : 0;
+        run.Snapshot = snapshot;
+        run.Recovering = false;
+        if (snapshot.BytesTransferred > run.LastProgressBytes)
+        {
+            run.LastProgressBytes = snapshot.BytesTransferred;
+            Volatile.Write(ref run.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
+        }
+        var failure = snapshot.State == "failed" ? new DaemonCommandException(snapshot.Reason) : null;
+        run.ErrorMessage = failure?.Message;
+        run.ErrorStageKey = failure?.StageKey;
+        if (snapshot.State == "failed" && snapshot.Reason == "stalled")
+        {
+            run.ErrorMessage = "The prefill stopped making progress.";
+            run.ErrorStageKey = "signalr.scheduledPrefill.failedStalled";
+        }
+        if (snapshot.State == "failed" && snapshot.Reason == "runtime-exceeded")
+        {
+            run.ErrorMessage = "Exceeded maximum service runtime";
+            run.ErrorStageKey = "signalr.scheduledPrefill.failedMaxRuntime";
+        }
+        run.LastProgress = new PrefillProgress
+        {
+            OperationId = snapshot.OperationId,
+            DaemonInstanceId = snapshot.DaemonInstanceId,
+            Sequence = snapshot.Sequence,
+            State = snapshot.State,
+            Reason = snapshot.Reason,
+            CurrentAppId = snapshot.CurrentItem?.AppId,
+            CurrentAppName = snapshot.CurrentItem?.Name,
+            BytesDownloaded = snapshot.CurrentItem?.BytesTransferred ?? 0,
+            PercentComplete = snapshot.CurrentItem?.TotalBytes is > 0
+                ? Math.Min(100, 100d * snapshot.CurrentItem.BytesTransferred / snapshot.CurrentItem.TotalBytes.Value) : 0,
+            BytesPerSecond = bytesPerSecond,
+            TotalBytes = snapshot.CurrentItem?.TotalBytes ?? 0,
+            TotalApps = snapshot.TotalApps,
+            UpdatedApps = snapshot.CompletedApps,
+            AlreadyUpToDate = snapshot.CachedApps,
+            FailedApps = snapshot.FailedApps,
+            CancelledApps = snapshot.CancelledApps,
+            SkippedApps = snapshot.SkippedApps,
+            TotalBytesTransferred = snapshot.BytesTransferred,
+            UpdatedAt = snapshot.UpdatedAt.UtcDateTime,
+            ElapsedSeconds = (snapshot.UpdatedAt - snapshot.StartedAt).TotalSeconds,
+            TotalTimeSeconds = (snapshot.UpdatedAt - snapshot.StartedAt).TotalSeconds,
+            ErrorMessage = run.ErrorMessage,
+            ErrorCode = failure?.ErrorCode,
+            RequiresLogin = failure?.RequiresLogin
+        };
+        if (run.TerminalCompletedFlag == 0) run.PrefillState = PrefillState.Downloading;
+    }
+
+    private async Task PublishRunAsync(DaemonSession session, DaemonRun run, IReadOnlyList<DaemonRunItem> changed, bool terminal)
+    {
+        foreach (var item in changed)
+        {
+            if (item.Result is "success" or "already_cached")
+            {
+                try
+                {
+                    var recorded = await _cacheService.RecordCachedAppAsync(Platform, item.AppId, item.Name,
+                        item.TotalBytes ?? 0, session.AccountUsername);
+                    if (Platform == PrefillPlatform.Steam && item.Depots is { Count: > 0 }
+                        && uint.TryParse(item.AppId, out var appId))
+                        recorded |= await _cacheService.RecordCachedDepotsAsync(appId, item.Name,
+                            item.Depots.Select(depot => (depot.DepotId, depot.ManifestId, depot.TotalBytes)), session.AccountUsername);
+                    if (recorded) await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to record cached app {AppId} for run {RunId}", item.AppId, run.PrefillRunId);
+                }
+            }
+        }
+        if (!IsSessionLive(session)) return;
+        await RaisePrefillProgressAsync(session, run.LastProgress!, run.Snapshot.Sequence);
+        var progressEvent = new { sessionId = session.Id, progress = run.LastProgress };
+        await BroadcastToSubscribersAsync(session, EventPrefillProgress, progressEvent);
+        if (terminal)
+        {
+            var terminalEvent = new
+            {
+                sessionId = session.Id,
+                operationId = run.PrefillRunId,
+                daemonInstanceId = run.DaemonInstanceId,
+                state = run.Snapshot.State,
+                durationSeconds = (int)(run.Snapshot.UpdatedAt - run.Snapshot.StartedAt).TotalSeconds,
+                run = DaemonSessionDto.FromRun(run)
+            };
+            await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminalEvent);
+            await NotifyHubAsync(EventPrefillStateChanged, terminalEvent).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session)).WaitAsync(TimeSpan.FromSeconds(5));
+        await ReportSessionActivityAsync(session, present: true);
+    }
+
 }

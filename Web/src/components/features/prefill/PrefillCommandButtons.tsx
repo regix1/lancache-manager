@@ -20,6 +20,9 @@ import {
 } from './types';
 
 interface PrefillCommandButtonsProps {
+  canStart?: boolean;
+  activeRunCount?: number;
+  maxConcurrentRuns?: number;
   isLoggedIn: boolean;
   isExecuting: boolean;
   isPrefillActive: boolean;
@@ -55,6 +58,9 @@ export function PrefillCommandButtons({
   isLoggedIn,
   isExecuting,
   isPrefillActive,
+  canStart = !isPrefillActive,
+  activeRunCount = 0,
+  maxConcurrentRuns,
   isSessionActive,
   isUserAuthenticated,
   selectedAppIds,
@@ -114,7 +120,8 @@ export function PrefillCommandButtons({
     return (
       isGlobalDisabled ||
       (isPrefillSelected && noGamesSelected) ||
-      (isPrefillCommand && isPrefillActive)
+      (isPrefillCommand && !canStart) ||
+      (cmd.id.startsWith('clear-') && isPrefillActive)
     );
   };
 
@@ -193,6 +200,14 @@ export function PrefillCommandButtons({
   return (
     <Card padding="md" className="cmd-center">
       <div className="space-y-5">
+        {maxConcurrentRuns !== undefined && (
+          <div className="space-y-1">
+            <p className="text-sm text-themed-muted">
+              {t('prefill.runs.capacity', { count: activeRunCount, limit: maxConcurrentRuns })}
+            </p>
+            <p className="text-xs text-themed-muted">{t('prefill.runs.capacityHelp')}</p>
+          </div>
+        )}
         {/* Split card: choose what to download (left), start it (right) */}
         <div className={`well-surface cmd-split p-4 ${isGlobalDisabled ? 'cmd-disabled' : ''}`}>
           <div className="cmd-split-left">
@@ -279,8 +294,10 @@ export function PrefillCommandButtons({
               <SectionActionsMenu label={t('prefill.sections.utilitiesActions')}>
                 {(close) => (
                   <ActionMenuDangerItem
+                    disabled={isPrefillActive}
                     onClick={() => {
                       close();
+                      if (isPrefillActive) return;
                       onCommandClick('clear-cache-data');
                     }}
                     icon={<Database className="w-4 h-4" />}
