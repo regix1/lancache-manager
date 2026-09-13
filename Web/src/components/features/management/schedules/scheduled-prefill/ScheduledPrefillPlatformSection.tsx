@@ -18,6 +18,8 @@ import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './typ
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { isPrefillRunActive } from '@components/features/prefill/hooks/prefillTypes';
 import { ScheduledPrefillDownloads } from './ScheduledPrefillDownloads';
+import Badge from '@components/ui/Badge';
+import { formatCount } from '@utils/formatters';
 
 interface ScheduledPrefillPlatformSectionProps {
   cancellingRunIds?: string[];
@@ -88,7 +90,7 @@ export function ScheduledPrefillPlatformSection({
     <section
       className={`scheduled-prefill-platform-section ${platformMeta.rowClassName}${
         config.enabled || view === 'downloads' ? '' : ' scheduled-prefill-platform-section--off'
-      }`}
+      }${view === 'downloads' ? ' scheduled-prefill-platform-section--downloads' : ''}`}
       aria-label={t(`${baseKey}.services.${serviceKey}`)}
     >
       <div className="scheduled-prefill-platform-section__views">
@@ -101,10 +103,16 @@ export function ScheduledPrefillPlatformSection({
             { value: 'configuration', label: t('prefill.runs.configuration') },
             {
               value: 'downloads',
-              label:
-                activeCount > 0
-                  ? t('prefill.runs.downloadsActive', { count: activeCount })
-                  : t('prefill.runs.downloads')
+              label: (
+                <>
+                  {t('prefill.runs.downloads')}
+                  {activeCount > 0 && (
+                    <Badge variant="neutral" className="badge-count">
+                      {formatCount(activeCount)}
+                    </Badge>
+                  )}
+                </>
+              )
             }
           ]}
         />
@@ -162,6 +170,12 @@ export function ScheduledPrefillPlatformSection({
             </div>
           </Card>
 
+          {containerSettings && (
+            <ScheduledPrefillContainerSettings disabled={fieldsDisabled}>
+              {containerSettings(fieldsDisabled)}
+            </ScheduledPrefillContainerSettings>
+          )}
+
           <Card padding="md" className="scheduled-prefill-platform-block">
             <h4 className="scheduled-prefill-platform-block__title">
               {t(`${baseKey}.platforms.sections.download`)}
@@ -192,11 +206,6 @@ export function ScheduledPrefillPlatformSection({
               />
             </div>
           </Card>
-          {containerSettings && (
-            <ScheduledPrefillContainerSettings disabled={fieldsDisabled}>
-              {containerSettings(fieldsDisabled)}
-            </ScheduledPrefillContainerSettings>
-          )}
         </div>
       </div>
     </section>

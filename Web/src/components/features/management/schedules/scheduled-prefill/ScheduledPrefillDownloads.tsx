@@ -1,8 +1,7 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { PrefillProgressCard } from '@components/features/prefill/PrefillProgressCard';
 import {
   getPrefillRunProgress,
@@ -11,8 +10,9 @@ import {
 } from '@components/features/prefill/hooks/prefillTypes';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import type { ScheduledPrefillServiceKey } from './types';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import Badge from '@components/ui/Badge';
 
 interface ScheduledPrefillDownloadsProps {
   serviceKey: ScheduledPrefillServiceKey;
@@ -33,7 +33,6 @@ export function ScheduledPrefillDownloads({
 }: ScheduledPrefillDownloadsProps) {
   const { t } = useTranslation();
   const [historyOpen, setHistoryOpen] = useState(false);
-  const historyId = useId();
   const runs = container?.runs ?? [];
   const active = runs.filter(isPrefillRunActive);
   const activeCount = Math.max(
@@ -48,7 +47,6 @@ export function ScheduledPrefillDownloads({
   return (
     <div className="scheduled-prefill-downloads">
       <header className="scheduled-prefill-downloads__heading">
-        <h4 className="scheduled-prefill-platform-block__title">{t('prefill.runs.downloads')}</h4>
         <p>
           {t('prefill.runs.scope', {
             service: t(
@@ -58,9 +56,12 @@ export function ScheduledPrefillDownloads({
         </p>
       </header>
       <section aria-label={t('prefill.runs.active')} className="scheduled-prefill-run-history">
-        <h5 className="scheduled-prefill-downloads__label">
-          {t('prefill.runs.active')} ({activeCount})
-        </h5>
+        <h4 className="scheduled-prefill-downloads__label">
+          {t('prefill.runs.active')}
+          <Badge variant="neutral" className="badge-count">
+            {formatCount(activeCount)}
+          </Badge>
+        </h4>
         {active.length > 0 ? (
           <div className="scheduled-prefill-run-history__list">
             {active.map((run) => (
@@ -101,32 +102,21 @@ export function ScheduledPrefillDownloads({
             {t('common.loading')}
           </p>
         ) : (
-          <p className="scheduled-prefill-downloads__empty">{t('prefill.runs.noActive')}</p>
+          <div className="scheduled-prefill-downloads__empty">
+            <p className="scheduled-prefill-downloads__empty-title">{t('prefill.runs.noActive')}</p>
+            <p>{t('prefill.runs.noActiveHelp')}</p>
+          </div>
         )}
       </section>
       <section className="scheduled-prefill-downloads__history">
-        <Button
-          variant="transparent"
-          className="scheduled-prefill-downloads__toggle focus-ring"
-          aria-expanded={historyOpen}
-          aria-controls={historyId}
-          onClick={() => setHistoryOpen((open) => !open)}
+        <AccordionSection
+          title={t('prefill.runs.history')}
+          count={history.length}
+          surface="well"
+          isExpanded={historyOpen}
+          onToggle={() => setHistoryOpen((open) => !open)}
         >
-          <span>
-            {t('prefill.runs.history')} ({history.length})
-          </span>
-          <ChevronDown
-            size={16}
-            aria-hidden="true"
-            className={`scheduled-prefill-container-settings__icon${historyOpen ? ' scheduled-prefill-container-settings__icon--open' : ''}`}
-          />
-        </Button>
-        <div id={historyId} inert={!historyOpen}>
-          <CollapsibleRegion
-            open={historyOpen}
-            className="prefill-run-details-region"
-            contentClassName="scheduled-prefill-run-history__list"
-          >
+          <div className="scheduled-prefill-run-history__list" inert={!historyOpen}>
             {history.length > 0 ? (
               history.map((run) => (
                 <PrefillProgressCard
@@ -139,8 +129,8 @@ export function ScheduledPrefillDownloads({
             ) : (
               <p className="scheduled-prefill-downloads__empty">{t('prefill.runs.noHistory')}</p>
             )}
-          </CollapsibleRegion>
-        </div>
+          </div>
+        </AccordionSection>
       </section>
     </div>
   );

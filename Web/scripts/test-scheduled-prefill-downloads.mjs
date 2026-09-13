@@ -30,7 +30,8 @@ const h = (type, props, ...children) => ({
 });
 const card = Symbol('progress card');
 const button = Symbol('button');
-const disclosure = Symbol('disclosure');
+const disclosure = Symbol('accordion');
+const badge = Symbol('badge');
 const walk = (node, type) => [
   ...(node?.type === type ? [node] : []),
   ...(node?.children ?? []).flatMap((child) => walk(child, type))
@@ -59,22 +60,21 @@ const run = (id, state) => ({
 const create = () => {
   let open = false;
   const render = new Function(
-    'useId',
     'useState',
     'useTranslation',
     'Button',
-    'CollapsibleRegion',
-    'ChevronDown',
+    'AccordionSection',
     'PrefillProgressCard',
     'getPrefillRunProgress',
     'isPrefillRunActive',
     'supportsConcurrentPrefill',
     'formatBytes',
+    'formatCount',
     'LoadingSpinner',
+    'Badge',
     'h',
     `${compiled}\nreturn ScheduledPrefillDownloads;`
   )(
-    () => 'history',
     () => [
       open,
       (update) => {
@@ -84,13 +84,14 @@ const create = () => {
     () => ({ t: (key) => key }),
     button,
     disclosure,
-    Symbol('chevron'),
     card,
     getPrefillRunProgress,
     isPrefillRunActive,
     supportsConcurrentPrefill,
     (value) => `${value} B`,
+    (value) => String(value),
     Symbol('loading'),
+    badge,
     h
   );
   return render;
@@ -131,12 +132,33 @@ test('history starts collapsed and its disclosure retains the accessible open st
   const render = create();
   const props = { serviceKey: 'xbox', disabled: false, onCancelDownload: () => undefined };
   let tree = render(props);
-  assert.equal(walk(tree, disclosure)[0].props.open, false);
-  walk(tree, button)[0].props.onClick();
+  assert.equal(walk(tree, disclosure)[0].props.isExpanded, false);
+  walk(tree, disclosure)[0].props.onToggle();
   tree = render(props);
-  assert.equal(walk(tree, button)[0].props['aria-expanded'], true);
-  assert.equal(walk(tree, disclosure)[0].props.open, true);
-  assert.equal(walk(tree, button)[0].props['aria-controls'], 'history');
+  assert.equal(walk(tree, disclosure)[0].props.isExpanded, true);
+  assert.equal(walk(tree, disclosure)[0].props.surface, 'well');
+});
+
+test('download headings use separate count badges for zero and populated lists', () => {
+  const render = create();
+  const props = { serviceKey: 'steam', disabled: false, onCancelDownload: () => undefined };
+  const empty = render(props);
+  assert.deepEqual(
+    walk(empty, badge).map((node) => node.children.join('')),
+    ['0']
+  );
+  assert.equal(walk(empty, disclosure)[0].props.count, 0);
+  const populated = render({
+    ...props,
+    container: { runs: [run('1', 'downloading'), run('2', 'cancelled'), run('3', 'failed')] }
+  });
+  assert.deepEqual(
+    walk(populated, badge).map((node) => node.children.join('')),
+    ['1']
+  );
+  assert.equal(walk(populated, disclosure)[0].props.count, 2);
+  assert.ok(walk(populated, badge).every((node) => node.props.className === 'badge-count'));
+  assert.equal(walk(populated, disclosure)[0].props.className, undefined);
 });
 
 test('a finished run leaves active downloads and remains available in history', () => {

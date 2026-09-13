@@ -6,11 +6,12 @@ import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
 import { ChevronDown, Download } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { formatBytes, formatSpeed, formatPercent } from '@utils/formatters';
+import { formatBytes, formatSpeed, formatPercent, formatCount } from '@utils/formatters';
 import { formatTimeRemaining, formatEtaShort } from './types';
 import { isPrefillRunActive, type PrefillRun, type PrefillProgress } from './hooks/prefillTypes';
 import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
+import Badge from '@components/ui/Badge';
 
 interface PrefillProgressCardProps {
   run?: PrefillRun;
@@ -136,15 +137,25 @@ export function PrefillProgressCard({
     const transferredText = t('prefill.runs.transferred', {
       size: formatBytes(snapshot.bytesTransferred)
     });
-    const outcomesText =
-      snapshot.failedApps > 0 || snapshot.skippedApps > 0 || snapshot.cancelledApps > 0
-        ? t('prefill.runs.outcomes', {
-            completed: snapshot.completedApps + snapshot.cachedApps,
-            failed: snapshot.failedApps,
-            skipped: snapshot.skippedApps,
-            cancelled: snapshot.cancelledApps
-          })
-        : null;
+    const outcomes = [
+      { label: t('prefill.runs.completed'), count: snapshot.completedApps + snapshot.cachedApps },
+      { label: t('prefill.runs.failed'), count: snapshot.failedApps },
+      { label: t('prefill.runs.skipped'), count: snapshot.skippedApps },
+      { label: t('prefill.runs.cancelled'), count: snapshot.cancelledApps }
+    ].filter((outcome) => outcome.count > 0);
+    const results =
+      outcomes.length > 0 ? (
+        <ul className="prefill-run-outcomes">
+          {outcomes.map((outcome) => (
+            <li key={outcome.label}>
+              <span>{outcome.label}</span>
+              <Badge variant="neutral" className="badge-count">
+                {formatCount(outcome.count)}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      ) : null;
     return (
       <section data-prefill-run={run.runId} aria-label={name}>
         <Card
@@ -155,11 +166,27 @@ export function PrefillProgressCard({
         >
           <div className="prefill-progress-card__body">
             <div className="prefill-run-heading">
-              <div className="min-w-0">
+              <div className="prefill-run-title">
                 <h4 className="font-medium text-themed-primary break-words">{name}</h4>
-                <p className="text-sm text-themed-muted" role="status">
-                  {label}
-                </p>
+                <span role="status">
+                  <Badge
+                    variant={
+                      active
+                        ? run.recovering
+                          ? 'warning'
+                          : 'info'
+                        : snapshot.state === 'completed'
+                          ? 'success'
+                          : snapshot.state === 'failed'
+                            ? 'error'
+                            : snapshot.state === 'skipped'
+                              ? 'warning'
+                              : 'neutral'
+                    }
+                  >
+                    {label}
+                  </Badge>
+                </span>
               </div>
               {active && onCancel && (
                 <Button
@@ -222,22 +249,24 @@ export function PrefillProgressCard({
                   <span>{itemsText}</span>
                   <span>{transferredText}</span>
                 </p>
-                {outcomesText && <p className="text-sm text-themed-muted">{outcomesText}</p>}
+                {results}
               </>
             ) : (
               <dl className="prefill-run-terminal-summary">
                 <div>
                   <dt>{t('prefill.runs.processedLabel')}</dt>
-                  <dd>{itemsText}</dd>
+                  <dd aria-label={itemsText}>
+                    {formatCount(finished)} / {formatCount(snapshot.totalApps)}
+                  </dd>
                 </div>
                 <div>
                   <dt>{t('prefill.runs.transferredLabel')}</dt>
-                  <dd>{transferredText}</dd>
+                  <dd>{formatBytes(snapshot.bytesTransferred)}</dd>
                 </div>
-                {outcomesText && (
+                {results && (
                   <div>
                     <dt>{t('prefill.runs.resultsLabel')}</dt>
-                    <dd>{outcomesText}</dd>
+                    <dd>{results}</dd>
                   </div>
                 )}
               </dl>
@@ -265,43 +294,46 @@ export function PrefillProgressCard({
                 />
                 <span>{t('prefill.runs.details')}</span>
               </button>
-              <CollapsibleRegion
-                open={detailsOpen}
-                className="prefill-run-details-region"
-                contentClassName="prefill-run-details-content"
-              >
-                <dl id={detailsId} className="prefill-run-detail-grid">
-                  <div className="prefill-run-detail-grid__item">
-                    <dt>{t('prefill.runs.startedLabel')}</dt>
-                    <dd>{new Date(snapshot.startedAt).toLocaleString()}</dd>
-                  </div>
-                  <div className="prefill-run-detail-grid__item">
-                    <dt>{t('prefill.runs.selectionLabel')}</dt>
-                    <dd>
-                      {t('prefill.runs.selectionValue', {
-                        selection: run.options.selection,
-                        count: snapshot.totalApps
-                      })}
-                    </dd>
-                  </div>
-                  {run.options.operatingSystems.length > 0 && (
+              <div id={detailsId} inert={!detailsOpen}>
+                <CollapsibleRegion
+                  open={detailsOpen}
+                  contentClassName="prefill-run-details-content"
+                >
+                  <dl className="prefill-run-detail-grid">
                     <div className="prefill-run-detail-grid__item">
-                      <dt>{t('prefill.runs.platformsLabel')}</dt>
-                      <dd>{run.options.operatingSystems.join(', ')}</dd>
+                      <dt>{t('prefill.runs.startedLabel')}</dt>
+                      <dd>{new Date(snapshot.startedAt).toLocaleString()}</dd>
                     </div>
-                  )}
-                  {run.options.appIds && (
                     <div className="prefill-run-detail-grid__item">
-                      <dt>{t('prefill.runs.appIdsLabel')}</dt>
-                      <dd className="tabular-nums">{run.options.appIds.join(', ')}</dd>
+                      <dt>{t('prefill.runs.selectionLabel')}</dt>
+                      <dd className="prefill-run-selection">
+                        {t('prefill.runs.selectionValue', {
+                          selection: run.options.selection
+                        })}
+                        <Badge variant="neutral" className="badge-count">
+                          {formatCount(snapshot.totalApps)}
+                        </Badge>
+                      </dd>
                     </div>
-                  )}
-                  <div className="prefill-run-detail-grid__item prefill-run-detail-grid__item--wide">
-                    <dt>{t('prefill.runs.identifierLabel')}</dt>
-                    <dd className="prefill-run-detail-grid__identifier">{run.runId}</dd>
-                  </div>
-                </dl>
-              </CollapsibleRegion>
+                    {run.options.operatingSystems.length > 0 && (
+                      <div className="prefill-run-detail-grid__item">
+                        <dt>{t('prefill.runs.platformsLabel')}</dt>
+                        <dd>{run.options.operatingSystems.join(', ')}</dd>
+                      </div>
+                    )}
+                    {run.options.appIds && (
+                      <div className="prefill-run-detail-grid__item">
+                        <dt>{t('prefill.runs.appIdsLabel')}</dt>
+                        <dd className="tabular-nums">{run.options.appIds.join(', ')}</dd>
+                      </div>
+                    )}
+                    <div className="prefill-run-detail-grid__item prefill-run-detail-grid__item--wide">
+                      <dt>{t('prefill.runs.identifierLabel')}</dt>
+                      <dd className="prefill-run-detail-grid__identifier">{run.runId}</dd>
+                    </div>
+                  </dl>
+                </CollapsibleRegion>
+              </div>
             </div>
           </div>
         </Card>

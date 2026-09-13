@@ -976,10 +976,10 @@ test('completed prefill runs stay compact and animate their details disclosure',
     /aria-expanded=\{detailsOpen\}[\s\S]*?<CollapsibleRegion[\s\S]*?open=\{detailsOpen\}/,
     'the details button and animated region share one accessible open state'
   );
-  assert.match(
+  assert.doesNotMatch(
     prefillCss,
-    /\.prefill-run-details-region\.collapsible-region\s*\{\s*transition: grid-template-rows 200ms cubic-bezier\(0\.23, 1, 0\.32, 1\);/,
-    'run details use the short shared disclosure motion'
+    /prefill-run-details-region|transition:\s*grid-template-rows/,
+    'run details inherit the app-wide disclosure motion without a feature-specific override'
   );
   assert.match(
     prefillCss,
@@ -993,8 +993,8 @@ test('completed prefill runs stay compact and animate their details disclosure',
   );
   assert.match(
     schedulesCss,
-    /\.scheduled-prefill-run-history \.prefill-progress-card\s*\{\s*background: var\(--theme-bg-secondary-emphasis\);\s*border-color: var\(--theme-border-well\);/,
-    'scheduled run cards use the same surface hierarchy as configuration cards'
+    /\.scheduled-prefill-downloads \.prefill-progress-card\s*\{\s*background: var\(--theme-bg-secondary\);\s*border-color: var\(--theme-border-secondary\);/,
+    'scheduled run cards use an opaque surface distinct from their parent'
   );
   assert.match(
     progressCardSource.text,
@@ -1006,6 +1006,24 @@ test('completed prefill runs stay compact and animate their details disclosure',
     /<dl[^>]*prefill-run-detail-grid[\s\S]*?<dt>\{t\('prefill\.runs\.startedLabel'\)\}<\/dt>[\s\S]*?<dt>\{t\('prefill\.runs\.identifierLabel'\)\}<\/dt>/,
     'expanded run details use labeled definition-list structure'
   );
+});
+
+test('shared login settings follow schedule settings and badge labels retain spacing', () => {
+  const text = platformSectionSource.text;
+  assert.ok(
+    text.indexOf('<ScheduledPrefillScheduleFields') <
+      text.indexOf('<ScheduledPrefillContainerSettings')
+  );
+  assert.ok(
+    text.indexOf('<ScheduledPrefillContainerSettings') <
+      text.indexOf('<ScheduledPrefillDownloadFields')
+  );
+  assert.match(schedulesCss, /\.scheduled-prefill-downloads__label\s*\{[^}]*gap: 0\.5rem;/);
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-platform-section__views \.segmented-control-label\s*\{\s*gap: 0\.5rem;/
+  );
+  assert.doesNotMatch(text, /prefill\.runs\.downloadsActive/);
 });
 
 test('Actions cannot submit and the mobile modal contains touch scrolling', () => {

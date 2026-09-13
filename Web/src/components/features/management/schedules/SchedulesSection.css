@@ -1414,7 +1414,7 @@
 
 .scheduled-prefill-container-settings__icon {
   flex-shrink: 0;
-  transition: transform 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: transform 200ms ease-out;
 }
 
 .scheduled-prefill-container-settings__icon--open {
@@ -1446,14 +1446,35 @@
   min-width: 0;
 }
 
-.scheduled-prefill-run-history .prefill-progress-card {
-  background: var(--theme-bg-secondary-emphasis);
-  border-color: var(--theme-border-well);
+.scheduled-prefill-downloads .prefill-progress-card {
+  background: var(--theme-bg-secondary);
+  border-color: var(--theme-border-secondary);
+  box-shadow: none;
+}
+
+[data-theme='light'] .scheduled-prefill-downloads .prefill-progress-card {
+  background: var(--theme-bg-tertiary);
+}
+
+.scheduled-prefill-downloads .prefill-progress-card:not(.prefill-progress-card--terminal) {
+  background: var(--theme-bg-surface);
+}
+
+.scheduled-prefill-downloads .prefill-run-counts {
+  color: var(--theme-text-secondary);
 }
 
 .scheduled-prefill-platform-section__views {
   max-width: 28rem;
   width: 100%;
+}
+
+.scheduled-prefill-platform-section__views .segmented-control-container {
+  background: var(--theme-bg-surface);
+}
+
+.scheduled-prefill-platform-section__views .segmented-control-label {
+  gap: 0.5rem;
 }
 
 .scheduled-prefill-downloads {
@@ -1471,36 +1492,33 @@
 
 .scheduled-prefill-downloads__heading p,
 .scheduled-prefill-downloads__empty {
-  color: var(--theme-text-muted);
+  color: var(--theme-text-secondary);
   font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
 .scheduled-prefill-downloads__label {
-  color: var(--theme-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--theme-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 600;
 }
 
 .scheduled-prefill-downloads__empty {
-  padding-block: 0.75rem;
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 1rem;
+  background: var(--theme-bg-tertiary);
+  border-radius: var(--theme-border-radius);
 }
 
-.scheduled-prefill-downloads__history {
-  border-top: 1px solid var(--theme-border-secondary);
-  padding-top: 0.75rem;
-}
-
-.scheduled-prefill-downloads__toggle {
-  width: 100%;
-  justify-content: space-between;
-  min-height: 2.75rem;
-  padding: 0.5rem 0;
-  color: var(--theme-text-secondary);
-}
-
-.scheduled-prefill-downloads__history .scheduled-prefill-run-history__list {
-  padding-top: 0.75rem;
+.scheduled-prefill-downloads__empty-title {
+  color: var(--theme-text-primary);
+  font-weight: 600;
 }
 
 @media (min-width: 768px) {
@@ -1660,6 +1678,12 @@
   background: var(--theme-bg-tertiary);
   border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
+}
+
+/* Downloads share the dialog surface; only records and empty states need a separate fill. */
+.scheduled-prefill-platform-section--downloads {
+  background: transparent;
+  border-color: transparent;
 }
 
 /* A switched-off schedule's pane and its wells recede toward the modal color and take the

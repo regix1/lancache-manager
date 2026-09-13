@@ -108,6 +108,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onToggle();
       }}
       aria-label={isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')}
+      aria-expanded={isExpanded}
     >
       <ChevronDown
         className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-200 ease-out${
@@ -130,6 +131,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
       {/* Header - using div with role="button" to allow nested interactive elements */}
       <div
         role="button"
+        aria-expanded={isExpanded}
         tabIndex={0}
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
