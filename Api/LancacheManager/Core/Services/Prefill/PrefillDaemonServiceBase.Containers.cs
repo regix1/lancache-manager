@@ -707,36 +707,51 @@ public abstract partial class PrefillDaemonServiceBase
 
         try
         {
-            // Always pull to ensure we have the latest version
-            await _containerGateway.CreateImageAsync(
-                new ImagesCreateParameters
+            const int maxAttempts = 3;
+            for (var attempt = 1; ; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
                 {
-                    FromImage = imageName.Split(':')[0],
-                    Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
-                },
-                null,
-                new Progress<JSONMessage>(msg =>
-                {
-                    if (!string.IsNullOrEmpty(msg.Status))
-                    {
-                        // Only log significant progress, not every layer
-                        if (msg.Status.Contains("Pulling") || msg.Status.Contains("Downloaded") || msg.Status.Contains("up to date"))
+                    await _containerGateway.CreateImageAsync(
+                        new ImagesCreateParameters
                         {
-                            _logger.LogInformation("Pull: {Status}", msg.Status);
-                        }
-                    }
-                    if (!string.IsNullOrEmpty(msg.ErrorMessage))
-                    {
-                        _logger.LogError("Pull error: {Error}", msg.ErrorMessage);
-                    }
-                }),
-                cancellationToken);
+                            FromImage = imageName.Split(':')[0],
+                            Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
+                        },
+                        null,
+                        new Progress<JSONMessage>(msg =>
+                        {
+                            if (!string.IsNullOrEmpty(msg.Status)
+                                && (msg.Status.Contains("Pulling") || msg.Status.Contains("Downloaded") || msg.Status.Contains("up to date")))
+                            {
+                                _logger.LogInformation("Pull: {Status}", msg.Status);
+                            }
+                            if (!string.IsNullOrEmpty(msg.ErrorMessage))
+                            {
+                                _logger.LogError("Pull error: {Error}", msg.ErrorMessage);
+                            }
+                        }),
+                        cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    break;
+                }
+                catch (Exception ex) when (attempt < maxAttempts && IsImagePullTransient(ex))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    _logger.LogWarning(ex,
+                        "Prefill image pull failed for {ImageName}; retrying in {DelaySeconds}s (attempt {Attempt}/{MaxAttempts})",
+                        imageName, attempt, attempt, maxAttempts);
+                    await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken);
+                }
+            }
 
             var imageInfo = await _containerGateway.InspectImageAsync(imageName, cancellationToken);
             _logger.LogInformation("Image ready: {ImageName} (ID: {ImageId})", imageName, imageInfo.ID[..12]);
         }
         catch (Exception ex)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // Check if we have a local copy we can use
             try
             {
@@ -752,6 +767,15 @@ public abstract partial class PrefillDaemonServiceBase
             }
         }
     }
+
+    private static bool IsImagePullTransient(Exception exception) => exception switch
+    {
+        DockerApiException docker => docker.StatusCode is HttpStatusCode.RequestTimeout
+            or HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
+            or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout,
+        HttpRequestException or IOException or SocketException or TimeoutException or OperationCanceledException => true,
+        _ => false
+    };
 
     private string GetDaemonBasePath()
     {

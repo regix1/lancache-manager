@@ -71,6 +71,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     // gate. The gate holder is the ONLY code that creates or awaits _connectedTcs/_loggedOnTcs;
     // the SteamKit2 callbacks only complete or fault them. Everything else calls EnsureSessionAsync.
     private readonly SemaphoreSlim _sessionGate = new(1, 1);
+    private long _sessionVersion;
     // Attempts per session transition. Transient CM failures (TryAnotherCM / dropped auth jobs /
     // mid-handshake disconnects) rotate to a different CM server between attempts - SteamKit2
     // marks the failing endpoint bad, so staying on the same connection would just fail again.
@@ -460,26 +461,39 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// Runs a PICS operation, re-establishing the session and retrying (bounded) when the
     /// connection drops or the CM drops the in-flight job - the job dies with the connection
     /// either way, so the operation is re-issued instead of its data being silently skipped.
-    /// Recovery forces a reconnect: after a dropped job the socket can still be up on the same
-    /// bad CM server, and reusing it would just fail again. A rejected re-logon
+    /// Recovery rotates an unchanged connection after a dropped job, but reuses a replacement
+    /// established by another session transition. A rejected re-logon
     /// (SteamLogonException) is not retried here - it propagates as session-fatal.
     /// </summary>
     private async Task<T> RunPicsWithRecoveryAsync<T>(Func<Task<T>> operation, string operationName, CancellationToken ct)
     {
         for (var attempt = 1; ; attempt++)
         {
+            ct.ThrowIfCancellationRequested();
+            var sessionVersion = await EnsureSessionAsync(ct);
             try
             {
                 return await operation();
             }
-            catch (Exception ex) when (attempt < MaxBatchConnectionRetries &&
-                                       ex is SteamConnectionLostException or AsyncJobFailedException)
+            catch (Exception ex) when (ex is SteamConnectionLostException or AsyncJobFailedException)
             {
-                _logger.LogWarning(ex,
-                    "Steam connection lost during {Operation} - re-establishing session and retrying (attempt {Attempt}/{MaxAttempts})",
-                    operationName, attempt, MaxBatchConnectionRetries);
+                ct.ThrowIfCancellationRequested();
+                if (attempt >= MaxBatchConnectionRetries) throw;
+                var sessionChanged = sessionVersion != Interlocked.Read(ref _sessionVersion);
+                if (sessionChanged)
+                {
+                    _logger.LogInformation(
+                        "Steam session changed during {Operation} - retrying on the replacement session (attempt {Attempt}/{MaxAttempts})",
+                        operationName, attempt, MaxBatchConnectionRetries);
+                }
+                else
+                {
+                    _logger.LogWarning(ex,
+                        "Steam connection lost during {Operation} - re-establishing session and retrying (attempt {Attempt}/{MaxAttempts})",
+                        operationName, attempt, MaxBatchConnectionRetries);
+                }
 
-                if (IsRebuildRunning)
+                if (IsRebuildRunning && !sessionChanged)
                 {
                     await SendDepotMappingProgressAsync(
                         "Reconnecting to Steam...",
@@ -488,7 +502,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
                         reconnectAttempt: attempt);
                 }
 
-                await EnsureSessionAsync(ct, forceReconnect: true);
+                await EnsureSessionAsync(ct, forceReconnect: !sessionChanged, expectedVersion: sessionVersion);
             }
         }
     }

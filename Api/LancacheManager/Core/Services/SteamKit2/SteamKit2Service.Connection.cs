@@ -35,16 +35,20 @@ public partial class SteamKit2Service
     /// transient CM failures are retried on a different server. On final failure the
     /// SteamSessionError toast is emitted here (not in the callbacks) and the exception
     /// propagates to the caller, whose own operation lifecycle reports the failure.
+    /// Returns the session version captured under the gate so a job can identify its connection.
     /// </summary>
-    private async Task EnsureSessionAsync(CancellationToken ct, bool forceReconnect = false)
+    private async Task<long> EnsureSessionAsync(CancellationToken ct, bool forceReconnect = false, long? expectedVersion = null)
     {
         await _sessionGate.WaitAsync(ct);
         try
         {
+            // Another caller may finish the handoff while this request waits for the gate.
+            if (expectedVersion.HasValue && expectedVersion.Value != Interlocked.Read(ref _sessionVersion))
+                forceReconnect = false;
             var correctMode = HasSessionMode(UseAnonymousSession(IsSteamDaemonActive()));
             if (!forceReconnect && correctMode && _isLoggedOn && _steamClient?.IsConnected == true)
             {
-                return;
+                return Interlocked.Read(ref _sessionVersion);
             }
 
             if (forceReconnect || (_isLoggedOn && !correctMode))
@@ -55,6 +59,7 @@ public partial class SteamKit2Service
             }
 
             await LogonLockedAsync(details: null, ct);
+            return Interlocked.Read(ref _sessionVersion);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -115,6 +120,7 @@ public partial class SteamKit2Service
             }
 
             await WaitWithTimeoutAsync(_loggedOnTcs.Task, logonTimeout ?? TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+            Interlocked.Increment(ref _sessionVersion);
             return true;
         }, "Steam logon", ct);
     }
@@ -167,6 +173,8 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ResetConnectionLockedAsync(CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+        Interlocked.Increment(ref _sessionVersion);
         if (_steamClient?.IsConnected == true)
         {
             _intentionalDisconnect = true;

@@ -64,6 +64,9 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public bool IsAvailable { get; private set; }
     public bool Disposed { get; private set; }
+    public Queue<Exception> ImagePullFailures { get; } = new();
+    public bool ImageExists { get; set; } = true;
+    public Action? OnImagePull { get; set; }
     public bool HoldStartContainer { get; set; }
     public bool CompleteStartAfterCancellation { get; set; }
     public bool HoldCreateContainer { get; set; }
@@ -78,10 +81,13 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     public int CountOf(string opPrefix) { lock (_sync) return Calls.Count(c => c.StartsWith(opPrefix, StringComparison.Ordinal)); }
     public int DestructiveCallCount
     {
-        get { lock (_sync) return Calls.Count(c => c.StartsWith("Stop:", StringComparison.Ordinal)
+        get
+        {
+            lock (_sync) return Calls.Count(c => c.StartsWith("Stop:", StringComparison.Ordinal)
                       || c.StartsWith("Kill:", StringComparison.Ordinal)
                       || c.StartsWith("Remove:", StringComparison.Ordinal)
-                      || c.StartsWith("RemoveVolume:", StringComparison.Ordinal)); }
+                      || c.StartsWith("RemoveVolume:", StringComparison.Ordinal));
+        }
     }
 
     public FakeContainer AddContainer(FakeContainer container)
@@ -173,7 +179,9 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
             id = Guid.NewGuid().ToString("N");
             _containers.Add(new FakeContainer
             {
-                Id = id, Name = parameters.Name ?? id, Running = false,
+                Id = id,
+                Name = parameters.Name ?? id,
+                Running = false,
                 Labels = parameters.Labels != null ? new Dictionary<string, string>(parameters.Labels) : new(),
                 Env = parameters.Env != null ? new List<string>(parameters.Env) : new()
             });
@@ -258,7 +266,8 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
             Calls.Add($"Remove:{id}");
             Removals.Add((id, new ContainerRemoveParameters
             {
-                Force = parameters.Force, RemoveVolumes = parameters.RemoveVolumes
+                Force = parameters.Force,
+                RemoveVolumes = parameters.RemoveVolumes
             }));
             if (_pendingRemoveFailure != null)
             {
@@ -297,14 +306,22 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public Task CreateImageAsync(ImagesCreateParameters parameters, AuthConfig? authConfig, IProgress<JSONMessage> progress, CancellationToken cancellationToken)
     {
-        // Simulates a successful image pull.
-        lock (_sync) Calls.Add("CreateImage");
+        Exception? failure;
+        lock (_sync)
+        {
+            Calls.Add("CreateImage");
+            ImagePullFailures.TryDequeue(out failure);
+        }
+        OnImagePull?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (failure != null) throw failure;
         return Task.CompletedTask;
     }
 
     public Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken)
     {
         lock (_sync) Calls.Add($"InspectImage:{name}");
+        if (!ImageExists) throw new DockerImageNotFoundException(System.Net.HttpStatusCode.NotFound, "Image is not cached");
         return Task.FromResult(new ImageInspectResponse { ID = "sha256:testimageid0000" });
     }
 

@@ -129,18 +129,7 @@ public sealed class SteamSessionPolicyTests
     public void SessionModeUsesLiveSteamAccountType(EAccountType type, bool anonymous)
     {
         using var fixture = new Fixture();
-        var client = new SteamClient();
-        var clientType = typeof(SteamClient);
-        FieldInfo? steamId = null;
-        while (clientType != null && steamId == null)
-        {
-            steamId = clientType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-                .SingleOrDefault(field => field.FieldType == typeof(SteamID));
-            clientType = clientType.BaseType;
-        }
-        Assert.NotNull(steamId);
-        steamId.SetValue(client, new SteamID(1, EUniverse.Public, type));
-        Set(fixture.Service, "_steamClient", client);
+        fixture.Connect(type);
         Assert.True(fixture.Service.IsSteamAuthenticated);
         Assert.Equal(true, Invoke(fixture.Service, "HasSessionMode", anonymous));
         Assert.Equal(false, Invoke(fixture.Service, "HasSessionMode", !anonymous));
@@ -153,12 +142,111 @@ public sealed class SteamSessionPolicyTests
         var gate = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
         await gate.WaitAsync();
         using var cancel = new CancellationTokenSource();
-        var pending = (Task)Invoke(fixture.Service, "EnsureSessionAsync", cancel.Token, false)!;
+        var pending = (Task)Invoke(fixture.Service, "EnsureSessionAsync", cancel.Token, false, null)!;
         Assert.False(pending.IsCompleted);
         cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
         Assert.True(fixture.Service.IsSteamAuthenticated);
         gate.Release();
+    }
+
+    [Fact]
+    public async Task ReplacedSessionIsReusedByPicsRetryAsync()
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        var attempts = 0;
+        var result = await RunPicsAsync(fixture.Service, () =>
+        {
+            if (++attempts == 1)
+            {
+                Set(fixture.Service, "_sessionVersion", 1L);
+                throw new SteamConnectionLostException("Session changed");
+            }
+            return Task.FromResult(42);
+        }, CancellationToken.None);
+        Assert.Equal(42, result);
+        Assert.Equal(2, attempts);
+        Assert.Equal(1, Get<long>(fixture.Service, "_sessionVersion"));
+        Assert.Equal("token", fixture.Storage.GetSavedLogin(fixture.Owner)?.RefreshToken);
+    }
+
+    [Fact]
+    public async Task SessionReplacementIsRecheckedAfterWaitingForGateAsync()
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        var gate = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
+        await gate.WaitAsync();
+        var recovery = (Task)Invoke(fixture.Service, "EnsureSessionAsync", CancellationToken.None, true, 0L)!;
+        Assert.False(recovery.IsCompleted);
+        Set(fixture.Service, "_sessionVersion", 1L);
+        gate.Release();
+        await recovery.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, Get<long>(fixture.Service, "_sessionVersion"));
+    }
+
+    [Fact]
+    public async Task PicsRequestWaitsForSessionHandoffAsync()
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        var gate = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
+        await gate.WaitAsync();
+        var attempts = 0;
+        var request = RunPicsAsync(fixture.Service, () => Task.FromResult(++attempts), CancellationToken.None);
+        Assert.False(request.IsCompleted);
+        Assert.Equal(0, attempts);
+        Set(fixture.Service, "_sessionVersion", 1L);
+        gate.Release();
+        Assert.Equal(1, await request.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, Get<long>(fixture.Service, "_sessionVersion"));
+    }
+
+    [Fact]
+    public async Task UnchangedSessionStillRotatesAsync()
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        using var cancel = new CancellationTokenSource();
+        var recovery = (Task)Invoke(fixture.Service, "EnsureSessionAsync", cancel.Token, true, 0L)!;
+        Assert.Equal(1, Get<long>(fixture.Service, "_sessionVersion"));
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => recovery);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelledPicsRequestsDoNotReconnectAsync(bool cancelledBeforeRequest)
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        using var cancel = new CancellationTokenSource();
+        if (cancelledBeforeRequest) await cancel.CancelAsync();
+        var attempts = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RunPicsAsync(fixture.Service, () =>
+        {
+            attempts++;
+            cancel.Cancel();
+            throw new SteamConnectionLostException("Request interrupted");
+        }, cancel.Token));
+        Assert.Equal(cancelledBeforeRequest ? 0 : 1, attempts);
+        Assert.Equal(0, Get<long>(fixture.Service, "_sessionVersion"));
+    }
+
+    [Fact]
+    public async Task RepeatedSessionChangesStopAfterRetryLimitAsync()
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        var attempts = 0;
+        await Assert.ThrowsAsync<SteamConnectionLostException>(() => RunPicsAsync(fixture.Service, () =>
+        {
+            Set(fixture.Service, "_sessionVersion", (long)++attempts);
+            throw new SteamConnectionLostException("Session changed");
+        }, CancellationToken.None));
+        Assert.Equal(3, attempts);
     }
 
     [Fact]
@@ -221,6 +309,10 @@ public sealed class SteamSessionPolicyTests
     private static object? Invoke(object instance, string method, params object?[] args) =>
         instance.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(instance, args);
 
+    private static Task<int> RunPicsAsync(SteamKit2Service service, Func<Task<int>> operation, CancellationToken cancellationToken) =>
+        (Task<int>)typeof(SteamKit2Service).GetMethod("RunPicsWithRecoveryAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .MakeGenericMethod(typeof(int)).Invoke(service, [operation, "PICS test", cancellationToken])!;
+
     private static void Set(object instance, string field, object value) =>
         instance.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 
@@ -277,6 +369,24 @@ public sealed class SteamSessionPolicyTests
             var callback = (SteamUser.LoggedOffCallback)RuntimeHelpers.GetUninitializedObject(typeof(SteamUser.LoggedOffCallback));
             typeof(SteamUser.LoggedOffCallback).GetProperty("Result")!.SetValue(callback, result);
             Invoke(Service, "OnLoggedOff", callback);
+        }
+
+        public void Connect(EAccountType type)
+        {
+            var client = new SteamClient();
+            var clientType = typeof(SteamClient);
+            FieldInfo? steamId = null;
+            while (clientType != null && steamId == null)
+            {
+                steamId = clientType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                    .SingleOrDefault(field => field.FieldType == typeof(SteamID));
+                clientType = clientType.BaseType;
+            }
+            Assert.NotNull(steamId);
+            steamId.SetValue(client, new SteamID(1, EUniverse.Public, type));
+            var connected = typeof(SteamClient).GetProperty(nameof(SteamClient.IsConnected))!;
+            connected.DeclaringType!.GetProperty(connected.Name)!.SetValue(client, true);
+            Set(Service, "_steamClient", client);
         }
 
         public void LoggedOn(EResult result)
