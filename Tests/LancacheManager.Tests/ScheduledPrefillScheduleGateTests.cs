@@ -1,7 +1,9 @@
 using System.Reflection;
+using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -21,6 +23,53 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledPrefillScheduleGateTests
 {
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(true, 24)]
+    public void Registry_EmitsEachSavedScheduleStyle_WithCamelCaseDictionaryKeys(bool enabled, double interval)
+    {
+        var config = AllDisabledConfig();
+        var compactId = Guid.Parse("a0000000-0000-0000-0000-000000000001");
+        var fullId = Guid.Parse("b0000000-0000-0000-0000-000000000002");
+        config.Steam.Schedules.Clear();
+        config.Steam.Schedules.Add(new ScheduledPrefillSchedule
+        {
+            Id = compactId,
+            Name = "Compact",
+            Enabled = enabled,
+            IntervalHours = interval,
+            NotificationDisplayMode = NotificationDisplayMode.Condensed
+        });
+        config.Steam.Schedules.Add(new ScheduledPrefillSchedule
+        {
+            Id = fullId,
+            Name = "Full",
+            Enabled = enabled,
+            IntervalHours = interval,
+            NotificationDisplayMode = NotificationDisplayMode.Full
+        });
+        using var service = CreateService(config);
+        var registry = CreateRegistry(service, config, new Dictionary<string, DateTime>
+        {
+            [compactId.ToString("N")] = DateTime.UtcNow
+        });
+        var result = registry.Get("scheduledPrefill");
+        Assert.NotNull(result);
+        Assert.NotNull(result.PlatformNotificationDisplayModes);
+        Assert.Equal(NotificationDisplayMode.Condensed, result.PlatformNotificationDisplayModes[$"Steam:{compactId:D}"]);
+        Assert.Equal(NotificationDisplayMode.Full, result.PlatformNotificationDisplayModes[$"Steam:{fullId:D}"]);
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            DictionaryKeyPolicy = JsonNamingPolicy.CamelCase
+        }));
+        var modes = json.RootElement.GetProperty("platformNotificationDisplayModes");
+        Assert.Equal("condensed", modes.GetProperty($"steam:{compactId:D}").GetString());
+        Assert.Equal("full", modes.GetProperty($"steam:{fullId:D}").GetString());
+        Assert.True(modes.TryGetProperty("steam", out _));
+    }
+
     [Fact]
     public void HasAnyServiceEnabled_ReturnsTrue_WhenAtLeastOneServiceIsEnabled()
     {

@@ -15,6 +15,68 @@ public sealed class DaemonClientConnectionLifecycleTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
+    public async Task EmptyCacheSnapshotIsSentOverTheTransportAsync(bool useTcp, bool concurrent)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var runId = Guid.NewGuid();
+        var instanceId = Guid.NewGuid().ToString();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            if (concurrent)
+            {
+                var status = await ReadRequestAsync(stream, timeout.Token);
+                Assert.Equal("status", status.Type);
+                await WriteResponseAsync(stream, status.Id, true, null, null, timeout.Token,
+                    result: JsonSerializer.SerializeToElement(RunClient.Capabilities(instanceId),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            }
+            var length = new byte[4];
+            await ReadExactlyAsync(stream, length, timeout.Token);
+            var body = new byte[BitConverter.ToInt32(length)];
+            await ReadExactlyAsync(stream, body, timeout.Token);
+            using var request = JsonDocument.Parse(body);
+            Assert.Equal("[]", request.RootElement.GetProperty("parameters").GetProperty("cachedDepots").GetString());
+            await WriteResponseAsync(stream, request.RootElement.GetProperty("id").GetString()!, true,
+                null, null, timeout.Token, result: JsonSerializer.SerializeToElement(new
+                {
+                    success = true,
+                    runId,
+                    daemonInstanceId = instanceId,
+                    state = "started"
+                }));
+            await release.Task.WaitAsync(timeout.Token);
+        }, timeout.Token);
+        try
+        {
+            if (concurrent)
+            {
+                Assert.True((await client.GetStatusAsync(timeout.Token))?.SupportsConcurrentPrefill);
+                Assert.True((await client.PrefillAsync(runId, instanceId, new DaemonRunOptions
+                {
+                    AppIds = ["10"],
+                    Selection = "selected",
+                    MaxConcurrency = 1
+                }, [], timeout.Token)).Success);
+            }
+            else
+            {
+                Assert.True((await client.PrefillAsync(cachedDepots: [], cancellationToken: timeout.Token)).Success);
+            }
+        }
+        finally { release.TrySetResult(); }
+        await server;
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task SavedLogin_UsesPlatformChallengeAndCredentialCommandsAsync(bool useTcp, bool epic)
     {
         using var endpoint = LoopbackEndpoint.Create(useTcp);

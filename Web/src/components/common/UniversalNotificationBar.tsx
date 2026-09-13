@@ -252,14 +252,15 @@ const UniversalNotificationBar: React.FC = () => {
               `^${NOTIFICATION_IDS.SCHEDULED_PREFILL}_(Steam|Epic|Xbox|BattleNet|Riot)$`
             ).exec(notification.id)?.[1]
         : undefined;
-    // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
-    // picks its style per platform in the config modal, so a platform that has chosen nothing takes
-    // the full-card default rather than a schedule-level value no screen can set any more.
+    // Named schedules own their style independently, even on the same persistent container.
+    // Platform-only snapshots and old cards retain the platform fallback, never the outer schedule.
     const resolvedDisplayMode =
       serviceKey === undefined
         ? undefined
         : platform !== undefined
-          ? displayModes[platformDisplayModeKey(serviceKey, platform)]
+          ? (displayModes[
+              platformDisplayModeKey(serviceKey, platform, notification.details?.scheduleId)
+            ] ?? displayModes[platformDisplayModeKey(serviceKey, platform)])
           : displayModes[serviceKey];
     // Automatic mapping runs can be silent without having a configurable schedule. Keep their
     // controls in the strip so short refreshes do not insert a full-width row between cards.

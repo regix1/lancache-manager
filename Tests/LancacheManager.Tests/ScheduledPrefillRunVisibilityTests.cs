@@ -21,6 +21,18 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledPrefillRunVisibilityTests
 {
+    [Theory]
+    [InlineData(0, true, "signalr.scheduledPrefill.completeAllCached")]
+    [InlineData(0, false, "signalr.scheduledPrefill.completeNoBytes")]
+    [InlineData(1024, false, "signalr.scheduledPrefill.completeWithBytes")]
+    public void CompletionMessage_DistinguishesCachedGamesFromTransferredBytes(long bytes, bool allCached, string expectedKey)
+    {
+        var method = typeof(ScheduledPrefillService).GetMethod("BuildCompletionMessage", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var result = ((string Message, string StageKey, Dictionary<string, object?>? Context))method.Invoke(null, [bytes, allCached])!;
+        Assert.Equal(expectedKey, result.StageKey);
+        Assert.Equal(bytes > 0, result.Context?.ContainsKey("bytes") == true);
+    }
+
     public static IEnumerable<object[]> VisibilityCases()
     {
         // One visible + one silent -> the run's card is visible (OR is true), regardless of order.

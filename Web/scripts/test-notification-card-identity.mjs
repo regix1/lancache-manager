@@ -932,6 +932,111 @@ test('platform display mode uses canonical details and only exact legacy platfor
   );
 });
 
+test('saved schedule styles survive wire casing, concurrent runs and recovery in every visibility mode', async () => {
+  const source = parseSource('src/hooks/useScheduleDisplayModes.ts');
+  const expression = (name) =>
+    findSoleNode(
+      source,
+      name,
+      (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === name
+    ).initializer.getText(source);
+  const platformDisplayModeKey = bindLifted(expression('platformDisplayModeKey'), {});
+  const toDisplayModeMap = bindLifted(expression('toDisplayModeMap'), { platformDisplayModeKey });
+  const classify = bindLifted(
+    `(sorted, displayModes) => { let fullOrder = 0; return ${barInitializer('classified')}; }`,
+    {
+      isTerminalNotificationStatus: (status) =>
+        ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
+      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: { scheduled_prefill: 'scheduledPrefill' },
+      platformDisplayModeKey,
+      NOTIFICATION_IDS: { SCHEDULED_PREFILL: 'scheduled_prefill' },
+      TYPES_WITH_A_CARD_PER_ENTITY: new Set(['scheduled_prefill']),
+      MOBILE_FULL_CARD_CAP: 3,
+      isMobile: false
+    }
+  );
+  const compactId = 'A0000000-0000-0000-0000-000000000001';
+  const fullId = 'b0000000-0000-0000-0000-000000000002';
+  for (const platform of ['Steam', 'Epic', 'Xbox', 'BattleNet', 'Riot']) {
+    for (const notificationMode of ['all', 'manualOnly', 'silent']) {
+      for (const manual of [false, true]) {
+        const showNotification =
+          notificationMode === 'all' || (notificationMode === 'manualOnly' && manual);
+        const wirePlatform = platform[0].toLowerCase() + platform.slice(1);
+        const snapshot = (mode) =>
+          toDisplayModeMap([
+            {
+              key: 'scheduledPrefill',
+              notificationMode,
+              notificationDisplayMode: 'full',
+              platformNotificationDisplayModes: {
+                [wirePlatform]: 'full',
+                [`${wirePlatform}:${compactId.toLowerCase()}`]: mode,
+                [`${wirePlatform}:${fullId}`]: 'full'
+              }
+            }
+          ]);
+        const { cards, entry, onStarted, onProgress, onComplete } = await driveScheduledPrefill();
+        const events = [compactId, fullId].map((scheduleId) => ({
+          ...progressEvent(platform, scheduleId, 'Downloading'),
+          scheduleId,
+          showNotification
+        }));
+        for (const event of events) {
+          onStarted(event);
+          onProgress(event);
+        }
+        const assertStyles = (notices, mode = 'condensed') => {
+          const result = classify(notices, snapshot(mode));
+          assert.deepEqual(
+            result.map((item) => item.condensed),
+            [mode === 'condensed', false],
+            `${platform}/${notificationMode}/${manual}`
+          );
+          assert.deepEqual(
+            result.map((item) => Boolean(item.control)),
+            [!showNotification, !showNotification]
+          );
+        };
+        assertStyles(cards.state);
+        assertStyles(cards.state, 'full');
+        assertStyles(cards.state);
+        assertStyles(
+          entry.recovery
+            .recoverCards({
+              operationId: 'tick',
+              services: events,
+              showNotification
+            })
+            .map((card) => ({ type: 'scheduled_prefill', status: 'running', ...card }))
+        );
+        onComplete({ ...events[0], success: true });
+        assert.equal(
+          cards.state.some((card) => card.details?.operationId === fullId),
+          true
+        );
+        const legacy = classify(
+          [
+            {
+              type: 'scheduled_prefill',
+              id: `scheduled_prefill_${platform}`,
+              status: 'running'
+            }
+          ],
+          toDisplayModeMap([
+            {
+              key: 'scheduledPrefill',
+              notificationDisplayMode: 'full',
+              platformNotificationDisplayModes: { [wirePlatform]: 'condensed' }
+            }
+          ])
+        );
+        assert.equal(legacy[0].condensed, true);
+      }
+    }
+  }
+});
+
 /** The shipped `groupKey` expression, called with the item and the set it reads. */
 const groupKeyFor = () => {
   const declaration = findSoleNode(

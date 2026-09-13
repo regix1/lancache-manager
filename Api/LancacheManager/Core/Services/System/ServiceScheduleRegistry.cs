@@ -1332,9 +1332,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             var config = _stateService.GetScheduledPrefillConfig();
             DateTime? soonestNextRun = null;
             DateTime? latestLastRun = null;
-            // Only the platforms that have chosen a style. The rest are left out so the notification
-            // bar falls back to this schedule's own display mode rather than being told "full" by a
-            // value nobody set.
+            // Named schedules keep independent styles; platform entries support older clients and
+            // recovered cards without a schedule ID.
             var platformDisplayModes = new Dictionary<string, NotificationDisplayMode>(StringComparer.Ordinal);
 
             var records = config.GetSchedulesInRunOrder();
@@ -1356,6 +1355,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
             foreach (var record in records)
             {
+                platformDisplayModes[$"{record.ServiceId}:{record.ScheduleId:D}"] =
+                    record.NotificationDisplayMode ?? NotificationDisplayMode.Full;
                 var scheduleKey = record.ScheduleId.ToString("N");
                 var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(scheduleKey);
                 if (actualLastRun is not null && (latestLastRun is null || actualLastRun.Value > latestLastRun.Value))

@@ -1315,7 +1315,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     return ScheduledPrefillServiceRunResult.Failed;
                 }
 
-                var completion = BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force);
+                var completion = BuildCompletionMessage(session.TotalBytesTransferred,
+                    hasSelectedApps && !serviceConfig.Force);
                 await ReportProgressAsync(
                     notifications,
                     serviceRun,
@@ -1455,16 +1456,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             : summary.State != "completed" || summary.FailedApps > 0 ? ScheduledPrefillServiceRunResult.Failed
             : summary.CompletedApps + summary.CachedApps == 0 ? ScheduledPrefillServiceRunResult.Skipped
             : ScheduledPrefillServiceRunResult.Ran;
+        var completion = BuildCompletionMessage(summary.BytesTransferred,
+            summary.CachedApps > 0 && summary.CachedApps == summary.TotalApps);
         var stageKey = outcome switch
         {
             ScheduledPrefillServiceRunResult.Cancelled => "signalr.scheduledPrefill.stopped",
             ScheduledPrefillServiceRunResult.Skipped => "signalr.scheduledPrefill.skippedOverlap",
-            ScheduledPrefillServiceRunResult.Ran => "signalr.scheduledPrefill.completeWithBytes",
+            ScheduledPrefillServiceRunResult.Ran => completion.StageKey,
             _ => run.CancelReason == "runtime-exceeded" ? "signalr.scheduledPrefill.failedMaxRuntime"
                 : run.CancelReason == "stalled" ? "signalr.scheduledPrefill.failedStalled"
                 : run.ErrorStageKey ?? "signalr.scheduledPrefill.failed"
         };
-        var bytes = FormattingUtils.FormatBytes(summary.BytesTransferred);
         await ReportProgressAsync(notifications, serviceRun, outcome switch
         {
             ScheduledPrefillServiceRunResult.Ran => "completed",
@@ -1473,12 +1475,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             _ => "failed"
         }, outcome switch
         {
-            ScheduledPrefillServiceRunResult.Ran => $"Prefill completed ({bytes} downloaded, {summary.SkippedApps} skipped)",
+            ScheduledPrefillServiceRunResult.Ran => completion.Message,
             ScheduledPrefillServiceRunResult.Cancelled => "Prefill stopped",
             ScheduledPrefillServiceRunResult.Skipped => "All selected games overlapped another prefill; no work was performed.",
             _ => run.ErrorMessage ?? "Prefill failed"
         }, visible, bytesDownloaded: summary.BytesTransferred, downloadSessionId: session.Id,
-            percent: 100, stageKey: stageKey, stageContext: new Dictionary<string, object?> { ["bytes"] = bytes });
+            percent: 100, stageKey: stageKey, stageContext: outcome == ScheduledPrefillServiceRunResult.Ran ? completion.Context : null);
         return outcome;
     }
 
@@ -1855,11 +1857,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     }
 
     private static (string Message, string StageKey, Dictionary<string, object?>? Context) BuildCompletionMessage(
-        DaemonSession session,
-        bool hasSelectedApps,
-        bool force)
+        long bytes,
+        bool allCached)
     {
-        var bytes = session.TotalBytesTransferred;
         if (bytes > 0)
         {
             var downloaded = FormattingUtils.FormatBytes(bytes);
@@ -1869,7 +1869,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 new Dictionary<string, object?> { ["bytes"] = downloaded });
         }
 
-        if (hasSelectedApps && !force)
+        if (allCached)
         {
             return (
                 "Prefill completed, all selected games were already cached (0 bytes). Enable Force to re-download.",

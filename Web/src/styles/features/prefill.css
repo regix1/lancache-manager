@@ -622,17 +622,17 @@
   .prefill-run-progress {
     display: block;
     width: 100%;
-    height: 0.5rem;
-    border: 0;
+    height: 0.625rem;
+    border: 1px solid var(--theme-text-muted);
     border-radius: var(--theme-border-radius);
     overflow: hidden;
-    background: var(--theme-progress-bg);
+    background: var(--theme-bg-primary);
     color: var(--theme-primary);
     accent-color: var(--theme-primary);
   }
 
   .prefill-run-progress::-webkit-progress-bar {
-    background: var(--theme-progress-bg);
+    background: var(--theme-bg-primary);
   }
   .prefill-run-progress::-webkit-progress-value {
     background: var(--theme-primary);

@@ -47,10 +47,10 @@ public class ServiceScheduleInfo
 
     /// <summary>
     /// Set only on the scheduled prefill schedule, which is the one service that runs several
-    /// platforms under a single key and lets each choose its own notification style. Keyed by the
-    /// platform name as it appears on the wire (Steam, Epic, Xbox, BattleNet, Riot), holding only the
-    /// platforms that have made a choice; a platform absent here falls back to
-    /// <see cref="NotificationDisplayMode"/>. It rides this snapshot rather than being fetched on its
+    /// platforms under a single key. Keys are platform names and platform:scheduleId pairs, with
+    /// schedule IDs in dashed GUID format. Each saved schedule owns its style; platform entries are
+    /// fallbacks for older cards without a schedule ID. JSON dictionary keys may be camel-cased.
+    /// It rides this snapshot rather than being fetched on its
     /// own so it reaches the notification bar through the same broadcast, which is also the only
     /// channel a guest session gets (the config endpoint itself is account-holder only).
     /// Null on every other service.

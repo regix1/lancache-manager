@@ -196,8 +196,10 @@ public abstract partial class PrefillDaemonServiceBase
                 throw new LancacheManager.Middleware.ValidationException("Choose a non-empty explicit selection or one preset.");
             var options = new DaemonRunOptions
             {
-                AppIds = appIds?.Distinct(StringComparer.Ordinal).ToArray(), Selection = selection,
-                Force = force, TopCount = top,
+                AppIds = appIds?.Distinct(StringComparer.Ordinal).ToArray(),
+                Selection = selection,
+                Force = force,
+                TopCount = top,
                 OperatingSystems = ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(Platform)
                     ? operatingSystems?.ToArray() ?? [] : [],
                 MaxConcurrency = Math.Clamp(maxConcurrency ?? session.Capabilities.MaxConcurrentRequests,
@@ -308,6 +310,10 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
+    /// <summary>
+    /// Empty means there are no safe skip hints, including when the best-effort lookup fails.
+    /// Keep it distinct from an omitted snapshot so a daemon cannot reuse stale local history.
+    /// </summary>
     private async Task<List<CachedDepotInput>?> GetCachedDepotsAsync(bool force, CancellationToken cancellationToken)
     {
         if (force) return null;
@@ -315,14 +321,14 @@ public abstract partial class PrefillDaemonServiceBase
         {
             cancellationToken.ThrowIfCancellationRequested();
             var cached = await _cacheService.GetAllCachedDepotsAsync();
-            return cached.Count == 0 ? null : cached.Select(depot => new CachedDepotInput
-                { AppId = depot.AppId, DepotId = depot.DepotId, ManifestId = depot.ManifestId }).ToList();
+            return cached.Select(depot => new CachedDepotInput
+            { AppId = depot.AppId, DepotId = depot.DepotId, ManifestId = depot.ManifestId }).ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to fetch cached depots, proceeding without cache details");
-            return null;
+            return [];
         }
     }
 
@@ -399,13 +405,23 @@ public abstract partial class PrefillDaemonServiceBase
             var now = DateTimeOffset.UtcNow;
             run = new DaemonRun
             {
-                PrefillRunId = runId, SessionId = session.Id, DaemonInstanceId = status.DaemonInstanceId!,
-                PrefillScheduleId = scheduleId, ScheduleName = scheduleName, Options = options, AdmissionPending = true,
-                NotificationMode = notificationMode, ParentOperationId = parentOperationId,
+                PrefillRunId = runId,
+                SessionId = session.Id,
+                DaemonInstanceId = status.DaemonInstanceId!,
+                PrefillScheduleId = scheduleId,
+                ScheduleName = scheduleName,
+                Options = options,
+                AdmissionPending = true,
+                NotificationMode = notificationMode,
+                ParentOperationId = parentOperationId,
                 Snapshot = new DaemonRunSnapshot
                 {
-                    OperationId = runId.ToString(), DaemonInstanceId = status.DaemonInstanceId!,
-                    StartedAt = now, UpdatedAt = now, State = "started", TotalApps = options.AppIds?.Count ?? 0
+                    OperationId = runId.ToString(),
+                    DaemonInstanceId = status.DaemonInstanceId!,
+                    StartedAt = now,
+                    UpdatedAt = now,
+                    State = "started",
+                    TotalApps = options.AppIds?.Count ?? 0
                 }
             };
             session.Runs.TryAdd(runId, run);
@@ -431,7 +447,9 @@ public abstract partial class PrefillDaemonServiceBase
                 var failure = new DaemonCommandException(result.ErrorCode, result.RequiresLogin);
                 await FinishRunAsync(session, run, run.Snapshot with
                 {
-                    State = "failed", Reason = failure.ErrorCode, UpdatedAt = DateTimeOffset.UtcNow,
+                    State = "failed",
+                    Reason = failure.ErrorCode,
+                    UpdatedAt = DateTimeOffset.UtcNow,
                     Sequence = run.Snapshot.Sequence + 1
                 }, [], CancellationToken.None);
                 if (result.ErrorCode == "run-limit")
@@ -447,8 +465,13 @@ public abstract partial class PrefillDaemonServiceBase
             run.Recovering = true;
             session.Recovering = true;
             _logger.LogWarning(ex, "Prefill {RunId} awaits operation recovery", runId);
-            return new PrefillResult { Success = true, RunId = runId,
-                DaemonInstanceId = run.DaemonInstanceId, State = "recovering" };
+            return new PrefillResult
+            {
+                Success = true,
+                RunId = runId,
+                DaemonInstanceId = run.DaemonInstanceId,
+                State = "recovering"
+            };
         }
         finally
         {

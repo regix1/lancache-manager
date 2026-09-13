@@ -1276,7 +1276,7 @@ public abstract class DaemonClientBase : IDaemonClient
         parameters["os"] = FormatOperatingSystems(operatingSystems);
 
         // Pass cached depot manifests so daemon can skip up-to-date games
-        if (cachedDepots != null && cachedDepots.Count > 0)
+        if (cachedDepots != null)
         {
             parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
             _logger?.LogInformation("Sending {Count} cached depot manifests to daemon", cachedDepots.Count);
@@ -1471,7 +1471,7 @@ public abstract class DaemonClientBase : IDaemonClient
                 parameters["top"] = options.TopCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 ?? throw new ArgumentException("A top selection requires a count.", nameof(options)); break;
         }
-        if (cachedDepots is { Count: > 0 })
+        if (cachedDepots is not null)
             parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
         var response = await SendCoreAsync("prefill", parameters, TimeSpan.FromSeconds(30), cancellationToken,
             commandId: runId.ToString(), expectedGeneration: generation);

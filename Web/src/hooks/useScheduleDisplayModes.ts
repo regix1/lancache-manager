@@ -12,10 +12,15 @@ type ScheduleDisplayModeMap = Record<string, NotificationDisplayMode>;
 
 /**
  * A schedule that runs several platforms under one key contributes an entry per platform as well as
- * its own, keyed `<serviceKey>:<platform>`. Scheduled prefill is the only one today.
+ * its own, keyed `<serviceKey>:<platform>[:<scheduleId>]`. Normalize the casing used by REST
+ * dictionary keys and SignalR platform names. Scheduled prefill is the only one today.
  */
-export const platformDisplayModeKey = (serviceKey: string, platform: string): string =>
-  `${serviceKey}:${platform}`;
+export const platformDisplayModeKey = (
+  serviceKey: string,
+  platform: string,
+  scheduleId?: string
+): string =>
+  `${serviceKey}:${platform.toLowerCase()}${scheduleId ? `:${scheduleId.toLowerCase()}` : ''}`;
 
 const toDisplayModeMap = (schedules: ServiceScheduleInfo[]): ScheduleDisplayModeMap => {
   const map: ScheduleDisplayModeMap = {};

@@ -16,6 +16,15 @@ namespace LancacheManager.Tests;
 public sealed class PrefillRunTests
 {
     [Fact]
+    public async Task EmptyCacheSnapshotReachesTheDaemonAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await fixture.StartAsync("10");
+        Assert.NotNull(fixture.Client.CachedDepots);
+        Assert.Empty(fixture.Client.CachedDepots);
+    }
+
+    [Fact]
     public async Task RunIsolationAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
@@ -322,6 +331,7 @@ internal sealed class RunFixture : IAsyncDisposable
 
 internal class RunClient : NullReturningProxy
 {
+    public List<CachedDepotInput>? CachedDepots { get; private set; }
     public DaemonStatus? Status { get; set; }
     public string InstanceId { get; set; } = Guid.NewGuid().ToString();
     public ConcurrentDictionary<Guid, DaemonOperationPage> Pages { get; } = new();
@@ -396,6 +406,7 @@ internal class RunClient : NullReturningProxy
         {
             StartCount++;
             var options = (DaemonRunOptions)args[2]!;
+            CachedDepots = (List<CachedDepotInput>?)args[3];
             var snapshot = new DaemonRunSnapshot
             {
                 OperationId = id.ToString(),
