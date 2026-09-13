@@ -11,6 +11,9 @@ cd "$ROOT/Web"
 echo "pre-push: checking the LANCache spelling..."
 node scripts/validate-lancache-spelling.mjs
 
+echo "pre-push: checking timestamp formatting..."
+npm run validate:timestamps
+
 echo "pre-push: running knip..."
 npm run knip
 

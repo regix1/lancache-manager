@@ -153,3 +153,40 @@ test('missing and invalid run starts use the shared timestamp placeholders', () 
   assert.equal(render('utc', 'cancelled', ''), 'common.notAvailable');
   assert.equal(render('utc', 'cancelled', 'invalid'), 'common.time.invalidDate');
 });
+
+test('schedule summary dates follow the selected clock while relative last-run labels do not shift', async () => {
+  const summary = parseSource(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillScheduleDetail.tsx',
+    ts.ScriptKind.TSX
+  );
+  const date = findSoleNode(
+    summary,
+    'next run date',
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(summary) === 'nextRunDate'
+  );
+  const ScheduleDate = bindLifted(
+    `({ timestamp: nextRunUtc }) => ${date.initializer.getText(summary)}`,
+    { useFormattedDateTime }
+  );
+  const { formatLastRun } = await import(
+    await compileTree('../src/components/features/management/schedules/scheduleFormatting.ts')
+  );
+  const lastRun = new Date(Date.now() - 9 * 86400000).toISOString();
+  setServerTimezone('Europe/Berlin');
+  for (const setting of ['server-24h', 'server-12h', 'local-24h', 'local-12h', 'utc']) {
+    const formatted = renderToStaticMarkup(
+      React.createElement(
+        ClockContext.Provider,
+        {
+          value: { ...clockFromTimeSetting(setting), refreshKey: 0 }
+        },
+        React.createElement(ScheduleDate, { timestamp: startedAt })
+      )
+    );
+    assert.equal(formatted, render(setting, 'completed'));
+    assert.equal(
+      formatLastRun(lastRun, (key, values) => `${key}:${values.count}`),
+      'management.schedules.daysAgo:9'
+    );
+  }
+});
