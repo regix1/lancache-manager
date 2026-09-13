@@ -138,6 +138,8 @@ public class SetSteamModeRequest
 
 public class SteamLoginRequest
 {
+    public Guid? AttemptId { get; set; }
+    public bool Recover { get; set; }
     [StringLength(64, ErrorMessage = "Username cannot exceed 64 characters")]
     public string? Username { get; set; }
 

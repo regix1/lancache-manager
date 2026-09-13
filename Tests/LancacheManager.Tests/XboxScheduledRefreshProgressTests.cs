@@ -9,6 +9,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 using LancacheManager.Security;
 using LancacheManager.Core.Services.Xbox;
 using Microsoft.AspNetCore.DataProtection;
@@ -29,7 +30,7 @@ namespace LancacheManager.Tests;
 /// The run executes with no authenticated session, no daemon, and an empty database, so it takes the
 /// signed-out branch: started plus a terminal that names the skip rather than a completed refresh.
 /// </summary>
-public class XboxScheduledRefreshProgressTests
+public partial class XboxScheduledRefreshProgressTests
 {
     [Fact]
     public async Task ScheduledRefresh_RegistersSingleTrackerOp_EmitsMonotonicProgress_AndOneTerminalAsync()
@@ -146,7 +147,7 @@ public class XboxScheduledRefreshProgressTests
         var source = ReadLoginSource();
 
         var reporterIndex = source.IndexOf(
-            "var reporter = new MappingOperationReporter(",
+            "reporter = new MappingOperationReporter(",
             StringComparison.Ordinal);
         var pollMethodIndex = source.IndexOf(
             "private async Task RunLoginPollAsync",
@@ -155,13 +156,13 @@ public class XboxScheduledRefreshProgressTests
             "await _refreshGate.WaitAsync(reporter.Token)",
             StringComparison.Ordinal);
         var pollIndex = source.IndexOf(
-            "await _authClient.PollForTokenAsync(deviceCode, reporter.Token)",
+            "await _authClient.PollForTokenAsync(deviceCode, reporter.Token, login.ExpiresAtUtc)",
             StringComparison.Ordinal);
         var releaseIndex = source.IndexOf(
             "_refreshGate.Release();",
             StringComparison.Ordinal);
         var logoutIndex = source.IndexOf(
-            "public async Task LogoutAsync()",
+            "public async Task LogoutAsync(IntegrationCaller? caller = null)",
             StringComparison.Ordinal);
 
         Assert.True(reporterIndex >= 0, "the sign-in must own a mapping reporter");
@@ -183,7 +184,7 @@ public class XboxScheduledRefreshProgressTests
         var source = ReadLoginSource();
 
         Assert.Contains(
-            "await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey);",
+            "await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey, login);",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -223,7 +224,7 @@ public class XboxScheduledRefreshProgressTests
         using var auth = new StubDeviceCodeHandler();
         using var harness = new Harness(authHandler: auth);
 
-        await harness.Service.StartLoginAsync();
+        await harness.Service.StartLoginAsync(null, caller: new IntegrationCaller(null, null, false));
         await WaitForAsync(() => harness.Service.AwaitingSignIn);
 
         // The device code is on screen and Microsoft has not been told anything yet. Nobody is signed
@@ -282,69 +283,26 @@ public class XboxScheduledRefreshProgressTests
             HoldFirstHarvest = true
         };
         using var harness = new Harness(authHandler: auth);
-        var accountA = Guid.NewGuid();
-        var accountB = Guid.NewGuid();
-        using var signerA = XblRequestSigner.CreateNew();
-        using var signerB = XblRequestSigner.CreateNew();
-        using var sharedSigner = XblRequestSigner.CreateNew();
-        var deviceA = signerA.ExportPkcs8Base64();
-        var deviceB = signerB.ExportPkcs8Base64();
-        var sharedDevice = sharedSigner.ExportPkcs8Base64();
-
-        harness.AuthStorage.SaveAuthData(new XboxAuthData
-        {
-            OwnerAccountId = accountA,
-            RefreshToken = "refresh-a",
-            DeviceKeyPkcs8 = deviceA
-        });
-        harness.AuthStorage.SaveAuthData(new XboxAuthData
-        {
-            OwnerAccountId = accountB,
-            RefreshToken = "refresh-b",
-            DeviceKeyPkcs8 = deviceB
-        });
-        harness.AuthStorage.SaveAuthData(new XboxAuthData
-        {
-            RefreshToken = "shared-refresh",
-            DeviceKeyPkcs8 = sharedDevice
-        });
-
-        await harness.Service.StartLoginAsync(accountA);
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var other = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true, true);
+        using var signer = XblRequestSigner.CreateNew();
+        var key = signer.ExportPkcs8Base64();
+        harness.AuthStorage.SaveSavedLogin(owner.AccountId!.Value, new XboxAuthData { RefreshToken = "refresh-a", DeviceKeyPkcs8 = key });
+        harness.AuthStorage.SaveSavedLogin(other.AccountId!.Value, new XboxAuthData { RefreshToken = "refresh-b" });
+        var challenge = await harness.Service.StartLoginAsync(null, caller: owner);
         await auth.FirstHarvestReached.WaitAsync(TimeSpan.FromSeconds(20));
-
-        var authSessionLock = Assert.IsType<SemaphoreSlim>(
-            typeof(XboxCatalogMappingService)
-                .GetField("_authSessionLock", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(harness.Service));
-        await authSessionLock.WaitAsync();
-        Task<XboxDeviceCodeChallenge> replacement;
-        try
-        {
-            replacement = harness.Service.StartLoginAsync(accountB);
-            await Assert.ThrowsAsync<TimeoutException>(
-                () => replacement.WaitAsync(TimeSpan.FromMilliseconds(100)));
-        }
-        finally
-        {
-            authSessionLock.Release();
-        }
-
-        await replacement;
+        var requests = auth.DeviceRequests;
+        var savedA = File.ReadAllBytes(Path.Combine(harness.AuthStorage.GetAuthDirectory(), "saved", $"{owner.AccountId:N}.json"));
+        await Assert.ThrowsAsync<ConflictException>(() => harness.Service.StartLoginAsync(null, caller: other));
+        Assert.Throws<ForbiddenException>(() => harness.Service.CancelLogin(other, challenge.AttemptId));
+        Assert.Equal(requests, auth.DeviceRequests);
+        Assert.Equal(savedA, File.ReadAllBytes(Path.Combine(harness.AuthStorage.GetAuthDirectory(), "saved", $"{owner.AccountId:N}.json")));
         auth.ReleaseFirstHarvest();
         await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
-
-        var savedA = harness.AuthStorage.GetSavedLogin(accountA);
-        var savedB = harness.AuthStorage.GetSavedLogin(accountB);
-        var active = harness.AuthStorage.GetAuthData();
-
-        Assert.Equal("refresh-a", savedA.RefreshToken);
-        Assert.Equal(deviceA, savedA.DeviceKeyPkcs8);
-        Assert.Equal(accountA, savedA.OwnerAccountId);
-        Assert.Equal("new-refresh", savedB.RefreshToken);
-        Assert.Equal(deviceB, savedB.DeviceKeyPkcs8);
-        Assert.Equal(accountB, savedB.OwnerAccountId);
-        Assert.Equal(accountB, active.OwnerAccountId);
-        Assert.Equal(deviceB, active.DeviceKeyPkcs8);
+        Assert.Equal(owner.AccountId, harness.AuthStorage.GetAuthData().OwnerAccountId);
+        Assert.Equal("new-refresh", harness.AuthStorage.GetAuthData().RefreshToken);
+        Assert.Equal(key, harness.AuthStorage.GetAuthData().DeviceKeyPkcs8);
+        Assert.Equal("refresh-b", harness.AuthStorage.GetSavedLogin(other.AccountId.Value).RefreshToken);
     }
 
     [Fact]
@@ -444,6 +402,7 @@ public class XboxScheduledRefreshProgressTests
         private readonly TaskCompletionSource _firstHarvestReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _firstHarvestReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _titleHubCalls;
+        public int DeviceRequests { get; private set; }
 
         /// <summary>What the token endpoint answers. Pending keeps the poll waiting for approval.</summary>
         public string TokenBody { get; init; } = """{"error":"authorization_pending"}""";
@@ -474,6 +433,7 @@ public class XboxScheduledRefreshProgressTests
             var url = request.RequestUri!.ToString();
             if (url == XboxAuthConstants.DeviceCodeUrl)
             {
+                DeviceRequests++;
                 return JsonResponse(
                     """
                     {"user_code":"ABCD-EFGH","device_code":"DEV",

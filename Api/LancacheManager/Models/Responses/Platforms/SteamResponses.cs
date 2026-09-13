@@ -5,6 +5,14 @@ namespace LancacheManager.Models;
 /// </summary>
 public class SteamAuthStatusResponse
 {
+    public bool CanManage { get; set; }
+    public bool CanSignIn { get; set; }
+    public bool CanLogout { get; set; }
+    public bool CanCancel { get; set; }
+    public bool CanRecover { get; set; }
+    public string? OwnershipReason { get; set; }
+    public Guid? AttemptId { get; set; }
+    public DateTime? LoginExpiresAtUtc { get; set; }
     public string Mode { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public bool IsAuthenticated { get; set; }
@@ -17,6 +25,8 @@ public class SteamAuthStatusResponse
 /// </summary>
 public class SteamLoginResponse
 {
+    public Guid? AttemptId { get; set; }
+    public DateTime? ExpiresAtUtc { get; set; }
     public bool Success { get; set; }
     public string? Message { get; set; }
 
@@ -59,11 +69,19 @@ public class SteamModeResponse
     public string Mode { get; set; } = string.Empty;
 }
 
+public sealed class SteamAuthChallengeResponse : ErrorResponse
+{
+    public Guid? AttemptId { get; set; }
+    public DateTime? ExpiresAtUtc { get; set; }
+}
+
 /// <summary>
 /// Response for Steam API status
 /// </summary>
 public class SteamApiStatusResponse
 {
+    public bool CanManage { get; set; }
+    public string? OwnershipReason { get; set; }
     public string Version { get; set; } = string.Empty;
     public bool IsV2Available { get; set; }
     public bool IsV1Available { get; set; }
@@ -90,5 +108,3 @@ public class ApiKeySaveResponse
     public string Message { get; set; } = string.Empty;
     public bool Encrypted { get; set; }
 }
-
-

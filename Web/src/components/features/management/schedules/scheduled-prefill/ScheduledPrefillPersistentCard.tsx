@@ -18,6 +18,7 @@ import {
 import { usePersistentLoginStoreState } from './persistentLoginStore';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
+import { integrationReasonKeys } from '../../../../../types';
 import {
   canStartPrefill,
   supportsConcurrentPrefill
@@ -97,6 +98,12 @@ export function ScheduledPrefillPersistentCard({
         account: integrationLoginAvailability.account
       });
     }
+    if (integrationLoginAvailability?.available) return t('errors.integration.loginAvailable');
+    if (
+      integrationLoginAvailability?.reason &&
+      integrationReasonKeys[integrationLoginAvailability.reason]
+    )
+      return t(integrationReasonKeys[integrationLoginAvailability.reason]);
     switch (integrationLoginAvailability?.reason) {
       case 'account-required':
         return t(`${containersKey}.savedLoginAccountRequired`);

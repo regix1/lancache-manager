@@ -17,8 +17,6 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useAuth } from '@contexts/useAuth';
 import { formatSessionTimeRemaining } from '@utils/timeFormatters';
-import { useSteamAuth } from '@contexts/useSteamAuth';
-import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { getErrorMessage } from '@utils/error';
 
 interface AuthenticationManagerProps {
@@ -40,14 +38,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     oidcDisplayName,
     loginServices
   } = useAuth();
-  const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
-  const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [startingService, setStartingService] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
-  // The Steam login username arrives from useSteamAuth above, so the account username needs its
-  // own name here.
   const [accountUsername, setAccountUsername] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
@@ -277,40 +271,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setAuthLoading(true);
 
     try {
-      // First, clear ALL Steam auth (PICS login AND Web API key)
-      try {
-        // Clear Steam PICS authentication
-        await fetch(
-          '/api/steam-auth',
-          ApiService.getFetchOptions({
-            method: 'DELETE'
-          })
-        );
-        // Clear Steam Web API key
-        await fetch(
-          '/api/steam-api-keys/current',
-          ApiService.getFetchOptions({
-            method: 'DELETE'
-          })
-        );
-        // Update frontend state immediately
-        setSteamAuthMode('anonymous');
-        setUsername('');
-      } catch (steamError) {
-        // The sign-out below still runs, so the app logs out either way - but the Steam login and
-        // Web API key may still be stored on the server, and only this says so.
-        console.warn(
-          '[AuthenticationManager] Failed to clear Steam auth during logout:',
-          getErrorMessage(steamError)
-        );
-        onError?.(t('management.auth.errors.steamSignOutFailed'));
-      }
-
       await authService.logout();
       await refreshAuth();
-      // Refresh Steam contexts to ensure UI is updated
-      await refreshSteamAuth();
-      refreshSteamWebApiStatus();
       onSuccess?.(t('management.auth.notifications.loggedOut'));
     } catch (error: unknown) {
       console.error('Error logging out:', error);

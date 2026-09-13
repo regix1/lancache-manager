@@ -5,9 +5,9 @@ import ts from 'typescript';
 import { transpile } from './transpile-module.mjs';
 
 /**
- * The sessions list sorts every row into one of two buckets: an account session, or a guest. A user
- * signs in against an account, so it belongs in the account bucket next to an admin - in the filter
- * counts, in the filtered list, on the row badge and in the confirmation copy.
+ * The sessions list sorts every row into one of two buckets: an account session, or a guest. An
+ * ordinary account belongs in the account bucket next to the primary administrator while the
+ * presentation leads with the safe username/deleted/shared identity.
  *
  * Each of those decisions is a separate expression in ActiveSessions.tsx, so they are lifted out of
  * the product source and run here rather than restated. A restatement would keep passing after
@@ -117,42 +117,6 @@ const listedUnderFilter = (filter) =>
     isGuestSession
   }).map((session) => session.sessionType);
 
-/** The row badge, both rows: the desktop one and the mobile one each pick their own label. */
-const badgeConditionals = collect(
-  activeSessionsFile,
-  (node) =>
-    ts.isConditionalExpression(node) &&
-    node.condition.getText(activeSessionsFile) === 'admin' &&
-    ts.isCallExpression(node.whenTrue) &&
-    ts.isCallExpression(node.whenFalse)
-).map((node) => node.getText(activeSessionsFile));
-
-const badgeLabels = (sessionType) =>
-  badgeConditionals.map((conditional) =>
-    run(conditional, { admin: isAdminSession(sessionOf(sessionType)), t: (key) => key })
-  );
-
-/** The revoke, delete and edit copy, which each name the kind of session being acted on. */
-const sessionKindConditionals = collect(
-  activeSessionsFile,
-  (node) =>
-    ts.isConditionalExpression(node) &&
-    node.condition.getText(activeSessionsFile).includes('isAdminSession(')
-).map((node) => node.getText(activeSessionsFile));
-
-const sessionKindLabels = (sessionType) => {
-  const session = sessionOf(sessionType);
-  return sessionKindConditionals.map((conditional) =>
-    run(conditional, {
-      pendingRevokeSession: session,
-      pendingDeleteSession: session,
-      editingSession: session,
-      isAdminSession,
-      t: (key) => key
-    })
-  );
-};
-
 test('the sessions list reads the shared session type, so a user is a value it can hold', () => {
   const property = only(
     collect(
@@ -182,7 +146,30 @@ test('the sessions list reads the shared session type, so a user is a value it c
   );
 });
 
-test('a user session counts as an account session, exactly as an admin does', () => {
+test('the safe account identity is nullable and never exposes an account id', () => {
+  const session = only(
+    collect(
+      sessionTypesFile,
+      (node) => ts.isInterfaceDeclaration(node) && node.name.text === 'Session'
+    ),
+    'the shared user types should declare Session exactly once'
+  );
+  const properties = new Map(
+    session.members
+      .filter(ts.isPropertySignature)
+      .map((node) => [node.name.getText(sessionTypesFile), node])
+  );
+
+  assert.equal(properties.get('username')?.type.getText(sessionTypesFile), 'string | null');
+  assert.ok(
+    properties.get('username')?.questionToken,
+    'username must tolerate omitted null values'
+  );
+  assert.equal(properties.get('accountDeleted')?.type.getText(sessionTypesFile), 'boolean');
+  assert.equal(properties.has('accountId'), false, 'the browser model must not expose account ids');
+});
+
+test('primary administrator and ordinary user sessions both count as account sessions', () => {
   assert.equal(isAdminSession(sessionOf('admin')), true);
   assert.equal(isAdminSession(sessionOf('user')), isAdminSession(sessionOf('admin')));
   assert.equal(isAdminSession(sessionOf('guest')), false);
@@ -191,42 +178,35 @@ test('a user session counts as an account session, exactly as an admin does', ()
   assert.equal(isGuestSession(sessionOf('guest')), true);
 });
 
-test('the filter counts a user with the admins and leaves the guest count alone', () => {
+test('the filter counts both account kinds and leaves the guest count alone', () => {
   assert.equal(countForFilter('all'), 3);
   assert.equal(countForFilter('admin'), 2, 'an admin and a user are both account sessions');
   assert.equal(countForFilter('guest'), 1);
 });
 
-test('the filtered list shows a user alongside the admins and never under guests', () => {
+test('the filtered list shows both account kinds and never lists either under guests', () => {
   assert.deepEqual(listedUnderFilter('all'), ['admin', 'user', 'guest']);
   assert.deepEqual(listedUnderFilter('admin'), ['admin', 'user']);
   assert.deepEqual(listedUnderFilter('guest'), ['guest']);
 });
 
-test('a user row carries the account badge in both rows, not the guest one', () => {
-  assert.equal(badgeConditionals.length, 2, 'the desktop row and the mobile row each label this');
-  assert.equal(
-    collect(
-      activeSessionsFile,
-      (node) => ts.isVariableDeclaration(node) && node.name.getText(activeSessionsFile) === 'admin'
-    ).length,
-    2,
-    'both rows should derive the badge from the same account-session check'
-  );
-  for (const declaration of collect(
-    activeSessionsFile,
-    (node) => ts.isVariableDeclaration(node) && node.name.getText(activeSessionsFile) === 'admin'
-  )) {
-    assert.equal(declaration.initializer.getText(activeSessionsFile), 'isAdminSession(session)');
+test('account, deleted, guest and shared rows have distinct safe labels', () => {
+  const source = activeSessionsFile.getText();
+  for (const key of [
+    'activeSessions.account',
+    'activeSessions.deletedAccount',
+    'activeSessions.sharedAccess',
+    'activeSessions.filters.guest',
+    'activeSessions.labels.guestBadge'
+  ]) {
+    assert.ok(source.includes(key), `ActiveSessions.tsx does not render ${key}`);
   }
 
-  assert.deepEqual(badgeLabels('user'), badgeLabels('admin'));
-  assert.notDeepEqual(badgeLabels('user'), badgeLabels('guest'));
-});
-
-test('the revoke, delete and edit copy calls a user an account session, not a guest', () => {
-  assert.equal(sessionKindConditionals.length, 3, 'revoke, delete and edit each name the kind');
-
-  assert.deepEqual(sessionKindLabels('user'), sessionKindLabels('admin'));
-  assert.notDeepEqual(sessionKindLabels('user'), sessionKindLabels('guest'));
+  const search = initializerOf(activeSessionsFile, 'sessionMatchesSearch');
+  assert.match(
+    search,
+    /session\.username\s*\?\?\s*''/,
+    'username is missing from the search haystack'
+  );
+  assert.doesNotMatch(source, /session\.accountId/, 'the UI must not consume an account id');
 });

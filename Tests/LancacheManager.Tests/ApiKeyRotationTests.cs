@@ -463,6 +463,7 @@ public sealed class ApiKeyRotationTests : IDisposable
         var oldKey = apiKeyService.GetApiKey();
         var owner = await ClaimInstallationAsync(host, oldKey);
         var other = await host.NewAccountAsync();
+        Assert.NotEqual(owner.Username, other.Username);
 
         using var client = host.Application.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -505,12 +506,12 @@ public sealed class ApiKeyRotationTests : IDisposable
     }
 
     /// <summary>
-    /// An ordinary administrator, signed in the same way on the same installation, is refused. The key
-    /// is still the one it was and the caller is still signed in, so the refusal landed before anything
+    /// An ordinary account, signed in the same way on the same installation, is refused. The key is
+    /// still the one it was and the caller is still signed in, so the refusal landed before anything
     /// was rotated or revoked rather than after.
     /// </summary>
     [Fact]
-    public async Task AnAdministratorWhoDoesNotOwnTheInstallationIsRefused()
+    public async Task NonOwnerAccountIsRefused()
     {
         using var host = new EndpointAuthorizationHost();
         using var isolationClient = host.Application.CreateClient();
@@ -520,7 +521,20 @@ public sealed class ApiKeyRotationTests : IDisposable
         var key = apiKeyService.GetApiKey();
         await ClaimInstallationAsync(host, key);
 
-        using var client = await host.CreateAdminClientAsync();
+        var account = await host.NewAccountAsync();
+        using var client = host.Application.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(client);
+        using (var login = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest { ApiKey = key, Username = account.Username, Password = account.Password }))
+        {
+            Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        }
+
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(client);
+        var status = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/auth/status");
+        Assert.Equal("user", status.GetProperty("sessionType").GetString());
 
         using var refused = await client.PostAsync("/api/api-keys/regenerate", null);
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);

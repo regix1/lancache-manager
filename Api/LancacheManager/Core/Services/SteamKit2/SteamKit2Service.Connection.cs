@@ -42,6 +42,21 @@ public partial class SteamKit2Service
         await _sessionGate.WaitAsync(ct);
         try
         {
+            lock (_loginOwnerLock)
+            {
+                if (_loginAttempt is null && !_steamAuthRepository.IsIntegrationCurrent(_sessionAuthVersion))
+                {
+                    var snapshot = _steamAuthRepository.GetIntegrationSnapshot();
+                    if (!_steamAuthRepository.RunIfCurrent(snapshot.Version, () =>
+                    {
+                        var previous = _steamClient;
+                        InitializeSteamClient();
+                        _sessionCredential = null;
+                        _isLoggedOn = false;
+                        previous?.Disconnect();
+                    })) throw new OperationCanceledException();
+                }
+            }
             // Another caller may finish the handoff while this request waits for the gate.
             if (expectedVersion.HasValue && expectedVersion.Value != Interlocked.Read(ref _sessionVersion))
                 forceReconnect = false;
@@ -258,15 +273,18 @@ public partial class SteamKit2Service
             return;
         }
 
-        var refreshToken = _stateService.GetSteamRefreshToken();
-        var authMode = _stateService.GetSteamAuthMode();
+        var snapshot = _steamAuthRepository.GetIntegrationSnapshot();
+        var refreshToken = snapshot.Auth.RefreshToken;
+        var authMode = snapshot.Auth.Mode;
 
-        if (!string.IsNullOrEmpty(refreshToken) && authMode == SteamAuthMode.Authenticated)
+        if (!string.IsNullOrEmpty(refreshToken) && authMode == SteamAuthMode.Authenticated.ToWireString()
+            && _steamAuthRepository.IsIntegrationCurrent(snapshot.Version))
         {
-            var username = _stateService.GetSteamUsername();
+            var username = snapshot.Auth.Username;
             lock (_loginOwnerLock)
             {
-                _sessionCredential = (_steamAuthRepository.GetAuthData().OwnerAccountId, refreshToken);
+                _sessionCredential = (snapshot.Auth.OwnerAccountId, refreshToken);
+                _sessionAuthVersion = snapshot.Version;
             }
             _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);
             _steamUser!.LogOn(new SteamUser.LogOnDetails
@@ -286,7 +304,11 @@ public partial class SteamKit2Service
     }
 
     private bool UseAnonymousSession(bool? daemonActive) =>
-        daemonActive != false || _sessionReplaced || !IsSteamAuthenticated;
+        daemonActive != false || _sessionReplaced || _hasPendingLoginOwner || !IsSteamAuthenticated;
+
+    private bool HasCurrentSteamSession() => _loginAttempt is { } login
+        ? _steamAuthRepository.IsIntegrationLoginCurrent(login)
+        : _steamAuthRepository.IsIntegrationCurrent(_sessionAuthVersion);
 
     private bool HasSessionMode(bool anonymous) =>
         _steamClient?.SteamID?.AccountType == (anonymous ? EAccountType.AnonUser : EAccountType.Individual);
@@ -313,6 +335,7 @@ public partial class SteamKit2Service
 
     private void OnConnected(SteamClient.ConnectedCallback callback)
     {
+        if (!HasCurrentSteamSession()) return;
         _logger.LogInformation("Connected to Steam");
         _connectedTcs?.TrySetResult();
     }
@@ -323,12 +346,14 @@ public partial class SteamKit2Service
     // its own broadcast failures, so this never disrupts the SteamKit2 callback thread.
     private void ReportSteamIntegrationAuthenticated()
     {
+        if (!HasCurrentSteamSession()) return;
         _ = _activityRegistry?.ReportAsync(
             ActivityDomains.Integration, "steam", ActivityAspects.Authenticated, _isLoggedOn && IsSteamAuthenticated);
     }
 
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
     {
+        if (!HasCurrentSteamSession()) return;
         // Log as info if intentional, warning if unexpected
         if (_intentionalDisconnect)
         {
@@ -356,6 +381,7 @@ public partial class SteamKit2Service
     {
         lock (_loginOwnerLock)
         {
+            if (!HasCurrentSteamSession()) return;
             if (callback.Result is EResult.LogonSessionReplaced or EResult.LoggedInElsewhere)
             {
                 HandleSessionLoss(callback.Result);
@@ -450,6 +476,7 @@ public partial class SteamKit2Service
     {
         lock (_loginOwnerLock)
         {
+            if (!HasCurrentSteamSession()) return;
             _logger.LogWarning("Logged off of Steam: {Result}", result);
             _isLoggedOn = false;
             ReportSteamIntegrationAuthenticated();

@@ -1,6 +1,7 @@
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.Xbox;
@@ -11,7 +12,7 @@ namespace LancacheManager.Core.Services.Xbox;
 /// <c>EpicMappingService.Authentication.cs</c> in shape (auth state + login + logout +
 /// startup auto-reconnect, feeding the EXISTING <c>MergeDaemonCatalogAsync</c> + <c>ResolveDownloadsAsync</c>),
 /// but adapted for the MSA device-code grant: the backend POLLS the token endpoint in the background
-/// instead of accepting a pasted code, so <see cref="StartLoginAsync(Guid?, CancellationToken)"/> returns a device-code challenge
+/// instead of accepting a pasted code, so StartLoginAsync returns a device-code challenge
 /// and authentication state is surfaced separately from the tracked mapping lifecycle.
 /// </summary>
 public partial class XboxCatalogMappingService
@@ -34,9 +35,7 @@ public partial class XboxCatalogMappingService
 
     // Serializes auth-state mutations so a completing login and a logout cannot interleave.
     private readonly SemaphoreSlim _authSessionLock = new(1, 1);
-    // Serializes the login-start sequence so two near-simultaneous clicks can't both register a
-    // reporter; an abandoned prior login is superseded inside, never blocked (single admin,
-    // last-writer-wins).
+    // Serializes device requests after admission; an incumbent attempt must be cancelled explicitly.
     private readonly SemaphoreSlim _loginStartLock = new(1, 1);
 
     // The in-flight sign-in's tracked operation, so a logout and the modal's cancel can stop it. Held
@@ -45,6 +44,7 @@ public partial class XboxCatalogMappingService
     // WHOLE attempt (approval wait plus the catalog stretch after it), which is what GetAuthStatus
     // reports. Volatile because the poll task clears it and a request thread reads it.
     private volatile MappingOperationReporter? _loginReporter;
+    private IntegrationLogin? _loginAttempt;
 
     // True only while the device-code poll waits for the person to approve, not for the whole login:
     // _loginReporter stays set through the catalog harvest that follows approval, so a Schedules row
@@ -70,12 +70,21 @@ public partial class XboxCatalogMappingService
     public bool AwaitingSignIn => _awaitingSignIn;
 
     /// <summary>Returns the current auth snapshot for the REST <c>auth-status</c> endpoint.</summary>
-    public XboxMappingAuthStatus GetAuthStatus()
+    public XboxMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null)
     {
+        var access = caller is null ? null : _authStorage.GetIntegrationAccess(caller);
         return new XboxMappingAuthStatus
         {
             IsAuthenticated = _isAuthenticated,
-            DisplayName = _displayName,
+            CanManage = access?.CanManage ?? false,
+            CanSignIn = access?.CanSignIn ?? false,
+            CanLogout = access?.CanLogout ?? false,
+            CanCancel = access?.CanCancel ?? false,
+            CanRecover = access?.CanRecover ?? false,
+            OwnershipReason = access?.OwnershipReason,
+            AttemptId = access?.AttemptId,
+            LoginExpiresAtUtc = access?.LoginExpiresAtUtc,
+            DisplayName = caller is null || access!.CanManage ? _displayName : null,
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered,
             LoginInProgress = _loginReporter is not null,
@@ -96,108 +105,79 @@ public partial class XboxCatalogMappingService
 
     public async Task<XboxDeviceCodeChallenge> StartLoginAsync(
         Guid? ownerAccountId,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IntegrationCaller? caller = null,
+        Guid? attemptId = null,
+        bool recover = false)
     {
-        // Single admin, last-writer-wins: a prior login that was abandoned (modal closed without
-        // approving) is SUPERSEDED here rather than blocking this one, so re-clicking Login always works
-        // and never 409s. The short lock only guards two truly-simultaneous starts from racing to
-        // register their reporter - it does not block an abandoned-then-retry.
-        await _loginStartLock.WaitAsync(ct);
+        caller ??= new(ownerAccountId, ownerAccountId, ownerAccountId is not null);
+        var login = await _authStorage.BeginIntegrationLoginAsync(caller, attemptId, recover, ct);
+        var lifetime = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
+        lifetime.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
+        MappingOperationReporter? reporter = null;
+        var startHeld = false;
         try
         {
-            // Build the login's reporter BEFORE the device-code request so ONE tracked operation covers the
-            // whole sign-in, and link its token to shutdown, so a logout (or host shutdown) can cancel the
-            // flow even during RequestDeviceCodeAsync, and so the entire background poll - which outlives
-            // this HTTP request - is cancelled when the host stops. The poll is deliberately NOT tied to the
-            // request token: it must keep running after the POST returns. The operation is registered at the
-            // top of the poll instead of here, so it never exists outside _refreshGate.
-            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
-            var reporter = new MappingOperationReporter(
-                _notifications,
-                _operationTracker,
-                MappingOperations.Xbox,
-                _refreshShowNotification,
-                _shutdownCts.Token,
-                _logger);
-
-            await _authSessionLock.WaitAsync(CancellationToken.None);
-            try
+            await _loginStartLock.WaitAsync(ct);
+            startHeld = true;
+            if (!_authStorage.RunIntegrationLogin(login, () =>
             {
-                // Cancel any stale in-flight login poll before starting a fresh one. The old poll loop observes
-                // the cancellation, emits a terminal "cancelled" event, and disposes its own reporter in its
-                // finally.
-                try
-                {
-                    _loginReporter?.RequestCancellation();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Old poll already finished.
-                }
-
+                _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+                reporter = new MappingOperationReporter(_notifications, _operationTracker, MappingOperations.Xbox,
+                    _refreshShowNotification, lifetime.Token, _logger);
+                _loginAttempt = login;
                 _loginReporter = reporter;
-            }
-            finally
-            {
-                _authSessionLock.Release();
-            }
+            })) throw new OperationCanceledException();
 
-            try
+            XboxDeviceCodeResponse deviceCode;
+            using (var requestCts = CancellationTokenSource.CreateLinkedTokenSource(reporter!.Token, ct))
             {
-                // The device-code request itself is also cancellable by the HTTP request that triggered it,
-                // via a short-lived linked source that does not affect the long-lived login token.
-                XboxDeviceCodeResponse deviceCode;
-                using (var requestCts = CancellationTokenSource.CreateLinkedTokenSource(reporter.Token, ct))
-                {
-                    deviceCode = await _authClient.RequestDeviceCodeAsync(requestCts.Token);
-                }
-
-                // Restore only the initiating account's private device identity, or create a fresh one.
-                // The shared active record belongs to the current integration connection and must not
-                // supply a different account's signing key to a new device-code attempt.
-                var authData = ownerAccountId is { } accountId
+                deviceCode = await _authClient.RequestDeviceCodeAsync(requestCts.Token);
+                requestCts.Token.ThrowIfCancellationRequested();
+            }
+            login = _authStorage.SetIntegrationLoginExpiry(login,
+                DateTime.UtcNow.AddSeconds(deviceCode.ExpiresIn > 0 ? deviceCode.ExpiresIn : 900));
+            lifetime.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
+            XblRequestSigner? signer = null;
+            if (!_authStorage.RunIntegrationLogin(login, () =>
+            {
+                _loginAttempt = login;
+                var authData = login.AccountId is { } accountId
                     ? _authStorage.GetSavedLogin(accountId)
                     : new XboxAuthData();
-                var signer = !string.IsNullOrEmpty(authData.DeviceKeyPkcs8)
+                signer = !string.IsNullOrEmpty(authData.DeviceKeyPkcs8)
                     ? XblRequestSigner.FromPkcs8Base64(authData.DeviceKeyPkcs8)
                     : XblRequestSigner.CreateNew();
+            })) throw new OperationCanceledException();
 
-                // Device-code grant: the BACKEND polls. Fire-and-forget the poll loop; it registers the
-                // tracked operation and emits auth-state, and disposes the reporter when it finishes.
-                _ = Task.Run(
-                    () => RunLoginPollAsync(deviceCode, signer, reporter, ownerAccountId),
-                    CancellationToken.None);
-
-                return new XboxDeviceCodeChallenge
-                {
-                    UserCode = deviceCode.UserCode ?? string.Empty,
-                    VerificationUri = deviceCode.VerificationUri ?? string.Empty,
-                    ExpiresIn = deviceCode.ExpiresIn,
-                    Interval = deviceCode.Interval
-                };
-            }
-            catch
+            var admitted = reporter!;
+            _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer!, admitted, login, lifetime), CancellationToken.None);
+            return new XboxDeviceCodeChallenge
             {
-                // The poll loop never started, so dispose the reporter here so the user can retry.
-                await _authSessionLock.WaitAsync(CancellationToken.None);
-                try
-                {
-                    if (ReferenceEquals(_loginReporter, reporter))
-                    {
-                        _loginReporter = null;
-                    }
-                }
-                finally
-                {
-                    _authSessionLock.Release();
-                }
-                await reporter.DisposeAsync();
-                throw;
+                UserCode = deviceCode.UserCode ?? string.Empty,
+                VerificationUri = deviceCode.VerificationUri ?? string.Empty,
+                ExpiresIn = deviceCode.ExpiresIn,
+                Interval = deviceCode.Interval,
+                OperationId = reporter!.IsStarted ? reporter.OperationId : null,
+                AttemptId = login.AttemptId,
+                ExpiresAtUtc = login.ExpiresAtUtc
+            };
+        }
+        catch
+        {
+            _authStorage.FinishIntegrationLogin(login);
+            if (ReferenceEquals(_loginReporter, reporter))
+            {
+                _loginReporter = null;
+                if (_loginAttempt == login) _loginAttempt = null;
             }
+            if (reporter is not null) await reporter.DisposeAsync();
+            lifetime.Dispose();
+            throw;
         }
         finally
         {
-            _loginStartLock.Release();
+            if (startHeld) _loginStartLock.Release();
         }
     }
 
@@ -211,7 +191,8 @@ public partial class XboxCatalogMappingService
         XboxDeviceCodeResponse deviceCode,
         XblRequestSigner signer,
         MappingOperationReporter reporter,
-        Guid? ownerAccountId)
+        IntegrationLogin login,
+        CancellationTokenSource lifetime)
     {
         var refreshGateHeld = false;
         try
@@ -223,12 +204,13 @@ public partial class XboxCatalogMappingService
             await _refreshGate.WaitAsync(reporter.Token);
             refreshGateHeld = true;
 
-            _currentMappingReporter = reporter;
+            if (!_authStorage.RunIntegrationLogin(login, () => _currentMappingReporter = reporter))
+                throw new OperationCanceledException();
 
             // The card the user watches while approving is the one this started event creates, and it
             // shows the started stage key, so that key is the waiting one rather than the generic
             // starting one. The reporter's own progress events take the message over after approval.
-            await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey);
+            await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey, login);
 
             XboxMsaTokenResponse msaToken;
             _awaitingSignIn = true;
@@ -240,13 +222,15 @@ public partial class XboxCatalogMappingService
                     XboxAwaitingSignInStageKey,
                     "Waiting for Microsoft sign-in...");
 
-                msaToken = await _authClient.PollForTokenAsync(deviceCode, reporter.Token);
+                msaToken = await _authClient.PollForTokenAsync(deviceCode, reporter.Token, login.ExpiresAtUtc);
             }
             finally
             {
                 _awaitingSignIn = false;
             }
 
+            reporter.Token.ThrowIfCancellationRequested();
+            if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             await reporter.ReportAsync(
                 25,
                 "signalr.xboxMapping.collecting",
@@ -257,6 +241,8 @@ public partial class XboxCatalogMappingService
                 signer,
                 reporter.Token);
 
+            reporter.Token.ThrowIfCancellationRequested();
+            if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             if (harvest.CdnInfos.Count > 0)
             {
                 await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, reporter.Token);
@@ -282,22 +268,23 @@ public partial class XboxCatalogMappingService
 
                 // Persist credentials (refresh token + device key) for auto-reconnect, atomically with the
                 // in-memory state under the lock so logout and login-success are mutually exclusive.
-                _authStorage.SaveAuthData(new XboxAuthData
+                if (!_authStorage.CompleteIntegrationLogin(login, new XboxAuthData
                 {
-                    OwnerAccountId = ownerAccountId,
+                    OwnerAccountId = login.AccountId,
                     RefreshToken = msaToken.RefreshToken,
                     DeviceKeyPkcs8 = signer.ExportPkcs8Base64(),
                     DisplayName = harvest.DisplayName,
                     Xuid = harvest.Xuid,
                     LastAuthenticated = DateTime.UtcNow,
                     GamesDiscovered = harvest.CdnInfos.Count
-                });
-
-                SetIsAuthenticated(true);
-                _displayName = harvest.DisplayName;
-                _xuid = harvest.Xuid;
-                _gamesDiscovered = harvest.CdnInfos.Count;
-                _lastCollectionUtc = DateTime.UtcNow;
+                }, () =>
+                {
+                    SetIsAuthenticated(true);
+                    _displayName = harvest.DisplayName;
+                    _xuid = harvest.Xuid;
+                    _gamesDiscovered = harvest.CdnInfos.Count;
+                    _lastCollectionUtc = DateTime.UtcNow;
+                })) throw new OperationCanceledException();
             }
             finally
             {
@@ -399,12 +386,15 @@ public partial class XboxCatalogMappingService
                 }
 
                 signer.Dispose();
+                lifetime.Dispose();
+                _authStorage.FinishIntegrationLogin(login);
                 await _authSessionLock.WaitAsync(CancellationToken.None);
                 try
                 {
                     if (ReferenceEquals(_loginReporter, reporter))
                     {
                         _loginReporter = null;
+                        if (_loginAttempt == login) _loginAttempt = null;
                     }
                 }
                 finally
@@ -419,34 +409,21 @@ public partial class XboxCatalogMappingService
     /// Logs out: cancels any in-flight login poll, clears saved credentials and in-memory auth state.
     /// No Docker container to terminate (the login was daemon-free).
     /// </summary>
-    public async Task LogoutAsync()
+    public async Task LogoutAsync(IntegrationCaller? caller = null)
     {
-        try
-        {
-            _loginReporter?.RequestCancellation();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Poll loop already finished.
-        }
-
+        await using var release = await _authStorage.BeginIntegrationReleaseAsync(caller);
+        _loginReporter?.RequestCancellation();
         await _authSessionLock.WaitAsync();
         try
         {
-            _authStorage.ClearAuthData();
-
+            _authStorage.CompleteIntegrationRelease(release);
             SetIsAuthenticated(false);
             _displayName = null;
             _lastCollectionUtc = null;
             _gamesDiscovered = 0;
             _xuid = null;
-
-            _logger.LogInformation("Xbox mapping session logged out and credentials cleared");
         }
-        finally
-        {
-            _authSessionLock.Release();
-        }
+        finally { _authSessionLock.Release(); }
     }
 
     /// <summary>
@@ -455,16 +432,13 @@ public partial class XboxCatalogMappingService
     /// stays signed in; only a pending (not-yet-approved) poll is stopped, which then emits a terminal
     /// "cancelled" event. (Distinct from <see cref="LogoutAsync"/>, which also clears credentials.)
     /// </summary>
+    public void CancelLogin(IntegrationCaller caller, Guid? attemptId)
+        => _authStorage.CancelIntegrationLogin(caller, attemptId, () => _loginReporter?.RequestCancellation());
+
     public void CancelLogin()
     {
-        try
-        {
-            _loginReporter?.RequestCancellation();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Poll already finished.
-        }
+        var login = _loginAttempt;
+        if (login is not null) _authStorage.FinishIntegrationLogin(login, () => _loginReporter?.RequestCancellation());
     }
 
     /// <summary>
@@ -476,140 +450,107 @@ public partial class XboxCatalogMappingService
     {
         var ct = _shutdownCts.Token;
         await _authSessionLock.WaitAsync(ct);
+        var snapshot = _authStorage.GetIntegrationSnapshot();
         try
         {
-            var authData = _authStorage.GetAuthData();
-            if (string.IsNullOrEmpty(authData.RefreshToken))
-            {
-                _logger.LogInformation("No saved Xbox refresh token, skipping auto-reconnect");
-                return;
-            }
-
-            _logger.LogInformation("Attempting Xbox mapping auto-reconnect with saved refresh token...");
-
+            if (string.IsNullOrEmpty(snapshot.Auth.RefreshToken) || !_authStorage.IsIntegrationCurrent(snapshot.Version)) return;
             try
             {
-                var msaToken = await _authClient.RefreshAccessTokenAsync(authData.RefreshToken, ct);
-
-                // Rotate the refresh token if MSA returned a new one.
-                _authStorage.UpdateAuthData(d =>
+                var msaToken = await _authClient.RefreshAccessTokenAsync(snapshot.Auth.RefreshToken, ct);
+                ct.ThrowIfCancellationRequested();
+                _authStorage.UpdateAuthData(snapshot.Version, auth =>
                 {
-                    if (!string.IsNullOrEmpty(msaToken.RefreshToken))
-                    {
-                        d.RefreshToken = msaToken.RefreshToken;
-                    }
-                    d.LastAuthenticated = DateTime.UtcNow;
+                    if (!string.IsNullOrEmpty(msaToken.RefreshToken)) auth.RefreshToken = msaToken.RefreshToken;
+                    auth.LastAuthenticated = DateTime.UtcNow;
+                }, () =>
+                {
+                    SetIsAuthenticated(true);
+                    _displayName = snapshot.Auth.DisplayName;
+                    _xuid = snapshot.Auth.Xuid;
+                    _gamesDiscovered = snapshot.Auth.GamesDiscovered;
+                    _lastCollectionUtc = snapshot.Auth.LastAuthenticated;
                 });
-
-                SetIsAuthenticated(true);
-                _displayName = authData.DisplayName;
-                _xuid = authData.Xuid;
-                _gamesDiscovered = authData.GamesDiscovered;
-                _lastCollectionUtc = authData.LastAuthenticated;
-
-                _logger.LogInformation("Xbox auto-reconnect authenticated: {DisplayName}, {Games} cached games",
-                    authData.DisplayName, authData.GamesDiscovered);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (ValidationException ex)
+            {
+                _logger.LogWarning(ex, "Xbox refresh token was rejected");
+                _authStorage.InvalidateAuthData(snapshot.Version, () =>
+                {
+                    SetIsAuthenticated(false);
+                    _displayName = null;
+                    _gamesDiscovered = 0;
+                    _xuid = null;
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Xbox refresh token expired or invalid, clearing credentials");
-                _authStorage.ClearAuthData();
-
-                SetIsAuthenticated(false);
-                _displayName = null;
-                _gamesDiscovered = 0;
-                _xuid = null;
+                _logger.LogWarning(ex, "Failed to refresh Xbox mapping session");
+                _authStorage.RunIfCurrent(snapshot.Version, () => SetIsAuthenticated(false));
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to auto-reconnect Xbox mapping session");
-            SetIsAuthenticated(false);
-        }
-        finally
-        {
-            _authSessionLock.Release();
-        }
+        finally { _authSessionLock.Release(); }
     }
 
-    /// <summary>
-    /// Harvests the catalog from the manager-side authenticated session for a scheduled/manual refresh:
-    /// refreshes the MSA access token, re-mints the XSTS chain with the stored device key, and merges the
-    /// titlehub + packagespc fragments. Returns the number of CDN patterns newly persisted. Best-effort:
-    /// a failure here never breaks the daemon source or the resolver pass.
-    /// </summary>
     private async Task<int> HarvestManagerCatalogAsync(CancellationToken ct)
     {
-        var authData = _authStorage.GetAuthData();
-        if (string.IsNullOrEmpty(authData.RefreshToken) || string.IsNullOrEmpty(authData.DeviceKeyPkcs8))
-        {
-            return 0;
-        }
-
+        var snapshot = _authStorage.GetIntegrationSnapshot();
+        var version = snapshot.Version;
+        var authData = snapshot.Auth;
+        if (string.IsNullOrEmpty(authData.RefreshToken) || string.IsNullOrEmpty(authData.DeviceKeyPkcs8)
+            || !_authStorage.IsIntegrationCurrent(version)) return 0;
         XblRequestSigner? signer = null;
         try
         {
             var msaToken = await _authClient.RefreshAccessTokenAsync(authData.RefreshToken, ct);
-            _authStorage.UpdateAuthData(d =>
+            ct.ThrowIfCancellationRequested();
+            var updated = _authStorage.UpdateAuthData(version, auth =>
             {
-                if (!string.IsNullOrEmpty(msaToken.RefreshToken))
-                {
-                    d.RefreshToken = msaToken.RefreshToken;
-                }
+                if (!string.IsNullOrEmpty(msaToken.RefreshToken)) auth.RefreshToken = msaToken.RefreshToken;
             });
-
+            if (updated is null) return 0;
+            version = updated.Value;
             signer = XblRequestSigner.FromPkcs8Base64(authData.DeviceKeyPkcs8);
             var harvest = await _authClient.HarvestCatalogAsync(msaToken.AccessToken!, signer, ct);
-
+            ct.ThrowIfCancellationRequested();
+            if (!_authStorage.IsIntegrationCurrent(version)) return 0;
             var newPatterns = harvest.CdnInfos.Count > 0
                 ? await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, ct)
                 : 0;
-
             await _authSessionLock.WaitAsync(ct);
             try
             {
-                SetIsAuthenticated(true);
-                if (!string.IsNullOrEmpty(harvest.DisplayName))
+                _authStorage.UpdateAuthData(version, auth =>
                 {
-                    _displayName = harvest.DisplayName;
-                }
-                if (!string.IsNullOrEmpty(harvest.Xuid))
+                    auth.LastAuthenticated = DateTime.UtcNow;
+                    auth.GamesDiscovered = harvest.CdnInfos.Count;
+                    if (!string.IsNullOrEmpty(harvest.DisplayName)) auth.DisplayName = harvest.DisplayName;
+                    if (!string.IsNullOrEmpty(harvest.Xuid)) auth.Xuid = harvest.Xuid;
+                }, () =>
                 {
-                    _xuid = harvest.Xuid;
-                }
-                _gamesDiscovered = harvest.CdnInfos.Count;
-                _lastCollectionUtc = DateTime.UtcNow;
+                    SetIsAuthenticated(true);
+                    if (!string.IsNullOrEmpty(harvest.DisplayName)) _displayName = harvest.DisplayName;
+                    if (!string.IsNullOrEmpty(harvest.Xuid)) _xuid = harvest.Xuid;
+                    _gamesDiscovered = harvest.CdnInfos.Count;
+                    _lastCollectionUtc = DateTime.UtcNow;
+                });
             }
-            finally
-            {
-                _authSessionLock.Release();
-            }
-
-            _authStorage.UpdateAuthData(d =>
-            {
-                d.LastAuthenticated = DateTime.UtcNow;
-                d.GamesDiscovered = harvest.CdnInfos.Count;
-                if (!string.IsNullOrEmpty(harvest.DisplayName))
-                {
-                    d.DisplayName = harvest.DisplayName;
-                }
-            });
-
+            finally { _authSessionLock.Release(); }
             return newPatterns;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) { throw; }
+        catch (ValidationException ex)
         {
-            throw;
+            _logger.LogWarning(ex, "Xbox refresh token was rejected");
+            _authStorage.InvalidateAuthData(version, () => SetIsAuthenticated(false));
+            return 0;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Xbox manager-side catalog harvest failed");
             return 0;
         }
-        finally
-        {
-            signer?.Dispose();
-        }
+        finally { signer?.Dispose(); }
     }
 
     private async Task EmitAuthStateAsync(

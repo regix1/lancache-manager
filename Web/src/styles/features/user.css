@@ -64,6 +64,12 @@
 .session-row {
   flex-wrap: wrap;
   cursor: pointer;
+  gap: 0.5rem 0.75rem;
+}
+
+.session-row > .mgmt-row__body {
+  flex: 1 1 18rem;
+  min-width: 0;
 }
 
 .session-row__titleline {
@@ -74,19 +80,45 @@
   min-width: 0;
 }
 
+.session-row__identity {
+  min-width: 0;
+  max-width: min(100%, 30rem);
+  overflow-wrap: anywhere;
+}
+
 .session-you {
   font-size: var(--font-size-2xs);
   font-weight: 500;
   color: var(--theme-success);
 }
 
-/* Quiet secondary line: IP, last-seen, and inline status text. Tones carry the
+/* Quiet secondary lines: device/location, last-seen, and inline status text. Tones carry the
    only colour (revoked / expired / remaining) - no filled pills. */
 .session-row__meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.25rem 0.6rem;
+}
+
+.session-row__where,
+.session-row__when {
+  min-width: 0;
+}
+
+.session-row__where > span,
+.session-row__when > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.session-row__where {
+  color: var(--theme-text-secondary);
+}
+
+.session-row__when {
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The icon and its message are one flex row so a long reason wraps beside the icon rather
@@ -124,24 +156,16 @@ svg.session-row__chevron.is-open {
   transform: rotate(180deg);
 }
 
-/* Actions stay out of the way until the row is hovered or focused (keyboard
-   reachable via :focus-within), and are always visible on touch. */
+/* Direct current-session actions and each row's menu stay visible at rest. */
 .session-row__actions {
-  opacity: 0;
-  transition: opacity 150ms ease;
+  opacity: 1;
   flex-wrap: nowrap;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
-.session-row:hover .session-row__actions,
-.session-row:focus-within .session-row__actions {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .session-row__actions {
-    opacity: 1;
-  }
+.session-row__direct-action {
+  min-width: 4.5rem;
 }
 
 /* ==============================================
@@ -156,6 +180,12 @@ svg.session-row__chevron.is-open {
 
 .session-detail__id {
   word-break: break-all;
+}
+
+.session-detail__client-ip,
+.session-detail .mgmt-stat__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Per-service prefill access readout (guest rows + edit modal summary). */
@@ -202,7 +232,7 @@ svg.session-row__chevron.is-open {
  * ============================================== */
 
 /* Guest lock is a setting, not a filter peer. The well gives it its own surface so
-   it never shares a row with All/Admin/Guest, search, or page size. */
+   it never shares a row with All/Accounts/Guest, search, or page size. */
 .well-surface.session-access {
   display: flex;
   flex-wrap: wrap;
@@ -276,16 +306,25 @@ svg.session-row__chevron.is-open {
  * RESPONSIVE + REDUCED MOTION
  * ============================================== */
 
-/* Phones: actions drop to a full-width second line and always show. */
+/* Phones: the compact direct action, menu and chevron wrap as one trailing cluster. */
 @media (max-width: 639.98px) {
+  .session-row {
+    align-items: flex-start;
+  }
+
+  .session-row > .mgmt-row__body {
+    flex-basis: calc(100% - 2.25rem);
+  }
+
   .session-row__actions {
     opacity: 1;
     order: 2;
-    flex: 1 1 100%;
+    flex: 0 0 auto;
+    margin-inline-start: auto;
   }
 
   .session-row__chevron {
-    order: 1;
+    order: 2;
   }
 
   /* 8px between the two row buttons, matching the toolbar clusters. The shared 4px
@@ -296,9 +335,14 @@ svg.session-row__chevron.is-open {
     gap: 0.5rem;
   }
 
-  .session-row__actions > button {
-    flex: 1 1 auto;
+  .session-row__actions button,
+  .session-row__chevron {
     min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  .session-row__direct-action {
+    min-width: 4.5rem !important;
   }
 
   .session-filter-types,

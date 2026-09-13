@@ -33,7 +33,7 @@ public class AuthStatusResponse
 
     /// <summary>
     /// True when the caller is the main admin, the one account that cannot be deleted, disabled or
-    /// demoted and the only one that may create further admins.
+    /// changed through ordinary account-management actions.
     /// </summary>
     public bool IsMainAdmin { get; set; }
     public bool HasData { get; set; }
@@ -93,6 +93,12 @@ public class LoginResponse
 public class SessionDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The current username of the account behind this session, when that account still exists.</summary>
+    public string? Username { get; set; }
+
+    /// <summary>True when the session names an account row that has since been deleted.</summary>
+    public bool AccountDeleted { get; set; }
     public SessionType SessionType { get; set; }
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }

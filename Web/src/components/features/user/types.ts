@@ -6,6 +6,8 @@ export type SessionFilter = 'all' | SessionType;
 export interface Session {
   id: string;
   sessionType?: SessionType;
+  username?: string | null;
+  accountDeleted: boolean;
   ipAddress: string | null;
   userAgent: string | null;
   createdAt: string;
@@ -43,10 +45,7 @@ export interface ThemeOption {
   name: string;
 }
 
-/**
- * The two roles an account can hold. Guest is a way of arriving without an account, never a role
- * stored on one, and the create and set-role endpoints refuse it (AccountsController.cs:111, :285).
- */
+/** Read-only stored kind: Admin for the installation owner, User for an ordinary account. */
 export type AccountRole = 'admin' | 'user';
 
 /** One row of GET /api/accounts. Mirrors the server's AccountResponse. */
@@ -54,7 +53,7 @@ export interface UserAccount {
   id: string;
   username: string;
   role: AccountRole;
-  /** The account that owns the installation. It cannot be edited, disabled, demoted or deleted. */
+  /** The account that owns the installation. It cannot be edited, disabled or deleted. */
   isMainAdmin: boolean;
   isDisabled: boolean;
   createdAtUtc: string;
@@ -62,9 +61,8 @@ export interface UserAccount {
   lastLoginAtUtc: string | null;
 }
 
-/** The account action waiting on a confirmation, and which one it is. */
+/** The account waiting for deletion confirmation. */
 export interface AccountConfirmation {
-  kind: 'delete' | 'role';
   account: UserAccount;
 }
 
@@ -73,7 +71,6 @@ export interface AccountEditor {
   account: UserAccount | null;
   username: string;
   password: string;
-  role: AccountRole;
 }
 
 export const refreshRateOptions = [

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, Users, User } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
@@ -8,7 +8,10 @@ import { StepHeader } from '@components/initialization/StepHeader';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import { ApiError } from '@services/apiError';
+import { useSteamAuth } from '@contexts/useSteamAuth';
+import { useAuth } from '@contexts/useAuth';
+import { integrationReasonKeys } from '../../../types';
 
 interface SteamPicsAuthStepProps {
   onComplete: (usingSteamAuth: boolean) => void;
@@ -18,10 +21,21 @@ type AuthMode = 'anonymous' | 'account';
 
 export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete }) => {
   const { t } = useTranslation();
+  const { access, refreshSteamAuth } = useSteamAuth();
+  const { authenticationEnabled, authMode, accountId, sessionId } = useAuth();
+  const identity = JSON.stringify([authenticationEnabled, authMode, accountId, sessionId]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
   const [selectedMode, setSelectedMode] = useState<AuthMode>('anonymous');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setShowAuthModal(false);
+    setError(null);
+    setSaving(false);
+  }, [identity]);
+  const canUseAnonymous = access?.canManage === true && access.canCancel !== true;
   // No onError handler on purpose. The modal keeps the reason and stays open, the same as every
   // other login surface: closing it here ran resetAuthForm, which nulls the error, so the sentence
   // explaining the refusal was thrown away before anyone could read it and the wizard dropped back
@@ -35,6 +49,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   });
 
   const handleModeSelect = (mode: AuthMode) => {
+    if (mode === 'anonymous' ? !canUseAnonymous : state.canAuthenticate === false) return;
     setSelectedMode(mode);
     setError(null);
     if (mode === 'account') {
@@ -43,16 +58,26 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   };
 
   const handleContinueAnonymous = async () => {
+    if (identityRef.current !== identity || !canUseAnonymous || saving) return;
+    const caller = identity;
     setSaving(true);
     setError(null);
 
     try {
       await ApiService.setSteamAuthMode('anonymous');
+      if (identityRef.current !== caller) return;
+      await refreshSteamAuth();
+      if (identityRef.current !== caller) return;
       onComplete(false);
     } catch (err: unknown) {
-      setError(getErrorMessage(err) || t('initialization.steamPicsAuth.networkError'));
+      if (identityRef.current !== caller) return;
+      setError(
+        err instanceof ApiError && err.body?.stageKey
+          ? t(err.body.stageKey, err.body.context ?? {})
+          : t('initialization.steamPicsAuth.networkError')
+      );
     } finally {
-      setSaving(false);
+      if (identityRef.current === caller) setSaving(false);
     }
   };
 
@@ -69,14 +94,20 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   // and until it gives up the account is marked as signing in and every later attempt is refused.
   // Best-effort: the poll ends on its own window if this request fails.
   const handleCancelLogin = () => {
-    void ApiService.cancelSteamLogin().catch((err: unknown) => {
-      console.error('Cancel Steam login failed:', getErrorMessage(err));
-    });
+    actions.cancelLogin?.();
   };
 
   return (
     <>
       <div className="space-y-5">
+        {(!access || access.ownershipReason) && (
+          <p className="text-sm text-themed-muted" role="status">
+            {t(
+              integrationReasonKeys[access?.ownershipReason ?? ''] ??
+                'errors.integration.statusUnavailable'
+            )}
+          </p>
+        )}
         <StepHeader
           icon={<Shield className="w-7 h-7 icon-info" />}
           iconBackground="bg-themed-info"
@@ -100,6 +131,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           <SelectableCard
             name="steam-auth-mode"
             value="anonymous"
+            disabled={!canUseAnonymous || saving}
             checked={selectedMode === 'anonymous'}
             onChange={() => handleModeSelect('anonymous')}
             icon={<Users className="icon-primary" />}
@@ -109,6 +141,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           <SelectableCard
             name="steam-auth-mode"
             value="account"
+            disabled={state.canAuthenticate === false || saving}
             checked={selectedMode === 'account'}
             onChange={() => handleModeSelect('account')}
             icon={<User className="icon-success" />}
@@ -127,7 +160,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             color="primary"
             onClick={handleContinueAnonymous}
             loading={saving}
-            disabled={saving}
+            disabled={!canUseAnonymous || saving}
             fullWidth
           >
             {saving

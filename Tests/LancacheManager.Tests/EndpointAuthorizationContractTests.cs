@@ -657,6 +657,98 @@ public sealed class EndpointAuthorizationContractTests
     }
 
     [Fact]
+    public async Task DirectApiKeyAuthenticationDoesNotOpenAccountOrSessionRoutes()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+        using var client = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        client.DefaultRequestHeaders.Add(
+            "X-Api-Key",
+            host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey());
+
+        foreach (var path in new[] { "/api/accounts", "/api/sessions" })
+        {
+            using var response = await client.GetAsync(path);
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task AccountCreationKeepsLegacyRoleInputsAndRejectsUnsupportedWireValues()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+        using var client = await host.CreateAdminClientAsync();
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var createdResponse = await client.PostAsJsonAsync(
+            "/api/accounts",
+            new CreateAccountRequest
+            {
+                Username = $"ordinary-{Guid.NewGuid():N}",
+                Password = "Endpoint-Contract-9"
+            });
+
+        Assert.Equal(System.Net.HttpStatusCode.Created, createdResponse.StatusCode);
+        var account = await createdResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("user", account.GetProperty("role").GetString());
+        Assert.False(account.GetProperty("isMainAdmin").GetBoolean());
+
+        var rejectedBodies = new[]
+        {
+            "{\"username\":\"admin-role\",\"password\":\"Endpoint-Contract-9\",\"role\":\"admin\"}",
+            "{\"username\":\"user-role\",\"password\":\"Endpoint-Contract-9\",\"role\":\"user\"}",
+            "{\"username\":\"unknown-role\",\"password\":\"Endpoint-Contract-9\",\"role\":\"unknown\"}",
+            "{\"username\":\"numeric-role\",\"password\":\"Endpoint-Contract-9\",\"role\":1}",
+            "{\"username\":\"guest-role\",\"password\":\"Endpoint-Contract-9\",\"role\":\"guest\"}"
+        };
+
+        foreach (var body in rejectedBodies)
+        {
+            using var content = new StringContent(body, Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync("/api/accounts", content);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        using var roleResponse = await client.PutAsJsonAsync(
+            $"/api/accounts/{account.GetProperty("id").GetGuid()}/role",
+            new { role = "admin" });
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, roleResponse.StatusCode);
+    }
+
+    [Fact]
+    public void NullSessionAccountIdentityIsOmittedByTheApplicationSerializer()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        var serializerOptions = host.Application.Services
+            .GetRequiredService<IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>()
+            .Value
+            .JsonSerializerOptions;
+
+        var absent = JsonSerializer.Serialize(new SessionDto { Id = Guid.NewGuid() }, serializerOptions);
+        Assert.DoesNotContain("accountId", absent, StringComparison.Ordinal);
+        Assert.DoesNotContain("username", absent, StringComparison.Ordinal);
+        Assert.Contains("\"accountDeleted\":false", absent, StringComparison.Ordinal);
+
+        var present = JsonSerializer.Serialize(
+            new SessionDto { Id = Guid.NewGuid(), Username = "visible-account" },
+            serializerOptions);
+        Assert.DoesNotContain("accountId", present, StringComparison.Ordinal);
+        Assert.Contains("\"username\":\"visible-account\"", present, StringComparison.Ordinal);
+
+        var deleted = JsonSerializer.Serialize(
+            new SessionDto { Id = Guid.NewGuid(), AccountDeleted = true },
+            serializerOptions);
+        Assert.DoesNotContain("accountId", deleted, StringComparison.Ordinal);
+        Assert.DoesNotContain("username", deleted, StringComparison.Ordinal);
+        Assert.Contains("\"accountDeleted\":true", deleted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DaemonControllersExposeOnlyTheSharedPrefillActions()
     {
         using var host = new EndpointAuthorizationHost();
@@ -1007,7 +1099,7 @@ public sealed class EndpointAuthorizationContractTests
     {
         return controller switch
         {
-            "AccountsController" => ["AccountsController.GetAccounts", "AccountsController.GetAccount", "AccountsController.CreateAccount", "AccountsController.EditAccount", "AccountsController.SetRole", "AccountsController.SetDisabled", "AccountsController.DeleteAccount", "AccountsController.WipeAccounts"],
+            "AccountsController" => ["AccountsController.GetAccounts", "AccountsController.GetAccount", "AccountsController.CreateAccount", "AccountsController.EditAccount", "AccountsController.SetDisabled", "AccountsController.DeleteAccount", "AccountsController.WipeAccounts"],
             "ApiKeysController" => ["ApiKeysController.GetStatus", "ApiKeysController.RegenerateApiKey"],
             "DataMigrationController" => ["DataMigrationController.ImportLancacheManager", "DataMigrationController.GetImportStatus", "DataMigrationController.ValidateConnection"],
             "DatabaseController" => ["DatabaseController.ResetDatabase", "DatabaseController.ResetSelectedTables", "DatabaseController.GetDatabaseResetStatus", "DatabaseController.GetLogCount"],
@@ -1435,7 +1527,30 @@ internal sealed class EndpointAuthorizationHost : IDisposable
         try
         {
             var apiKey = Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
-            var (username, password) = await NewAccountAsync();
+            const string password = "Endpoint-Contract-9";
+            string username;
+
+            var dbContextFactory = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            await using (var context = await dbContextFactory.CreateDbContextAsync())
+            {
+                var owner = await context.UserAccounts.SingleOrDefaultAsync(account => account.IsMainAdmin);
+                if (owner == null)
+                {
+                    var created = await NewAccountAsync();
+                    username = created.Username;
+                }
+                else
+                {
+                    username = owner.Username;
+                    var hasher = Application.Services.GetRequiredService<IPasswordHasher<UserAccount>>();
+                    if (hasher.VerifyHashedPassword(owner, owner.PasswordHash, password)
+                        == PasswordVerificationResult.Failed)
+                    {
+                        owner.PasswordHash = hasher.HashPassword(owner, password);
+                        await context.SaveChangesAsync();
+                    }
+                }
+            }
 
             // Signing in is itself a request that changes something, so it needs the antiforgery token
             // a browser would already be holding from the status call the page makes on load.
@@ -1492,28 +1607,28 @@ internal sealed class EndpointAuthorizationHost : IDisposable
     }
 
     /// <summary>
-    /// One admin account to sign in as, hashed by the application's own hasher so the sign-in accepts
-    /// it. Signing in takes the API key, a username and a password, so a host that hands out a
-    /// signed-in client has to hand out an account too. Each call gets a name of its own because the
-    /// username index is unique and one host mints several clients.
+    /// A fresh account to sign in as, hashed by the application's own hasher so the sign-in accepts
+    /// it. The first call seeds the collection database's one primary owner; later calls create
+    /// ordinary Users without changing the owner's username or password.
     /// </summary>
     public async Task<(string Username, string Password)> NewAccountAsync()
     {
         const string password = "Endpoint-Contract-9";
 
+        var dbContextFactory = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var context = await dbContextFactory.CreateDbContextAsync();
+        var mainAdmin = !await context.UserAccounts.AnyAsync(candidate => candidate.IsMainAdmin);
         var account = new UserAccount
         {
             Id = Guid.NewGuid(),
             Username = $"endpoint-contract-{Guid.NewGuid():N}",
-            Role = SessionType.Admin,
+            Role = mainAdmin ? SessionType.Admin : SessionType.User,
+            IsMainAdmin = mainAdmin,
             CreatedAtUtc = DateTime.UtcNow
         };
         account.PasswordHash = Application.Services
             .GetRequiredService<IPasswordHasher<UserAccount>>()
             .HashPassword(account, password);
-
-        var dbContextFactory = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-        await using var context = await dbContextFactory.CreateDbContextAsync();
         context.UserAccounts.Add(account);
         await context.SaveChangesAsync();
 

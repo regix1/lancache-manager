@@ -105,8 +105,7 @@ public partial class EpicMappingService
                 _currentStatus = EpicMappingStatus.RefreshingCatalog;
 
                 await RefreshCatalogAsync(reporter, reporter.Token);
-                _lastRefreshTime = DateTime.UtcNow;
-                _authStorage.UpdateAuthData(data => data.LastAuthenticated = _lastRefreshTime);
+
 
                 await reporter.CompleteAsync(
                     success: true,
@@ -224,8 +223,21 @@ public partial class EpicMappingService
         }
     }
 
-    public Task<bool> CancelRefreshAsync()
+    public Task<bool> CancelRefreshAsync(IntegrationCaller? caller = null, Guid? attemptId = null)
     {
+        if (caller is not null && (_loginAttempt is not null || attemptId is not null))
+        {
+            _authStorage.CancelIntegrationLogin(caller, attemptId, () =>
+            {
+                if (_processingLogin?.AttemptId == attemptId)
+                {
+                    _currentMappingReporter?.RequestCancellation();
+                    _currentRefreshCts?.Cancel();
+                }
+                _loginAttempt = null;
+            });
+            return Task.FromResult(true);
+        }
         if (_isProcessingInt == 0 || _currentRefreshCts is null)
         {
             return Task.FromResult(false);
@@ -250,29 +262,42 @@ public partial class EpicMappingService
         MappingOperationReporter reporter,
         CancellationToken cancellationToken)
     {
+        var snapshot = _authStorage.GetIntegrationSnapshot();
+        var version = snapshot.Version;
+        var activeTokens = _currentTokens;
+        void EnsureCurrent()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_authStorage.IsIntegrationCurrent(version)) throw new OperationCanceledException();
+        }
+        EnsureCurrent();
         _lastNewGames = 0;
         _lastUpdatedGames = 0;
         _currentProgressPercent = 0;
 
-        if (_currentTokens is not null && _currentTokens.ExpiresAt <= DateTime.UtcNow)
+        if (activeTokens is not null && activeTokens.ExpiresAt <= DateTime.UtcNow)
         {
             _logger.LogInformation("Access token expired, refreshing before catalog update...");
             try
             {
                 var tokens = await _epicApiClient.RefreshTokenAsync(
-                    _currentTokens.RefreshToken,
+                    snapshot.Auth.RefreshToken!,
                     cancellationToken);
-                _currentTokens = tokens;
-                _authStorage.SaveAuthData(new EpicAuthData
+                EnsureCurrent();
+                var updated = _authStorage.UpdateAuthData(version, auth =>
                 {
-                    OwnerAccountId = _authStorage.GetAuthData().OwnerAccountId,
-                    RefreshToken = tokens.RefreshToken,
-                    DisplayName = tokens.DisplayName,
-                    AccountId = tokens.AccountId,
-                    LastAuthenticated = DateTime.UtcNow,
-                    GamesDiscovered = _gamesDiscovered
+                    auth.RefreshToken = tokens.RefreshToken;
+                    auth.DisplayName = tokens.DisplayName;
+                    auth.AccountId = tokens.AccountId;
+                    auth.LastAuthenticated = DateTime.UtcNow;
+                }, () =>
+                {
+                    _currentTokens = tokens;
+                    _displayName = tokens.DisplayName;
                 });
-                _displayName = tokens.DisplayName;
+                if (updated is null) throw new OperationCanceledException();
+                version = updated.Value;
+                activeTokens = tokens;
             }
             catch (OperationCanceledException)
             {
@@ -280,16 +305,18 @@ public partial class EpicMappingService
             }
             catch (ValidationException ex)
             {
-                _authStorage.InvalidateAuthData();
-                SetIsAuthenticated(false);
-                _displayName = null;
-                _gamesDiscovered = 0;
-                _currentTokens = null;
+                _authStorage.InvalidateAuthData(version, () =>
+                {
+                    SetIsAuthenticated(false);
+                    _displayName = null;
+                    _gamesDiscovered = 0;
+                    _currentTokens = null;
+                });
                 throw new InvalidOperationException("Epic access token refresh failed", ex);
             }
         }
 
-        if (_currentTokens is null)
+        if (activeTokens is null)
         {
             throw new InvalidOperationException("No valid Epic token is available for catalog refresh");
         }
@@ -300,8 +327,9 @@ public partial class EpicMappingService
             "signalr.epicMapping.fetchingGames",
             CreateEpicContext());
         var games = await _epicApiClient.GetOwnedGamesAsync(
-            _currentTokens.AccessToken,
+            activeTokens.AccessToken,
             cancellationToken);
+        EnsureCurrent();
         if (games.Count > 0)
         {
             var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
@@ -310,6 +338,7 @@ public partial class EpicMappingService
                 sessionHash,
                 "scheduled-refresh",
                 cancellationToken);
+            EnsureCurrent();
             _gamesDiscovered = result.TotalGames;
             _lastCollectionUtc = DateTime.UtcNow;
             _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
@@ -325,8 +354,9 @@ public partial class EpicMappingService
         try
         {
             var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
-                _currentTokens.AccessToken,
+                activeTokens.AccessToken,
                 cancellationToken);
+            EnsureCurrent();
             if (cdnInfos.Count > 0)
             {
                 await MergeCdnPatternsAsync(cdnInfos, cancellationToken);
@@ -345,6 +375,7 @@ public partial class EpicMappingService
         try
         {
             var freeGames = await _epicApiClient.GetFreeGamesAsync(cancellationToken);
+            EnsureCurrent();
             if (freeGames.Count > 0)
             {
                 var sessionHash = CryptoUtils.ComputeAnonymousHash("free-games-discovery");
@@ -353,6 +384,7 @@ public partial class EpicMappingService
                     sessionHash,
                     "free-games",
                     cancellationToken);
+                EnsureCurrent();
                 _lastNewGames += result.NewGames;
                 _lastUpdatedGames += result.UpdatedGames;
             }
@@ -376,6 +408,9 @@ public partial class EpicMappingService
             _logger.LogWarning(ex, "Failed to resolve Epic downloads");
         }
 
+        EnsureCurrent();
+        if (_authStorage.UpdateAuthData(version, auth => auth.LastAuthenticated = DateTime.UtcNow,
+            () => _lastRefreshTime = DateTime.UtcNow) is null) throw new OperationCanceledException();
         _currentProgressPercent = 99;
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
         {

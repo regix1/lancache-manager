@@ -44,6 +44,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private volatile bool _isLoggedOn = false;
     private volatile bool _sessionReplaced;
     private (Guid? Owner, string Token)? _sessionCredential;
+    private long _sessionAuthVersion;
     private volatile bool _intentionalDisconnect = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
@@ -146,6 +147,18 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         }
     }
 
+    public IntegrationAccess GetIntegrationAccess(IntegrationCaller caller) => _steamAuthRepository.GetIntegrationAccess(caller);
+
+    public Task SetModeAsync(IntegrationCaller caller, SteamAuthMode mode)
+        => _steamAuthRepository.RunIntegrationActionAsync(caller, () =>
+        {
+            var auth = _steamAuthRepository.GetAuthData();
+            if ((caller.AuthenticationEnabled && mode == SteamAuthMode.Anonymous && auth.OwnerAccountId is not null)
+                || (mode == SteamAuthMode.Authenticated && !IsSteamAuthenticated))
+                IntegrationLease.Refuse("integration-sign-in-required");
+            _stateService.SetSteamAuthMode(mode);
+        });
+
     public SteamKit2Service(
         ILogger<SteamKit2Service> logger,
         IServiceScopeFactory scopeFactory,
@@ -187,10 +200,11 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// </summary>
     public async Task ClearAllSteamAuthAsync()
     {
+        await using var release = await _steamAuthRepository.BeginIntegrationReleaseAsync();
         // Capture API key status BEFORE clearing
         var hadWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthRepository.GetAuthData().SteamApiKey);
 
-        await LogoutAsync();
+        await LogoutAsync(release);
         _steamAuthRepository.ClearAuthData();
         _logger.LogInformation("Cleared Steam PICS auth data");
 
@@ -250,16 +264,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         }
 
         // Initialize SteamKit2 - these are in-memory only and should not fail due to DB
-        _steamClient = new SteamClient();
-        _manager = new CallbackManager(_steamClient);
-        _steamUser = _steamClient.GetHandler<SteamUser>();
-        _steamApps = _steamClient.GetHandler<SteamApps>();
-
-        // Subscribe to callbacks
-        _manager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
-        _manager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
-        _manager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
-        _manager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
+        InitializeSteamClient();
 
         // Subscribe to prefill daemon auth state change events
         SubscribeToDaemonEvents();
@@ -314,6 +319,36 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         }
 
         _logger.LogInformation("SteamKit2Service stopped");
+    }
+
+    private void InitializeSteamClient()
+    {
+        var client = new SteamClient();
+        _steamClient = client;
+        _manager = new CallbackManager(client);
+        _steamUser = client.GetHandler<SteamUser>();
+        _steamApps = client.GetHandler<SteamApps>();
+        _sessionAuthVersion = _steamAuthRepository.GetIntegrationSnapshot().Version;
+        _manager.Subscribe<SteamClient.ConnectedCallback>(callback =>
+        {
+            lock (_loginOwnerLock)
+                if (ReferenceEquals(client, _steamClient)) OnConnected(callback);
+        });
+        _manager.Subscribe<SteamClient.DisconnectedCallback>(callback =>
+        {
+            lock (_loginOwnerLock)
+                if (ReferenceEquals(client, _steamClient)) OnDisconnected(callback);
+        });
+        _manager.Subscribe<SteamUser.LoggedOnCallback>(callback =>
+        {
+            lock (_loginOwnerLock)
+                if (ReferenceEquals(client, _steamClient)) OnLoggedOn(callback);
+        });
+        _manager.Subscribe<SteamUser.LoggedOffCallback>(callback =>
+        {
+            lock (_loginOwnerLock)
+                if (ReferenceEquals(client, _steamClient)) OnLoggedOff(callback);
+        });
     }
 
     private async Task HandleCallbacksAsync(CancellationToken cancellationToken)
@@ -376,13 +411,14 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             var credential = _sessionCredential;
             var current = _steamAuthRepository.GetAuthData();
             if (invalidateSavedLogin && (credential == null
+                || !_steamAuthRepository.IsIntegrationCurrent(_sessionAuthVersion)
                 || current.OwnerAccountId != credential.Value.Owner
                 || current.RefreshToken != credential.Value.Token))
             {
                 return false;
             }
             var cleared = false;
-            _steamAuthRepository.UpdateAuthData(auth =>
+            Action<SteamAuthData> update = auth =>
             {
                 if (invalidateSavedLogin && (credential == null
                     || auth.OwnerAccountId != credential.Value.Owner
@@ -391,16 +427,21 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
                     return;
                 }
 
-                if (invalidateSavedLogin && credential!.Value.Owner is Guid owner
-                    && _steamAuthRepository.GetSavedLogin(owner)?.RefreshToken == credential.Value.Token)
-                {
-                    _steamAuthRepository.ClearSavedLogin(owner);
-                }
+                auth.OwnerAccountId = null;
                 auth.RefreshToken = null;
                 auth.Username = null;
+                auth.LastAuthenticated = null;
                 auth.Mode = SteamAuthMode.Anonymous.ToWireString();
                 cleared = true;
-            });
+            };
+            if (invalidateSavedLogin)
+            {
+                if (_steamAuthRepository.UpdateAuthData(_sessionAuthVersion, update) is null) return false;
+            }
+            else _steamAuthRepository.UpdateAuthData(update);
+            if (cleared && invalidateSavedLogin && credential!.Value.Owner is Guid owner
+                && _steamAuthRepository.GetSavedLogin(owner).RefreshToken == credential.Value.Token)
+                _steamAuthRepository.ClearSavedLogin(owner);
             return cleared;
         }
     }

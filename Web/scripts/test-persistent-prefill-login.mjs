@@ -53,6 +53,10 @@ const components = Object.fromEntries(
   ].map((name) => [name, name])
 );
 const bindings = {
+  integrationReasonKeys: {
+    'account-required': 'errors.integration.accountRequired',
+    'no-saved-login': 'errors.integration.noSavedLogin'
+  },
   supportsConcurrentPrefill,
   canStartPrefill,
   getPrefillRunProgress,
@@ -101,8 +105,8 @@ const text = (nodes) =>
     )
     .join(' ');
 for (const [reason, sentence] of [
-  ['account-required', 'Sign in with your own LANCache account'],
-  ['no-saved-login', 'No usable login is saved for this LANCache account'],
+  ['account-required', en.errors.integration.accountRequired],
+  ['no-saved-login', en.errors.integration.noSavedLogin],
   ['unknown', 'Your saved login could not be checked'],
   [null, 'Your saved login could not be checked']
 ]) {
@@ -261,6 +265,7 @@ test('sign in again opens the existing modal and successful login refreshes serv
       ];
     },
     useSteamAuth: () => ({
+      access: { canManage: true, canSignIn: true, canLogout: true },
       steamAuthMode: 'authenticated',
       username: 'mapping-login',
       refreshSteamAuth: () => {
@@ -273,7 +278,13 @@ test('sign in again opens the existing modal and successful login refreshes serv
     useSteamAuthentication: (options) => {
       success = options.onSuccess;
       return { state: { loading: false }, actions: {} };
-    }
+    },
+    useAuth: () => ({
+      authenticationEnabled: true,
+      authMode: 'authenticated',
+      accountId: 'a',
+      sessionId: 'a'
+    })
   };
   const manager = new Function(
     ...Object.keys(managerBindings),

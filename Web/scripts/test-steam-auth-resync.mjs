@@ -92,7 +92,9 @@ export default { createElement };
 const reactStubUrl = toUrl(reactStubSource);
 const { createComponent } = await import(reactStubUrl);
 
-const apiStubUrl = toUrl(`export default { getFetchOptions: () => ({}) };`);
+const apiStubUrl = toUrl(
+  `export default { getFetchOptions: () => ({}), handleResponse: async (response) => {if(!response.ok) throw new Error('unavailable'); return response.json();} };`
+);
 
 /** One hub object across renders, so only the flag the provider reads changes. */
 const signalRStubUrl = toUrl(`
@@ -116,7 +118,7 @@ globalThis.__emitSignalR = async (event, value) => {
 `);
 
 const authStubUrl = toUrl(`
-export const useAuth = () => ({ authMode: globalThis.__authMode, isLoading: false });
+export const useAuth = () => ({ authMode: globalThis.__authMode, authenticationEnabled:true, accountId:'a',sessionId:'a',isLoading: false });
 `);
 
 const contextStubUrl = toUrl(`export const SteamAuthContext = { Provider: 'SteamAuthContext' };`);
@@ -167,6 +169,7 @@ const startServer = (mode, username) => {
       ok: server.ok,
       json: async () => ({
         mode: server.mode,
+        canManage: true,
         username: server.username,
         isAuthenticated: server.isAuthenticated ?? server.mode === 'authenticated'
       })
@@ -300,7 +303,11 @@ test('invalidating events publish completed refreshes and ignore unrelated sessi
   let value = provider.render(true);
   assert.equal(server.requests, 2);
   assert.equal(value.revision, 2);
-  assert.equal(value.autoLogoutMessage, 'Steam signed out');
+  assert.equal(
+    value.autoLogoutMessage,
+    null,
+    'global events only invalidate caller-aware REST state'
+  );
 
   const invalidatingTypes = [
     'InvalidCredentials',

@@ -61,6 +61,7 @@ import type {
   XboxGameMappingDto,
   XboxMappingStats,
   XboxMappingAuthStatus,
+  IntegrationLoginRequest,
   PicsStatus,
   OrphanedDownloadsResponse
 } from '../types';
@@ -2816,17 +2817,29 @@ class ApiService {
   }
 
   static async startXboxMappingLogin(
-    signal?: AbortSignal
-  ): Promise<{ userCode: string; verificationUri: string; expiresIn: number; interval: number }> {
+    signal?: AbortSignal,
+    login?: IntegrationLoginRequest
+  ): Promise<{
+    userCode: string;
+    verificationUri: string;
+    expiresIn: number;
+    interval: number;
+    attemptId: string;
+    expiresAtUtc: string;
+    operationId?: string | null;
+  }> {
     const response = await fetch(
       `${API_BASE}/xbox/game-mappings/auth/login`,
-      this.getFetchOptions({ method: 'POST', signal })
+      this.getJsonFetchOptions(login ?? {}, { method: 'POST', signal })
     );
     return ApiService.handleResponse<{
       userCode: string;
       verificationUri: string;
       expiresIn: number;
       interval: number;
+      attemptId: string;
+      expiresAtUtc: string;
+      operationId?: string | null;
     }>(response);
   }
 
@@ -2840,10 +2853,10 @@ class ApiService {
 
   // Cancels a pending device-code login poll (e.g. when the login modal is closed) WITHOUT clearing
   // credentials or signing out an already-authenticated account. Distinct from logoutXboxMapping.
-  static async cancelXboxMappingLogin(): Promise<void> {
+  static async cancelXboxMappingLogin(attemptId?: string): Promise<void> {
     const response = await fetch(
       `${API_BASE}/xbox/game-mappings/auth/cancel`,
-      this.getFetchOptions({ method: 'POST' })
+      this.getJsonFetchOptions({ attemptId }, { method: 'POST' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2886,12 +2899,19 @@ class ApiService {
     );
   }
 
-  static async startEpicMappingLogin(signal?: AbortSignal): Promise<{ authorizationUrl: string }> {
+  static async startEpicMappingLogin(
+    signal?: AbortSignal,
+    login?: IntegrationLoginRequest
+  ): Promise<{ authorizationUrl: string; attemptId: string; expiresAtUtc: string }> {
     const response = await fetch(
       `${API_BASE}/epic/game-mappings/auth/login`,
-      this.getFetchOptions({ method: 'POST', signal })
+      this.getJsonFetchOptions(login ?? {}, { method: 'POST', signal })
     );
-    return ApiService.handleResponse<{ authorizationUrl: string }>(response);
+    return ApiService.handleResponse<{
+      authorizationUrl: string;
+      attemptId: string;
+      expiresAtUtc: string;
+    }>(response);
   }
 
   static async logoutEpicMapping(): Promise<void> {
@@ -2904,11 +2924,20 @@ class ApiService {
 
   static async completeEpicMappingAuth(
     authorizationCode: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    attemptId?: string
   ): Promise<void> {
     const response = await fetch(
       `${API_BASE}/epic/game-mappings/auth/complete`,
-      this.getJsonFetchOptions({ authorizationCode }, { method: 'POST', signal })
+      this.getJsonFetchOptions({ authorizationCode, attemptId }, { method: 'POST', signal })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async cancelEpicMappingLogin(attemptId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/epic/game-mappings/schedule/refresh`,
+      this.getJsonFetchOptions({ attemptId }, { method: 'DELETE' })
     );
     await ApiService.handleResponse(response);
   }
@@ -3212,10 +3241,10 @@ class ApiService {
 
   // Cancels an in-flight sign-in (e.g. when the login modal is closed) WITHOUT clearing credentials
   // or signing out an already-authenticated account. Distinct from clearSteamAuth.
-  static async cancelSteamLogin(): Promise<void> {
+  static async cancelSteamLogin(attemptId?: string): Promise<void> {
     const response = await fetch(
       `${API_BASE}/steam-auth/login/cancel`,
-      this.getFetchOptions({ method: 'POST' })
+      this.getJsonFetchOptions({ attemptId }, { method: 'POST' })
     );
     await ApiService.handleResponse(response);
   }

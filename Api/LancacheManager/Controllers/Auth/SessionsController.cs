@@ -3,12 +3,14 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
@@ -59,12 +61,48 @@ public class SessionsController : ControllerBase
         // withheld from everyone else the same way the account list withholds that row.
         var (activeSessions, activeCount) = await _sessionService.GetActiveSessionsPagedAsync(
             page, pageSize, currentSession);
-        var activeDtos = activeSessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
         var totalPages = (int)Math.Ceiling((double)activeCount / pageSize);
 
         // History sessions (revoked/expired) - unpaginated
         var historySessions = await _sessionService.GetSessionHistoryAsync(currentSession);
-        var historyDtos = historySessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
+
+        var accountIds = activeSessions
+            .Concat(historySessions)
+            .Select(session => session.AccountId)
+            .OfType<Guid>()
+            .Distinct()
+            .ToList();
+        var usernames = new Dictionary<Guid, string>();
+        if (accountIds.Count > 0)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            await using var context = await factory.CreateDbContextAsync();
+            usernames = await context.UserAccounts
+                .AsNoTracking()
+                .Where(account => accountIds.Contains(account.Id))
+                .Select(account => new { account.Id, account.Username })
+                .ToDictionaryAsync(account => account.Id, account => account.Username);
+        }
+
+        var activeDtos = activeSessions
+            .Select(session => ToDto(
+                session,
+                currentSessionId,
+                now,
+                session.AccountId is { } accountId && usernames.TryGetValue(accountId, out var username)
+                    ? username
+                    : null))
+            .ToList();
+        var historyDtos = historySessions
+            .Select(session => ToDto(
+                session,
+                currentSessionId,
+                now,
+                session.AccountId is { } accountId && usernames.TryGetValue(accountId, out var username)
+                    ? username
+                    : null))
+            .ToList();
 
         return Ok(new SessionListResponse
         {
@@ -84,7 +122,7 @@ public class SessionsController : ControllerBase
         });
     }
 
-    private static SessionDto ToDto(UserSession s, Guid? currentSessionId, DateTime now)
+    private static SessionDto ToDto(UserSession s, Guid? currentSessionId, DateTime now, string? username)
     {
         var isAccountHolder = s.SessionType.IsAccountHolder();
         var steamPrefillEnabled = isAccountHolder || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
@@ -96,6 +134,8 @@ public class SessionsController : ControllerBase
         return new SessionDto
         {
             Id = s.Id,
+            Username = username,
+            AccountDeleted = s.AccountId.HasValue && username == null,
             SessionType = s.SessionType,
             IpAddress = s.IpAddress,
             UserAgent = s.UserAgent,

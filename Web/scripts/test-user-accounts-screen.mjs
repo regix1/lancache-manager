@@ -177,7 +177,7 @@ test("the installation's own account keeps its row actions, disabled", () => {
       (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
       ['ActionMenuItem', 'ActionMenuDangerItem'].includes(jsxTagName(node))
   );
-  assert.ok(items.length >= 4, `expected the row menu to keep its actions, found ${items.length}`);
+  assert.equal(items.length, 3, `expected edit, enable/disable and delete, found ${items.length}`);
 
   for (const item of items) {
     const disabled = jsxAttribute(item, 'disabled');
@@ -211,11 +211,9 @@ test("the installation's own account keeps its row actions, disabled", () => {
   }
 });
 
-test('the row you are signed in as cannot delete, disable or demote itself', () => {
-  // Deleting your own account cannot be undone from the browser at all, and demoting yourself cannot
-  // be undone by you: creating an account and granting the admin role both belong to the account that
-  // owns the installation. Renaming yourself and setting your own password are ordinary, so Edit is
-  // the one item that must stay live on your own row.
+test('the row you are signed in as cannot delete or disable itself', () => {
+  // Deleting or disabling your own account cannot be undone from the browser. Renaming yourself and
+  // setting your own password are ordinary, so Edit is the one item that must stay live on your row.
   const render = columnRender(accountsFile, 'actions');
 
   const fromUseAuth = collect(
@@ -251,7 +249,7 @@ test('the row you are signed in as cannot delete, disable or demote itself', () 
       (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
       ['ActionMenuItem', 'ActionMenuDangerItem'].includes(jsxTagName(node))
   );
-  assert.equal(items.length, 4, `expected four row actions, found ${items.length}`);
+  assert.equal(items.length, 3, `expected three row actions, found ${items.length}`);
 
   const guarded = items.filter((item) => {
     const disabled = jsxAttribute(item, 'disabled');
@@ -260,8 +258,8 @@ test('the row you are signed in as cannot delete, disable or demote itself', () 
 
   assert.equal(
     guarded.length,
-    3,
-    `expected three actions to be disabled on your own row, found ${guarded.length}`
+    2,
+    `expected two actions to be disabled on your own row, found ${guarded.length}`
   );
 
   const open = items.filter((item) => !guarded.includes(item));
@@ -269,6 +267,35 @@ test('the row you are signed in as cannot delete, disable or demote itself', () 
     open[0].getText().includes("t('common.edit')"),
     'the one action left live on your own row is not Edit'
   );
+});
+
+test('account creation and row actions contain no assignable role surface', () => {
+  const source = accountsFile.getText();
+
+  for (const removed of [
+    '/role',
+    'editor.role',
+    'open.role',
+    'actions.promote',
+    'actions.demote',
+    'confirm.role',
+    'errors.role',
+    'adminRoleReserved'
+  ]) {
+    assert.equal(source.includes(removed), false, `UserAccounts.tsx still contains ${removed}`);
+  }
+
+  assert.match(
+    source,
+    /\{ username: open\.username, password: open\.password \}/,
+    'new accounts must post only username and password'
+  );
+
+  const roleRender = columnRender(accountsFile, 'role').getText(accountsFile);
+  assert.match(roleRender, /account\.isMainAdmin/);
+  assert.match(roleRender, /user\.accounts\.mainAdmin/);
+  assert.match(roleRender, /user\.accounts\.roles\.user/);
+  assert.doesNotMatch(roleRender, /user\.accounts\.roles\.admin/);
 });
 
 test('the account screen is a third segment of the user tab', () => {

@@ -60,7 +60,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push(run);
+    queued.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
   }
 };
 
@@ -98,14 +98,19 @@ export default {
     }
     return {
       isAuthenticated: globalThis.__server.isAuthenticated,
-      loginInProgress: globalThis.__server.loginInProgress
+      loginInProgress: globalThis.__server.loginInProgress,
+      canManage: true,
+      canSignIn: !globalThis.__server.attemptId,
+      canCancel: Boolean(globalThis.__server.attemptId && globalThis.__server.loginInProgress),
+      attemptId: globalThis.__server.loginInProgress ? globalThis.__server.attemptId : null
     };
   },
-  startXboxMappingLogin: async () => {
+  startXboxMappingLogin: async (_signal, request) => {
     if (globalThis.__server.loginGate) {
       await globalThis.__server.loginGate;
     }
-    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link' };
+    globalThis.__server.attemptId = request.attemptId;
+    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, expiresAtUtc: '2030-01-01T00:00:00Z' };
   },
   cancelXboxMappingLogin: async () => {}
 };
@@ -114,6 +119,7 @@ export default {
 /** One hub object across renders, so only the flag the hook reads changes. */
 const signalRStubUrl = toUrl(`
 const handlers = new Map();
+globalThis.__resetHub = () => handlers.clear();
 const hub = {
   isConnected: false,
   on: (event, handler) => {
@@ -167,6 +173,12 @@ const { useXboxMappingAuth } = await import(
     '@contexts/notifications': notificationsStubUrl,
     './useErrorHandler': errorHandlerStubUrl,
     './useReconnectRefetch': reconnectUrl,
+    '@contexts/useAuth': toUrl(
+      "export const useAuth = () => ({authenticationEnabled:true,authMode:'authenticated',accountId:'a',sessionId:'a',isLoading:false});"
+    ),
+    '@services/apiError': toUrl('export class ApiError extends Error {}'),
+    '@utils/uuid': toUrl("export const createUuid = () => 'attempt-a';"),
+    '../types': toUrl('export const integrationReasonKeys = {};'),
     '@utils/error': errorUtilStubUrl
   })
 );
@@ -174,6 +186,7 @@ const { useXboxMappingAuth } = await import(
 /** Starts with a login attempt alive, which is what the backend reports for every scenario below
  *  that gets as far as showing a device code. Tests that end the attempt clear the flag. */
 const startServer = (isAuthenticated) => {
+  globalThis.__resetHub();
   globalThis.__server = {
     requests: 0,
     isAuthenticated,
@@ -197,7 +210,7 @@ const holdAnswers = (server) => {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const mount = (connectedAtMount) => {
+const mount = async (connectedAtMount) => {
   const component = createComponent();
   const succeeded = { count: 0 };
   const failed = { count: 0, message: null };
@@ -215,6 +228,9 @@ const mount = (connectedAtMount) => {
     return hook;
   };
   render(connectedAtMount);
+  await settle();
+  render(connectedAtMount);
+  globalThis.__server.requests = 0;
   return { render, read: () => hook, succeeded, failed };
 };
 
@@ -224,11 +240,14 @@ const waitForApproval = async (xbox) => {
   const started = xbox.render(true);
   assert.equal(started.state.needsDeviceCode, true);
   globalThis.__emit('XboxMappingAuthStateChanged', { status: 'waiting' });
+  await settle();
+  xbox.render(true);
+  globalThis.__server.requests = 0;
 };
 
 test('an approval that landed while the socket was down is picked up on recovery', async () => {
   const server = startServer(false);
-  const xbox = mount(true);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
 
   xbox.render(false);
@@ -251,21 +270,21 @@ test('an approval that landed while the socket was down is picked up on recovery
   assert.equal(recovered.state.loading, false);
 });
 
-test('no login in flight means no request on recovery', async () => {
+test('a recovery refreshes caller status without completing an idle login', async () => {
   const server = startServer(true);
-  const xbox = mount(true);
+  const xbox = await mount(true);
 
   xbox.render(false);
   xbox.render(true);
   await settle();
 
-  assert.equal(server.requests, 0, 'a resync with no login to settle decides nothing');
+  assert.equal(server.requests, 1, 'status is refreshed even when there is no local login');
   assert.equal(xbox.succeeded.count, 0);
 });
 
 test('a recovery before the user has approved leaves the code on screen', async () => {
   const server = startServer(false);
-  const xbox = mount(true);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
 
   xbox.render(false);
@@ -287,7 +306,7 @@ test('a login busy with the catalog after approval is not reported dead', async 
   // so. Only loginInProgress separates this from a login that died, and it is the whole reason the
   // resync can end one at all.
   const server = startServer(false);
-  const xbox = mount(true);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
 
   server.isAuthenticated = false;
@@ -307,7 +326,7 @@ test('a login busy with the catalog after approval is not reported dead', async 
 
 test('a login that died while the socket was down ends on recovery', async () => {
   const server = startServer(false);
-  const xbox = mount(true);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
 
   xbox.render(false);
@@ -331,7 +350,7 @@ test('a login that died while the socket was down ends on recovery', async () =>
   xbox.render(true);
   await settle();
 
-  assert.equal(server.requests, 1, 'the login is over, so a later recovery asks nothing');
+  assert.equal(server.requests, 2, 'a later recovery refreshes status without repeating failure');
   assert.equal(xbox.failed.count, 1);
 });
 
@@ -346,7 +365,7 @@ test('a recovery while the login request is still on the wire decides nothing', 
     releaseLogin = resolve;
   });
 
-  const xbox = mount(true);
+  const xbox = await mount(true);
   const started = xbox.read().startLogin();
 
   xbox.render(false);
@@ -367,10 +386,13 @@ test('a recovery while the login request is still on the wire decides nothing', 
 
 test('the completed event ends the login once, leaving nothing for a later recovery', async () => {
   const server = startServer(false);
-  const xbox = mount(true);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
 
+  server.isAuthenticated = true;
+  server.loginInProgress = false;
   globalThis.__emit('XboxMappingAuthStateChanged', { status: 'completed' });
+  await settle();
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.render(true).state.needsDeviceCode, false);
 
@@ -378,15 +400,15 @@ test('the completed event ends the login once, leaving nothing for a later recov
   xbox.render(true);
   await settle();
 
-  assert.equal(server.requests, 0, 'the login is over, so the resync has nothing to ask about');
+  assert.equal(server.requests, 2, 'event and reconnect each refresh authoritative caller status');
   assert.equal(xbox.succeeded.count, 1);
 });
 
 test('a login the user backs out of while the ask is on the wire does not complete', async () => {
   const server = startServer(true);
-  const release = holdAnswers(server);
-  const xbox = mount(true);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
+  const release = holdAnswers(server);
 
   xbox.render(false);
   xbox.render(true);
@@ -405,10 +427,12 @@ test('a login the user backs out of while the ask is on the wire does not comple
 });
 
 test('two recoveries with the ask still out complete the login once', async () => {
-  const server = startServer(true);
-  const release = holdAnswers(server);
-  const xbox = mount(true);
+  const server = startServer(false);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
+  server.isAuthenticated = true;
+  server.loginInProgress = false;
+  const release = holdAnswers(server);
 
   xbox.render(false);
   xbox.render(true);
@@ -423,10 +447,12 @@ test('two recoveries with the ask still out complete the login once', async () =
 });
 
 test('a status ask that fails keeps the login for the next recovery', async () => {
-  const server = startServer(true);
-  server.failing = true;
-  const xbox = mount(true);
+  const server = startServer(false);
+  const xbox = await mount(true);
   await waitForApproval(xbox);
+  server.failing = true;
+  server.isAuthenticated = true;
+  server.loginInProgress = false;
 
   xbox.render(false);
   xbox.render(true);

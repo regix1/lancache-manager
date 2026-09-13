@@ -4,6 +4,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -593,13 +595,13 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
-    public void IntegrationLoginAvailability_UsesOnlyTheTrustedCallerAccount()
+    public async Task IntegrationLoginAvailability_UsesOnlyTheTrustedCallerAccount()
     {
         var accountId = Guid.NewGuid();
         var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId);
         daemon.SaveLogin(accountId, "saved-account");
 
-        var result = controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
+        var result = await controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var availability = Assert.IsType<IntegrationLoginAvailability>(ok.Value);
@@ -609,14 +611,14 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
-    public void IntegrationLoginAvailability_DoesNotRevealAnotherAccountsSavedLogin()
+    public async Task IntegrationLoginAvailability_DoesNotRevealAnotherAccountsSavedLogin()
     {
         var accountA = Guid.NewGuid();
         var accountB = Guid.NewGuid();
         var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountB);
         daemon.SaveLogin(accountA, "Account A");
 
-        var result = controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
+        var result = await controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var availability = Assert.IsType<IntegrationLoginAvailability>(ok.Value);
@@ -627,11 +629,11 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
-    public void IntegrationLoginAvailability_WithoutStableAccountExplainsRequirement()
+    public async Task IntegrationLoginAvailability_WithoutStableAccountExplainsRequirement()
     {
         var (controller, _, _) = CreateControllerWithActiveSession("session-B", accountId: null);
 
-        var result = controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
+        var result = await controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var availability = Assert.IsType<IntegrationLoginAvailability>(ok.Value);
@@ -723,14 +725,14 @@ public class PersistentLoginSessionPinningTests
     {
         var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId: null);
 
-        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => controller.StartLoginAsync(new PersistentLoginRequest
         {
             Service = PrefillPlatform.Steam,
             SessionId = "session-B",
             ReuseIntegration = true
-        }, CancellationToken.None);
+        }, CancellationToken.None));
 
-        Assert.IsType<ForbidResult>(result.Result);
+        Assert.Equal("errors.integration.accountRequired", error.StageKey);
         Assert.Null(daemon.ReuseAccountId);
     }
 
@@ -758,7 +760,9 @@ public class PersistentLoginSessionPinningTests
     [Fact]
     public async Task ReuseSavedLogin_RequiresExplicitLogoutOfAuthenticatedTargetAsync()
     {
-        var (controller, daemon, client) = CreateControllerWithActiveSession("session-B", Guid.NewGuid());
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
         client.LiveStatus = "logged-in";
 
         var thrown = await Assert.ThrowsAsync<ConflictException>(() => controller.StartLoginAsync(
@@ -800,7 +804,13 @@ public class PersistentLoginSessionPinningTests
             provider, stateService, cacheService, NullLogger<PersistentPrefillController>.Instance);
         controller.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext()
+            HttpContext = new DefaultHttpContext
+            {
+                RequestServices = new ServiceCollection()
+                    .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+                    .AddSingleton<IDbContextFactory<AppDbContext>>(dbFactory)
+                    .BuildServiceProvider()
+            }
         };
         controller.HttpContext.Items["Session"] = new UserSession
         {
@@ -894,7 +904,7 @@ public class PersistentLoginSessionPinningTests
 
         public void SaveLogin(Guid accountId, string account) => SavedAccounts[accountId] = account;
 
-        public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+        public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
         {
             AvailabilityAccountId = accountId;
             if (accountId is null)
@@ -909,14 +919,21 @@ public class PersistentLoginSessionPinningTests
 
         protected override Task<bool> ReuseIntegrationLoginAsync(
             DaemonSession session,
-            Guid accountId,
+            Guid? accountId,
             Action onCommandDispatched,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IntegrationLease? lease = null)
         {
             ReuseAccountId = accountId;
             onCommandDispatched();
             if (CompleteLogin) ((RecordingDaemonClientProxy)(object)session.Client).LiveStatus = "logged-in";
             return Task.FromResult(true);
+        }
+
+        public override Task<IntegrationLease> AcquireIntegrationLoginAsync(IntegrationCaller caller, CancellationToken cancellationToken = default)
+        {
+            if (!caller.AuthenticationEnabled || caller.AccountId is null) IntegrationLease.Refuse("account-required");
+            return Task.FromResult(new IntegrationLease(this, 0, caller, () => { }, () => { }));
         }
 
         public Task InvokeOnCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)

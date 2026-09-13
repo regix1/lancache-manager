@@ -1123,15 +1123,14 @@
       "neverSignedIn": "从未登录",
       "columns": {
         "username": "用户名",
-        "role": "角色",
+        "role": "账户类型",
         "status": "状态",
         "created": "创建时间",
         "lastSignIn": "上次登录",
         "actions": "操作"
       },
       "roles": {
-        "admin": "管理员",
-        "user": "用户"
+        "user": "账户"
       },
       "status": {
         "active": "活跃",
@@ -1139,8 +1138,6 @@
       },
       "actions": {
         "create": "创建账户",
-        "promote": "设为管理员",
-        "demote": "设为普通用户",
         "enable": "启用",
         "disable": "禁用",
         "wipe": "清除全部账户"
@@ -1155,16 +1152,11 @@
         "username": "用户名",
         "password": "密码",
         "newPassword": "新密码",
-        "passwordHint": "留空则保留当前密码。",
-        "role": "角色",
-        "adminRoleReserved": "只有主要账户才能授予管理员角色。"
+        "passwordHint": "留空则保留当前密码。"
       },
       "confirm": {
         "deleteTitle": "删除账户",
         "deleteBody": "确定要删除 {{username}} 吗？其会话将立即结束，且此操作无法撤销。",
-        "roleTitle": "更改账户角色",
-        "roleLabel": "更改角色",
-        "roleBody": "确定要将 {{username}} 设为{{role}}角色吗？其会话将立即结束。",
         "wipeTitle": "清除全部账户",
         "wipeBody": "这将删除包括您在内的所有账户，并让所有人退出登录。下一屏是创建首位管理员。此操作无法撤销。"
       },
@@ -1172,7 +1164,6 @@
         "load": "加载账户失败",
         "disabled": "更新账户状态失败",
         "delete": "删除账户失败",
-        "role": "更改账户角色失败",
         "wipe": "清除账户失败"
       }
     },
@@ -1369,6 +1360,18 @@
     "edit": "编辑"
   },
   "activeSessions": {
+    "account": "账户",
+    "deletedAccount": "已删除的账户",
+    "sharedAccess": "共享访问",
+    "initialLoadFailed": "无法加载会话",
+    "initialLoadFailedMessage": "请重试以加载当前会话和历史记录。",
+    "refreshFailed": "无法刷新会话，仍显示上次加载的会话。",
+    "retry": "重试",
+    "noMatches": "没有符合搜索或筛选条件的会话。",
+    "showDetails": "显示 {{name}} 的会话详情",
+    "hideDetails": "隐藏 {{name}} 的会话详情",
+    "sessionActions": "{{name}} 的会话操作",
+    "accountFilter": "账户",
     "title": "活跃会话",
     "loading": "加载会话中...",
     "paginationLabel": "个会话",
@@ -5393,6 +5396,9 @@
     "epicAuth": {
       "title": "Epic Games 账户登录",
       "containerAccountNotice": "这是此容器的 Epic Games 账户，不是您的 LANCache Manager 登录。",
+      "errors": {
+        "authenticationFailed": "无法完成 Epic 登录。请重试。"
+      },
       "signInTitle": "使用 Epic Games 登录",
       "signInDescription": "您在 Epic 网站登录，然后将授权码粘贴到此处。",
       "connectingSubtitle": "正在获取您的登录链接",
@@ -7761,6 +7767,22 @@
     }
   },
   "errors": {
+    "integration": {
+      "accountRequired": "请使用 LANCache 账户登录以管理此集成。",
+      "ownedByAnotherAccount": "此集成正由另一账户使用。该账户必须先退出此集成。",
+      "loginInProgress": "登录正在进行中。请完成或取消后再试。",
+      "reauthenticationRequired": "请重新登录以恢复此集成。只有安装所有者可以恢复共享登录。",
+      "releaseInProgress": "此集成正在退出登录。请稍后重试。",
+      "attemptRequired": "此对话框不再关联该登录。请重新开始登录。",
+      "attemptExpired": "此登录已结束或过期。请重新开始登录。",
+      "mainOwnerRequired": "只有安装所有者可以更改此设置。",
+      "signInRequired": "请先登录此集成，再使用其已保存的登录。",
+      "noSavedLogin": "没有可用的已保存登录。请手动登录。",
+      "notSupported": "此平台不支持使用集成的已保存登录。",
+      "statusUnavailable": "无法检查集成权限。请刷新后重试。",
+      "recovery": "重新登录会替换共享登录，并将此集成关联到您的账户。只有登录成功后，才会替换现有登录。",
+      "loginAvailable": "有可用的集成登录。"
+    },
     "accountSetup": {
       "apiKeyRequired": "有效的 API 密钥是必需的。",
       "claimWindowClosed": "创建首个账户的时间窗口已关闭。请重启应用程序以重新打开。",
@@ -7771,10 +7793,8 @@
     "accounts": {
       "notFound": "找不到该账户。",
       "mainAdminProtected": "无法在此更改拥有此安装的账户。",
-      "adminRoleRequiresMainAdmin": "只有拥有此安装的账户才能授予管理员角色。",
       "wipeRequiresMainAdmin": "只有拥有此安装的账户才能删除所有账户。",
-      "selfProtected": "您无法删除、禁用或更改当前登录账户的角色。",
-      "roleNotAssignable": "账户只能拥有管理员或用户角色。",
+      "selfProtected": "您无法删除或禁用当前登录的账户。",
       "usernameTaken": "该用户名已被占用。",
       "credentialsRejected": "用户名或密码不符合要求。"
     },

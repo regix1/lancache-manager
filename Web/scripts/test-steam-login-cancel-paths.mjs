@@ -24,6 +24,7 @@ const runSwitchToManualCode = () => {
       calls.actions.push([name, ...args]);
 
   bindLifted(liftConstArrow(MODAL_PATH, 'handleSwitchToManualCode'), {
+    state: {},
     cancelPendingRequest: () => {
       calls.cancelRequest += 1;
     },
@@ -62,6 +63,7 @@ test('a sign-in that succeeded does not cancel itself', async () => {
   const submitting = [];
 
   const handleSubmit = bindLifted(liftConstArrow(MODAL_PATH, 'handleSubmit'), {
+    state: {},
     isSubmitting: false,
     loading: false,
     setIsSubmitting: (value) => submitting.push(value),
@@ -103,8 +105,8 @@ test('the wizard cancel calls the endpoint the dismiss path already uses', () =>
   let cancels = 0;
 
   bindLifted(liftConstArrow(WIZARD_STEP_PATH, 'handleCancelLogin'), {
-    ApiService: {
-      cancelSteamLogin: async () => {
+    actions: {
+      cancelLogin: async () => {
         cancels += 1;
       }
     },

@@ -7,6 +7,14 @@ namespace LancacheManager.Core.Services.EpicMapping;
 /// </summary>
 public class EpicMappingAuthStatus
 {
+    public bool CanManage { get; set; }
+    public bool CanSignIn { get; set; }
+    public bool CanLogout { get; set; }
+    public bool CanCancel { get; set; }
+    public bool CanRecover { get; set; }
+    public string? OwnershipReason { get; set; }
+    public Guid? AttemptId { get; set; }
+    public DateTime? LoginExpiresAtUtc { get; set; }
     public bool IsAuthenticated { get; set; }
     public string? DisplayName { get; set; }
     public DateTime? LastCollectionUtc { get; set; }

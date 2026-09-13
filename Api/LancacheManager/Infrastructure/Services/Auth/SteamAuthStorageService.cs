@@ -21,6 +21,9 @@ public class SteamAuthStorageService : AuthFileStorageServiceBase<SteamAuthData,
 
     protected override string AuthDataLabel => "Steam";
 
+    protected override PersistedSteamAuthData ClearStoredLogin(PersistedSteamAuthData persisted)
+        => new() { Mode = "anonymous", SteamApiKey = persisted.SteamApiKey };
+
     protected override bool IsStoredUnencrypted(PersistedSteamAuthData persisted)
         => Encryption.IsUnencrypted(persisted.RefreshToken)
             || Encryption.IsUnencrypted(persisted.SteamApiKey);
@@ -80,6 +83,34 @@ public class SteamAuthStorageService : AuthFileStorageServiceBase<SteamAuthData,
     }
 
     protected override bool HasCredentials(SteamAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
+
+    protected override PersistedSteamAuthData EncryptSavedLogin(SteamAuthData data)
+    {
+        var persisted = EncryptForStorage(data);
+        persisted.SteamApiKey = null;
+        return persisted;
+    }
+
+    protected override SteamAuthData? DecryptSavedLogin(PersistedSteamAuthData persisted)
+    {
+        return DecryptPersisted(new PersistedSteamAuthData
+        {
+            OwnerAccountId = persisted.OwnerAccountId,
+            Mode = persisted.Mode,
+            Username = persisted.Username,
+            RefreshToken = persisted.RefreshToken,
+            LastAuthenticated = persisted.LastAuthenticated
+        });
+    }
+
+    protected override bool IsSavedUnencrypted(PersistedSteamAuthData persisted)
+        => Encryption.IsUnencrypted(persisted.RefreshToken);
+
+    protected override bool NeedsSavedReEncryption(PersistedSteamAuthData persisted, SteamAuthData decrypted)
+        => Encryption.NeedsReEncryption(persisted.RefreshToken) && !string.IsNullOrEmpty(decrypted.RefreshToken);
+
+    protected override void MergeCredentials(SteamAuthData auth, SteamAuthData current)
+        => auth.SteamApiKey = current.SteamApiKey;
 
     protected override Guid? GetOwnerAccountId(SteamAuthData data) => data.OwnerAccountId;
 

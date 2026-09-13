@@ -4,6 +4,7 @@ using Docker.DotNet.Models;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Middleware;
+using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Core.Services;
 
@@ -250,9 +251,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     internal Task<CredentialChallenge?> ReuseIntegrationLoginForEditAsync(
         string sessionId,
-        Guid accountId,
+        Guid? accountId,
         Action onCommandDispatched,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IntegrationLease? lease = null)
     {
         return StartLoginEntryAsync(
             sessionId,
@@ -260,24 +262,33 @@ public abstract partial class PrefillDaemonServiceBase
             accountId,
             onCommandDispatched,
             reuseIntegration: true,
-            cancellationToken);
+            cancellationToken,
+            lease);
     }
 
     /// <summary>
     /// Reports whether this platform can currently prepare a server-side integration login.
     /// Returned values are safe for the browser and never contain credentials.
     /// </summary>
-    public virtual IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    public virtual IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
         => new(false, null, "not-supported");
+
+    public virtual Task<IntegrationLease> AcquireIntegrationLoginAsync(
+        IntegrationCaller caller, CancellationToken cancellationToken = default)
+    {
+        IntegrationLease.Refuse("not-supported");
+        throw new InvalidOperationException("Unsupported integration login.");
+    }
 
     /// <summary>
     /// Imports this platform's integration login into the exact session client.
     /// </summary>
     protected virtual Task<bool> ReuseIntegrationLoginAsync(
         DaemonSession session,
-        Guid accountId,
+        Guid? accountId,
         Action onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationLease? lease = null)
         => Task.FromResult(false);
 
     /// <summary>
@@ -366,8 +377,14 @@ public abstract partial class PrefillDaemonServiceBase
         Guid? accountId,
         Action? onCommandDispatched,
         bool reuseIntegration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationLease? lease = null)
     {
+        if (reuseIntegration)
+        {
+            if (lease is null) IntegrationLease.Refuse("attempt-required");
+            lease!.Validate();
+        }
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
             throw new KeyNotFoundException($"Session not found: {sessionId}");
@@ -402,10 +419,11 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 challenge = await ReuseIntegrationLoginCoreAsync(
                     session,
-                    accountId ?? throw new UnauthorizedAccessException("A stable account is required to use a saved login."),
+                    accountId,
                     onCommandDispatched
                         ?? throw new ArgumentNullException(nameof(onCommandDispatched)),
-                    cancellationToken);
+                    cancellationToken,
+                    lease!);
             }
             else
             {
@@ -445,10 +463,14 @@ public abstract partial class PrefillDaemonServiceBase
 
     private async Task<CredentialChallenge?> ReuseIntegrationLoginCoreAsync(
         DaemonSession session,
-        Guid accountId,
+        Guid? accountId,
         Action onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationLease lease)
     {
+        lease.Validate();
+        var availability = GetIntegrationLoginAvailability(accountId, lease.Caller);
+        if (!availability.Available) IntegrationLease.Refuse(availability.Reason ?? "no-saved-login");
         session.LastLoginFailureMessage = null;
         session.LastConsumedLoginChallengeId = null;
         ClearPendingLoginChallenge(session);
@@ -473,16 +495,6 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 StageKey = "errors.prefill.loginInProgress"
             };
-        }
-
-        var availability = GetIntegrationLoginAvailability(accountId);
-        if (!availability.Available)
-        {
-            await FailLoginFastAsync(
-                session,
-                session.Id,
-                $"Integration login is unavailable ({availability.Reason ?? "not-authenticated"}).");
-            return null;
         }
 
         session.AuthState = DaemonAuthState.LoggingIn;
@@ -514,15 +526,22 @@ public abstract partial class PrefillDaemonServiceBase
         try
         {
             EnsureCurrentSession(session);
-            var accepted = await ReuseIntegrationLoginAsync(
-                session,
-                accountId,
-                () =>
-                {
-                    dispatched = true;
-                    onCommandDispatched();
-                },
-                cancellationToken);
+            bool accepted;
+            try
+            {
+                lease.Validate();
+                accepted = await ReuseIntegrationLoginAsync(
+                    session,
+                    accountId,
+                    () =>
+                    {
+                        dispatched = true;
+                        onCommandDispatched();
+                    },
+                    cancellationToken,
+                    lease);
+            }
+            finally { lease.Dispose(); }
             if (!accepted)
             {
                 await FailLoginFastAsync(session, session.Id, "Integration login was rejected by the daemon.");

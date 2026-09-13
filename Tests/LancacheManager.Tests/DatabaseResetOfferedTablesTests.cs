@@ -20,6 +20,12 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed partial class DatabaseResetOfferedTablesTests
 {
+    [Fact]
+    public void AccountResetJournalIsNeitherOfferedNorSelectivelyResettable()
+    {
+        Assert.DoesNotContain("AccountResets", OfferedTableNames());
+        Assert.Empty(DatabaseService.ResolveResetTables(["AccountResets"]));
+    }
     [Theory]
     [InlineData("PrefillCachedApps", 0)]
     [InlineData("PrefillCachedDepots", 1)]
@@ -27,6 +33,10 @@ public sealed partial class DatabaseResetOfferedTablesTests
     {
         await using var database = await TestDatabase.CreateAsync();
         await using var context = new AppDbContext(database.Options);
+        using var files = new IntegrationFixture();
+        await AccountResetTests.RunAsync(database, files);
+        var later = Guid.NewGuid();
+        context.UserAccounts.Add(AccountResetTests.Account(later));
         context.PrefillCachedApps.AddRange(
             new PrefillCachedApp { Platform = PrefillPlatform.Steam, AppId = "123", CachedAtUtc = DateTime.UtcNow },
             new PrefillCachedApp { Platform = PrefillPlatform.Epic, AppId = "opaque", CachedAtUtc = DateTime.UtcNow });
@@ -45,6 +55,9 @@ public sealed partial class DatabaseResetOfferedTablesTests
         var method = typeof(DatabaseService).GetMethod("DoResetAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         await ((Task)method.Invoke(service, [id, new List<string> { table }, false, CancellationToken.None])!);
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
+        Assert.NotNull((await context.AccountResets.SingleAsync()).CompletedAtUtc);
+        await AccountResetTests.RunAsync(database, files);
+        Assert.Equal(later, (await context.UserAccounts.SingleAsync()).Id);
         Assert.Equal(remaining, await DatabaseService.CountResetTableRowsAsync(context, "PrefillCachedApps", CancellationToken.None));
         if (remaining > 0) Assert.Equal(PrefillPlatform.Epic, (await context.PrefillCachedApps.AsNoTracking().SingleAsync()).Platform);
     }

@@ -11,7 +11,7 @@ public class SteamAuthData
     public string? Username { get; set; }
     public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
     public DateTime? LastAuthenticated { get; set; }
-    public string? SteamApiKey { get; set; } // Steam Web API key for V1 fallback (decrypted in memory, encrypted in storage)
+    public string? SteamApiKey { get; set; } // Installation-global key; never part of an account's saved login.
 }
 
 /// <summary>

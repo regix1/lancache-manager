@@ -14,70 +14,104 @@ export interface SteamWebApiStatus {
   isFullyOperational: boolean;
   message: string;
   lastChecked: string;
+  canManage?: boolean;
+  ownershipReason?: string | null;
 }
 
 export const useSteamWebApiStatusState = () => {
   const [status, setStatus] = useState<SteamWebApiStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { authMode, isLoading: authLoading } = useAuth();
+  const {
+    authMode,
+    authenticationEnabled,
+    accountId,
+    sessionId,
+    isLoading: authLoading
+  } = useAuth();
   const { isConnected } = useSignalR();
-  const hasAccess = authMode === 'authenticated';
+  const hasAccess =
+    authenticationEnabled === false ||
+    (authMode === 'authenticated' && Boolean(accountId && sessionId));
+  const identity = JSON.stringify([authenticationEnabled, accountId, sessionId, authMode]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const requestRef = useRef(0);
+  const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
   const hasFailedAuth = useRef(false);
 
-  const fetchStatus = useCallback(async (forceRefresh = false, skipLoading = false) => {
-    // A forced refresh is an explicit request, so it clears an earlier auth failure instead of
-    // being dropped by it. The latch exists to stop the automatic retries from looping against a
-    // 401, and without this a single early 401 left the status null for the rest of the session:
-    // every later refresh returned here, and the callers that read isFullyOperational then saw a
-    // key as missing while the server reported it working.
-    if (forceRefresh) {
-      hasFailedAuth.current = false;
-    }
-
-    // Don't retry if we've already failed auth
-    if (hasFailedAuth.current) {
-      return;
-    }
-
-    try {
-      if (!skipLoading) {
-        setLoading(true);
+  const fetchStatus = useCallback(
+    async (forceRefresh = false, skipLoading = false) => {
+      if (authLoading || !hasAccess || identityRef.current !== identity) return;
+      const request = ++requestRef.current;
+      const current = () => identityRef.current === identity && requestRef.current === request;
+      // A forced refresh is an explicit request, so it clears an earlier auth failure instead of
+      // being dropped by it. The latch exists to stop the automatic retries from looping against a
+      // 401, and without this a single early 401 left the status null for the rest of the session:
+      // every later refresh returned here, and the callers that read isFullyOperational then saw a
+      // key as missing while the server reported it working.
+      if (forceRefresh) {
+        hasFailedAuth.current = false;
       }
-      setError(null);
 
-      const response = await fetch(
-        `/api/steam-api-keys/status?forceRefresh=${forceRefresh}`,
-        ApiService.getFetchOptions()
-      );
-
-      if (response.status === 401) {
-        // Auth failed - silently set status to null and stop retrying
-        hasFailedAuth.current = true;
-        setStatus(null);
-        setLoading(false);
+      // Don't retry if we've already failed auth
+      if (hasFailedAuth.current) {
         return;
       }
 
-      await assertOk(response);
+      try {
+        if (!skipLoading) {
+          setLoading(true);
+        }
+        setError(null);
 
-      const data = await response.json();
-      setStatus(data);
-    } catch (err: unknown) {
-      const errorMessage = getErrorMessage(err);
-      setError(errorMessage);
-      console.error('[SteamWebApiStatus] Error:', err);
-    } finally {
-      // Always clear loading - skipLoading only controls whether loading is
-      // SET to true, not whether it's cleared. Prevents stuck loading state
-      // when concurrent calls race with different skipLoading values.
-      setLoading(false);
-    }
-  }, []);
+        const response = await fetch(
+          `/api/steam-api-keys/status?forceRefresh=${forceRefresh}`,
+          ApiService.getFetchOptions()
+        );
+        if (!current()) return;
+
+        if (response.status === 401) {
+          // Auth failed - silently set status to null and stop retrying
+          hasFailedAuth.current = true;
+          setStatus(null);
+          setStatusIdentity(identity);
+          setLoading(false);
+          return;
+        }
+
+        await assertOk(response);
+
+        const data: SteamWebApiStatus = await response.json();
+        if (!current()) return;
+        setStatus(data);
+        setStatusIdentity(identity);
+      } catch (err: unknown) {
+        if (!current()) return;
+        setStatus((previous) =>
+          previous ? { ...previous, canManage: false, ownershipReason: 'status-unavailable' } : null
+        );
+        setStatusIdentity(identity);
+        const errorMessage = getErrorMessage(err);
+        setError(errorMessage);
+        console.error('[SteamWebApiStatus] Error:', err);
+      } finally {
+        // Always clear loading - skipLoading only controls whether loading is
+        // SET to true, not whether it's cleared. Prevents stuck loading state
+        // when concurrent calls race with different skipLoading values.
+        if (current()) setLoading(false);
+      }
+    },
+    [identity, authLoading, hasAccess]
+  );
 
   useEffect(() => {
     // Reset auth failure flag when auth state changes
     hasFailedAuth.current = false;
+    requestRef.current += 1;
+    setStatus(null);
+    setStatusIdentity(null);
+    setError(null);
 
     // Only fetch when auth is ready and user has access
     if (authLoading || !hasAccess) {
@@ -86,6 +120,9 @@ export const useSteamWebApiStatusState = () => {
 
     // Initial fetch
     fetchStatus();
+    return () => {
+      requestRef.current += 1;
+    };
 
     // No automatic polling - rely on optimistic updates and manual refresh
     // This prevents flickering and unnecessary API calls
@@ -102,5 +139,10 @@ export const useSteamWebApiStatusState = () => {
     }
   });
 
-  return { status, loading, error, refresh };
+  return {
+    status: statusIdentity === identity && hasAccess ? status : null,
+    loading: authLoading || (hasAccess && loading),
+    error: statusIdentity === identity ? error : null,
+    refresh
+  };
 };

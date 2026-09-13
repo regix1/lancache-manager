@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<CachedCorruptionScan> CachedCorruptionScans { get; set; }
     public DbSet<CachedCorruptionDetection> CachedCorruptionDetections { get; set; }
     public DbSet<UserAccount> UserAccounts { get; set; }
+    public DbSet<AccountReset> AccountResets { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }
     public DbSet<IdentityAuditEntry> IdentityAuditEntries { get; set; }
@@ -38,6 +39,14 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AccountReset>(reset =>
+        {
+            reset.ToTable("AccountResets", table => table.HasCheckConstraint("CK_AccountResets_Id", "\"Id\" = 1"));
+            reset.HasKey(entry => entry.Id);
+            reset.Property(entry => entry.Id).ValueGeneratedNever();
+            reset.Property(entry => entry.AccountIds).HasColumnType("uuid[]").IsRequired();
+        });
+
         modelBuilder.Entity<PrefillCachedApp>()
             .Property(a => a.Platform)
             .HasConversion<string>();

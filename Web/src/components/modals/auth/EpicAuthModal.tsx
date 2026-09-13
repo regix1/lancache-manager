@@ -10,6 +10,7 @@ import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
+import { integrationReasonKeys } from '../../../types';
 
 interface EpicAuthModalProps {
   opened: boolean;
@@ -51,6 +52,10 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   const isConnecting = (loading || isSubmitting) && !needsAuthorizationCode;
 
   const handleCloseModal = () => {
+    if (state.canAuthenticate !== undefined) {
+      handleExplicitCancel();
+      return;
+    }
     if (loading || isSubmitting) {
       cancelPendingRequest();
       actions.resetAuthForm();
@@ -74,18 +79,15 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
     cancelAuthModalLogin({
       cancelPendingRequest,
       resetAuthForm: actions.resetAuthForm,
-      onCancelLogin,
+      onCancelLogin: actions.cancelLogin ?? onCancelLogin,
       onClose
     });
   };
 
-  // keep-pending (persistent-container flow): X/backdrop/Escape now do the same login-ending work
-  // as the explicit Cancel button - a soft, cancel-nothing close used to leave the daemon login
-  // (and the Configure card's "Authenticating..." badge) stuck forever.
-  const handleSoftClose = handleExplicitCancel;
+  const handleSoftClose = onClose;
 
   const handleSubmit = async () => {
-    if (isSubmitting || loading) return;
+    if (isSubmitting || loading || state.canAuthenticate === false) return;
     setIsSubmitting(true);
 
     try {
@@ -99,6 +101,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   };
 
   const handleOpenAuthUrl = () => {
+    if (state.canAuthenticate === false) return;
     if (authorizationUrl) {
       window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
     }
@@ -120,6 +123,17 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
       size="md"
     >
       <div className="space-y-6">
+        {state.recovering && (
+          <p className="text-sm text-themed-secondary">{t('errors.integration.recovery')}</p>
+        )}
+        {state.canAuthenticate === false && (
+          <p className="text-sm text-themed-secondary">
+            {t(
+              integrationReasonKeys[state.ownershipReason ?? ''] ??
+                'errors.integration.statusUnavailable'
+            )}
+          </p>
+        )}
         <LoginSteps
           notice={isKeepPending ? t('modals.epicAuth.containerAccountNotice') : null}
           deadline={loginDeadline}
@@ -152,6 +166,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                     variant="filled"
                     color="secondary"
                     onClick={handleOpenAuthUrl}
+                    disabled={state.canAuthenticate === false}
                     className="w-full"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -176,7 +191,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                         }
                         placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
                         className="w-full px-3 py-2.5 themed-input font-mono text-sm"
-                        disabled={loading}
+                        disabled={loading || state.canAuthenticate === false}
                         autoFocus
                       />
                     )}
@@ -218,7 +233,12 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               variant="filled"
               color="primary"
               onClick={handleSubmit}
-              disabled={loading || isSubmitting || !authorizationCode.trim()}
+              disabled={
+                state.canAuthenticate === false ||
+                loading ||
+                isSubmitting ||
+                !authorizationCode.trim()
+              }
               className="flex-1"
             >
               {loading || isSubmitting
@@ -230,7 +250,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               variant="filled"
               color="primary"
               onClick={handleSubmit}
-              disabled={loading || isSubmitting}
+              disabled={state.canAuthenticate === false || loading || isSubmitting}
               className="flex-1"
             >
               {/* No spinner here: the LoginAttemptStatus row above already carries one. */}

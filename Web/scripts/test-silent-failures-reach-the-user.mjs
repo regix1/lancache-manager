@@ -5,11 +5,11 @@ import typescript from 'typescript';
 import { collectNodes, compileToUrl, moduleUrl, parseSource } from './transpile-module.mjs';
 
 /**
- * Four failures used to end at a console line nobody reads: a logout the server never received, a
- * theme list that came back short, a preference that would not apply, and the Steam sign-out that
- * runs inside the app's own sign-out. Each one left the screen looking like nothing had gone wrong.
- * These check that the same failures now reach the notification the user can see, and that the
- * success paths stay quiet.
+ * Three failures used to end at a console line nobody reads: a logout the LANCache server never
+ * received, a theme list that came back short, and a preference that would not apply. Each one left
+ * the screen looking like nothing had gone wrong. These check that the same failures now reach the
+ * notification the user can see, that success paths stay quiet, and that LANCache logout does not
+ * mutate a separately managed Steam sign-in.
  */
 
 /** Collects every show-toast the code under test raises, so a test can count them. */
@@ -71,6 +71,20 @@ test('a logout the server accepted stays quiet', async () => {
 
   assert.deepEqual(toasts, [], 'a logout that worked still bothered the user');
   releaseWindow();
+});
+
+test('LANCache logout stays scoped to the LANCache session', () => {
+  const file = parseSource('src/services/auth.service.ts');
+  const logout = collectNodes(
+    file,
+    (node) => typescript.isMethodDeclaration(node) && node.name.getText(file) === 'logout'
+  );
+
+  assert.equal(logout.length, 1, 'auth.service should declare logout exactly once');
+  const body = logout[0].body?.getText(file) ?? '';
+  assert.match(body, /\/api\/auth\/logout/);
+  assert.match(body, /auth\.errors\.logoutIncomplete/);
+  assert.doesNotMatch(body, /steam/i, 'LANCache logout must not clear Steam authentication');
 });
 
 const loadThemeService = () =>
@@ -212,12 +226,6 @@ const componentSinks = [
     file: 'src/services/theme.service.ts',
     marker: 'Error handling preference change for',
     sink: "notifyThemeError('management.themes.notifications.preferenceChangeFailed')"
-  },
-  {
-    what: 'a Steam sign-out that the server did not take',
-    file: 'src/components/features/management/steam/AuthenticationManager.tsx',
-    marker: 'Failed to clear Steam auth during logout:',
-    sink: "onError?.(t('management.auth.errors.steamSignOutFailed'))"
   }
 ];
 
@@ -228,13 +236,33 @@ for (const site of componentSinks) {
   });
 }
 
+test('session load failures distinguish initial retry from a preserved refresh snapshot', () => {
+  const source = readFileSync(
+    new URL('../src/components/features/user/ActiveSessions.tsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /<ErrorBlock[\s\S]*activeSessions\.initialLoadFailed/);
+  assert.match(source, /activeSessions\.initialLoadFailedMessage/);
+  assert.match(source, /activeSessions\.retry/);
+  assert.match(
+    source,
+    /const hasSnapshot =[\s\S]*sessionsRef\.current[\s\S]*historySessionsRef\.current/
+  );
+  assert.match(source, /setRefreshFailed\(true\)/);
+  assert.match(source, /activeSessions\.refreshFailed/);
+});
+
 test('every message these failures show is written in both languages', () => {
   const keys = [
     ['auth', 'errors', 'logoutIncomplete'],
     ['management', 'logRemoval', 'errors', 'loadFailed'],
     ['management', 'themes', 'notifications', 'loadFailed'],
     ['management', 'themes', 'notifications', 'preferenceChangeFailed'],
-    ['management', 'auth', 'errors', 'steamSignOutFailed']
+    ['activeSessions', 'initialLoadFailed'],
+    ['activeSessions', 'initialLoadFailedMessage'],
+    ['activeSessions', 'refreshFailed'],
+    ['activeSessions', 'retry']
   ];
 
   for (const locale of ['en', 'zh']) {

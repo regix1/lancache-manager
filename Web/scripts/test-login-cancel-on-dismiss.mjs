@@ -110,7 +110,7 @@ test('the Steam and Xbox pages both hand their modal a server-side cancel', () =
   assert.equal(steamModals.length, 1, 'expected exactly one Steam login modal on the page');
   assert.equal(steamModals[0].onCancelLogin, '{handleCancelLogin}');
   assert.ok(
-    initializerOf(steamManagerFile, 'handleCancelLogin').includes('ApiService.cancelSteamLogin()'),
+    initializerOf(steamManagerFile, 'handleCancelLogin').includes('actions.cancelLogin?.()'),
     'the Steam cancel no longer reaches the server'
   );
 

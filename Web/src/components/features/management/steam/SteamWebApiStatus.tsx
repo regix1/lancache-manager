@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -12,17 +12,34 @@ import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useNotifications } from '@contexts/notifications';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { getErrorMessage } from '@utils/error';
+import { ApiError } from '@services/apiError';
+import { useAuth } from '@contexts/useAuth';
+import { integrationReasonKeys } from '../../../../types';
 
 const SteamWebApiStatus: React.FC = () => {
   const { t } = useTranslation();
   const { status, loading, refresh } = useSteamWebApiStatus();
+  const { authenticationEnabled, authMode, accountId, sessionId, isLoading } = useAuth();
+  const identity = JSON.stringify([authenticationEnabled, authMode, accountId, sessionId]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const canManage = !isLoading && (authenticationEnabled === false || status?.canManage === true);
+  const hasAccess =
+    !isLoading &&
+    (authenticationEnabled === false ||
+      (authMode === 'authenticated' && Boolean(accountId && sessionId)));
   const { updateProgress } = usePicsProgress();
   const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    setShowConfigModal(false);
+    setShowRemoveModal(false);
+    setRemoving(false);
+    setRefreshing(false);
+  }, [identity]);
 
   const formattedLastChecked = useFormattedDateTime(status?.lastChecked || null);
 
@@ -31,6 +48,8 @@ const SteamWebApiStatus: React.FC = () => {
   const showWarning = !status?.isFullyOperational && !loading;
 
   const confirmRemoveApiKey = async () => {
+    if (identityRef.current !== identity || !canManage || removing) return;
+    const caller = identity;
     setRemoving(true);
     setShowRemoveModal(false);
 
@@ -49,31 +68,26 @@ const SteamWebApiStatus: React.FC = () => {
         })
       );
 
-      const data = await response.json();
+      await ApiService.handleResponse(response);
+      if (identityRef.current !== caller) return;
+      // Whether the API still works without the key is the server's answer to give: it re-tests
+      // V2 once the key is gone. Refreshing keeps the panel showing the previous answer until the
+      // real one arrives, which is why it does not need a placeholder to fill the gap.
+      await refresh();
+      if (identityRef.current !== caller) return;
 
-      if (response.ok) {
-        // Whether the API still works without the key is the server's answer to give: it re-tests
-        // V2 once the key is gone. Refreshing keeps the panel showing the previous answer until the
-        // real one arrives, which is why it does not need a placeholder to fill the gap.
-        await refresh();
-
-        updateNotification(cardId, {
-          status: 'completed',
-          message: t('signalr.steamWebApi.keyRemoved'),
-          details: { notificationType: 'success' }
-        });
-        scheduleAutoDismiss(cardId);
-      } else {
-        const errorDetail = data.error || t('modals.steamAuth.errors.failedToRemoveApiKey');
-        updateNotification(cardId, {
-          status: 'failed',
-          message: t('signalr.steamWebApi.keyRemoveFailed', { errorDetail }),
-          details: { notificationType: 'error' }
-        });
-        scheduleAutoDismiss(cardId);
-      }
+      updateNotification(cardId, {
+        status: 'completed',
+        message: t('signalr.steamWebApi.keyRemoved'),
+        details: { notificationType: 'success' }
+      });
+      scheduleAutoDismiss(cardId);
     } catch (error: unknown) {
-      const errorDetail = getErrorMessage(error) || t('modals.steamAuth.errors.networkError');
+      if (identityRef.current !== caller) return;
+      const errorDetail =
+        error instanceof ApiError && error.body?.stageKey
+          ? t(error.body.stageKey, error.body.context ?? {})
+          : t('modals.steamAuth.errors.failedToRemoveApiKey');
       updateNotification(cardId, {
         status: 'failed',
         message: t('signalr.steamWebApi.keyRemoveFailed', { errorDetail }),
@@ -81,7 +95,7 @@ const SteamWebApiStatus: React.FC = () => {
       });
       scheduleAutoDismiss(cardId);
     } finally {
-      setRemoving(false);
+      if (identityRef.current === caller) setRemoving(false);
     }
   };
 
@@ -134,6 +148,14 @@ const SteamWebApiStatus: React.FC = () => {
   return (
     <>
       <div className="steam-integration">
+        {!canManage && (
+          <p className="text-sm text-themed-muted" role="status">
+            {t(
+              integrationReasonKeys[status?.ownershipReason ?? ''] ??
+                'errors.integration.statusUnavailable'
+            )}
+          </p>
+        )}
         <div className="steam-integration__subhead">
           <h4 className="mgmt-subhead caps-label">{t('management.steamWebApi.sectionTitle')}</h4>
           <HelpPopover position="left" width={320}>
@@ -200,14 +222,16 @@ const SteamWebApiStatus: React.FC = () => {
                 size="sm"
                 stableWidth
                 onClick={async () => {
+                  if (!hasAccess || loading || refreshing) return;
+                  const caller = identity;
                   setRefreshing(true);
                   try {
                     await refresh();
                   } finally {
-                    setRefreshing(false);
+                    if (identityRef.current === caller) setRefreshing(false);
                   }
                 }}
-                disabled={loading || refreshing}
+                disabled={!hasAccess || loading || refreshing}
                 loading={refreshing}
               >
                 {t('common.refresh')}
@@ -225,13 +249,15 @@ const SteamWebApiStatus: React.FC = () => {
                     : t('management.steamWebApi.keyMissing')}
                 </p>
               </div>
-              <div className="mgmt-row__actions">
+              <div className="mgmt-row__actions steam-integration__pair">
                 <Button
                   variant="filled"
                   color="secondary"
                   size="sm"
-                  onClick={() => setShowConfigModal(true)}
-                  disabled={removing}
+                  onClick={() => {
+                    if (canManage) setShowConfigModal(true);
+                  }}
+                  disabled={!canManage || removing}
                 >
                   {status?.hasApiKey
                     ? t('management.steamWebApi.updateApiKey')
@@ -242,8 +268,10 @@ const SteamWebApiStatus: React.FC = () => {
                     variant="filled"
                     color="destructive"
                     size="sm"
-                    onClick={() => setShowRemoveModal(true)}
-                    disabled={removing || loading}
+                    onClick={() => {
+                      if (canManage) setShowRemoveModal(true);
+                    }}
+                    disabled={!canManage || removing || loading}
                   >
                     {t('management.steamWebApi.remove')}
                   </Button>
@@ -255,14 +283,14 @@ const SteamWebApiStatus: React.FC = () => {
       </div>
 
       <SteamWebApiKeyModal
-        isOpen={showConfigModal}
+        isOpen={showConfigModal && canManage}
         onClose={() => setShowConfigModal(false)}
         onSuccess={handleApiKeySuccess}
         statusNotifications
       />
 
       <ConfirmationModal
-        opened={showRemoveModal}
+        opened={showRemoveModal && canManage}
         onClose={() => setShowRemoveModal(false)}
         onConfirm={confirmRemoveApiKey}
         title={t('management.steamWebApi.removeModal.title')}

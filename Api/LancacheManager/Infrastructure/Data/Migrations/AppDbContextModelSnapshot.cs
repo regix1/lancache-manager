@@ -23,6 +23,17 @@ namespace LancacheManager.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("LancacheManager.Models.AccountReset", b =>
+                {
+                    b.Property<int>("Id").HasColumnType("integer");
+                    b.Property<Guid[]>("AccountIds").IsRequired().HasColumnType("uuid[]");
+                    b.Property<DateTime?>("CompletedAtUtc").HasColumnType("timestamp with time zone");
+                    b.Property<Guid?>("PrimaryAccountId").HasColumnType("uuid");
+                    b.Property<DateTime>("StartedAtUtc").HasColumnType("timestamp with time zone");
+                    b.HasKey("Id");
+                    b.ToTable("AccountResets", t => t.HasCheckConstraint("CK_AccountResets_Id", "\"Id\" = 1"));
+                });
+
             modelBuilder.Entity("LancacheManager.Models.BannedPrefillUser", b =>
                 {
                     b.Property<long>("Id")

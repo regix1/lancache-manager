@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Users,
@@ -14,6 +14,7 @@ import {
   Eraser
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Modal } from '@components/ui/Modal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -31,6 +32,7 @@ import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { GroupHeading } from '@components/ui/GroupHeading';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -164,6 +166,7 @@ const sessionMatchesSearch = (session: Session, query: string): boolean => {
     parsedUA.browser,
     parsedUA.os,
     session.userAgent ?? '',
+    session.username ?? '',
     session.ipAddress ?? '',
     ip,
     session.publicIpAddress ?? ''
@@ -204,9 +207,8 @@ interface ActiveSessionsProps {
 // Pure Helper Functions
 // ============================================================
 
-// An account session, whichever role it holds. A user signs in against an account and gets the same
-// access an admin does, so it belongs in the same count, the same filter and the same badge; only a
-// guest is listed apart.
+// Admin and User remain the two stored account-session kinds. Both belong in the account count,
+// filter and badge; only a guest is listed apart.
 const isAdminSession = (session: Session): boolean => {
   return isAccountHolder(session.sessionType ?? null);
 };
@@ -237,7 +239,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   onFilterChange
 }) => {
   const { t } = useTranslation();
-  const { refreshAuth } = useAuth();
+  const { refreshAuth, accountId, sessionId, authenticationEnabled } = useAuth();
   const { mockMode } = useMockMode();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
@@ -245,6 +247,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // decides active vs away, so away/inactive is never collapsed into a boolean.
   const activity = useActivityStatus();
   const { prefs: defaultGuestPrefs } = useDefaultGuestPreferences();
+  const sessionIdentity = mockMode
+    ? 'mock'
+    : authenticationEnabled
+      ? `account:${accountId ?? 'none'}:${sessionId ?? 'none'}`
+      : `shared:${sessionId ?? 'none'}`;
 
   const {
     getSessionPreferences,
@@ -293,6 +300,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [loggingOut, setLoggingOut] = useState(false);
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
+  const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
+  const [initialLoadFailed, setInitialLoadFailed] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const sessionIdentityRef = useRef(sessionIdentity);
+  const loadRequestRef = useRef(0);
+  const sessionsRef = useRef(sessions);
+  const historySessionsRef = useRef<Session[]>([]);
+  const sessionRowsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const sessionActionFocusRef = useRef<HTMLElement | null>(null);
+  const sessionConsoleRef = useRef<HTMLDivElement>(null);
 
   // Edit modal state
   const [editingSession, setEditingSession] = useState<Session | null>(null);
@@ -319,6 +336,46 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   );
   const [historySessions, setHistorySessions] = useState<Session[]>([]);
 
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useEffect(() => {
+    historySessionsRef.current = historySessions;
+  }, [historySessions]);
+
+  // Invalidate the prior identity before paint. A passive effect would leave a window where an
+  // already-resolved request for the previous account could commit private rows into the new view.
+  useLayoutEffect(() => {
+    if (sessionIdentityRef.current === sessionIdentity) return;
+
+    sessionIdentityRef.current = sessionIdentity;
+    loadRequestRef.current += 1;
+    sessionsRef.current = [];
+    historySessionsRef.current = [];
+    setSessions([]);
+    setHistorySessions([]);
+    setExpandedSessions(new Set());
+    setPendingRevokeSession(null);
+    setPendingDeleteSession(null);
+    setEditingSession(null);
+    setEditingPreferences(null);
+    setPendingPrefillChanges(NO_PENDING_PREFILL_CHANGES);
+    setOpenMenuSessionId(null);
+    sessionRowsRef.current.clear();
+    sessionActionFocusRef.current = null;
+    setSearchQuery('');
+    setCurrentPage(1);
+    if (onFilterChange) {
+      onFilterChange('all');
+    } else {
+      setLocalFilter('all');
+    }
+    setInitialLoadFailed(false);
+    setRefreshFailed(false);
+    setLoading(true);
+  }, [onFilterChange, sessionIdentity, setLoading, setSessions]);
+
   // Thread config state
   const [defaultGuestMaxThreadCount, setDefaultGuestMaxThreadCount] = useState<number | null>(null);
   const [epicDefaultGuestMaxThreadCount, setEpicDefaultGuestMaxThreadCount] = useState<
@@ -339,15 +396,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const loadSessions = useCallback(
     async (showLoading = false) => {
+      const requestedIdentity = sessionIdentity;
+      const request = ++loadRequestRef.current;
+
       // Real people are signed in behind this list. Mock mode shows no sessions rather than
       // putting their addresses and sign-in times on a screen meant to hold generated data.
       if (mockMode) {
+        sessionsRef.current = [];
+        historySessionsRef.current = [];
         setSessions([]);
+        setHistorySessions([]);
+        setInitialLoadFailed(false);
+        setRefreshFailed(false);
         setLoading(false);
         return;
       }
       try {
-        if (showLoading) {
+        if (
+          showLoading &&
+          sessionsRef.current.length === 0 &&
+          historySessionsRef.current.length === 0
+        ) {
           setLoading(true);
         }
         // The server pages over ALL active sessions (pageSize capped at 100) and
@@ -375,18 +444,48 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             rest.flatMap((r: SessionsResponse) => r.sessions ?? [])
           );
         }
+        const loadedHistory = first.historySessions ?? [];
+        if (
+          request !== loadRequestRef.current ||
+          requestedIdentity !== sessionIdentityRef.current
+        ) {
+          return;
+        }
+
+        sessionsRef.current = loadedSessions;
+        historySessionsRef.current = loadedHistory;
         setSessions(loadedSessions);
-        setHistorySessions(first.historySessions ?? []);
+        setHistorySessions(loadedHistory);
+        setInitialLoadFailed(false);
+        setRefreshFailed(false);
       } catch (err: unknown) {
-        notifyError(t('activeSessions.errors.loadSessions'), err, {
-          logLabel: 'Failed to load sessions'
-        });
+        if (
+          request !== loadRequestRef.current ||
+          requestedIdentity !== sessionIdentityRef.current
+        ) {
+          return;
+        }
+
+        const hasSnapshot = sessionsRef.current.length > 0 || historySessionsRef.current.length > 0;
+        if (hasSnapshot) {
+          setRefreshFailed(true);
+          notifyError(t('activeSessions.refreshFailed'), err, {
+            logLabel: 'Failed to refresh sessions'
+          });
+        } else {
+          setInitialLoadFailed(true);
+        }
       } finally {
-        setLoading(false);
+        if (
+          request === loadRequestRef.current &&
+          requestedIdentity === sessionIdentityRef.current
+        ) {
+          setLoading(false);
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mockMode, setLoading, setSessions]
+    [mockMode, sessionIdentity, setLoading, setSessions]
   );
 
   // Restart at page 1 when type filter, text search, or page size changes so a
@@ -433,6 +532,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       await loadSessions(false);
       setPendingRevokeSession(null);
       onSessionsChange();
+      restoreSessionActionFocus();
     } catch (err: unknown) {
       notifyError(t('activeSessions.errors.revokeSession'), err, {
         logLabel: 'Failed to revoke session'
@@ -451,9 +551,40 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setDeletingSession(pendingDeleteSession.id);
       await ApiService.deleteSession(pendingDeleteSession.id);
 
-      setSessions((prev) => prev.filter((s: Session) => s.id !== pendingDeleteSession.id));
+      const activeIndex = sessionsRef.current.findIndex(
+        (session: Session) => session.id === pendingDeleteSession.id
+      );
+      const remainingActive = sessionsRef.current.filter(
+        (session: Session) => session.id !== pendingDeleteSession.id
+      );
+      const historyIndex = historySessionsRef.current.findIndex(
+        (session: Session) => session.id === pendingDeleteSession.id
+      );
+      const remainingHistory = historySessionsRef.current.filter(
+        (session: Session) => session.id !== pendingDeleteSession.id
+      );
+      const nextSessionId =
+        remainingActive[Math.min(activeIndex, remainingActive.length - 1)]?.id ??
+        remainingHistory[Math.min(historyIndex, remainingHistory.length - 1)]?.id ??
+        null;
+
+      sessionsRef.current = remainingActive;
+      historySessionsRef.current = remainingHistory;
+      setSessions(remainingActive);
+      setHistorySessions(remainingHistory);
       setPendingDeleteSession(null);
       onSessionsChange();
+
+      setTimeout(() => {
+        if (nextSessionId) {
+          const nextRow = sessionRowsRef.current.get(nextSessionId);
+          if (nextRow) {
+            nextRow.focus();
+            return;
+          }
+        }
+        sessionConsoleRef.current?.querySelector<HTMLElement>('input, button')?.focus();
+      }, 260);
 
       if (isOwnSession) {
         showToast('info', t('activeSessions.info.deletedOwnSession'));
@@ -626,7 +757,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const handleSessionDeleted = useCallback(
     (data: { sessionId: string; sessionType: string }) => {
-      setSessions((prev) => prev.filter((s: Session) => s.id !== data.sessionId));
+      setSessions((previous) => {
+        const remaining = previous.filter((session: Session) => session.id !== data.sessionId);
+        sessionsRef.current = remaining;
+        return remaining;
+      });
+      setHistorySessions((previous) => {
+        const remaining = previous.filter((session: Session) => session.id !== data.sessionId);
+        historySessionsRef.current = remaining;
+        return remaining;
+      });
     },
     [setSessions]
   );
@@ -738,6 +878,18 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     setExpandedSessions((prev) => (prev.has(sessionId) ? new Set() : new Set([sessionId])));
   };
 
+  const rememberSessionActionFocus = (): void => {
+    sessionActionFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+
+  const restoreSessionActionFocus = (): void => {
+    setTimeout(() => {
+      const target = sessionActionFocusRef.current;
+      if (target && document.contains(target)) target.focus();
+    }, 260);
+  };
+
   const handleRevokeSession = (session: Session) => {
     setPendingRevokeSession(session);
   };
@@ -821,7 +973,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const getFilterLabel = (filter: SessionFilter): string => {
     if (filter === 'all') return t('activeSessions.filters.all');
-    if (filter === 'admin') return t('activeSessions.filters.admin');
+    if (filter === 'admin') return t('activeSessions.accountFilter');
     return t('activeSessions.filters.guest');
   };
 
@@ -910,6 +1062,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     };
   }, [
     loadSessions,
+    sessionIdentity,
+    setLoading,
+    setSessions,
     on,
     off,
     handleSessionRevoked,
@@ -997,14 +1152,23 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       : browser;
   };
 
+  const sessionName = (session: Session): string => {
+    const username = session.username?.trim();
+    if (username) return username;
+    if (session.accountDeleted) return t('activeSessions.deletedAccount');
+    if (isGuestSession(session)) return t('activeSessions.filters.guest');
+    return t('activeSessions.sharedAccess');
+  };
+
   const renderSessionItem = (session: Session) => {
     const sessionStatus = getSessionStatus(session);
     const deviceLabel = deviceTitle(session.userAgent);
     const isExpanded = expandedSessions.has(session.id);
     const admin = isAdminSession(session);
     const guest = isGuestSession(session);
-    const canRevoke =
-      guest && !session.isRevoked && !session.isExpired && !session.isCurrentSession;
+    const account = Boolean(session.username?.trim()) || session.accountDeleted;
+    const name = sessionName(session);
+    const canRevoke = !session.isRevoked && !session.isExpired && !session.isCurrentSession;
     const canShowRemaining = guest && !session.isRevoked && !session.isExpired;
 
     const prefs = getSessionPreferences(session.id);
@@ -1035,6 +1199,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     return (
       <div key={session.id} className="session-item">
         <div
+          ref={(node) => {
+            if (node) sessionRowsRef.current.set(session.id, node);
+            else sessionRowsRef.current.delete(session.id);
+          }}
           className="mgmt-row mgmt-row--interactive focus-ring--inset session-row"
           aria-expanded={isExpanded}
           {...rowToggleHandlers(() => toggleSessionExpanded(session.id))}
@@ -1042,25 +1210,34 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <StatusDot state={sessionStatus} label={t(`activeSessions.status.${sessionStatus}`)} />
           <div className="mgmt-row__body">
             <div className="session-row__titleline">
-              <Tooltip content={deviceLabel} position="top" className="block min-w-0">
-                <span className="mgmt-row__title block truncate">{deviceLabel}</span>
+              <Tooltip content={name} position="top" className="block min-w-0">
+                <span className="mgmt-row__title session-row__identity block">{name}</span>
               </Tooltip>
-              <span
-                className={`themed-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
-              >
-                {admin
-                  ? t('activeSessions.labels.userBadge')
-                  : t('activeSessions.labels.guestBadge')}
-              </span>
+              {(account || guest) && (
+                <span
+                  className={`themed-badge ${account ? 'session-badge-user' : 'session-badge-guest'}`}
+                >
+                  {account ? t('activeSessions.account') : t('activeSessions.labels.guestBadge')}
+                </span>
+              )}
               {session.isCurrentSession && (
                 <span className="session-you">({t('activeSessions.currentSessionShort')})</span>
               )}
             </div>
-            <div className="mgmt-row__meta session-row__meta">
-              {session.ipAddress && (
-                <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
+            <div className="mgmt-row__meta session-row__meta session-row__where">
+              <span>{deviceLabel}</span>
+              {location && (
+                <span>
+                  {flag && <span aria-hidden="true">{flag} </span>}
+                  {location}
+                </span>
               )}
-              <span>{formatRelativeTime(session.lastSeenAt)}</span>
+            </div>
+            <div className="mgmt-row__meta session-row__meta session-row__when">
+              <span>
+                {t('activeSessions.labels.lastSeen')} {formatRelativeTime(session.lastSeenAt)}
+              </span>
+              <span>{t(`activeSessions.status.${sessionStatus}`)}</span>
               {canShowRemaining && <span>{formatTimeRemaining(session.expiresAt)}</span>}
               {session.isRevoked && (
                 <span className="is-error">{t('activeSessions.status.revoked')}</span>
@@ -1072,20 +1249,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </div>
           <div
             className="mgmt-row__actions session-row__actions"
+            role="group"
+            aria-label={t('activeSessions.sessionActions', { name })}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            {/* One width for every button in the row, so the cluster does not step in and out as
-                labels change length or as a label swaps to its in-progress text. 5rem clears the
-                longest of those, "Revoking...", measured at 59px plus 16px of padding.
-                The box differs between the two views, so the type follows it. On a pointer view
-                these are xs at a 28px box with the recipe's 12px label. Below the breakpoint the
-                row rule grows them to the 44px touch floor, where a 12px label reads as a mis-set
-                control, so the type steps up. The height bump is scoped to the pointer view on
-                purpose: as `!important` it would outrank that rule and cost the touch target. */}
             <Button
               variant="default"
               size="xs"
-              className="w-20 sm:!min-h-7 max-sm:!text-sm"
+              className="session-row__direct-action sm:!min-h-7 max-sm:!text-sm"
               onClick={() => handleEditSession(session)}
             >
               {t('actions.edit')}
@@ -1094,7 +1265,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <Button
                 variant="default"
                 size="xs"
-                className="w-20 sm:!min-h-7 max-sm:!text-sm"
+                className="session-row__direct-action sm:!min-h-7 max-sm:!text-sm"
                 onClick={handleLogout}
                 disabled={loggingOut}
                 loading={loggingOut}
@@ -1102,33 +1273,44 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {t('activeSessions.actions.logout')}
               </Button>
             )}
-            {canRevoke && (
-              <Button
-                variant="filled"
-                color="destructive"
-                size="xs"
-                className="w-20 sm:!min-h-7 max-sm:!text-sm"
-                onClick={() => handleRevokeSession(session)}
-                disabled={revokingSession === session.id}
-              >
-                {revokingSession === session.id
-                  ? t('activeSessions.actions.revoking')
-                  : t('activeSessions.actions.revoke')}
-              </Button>
-            )}
             {!session.isCurrentSession && (
-              <Button
-                variant="filled"
-                color="destructive"
-                size="xs"
-                className="w-20 sm:!min-h-7 max-sm:!text-sm"
-                onClick={() => handleDeleteSession(session)}
-                disabled={deletingSession === session.id}
+              <RowActionsMenu
+                open={openMenuSessionId === session.id}
+                onOpenChange={(open) => {
+                  if (open) rememberSessionActionFocus();
+                  setOpenMenuSessionId(open ? session.id : null);
+                }}
               >
-                {deletingSession === session.id
-                  ? t('activeSessions.actions.deleting')
-                  : t('activeSessions.actions.delete')}
-              </Button>
+                {(close) => (
+                  <>
+                    {canRevoke && (
+                      <ActionMenuItem
+                        disabled={revokingSession === session.id}
+                        onClick={() => {
+                          close();
+                          handleRevokeSession(session);
+                        }}
+                      >
+                        {revokingSession === session.id
+                          ? t('activeSessions.actions.revoking')
+                          : t('activeSessions.actions.revoke')}
+                      </ActionMenuItem>
+                    )}
+                    {canRevoke && <ActionMenuDivider />}
+                    <ActionMenuDangerItem
+                      disabled={deletingSession === session.id}
+                      onClick={() => {
+                        close();
+                        handleDeleteSession(session);
+                      }}
+                    >
+                      {deletingSession === session.id
+                        ? t('activeSessions.actions.deleting')
+                        : t('activeSessions.actions.delete')}
+                    </ActionMenuDangerItem>
+                  </>
+                )}
+              </RowActionsMenu>
             )}
           </div>
           <Button
@@ -1142,7 +1324,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               toggleSessionExpanded(session.id);
             }}
             aria-label={
-              isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')
+              isExpanded
+                ? t('activeSessions.hideDetails', { name })
+                : t('activeSessions.showDetails', { name })
             }
             aria-expanded={isExpanded}
           >
@@ -1156,6 +1340,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
         <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
           <div className="session-detail">
+            {session.ipAddress && (
+              <div className="session-detail__client-ip">
+                <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
+              </div>
+            )}
             {hasClientInfo && (
               <div className="mgmt-stat-grid">
                 {session.publicIpAddress && (
@@ -1344,53 +1533,167 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const renderHistoryCard = (session: Session) => {
     const deviceLabel = deviceTitle(session.userAgent);
     const admin = isAdminSession(session);
+    const guest = isGuestSession(session);
+    const account = Boolean(session.username?.trim()) || session.accountDeleted;
+    const name = sessionName(session);
+    const isExpanded = expandedSessions.has(session.id);
+    const flag = countryCodeToFlag(session.countryCode);
+    const location = formatLocation(session.city, session.regionName, session.countryName);
 
     return (
-      <div key={session.id} className="mgmt-row">
-        <div className="mgmt-row__body">
-          <div className="session-row__titleline">
-            <Tooltip content={deviceLabel} position="top" className="block min-w-0">
-              <span className="mgmt-row__title block truncate">{deviceLabel}</span>
-            </Tooltip>
-            <span
-              className={`themed-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
-            >
-              {admin ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
-            </span>
-            {session.isRevoked && (
-              <Badge variant="error">{t('activeSessions.status.revoked')}</Badge>
-            )}
-            {session.isExpired && !session.isRevoked && (
-              <Badge variant="warning">{t('activeSessions.prefill.status.expired')}</Badge>
-            )}
-          </div>
-          <div className="mgmt-row__meta session-row__meta">
-            {session.ipAddress && <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />}
-            <span>
-              <FormattedTimestamp timestamp={session.createdAt} />
-            </span>
-            {session.revokedAt && (
-              <span className="is-error">
-                {t('activeSessions.labels.revokedAt')}{' '}
-                <FormattedTimestamp timestamp={session.revokedAt} />
+      <div key={session.id} className="session-item">
+        <div
+          ref={(node) => {
+            if (node) sessionRowsRef.current.set(session.id, node);
+            else sessionRowsRef.current.delete(session.id);
+          }}
+          className="mgmt-row mgmt-row--interactive focus-ring--inset session-row"
+          aria-expanded={isExpanded}
+          {...rowToggleHandlers(() => toggleSessionExpanded(session.id))}
+        >
+          <StatusDot state="inactive" label={t('activeSessions.status.inactive')} />
+          <div className="mgmt-row__body">
+            <div className="session-row__titleline">
+              <Tooltip content={name} position="top" className="block min-w-0">
+                <span className="mgmt-row__title session-row__identity block">{name}</span>
+              </Tooltip>
+              {(account || guest) && (
+                <span
+                  className={`themed-badge ${account ? 'session-badge-user' : 'session-badge-guest'}`}
+                >
+                  {account ? t('activeSessions.account') : t('activeSessions.labels.guestBadge')}
+                </span>
+              )}
+            </div>
+            <div className="mgmt-row__meta session-row__meta session-row__where">
+              <span>{deviceLabel}</span>
+              {location && (
+                <span>
+                  {flag && <span aria-hidden="true">{flag} </span>}
+                  {location}
+                </span>
+              )}
+            </div>
+            <div className="mgmt-row__meta session-row__meta session-row__when">
+              <span>
+                {t('activeSessions.labels.lastSeen')} {formatRelativeTime(session.lastSeenAt)}
               </span>
-            )}
-            <span className="session-detail__id">{session.id}</span>
+              <span className={session.isRevoked ? 'is-error' : 'is-warning'}>
+                {session.isRevoked
+                  ? t('activeSessions.status.revoked')
+                  : t('activeSessions.prefill.status.expired')}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="mgmt-row__actions">
-          <Button
-            variant="filled"
-            color="destructive"
-            size="sm"
-            leftSection={<Trash2 className="w-4 h-4" />}
-            onClick={() => handleDeleteSession(session)}
-            disabled={deletingSession === session.id}
-            loading={deletingSession === session.id}
+          <div
+            className="mgmt-row__actions session-row__actions"
+            role="group"
+            aria-label={t('activeSessions.sessionActions', { name })}
+            onClick={(event: React.MouseEvent) => event.stopPropagation()}
           >
-            {t('activeSessions.actions.delete')}
+            <RowActionsMenu
+              open={openMenuSessionId === session.id}
+              onOpenChange={(open) => {
+                if (open) rememberSessionActionFocus();
+                setOpenMenuSessionId(open ? session.id : null);
+              }}
+            >
+              {(close) => (
+                <ActionMenuDangerItem
+                  disabled={deletingSession === session.id}
+                  onClick={() => {
+                    close();
+                    handleDeleteSession(session);
+                  }}
+                >
+                  {deletingSession === session.id
+                    ? t('activeSessions.actions.deleting')
+                    : t('activeSessions.actions.delete')}
+                </ActionMenuDangerItem>
+              )}
+            </RowActionsMenu>
+          </div>
+          <Button
+            type="button"
+            variant="accordion"
+            size="sm"
+            open={isExpanded}
+            className="session-row__chevron btn-icon-square btn-icon-square--sm pointer-target-44"
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleSessionExpanded(session.id);
+            }}
+            aria-label={
+              isExpanded
+                ? t('activeSessions.hideDetails', { name })
+                : t('activeSessions.showDetails', { name })
+            }
+            aria-expanded={isExpanded}
+          >
+            <ChevronDown
+              className={`w-4 h-4 transition duration-200 ease-out${
+                isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
+              }`}
+            />
           </Button>
         </div>
+
+        <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
+          <div className="session-detail">
+            {session.ipAddress && (
+              <div className="session-detail__client-ip">
+                <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
+              </div>
+            )}
+            <p className="mgmt-scanmeta session-detail__id">
+              {t('activeSessions.labels.sessionIdWithValue', { id: session.id })}
+            </p>
+            <div className="dash-readout dash-readout--footer">
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  <FormattedTimestamp timestamp={session.createdAt} />
+                </span>
+                <span className="caps-label caps-label--wide dash-readout-label">
+                  {t('activeSessions.labels.createdShort')}
+                </span>
+              </div>
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  {session.lastSeenAt ? (
+                    <FormattedTimestamp timestamp={session.lastSeenAt} />
+                  ) : (
+                    t('activeSessions.labels.never')
+                  )}
+                </span>
+                <span className="caps-label caps-label--wide dash-readout-label">
+                  {t('activeSessions.labels.lastSeenShort')}
+                </span>
+              </div>
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  {admin ? (
+                    t('activeSessions.labels.never')
+                  ) : (
+                    <FormattedTimestamp timestamp={session.expiresAt} />
+                  )}
+                </span>
+                <span className="caps-label caps-label--wide dash-readout-label">
+                  {t('activeSessions.labels.expires')}
+                </span>
+              </div>
+              {session.revokedAt && (
+                <div className="dash-readout-item">
+                  <span className="dash-readout-value is-error">
+                    <FormattedTimestamp timestamp={session.revokedAt} />
+                  </span>
+                  <span className="caps-label caps-label--wide dash-readout-label">
+                    {t('activeSessions.labels.revokedShort')}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </CollapsibleRegion>
       </div>
     );
   };
@@ -1400,7 +1703,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // ============================================================
 
   return (
-    <div className="session-console">
+    <div ref={sessionConsoleRef} className="session-console">
       <div>
         <GroupHeading label={t('user.groups.sessions')} actions={<AccordionGroupToggle />} />
 
@@ -1520,8 +1823,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <SearchInput
                     value={searchQuery}
                     onChange={handleSearchChange}
-                    placeholder={t('activeSessions.searchPlaceholder')}
-                    aria-label={t('activeSessions.searchPlaceholder')}
+                    placeholder={t('activeSessions.accountFilter')}
+                    aria-label={t('activeSessions.accountFilter')}
                     onClear={handleClearSearch}
                   />
                   <div className="session-toolbar__filters">
@@ -1563,7 +1866,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <LoadingState message={t('activeSessions.loading')} shape="list" rows={4} />
               )}
 
-              {!loading && activeSessions.length === 0 && (
+              {!loading && initialLoadFailed && (
+                <ErrorBlock
+                  title={t('activeSessions.initialLoadFailed')}
+                  message={t('activeSessions.initialLoadFailedMessage')}
+                  retryLabel={t('activeSessions.retry')}
+                  onRetry={() => void loadSessions(true)}
+                />
+              )}
+
+              {!loading && refreshFailed && (
+                <Alert color="error">{t('activeSessions.refreshFailed')}</Alert>
+              )}
+
+              {!loading && !initialLoadFailed && activeSessions.length === 0 && (
                 <EmptyState
                   variant="panel"
                   icon={Users}
@@ -1572,20 +1888,23 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 />
               )}
 
-              {!loading && filteredActiveSessions.length > 0 && (
+              {!loading && !initialLoadFailed && filteredActiveSessions.length > 0 && (
                 <div className="mgmt-list divided-list">{pagedSessions.map(renderSessionItem)}</div>
               )}
 
-              {!loading && activeSessions.length > 0 && filteredActiveSessions.length === 0 && (
-                <EmptyState
-                  variant="panel"
-                  icon={Users}
-                  title={t('activeSessions.empty.filteredTitle')}
-                  subtitle={t('activeSessions.empty.filtered')}
-                />
-              )}
+              {!loading &&
+                !initialLoadFailed &&
+                activeSessions.length > 0 &&
+                filteredActiveSessions.length === 0 && (
+                  <EmptyState
+                    variant="panel"
+                    icon={Users}
+                    title={t('activeSessions.empty.filteredTitle')}
+                    subtitle={t('activeSessions.noMatches')}
+                  />
+                )}
 
-              {!loading && totalPages > 1 && (
+              {!loading && !initialLoadFailed && totalPages > 1 && (
                 <Pagination
                   currentPage={safePage}
                   totalPages={totalPages}
@@ -1627,7 +1946,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       {/* Revoke Session Modal */}
       <ConfirmationModal
         opened={!!pendingRevokeSession}
-        onClose={() => setPendingRevokeSession(null)}
+        onClose={() => {
+          setPendingRevokeSession(null);
+          restoreSessionActionFocus();
+        }}
         onConfirm={confirmRevokeSession}
         title={t('activeSessions.revokeModal.title')}
         confirmLabel={t('activeSessions.revokeModal.confirm')}
@@ -1646,6 +1968,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         {pendingRevokeSession && (
           <div className="mgmt-panel">
             <p className="text-sm text-themed-primary font-medium">
+              {sessionName(pendingRevokeSession)}
+            </p>
+            <p className="text-xs text-themed-muted">
               {deviceTitle(pendingRevokeSession.userAgent)}
             </p>
             <p className="text-xs text-themed-muted font-mono">
@@ -1663,7 +1988,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           which only ends the session and keeps its history. */}
       <ConfirmationModal
         opened={!!pendingDeleteSession}
-        onClose={() => setPendingDeleteSession(null)}
+        onClose={() => {
+          setPendingDeleteSession(null);
+          restoreSessionActionFocus();
+        }}
         onConfirm={confirmDeleteSession}
         title={t('activeSessions.deleteModal.title')}
         icon={<Trash2 className="w-6 h-6 text-themed-error" />}
@@ -1682,6 +2010,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         {pendingDeleteSession && (
           <div className="mgmt-panel">
             <p className="text-sm text-themed-primary font-medium">
+              {sessionName(pendingDeleteSession)}
+            </p>
+            <p className="text-xs text-themed-muted">
               {deviceTitle(pendingDeleteSession.userAgent)}
             </p>
             <p className="text-xs text-themed-muted font-mono">
@@ -1754,13 +2085,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {editingSession && (
             <div className="mgmt-panel">
               <p className="text-sm text-themed-primary font-medium">
-                {deviceTitle(editingSession.userAgent)}
+                {sessionName(editingSession)}
               </p>
-              <p className="text-xs text-themed-muted">
-                {isAdminSession(editingSession)
-                  ? t('activeSessions.sessionTypes.authenticatedUser')
-                  : t('activeSessions.sessionTypes.guestUser')}
-              </p>
+              <p className="text-xs text-themed-muted">{deviceTitle(editingSession.userAgent)}</p>
               <p className="text-xs text-themed-muted font-mono">
                 {t('activeSessions.labels.sessionIdWithValue', { id: editingSession.id })}
               </p>

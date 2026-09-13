@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Core.Services;
 
@@ -39,10 +40,30 @@ public class OperationCancellationService
         return _operationTracker.CancelOperation(operationId);
     }
 
+    public OperationCancelResult Cancel(Guid operationId, IntegrationCaller caller)
+    {
+        var operation = _operationTracker.GetOperation(operationId, followHandoff: true);
+        if (operation is null) return OperationCancelResult.NotFound;
+        lock (operation)
+        {
+            ValidateCaller(operation, caller);
+            return _operationTracker.CancelOperation(operation.Id, followHandoff: false);
+        }
+    }
+
+    private static void ValidateCaller(OperationInfo operation, IntegrationCaller caller)
+    {
+        if (operation.Metadata is Dictionary<string, object?> values
+            && values.TryGetValue("integrationLogin", out var value) && value is IntegrationLogin login)
+            IntegrationLease.ValidateCaller(login, caller);
+    }
+
     /// <summary>
     /// Force kill fallback when cancel alone does not unblock the UI (e.g. stuck managed post-processing).
     /// </summary>
-    public async Task<bool> ForceKillAsync(Guid operationId)
+    public Task<bool> ForceKillAsync(Guid operationId) => ForceKillAsync(operationId, null);
+
+    public async Task<bool> ForceKillAsync(Guid operationId, IntegrationCaller? caller)
     {
         var operation = _operationTracker.GetOperation(operationId, followHandoff: true);
         if (operation == null)
@@ -55,6 +76,7 @@ public class OperationCancellationService
         System.Diagnostics.Process? process;
         lock (operation)
         {
+            if (caller is not null) ValidateCaller(operation, caller);
             if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return true;
             process = operation.AssociatedProcess;
         }
@@ -90,7 +112,7 @@ public class OperationCancellationService
             return true;
         }
 
-        _operationTracker.ForceKillOperation(operationId);
+        _operationTracker.ForceKillOperation(operationId, followHandoff: caller is null);
 
         // Every OperationType now registers an OnTerminalEmit, so CompleteOperation fires the terminal
         // SignalR event EXACTLY ONCE (CompletedFlag-gated) for the force-kill case too. No separate

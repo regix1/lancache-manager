@@ -7,8 +7,7 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
-import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import { integrationReasonKeys } from '../../../types';
 
 interface XboxAuthStepProps {
   onComplete: () => void;
@@ -23,37 +22,35 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
 }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
-  const [succeeded, setSucceeded] = useState(false);
+  const [succeeded, setSucceeded] = useState<string | null>(null);
 
   const handleSuccess = () => {
-    setSucceeded(true);
+    setSucceeded(identity);
   };
 
   const handleError = (message: string) => {
     setError(message);
   };
 
-  const { state, actions, startLogin, cancelLogin } = useXboxMappingAuth({
+  const { state, actions, startLogin, cancelLogin, authStatus, identity } = useXboxMappingAuth({
     onSuccess: handleSuccess,
     onError: handleError
   });
 
+  const succeededForCaller =
+    succeeded === identity || (authStatus?.canManage === true && authStatus.isAuthenticated);
+  const reason =
+    state.canAuthenticate === false
+      ? t(
+          integrationReasonKeys[state.ownershipReason ?? ''] ??
+            'errors.integration.statusUnavailable'
+        )
+      : state.recovering
+        ? t('errors.integration.recovery')
+        : null;
   useEffect(() => {
-    const checkExistingAuth = async () => {
-      try {
-        const status = await ApiService.getXboxMappingAuthStatus();
-        if (status.isAuthenticated) {
-          setSucceeded(true);
-        }
-      } catch (err) {
-        // Background mount check - if it fails the user just sees the normal (unauthenticated)
-        // auth step instead of the already-authenticated shortcut. Explicit silent background.
-        console.error('[XboxAuthStep] Failed to check auth status:', getErrorMessage(err));
-      }
-    };
-
-    checkExistingAuth();
-  }, []);
+    setError(null);
+  }, [identity]);
 
   useEffect(() => {
     // Xbox has no code-paste step: once the device code is issued the server actively polls
@@ -65,19 +62,21 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
   }, [state.loading, state.needsDeviceCode, onAuthStateChange]);
 
   useEffect(() => {
-    if (succeeded) {
+    if (succeededForCaller) {
       const timer = setTimeout(() => {
         onComplete();
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [succeeded, onComplete]);
+  }, [succeededForCaller, onComplete]);
 
   // The unmount cleanup below keeps its mount-time closure, so the pending flags are mirrored
   // into refs that every render refreshes. Depending on them directly instead would re-run the
   // cleanup on the true-to-false success transition and cancel a login that had just completed.
   const needsDeviceCodeRef = useRef(state.needsDeviceCode);
   const loadingRef = useRef(state.loading);
+  const cancelLoginRef = useRef(cancelLogin);
+  cancelLoginRef.current = cancelLogin;
   useEffect(() => {
     needsDeviceCodeRef.current = state.needsDeviceCode;
     loadingRef.current = state.loading;
@@ -90,13 +89,13 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
     // has already asked Microsoft for a code by the time the response comes back.
     return () => {
       if (loadingRef.current || needsDeviceCodeRef.current) {
-        void cancelLogin();
+        void cancelLoginRef.current();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleStartLogin = async () => {
+    if (state.canAuthenticate === false) return;
     setError(null);
     await startLogin();
   };
@@ -107,7 +106,7 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
   };
 
   // State 3: Success
-  if (succeeded) {
+  if (succeededForCaller) {
     return (
       <div className="space-y-5">
         <StepHeader
@@ -144,7 +143,12 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
 
         {/* Open Microsoft's verification page */}
         <a
-          href={state.deviceVerificationUri}
+          href={state.canAuthenticate === false ? undefined : state.deviceVerificationUri}
+          aria-disabled={state.canAuthenticate === false}
+          tabIndex={state.canAuthenticate === false ? -1 : undefined}
+          onClick={(event) => {
+            if (state.canAuthenticate === false) event.preventDefault();
+          }}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-themed-tertiary hover:bg-themed-hover text-themed-primary border border-themed-secondary themed-button-radius font-medium smooth-transition"
@@ -152,6 +156,12 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
           <ExternalLink className="w-4 h-4" />
           {t('initialization.xboxAuth.openVerificationLink')}
         </a>
+
+        {reason && (
+          <p className="text-sm text-themed-muted" role="status">
+            {reason}
+          </p>
+        )}
 
         {/* Waiting for approval */}
         <div className="flex items-center justify-center gap-2 text-themed-muted">
@@ -188,6 +198,11 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
       </div>
 
       {/* Error Display */}
+      {reason && (
+        <p className="text-sm text-themed-muted" role="status">
+          {reason}
+        </p>
+      )}
       {error && <Alert color="error">{error}</Alert>}
 
       {/* Connect Button */}
@@ -196,7 +211,7 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
         color="primary"
         onClick={handleStartLogin}
         loading={state.loading}
-        disabled={state.loading}
+        disabled={state.canAuthenticate === false || state.loading}
         fullWidth
       >
         {state.loading

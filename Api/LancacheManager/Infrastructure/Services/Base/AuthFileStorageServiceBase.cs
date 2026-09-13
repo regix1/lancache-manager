@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -23,6 +24,16 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private readonly object _lock = new object();
     private TAuthData? _cachedData;
     private readonly Dictionary<Guid, TPersistedAuthData> _savedLogins = [];
+    private readonly SemaphoreSlim _admissionGate = new(1, 1);
+    private IntegrationLogin? _pendingLogin;
+    private long _generation;
+    private long _version;
+    private bool _releasing;
+    private bool _dispatching;
+    private readonly HashSet<Guid> _usedAttempts = [];
+    private long _releaseVersion;
+
+    public long IntegrationReleaseVersion { get { lock (_lock) return _releaseVersion; } }
 
     protected AuthFileStorageServiceBase(
         ILogger logger,
@@ -88,6 +99,335 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     /// </summary>
     protected abstract TPersistedAuthData EncryptForStorage(TAuthData data);
 
+    protected virtual TPersistedAuthData EncryptSavedLogin(TAuthData data) => EncryptForStorage(data);
+
+    protected virtual TAuthData? DecryptSavedLogin(TPersistedAuthData persisted) => DecryptPersisted(persisted);
+
+    protected virtual bool IsSavedUnencrypted(TPersistedAuthData persisted) => IsStoredUnencrypted(persisted);
+
+    protected virtual bool NeedsSavedReEncryption(TPersistedAuthData persisted, TAuthData decrypted)
+        => NeedsReEncryption(persisted, decrypted);
+
+    protected virtual void MergeCredentials(TAuthData auth, TAuthData current) { }
+
+    private static TAuthData Snapshot(TAuthData data)
+        => JsonSerializer.Deserialize<TAuthData>(JsonSerializer.Serialize(data))!;
+
+    public IntegrationAccess GetIntegrationAccess(IntegrationCaller caller)
+    {
+        if (!caller.AuthenticationEnabled) caller = new(null, null, false);
+        lock (_lock)
+        {
+            var auth = GetAuthData(repair: false);
+            var owner = GetOwnerAccountId(auth);
+            if (caller.AuthenticationEnabled && (caller.AccountId is null || caller.SessionId is null))
+                return new(false, false, false, false, false, "account-required");
+            if (caller.AuthenticationEnabled && owner is not null && owner != caller.AccountId)
+                return new(false, false, false, false, false, "owned-by-another-account");
+            if (_releasing)
+                return new(false, false, false, false, false, "release-in-progress");
+            if (_pendingLogin is { } pending && pending.ExpiresAtUtc > DateTime.UtcNow)
+            {
+                var mine = pending.AccountId == caller.AccountId && pending.SessionId == caller.SessionId
+                    && pending.Shared != caller.AuthenticationEnabled;
+                return new(mine, false, mine && owner is not null, mine, false, "login-in-progress",
+                    mine ? pending.AttemptId : null, mine ? pending.ExpiresAtUtc : null);
+            }
+            if (owner is null && HasCredentials(auth) && caller.AuthenticationEnabled)
+                return new(false, false, false, false, caller.OwnsInstallation, "reauthentication-required");
+            return new(true, true, owner is not null || HasCredentials(auth), false, false, null);
+        }
+    }
+
+    public async Task<IntegrationLogin> BeginIntegrationLoginAsync(
+        IntegrationCaller caller, Guid? attemptId = null, bool recover = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (caller is { AuthenticationEnabled: false }) caller = new(null, null, false);
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_lock)
+            {
+                var access = GetIntegrationAccess(caller);
+                if (!access.CanSignIn && !(recover && access.CanRecover))
+                    IntegrationLease.Refuse(access.OwnershipReason ?? "login-in-progress");
+                if (attemptId == Guid.Empty) IntegrationLease.Refuse("attempt-required");
+                var id = attemptId ?? Guid.NewGuid();
+                if (!_usedAttempts.Add(id)) IntegrationLease.Refuse("attempt-expired");
+                _version++;
+                return _pendingLogin = new(id, ++_generation,
+                    caller.AuthenticationEnabled ? caller.AccountId : null, caller.SessionId,
+                    DateTime.UtcNow.AddMinutes(15), !caller.AuthenticationEnabled, recover);
+            }
+        }
+        finally { _admissionGate.Release(); }
+    }
+
+    public IntegrationLogin ContinueIntegrationLogin(IntegrationCaller caller, Guid? attemptId)
+    {
+        lock (_lock)
+        {
+            if (attemptId is null || attemptId == Guid.Empty) IntegrationLease.Refuse("attempt-required");
+            var login = _pendingLogin;
+            if (login is null || login.AttemptId != attemptId || login.ExpiresAtUtc <= DateTime.UtcNow || _releasing)
+                IntegrationLease.Refuse("attempt-expired");
+            IntegrationLease.ValidateCaller(login!, caller);
+            return login!;
+        }
+    }
+
+    public bool IsIntegrationLoginCurrent(IntegrationLogin login)
+    {
+        lock (_lock)
+            return !_releasing && _pendingLogin == login && login.Generation == _generation
+                && login.ExpiresAtUtc > DateTime.UtcNow;
+    }
+
+    public IntegrationLogin SetIntegrationLoginExpiry(IntegrationLogin login, DateTime expiresAtUtc)
+    {
+        lock (_lock)
+        {
+            if (!IsIntegrationLoginCurrent(login)) IntegrationLease.Refuse("attempt-expired");
+            return _pendingLogin = login with { ExpiresAtUtc = expiresAtUtc < login.ExpiresAtUtc ? expiresAtUtc : login.ExpiresAtUtc };
+        }
+    }
+
+    public async Task RunIntegrationActionAsync(IntegrationCaller caller, Action action, CancellationToken cancellationToken = default)
+    {
+        if (caller is { AuthenticationEnabled: false }) caller = new(null, null, false);
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_lock)
+            {
+                var access = GetIntegrationAccess(caller);
+                if (!access.CanManage || access.OwnershipReason is not null)
+                    IntegrationLease.Refuse(access.OwnershipReason ?? "integration-sign-in-required");
+                action();
+            }
+        }
+        finally { _admissionGate.Release(); }
+    }
+
+    public bool RunIntegrationLogin(IntegrationLogin login, Action action)
+    {
+        lock (_lock)
+        {
+            if (!IsIntegrationLoginCurrent(login)) return false;
+            action();
+            return true;
+        }
+    }
+
+    public bool CompleteIntegrationLogin(IntegrationLogin login, TAuthData auth, Action? committed = null)
+    {
+        lock (_lock)
+        {
+            if (!IsIntegrationLoginCurrent(login)) return false;
+            if (GetOwnerAccountId(auth) != login.AccountId)
+                throw new InvalidOperationException("Integration credential owner differs from its admitted account.");
+            SaveAuthData(auth);
+            _pendingLogin = null;
+            committed?.Invoke();
+            return true;
+        }
+    }
+
+    public bool FinishIntegrationLogin(IntegrationLogin login, Action? finished = null)
+    {
+        lock (_lock)
+        {
+            if (_pendingLogin != login || login.Generation != _generation) return false;
+            _pendingLogin = null;
+            _generation++;
+            _version++;
+            finished?.Invoke();
+            return true;
+        }
+    }
+
+    public void CancelIntegrationLogin(IntegrationCaller caller, Guid? attemptId, Action? cancelled = null)
+    {
+        lock (_lock)
+        {
+            var login = ContinueIntegrationLogin(caller, attemptId);
+            FinishIntegrationLogin(login, cancelled);
+        }
+    }
+
+    public (long Version, TAuthData Auth) GetIntegrationSnapshot()
+    {
+        lock (_lock)
+        {
+            var auth = GetAuthData();
+            return (_version, auth);
+        }
+    }
+
+    public bool IsIntegrationCurrent(long version)
+    {
+        lock (_lock) return !_releasing && (_pendingLogin is null || _pendingLogin.ExpiresAtUtc <= DateTime.UtcNow) && _version == version;
+    }
+
+    public long? UpdateAuthData(long expectedVersion, Action<TAuthData> updater, Action? committed = null, IntegrationLease? lease = null)
+    {
+        lock (_lock)
+        {
+            if (!IsIntegrationCurrent(expectedVersion) || (_dispatching && lease is null)) return null;
+            if (lease is not null) ValidateIntegrationLease(lease);
+            UpdateAuthData(updater);
+            committed?.Invoke();
+            return _version;
+        }
+    }
+
+    public bool RunIfCurrent(long expectedVersion, Action action, IntegrationLease? lease = null)
+    {
+        lock (_lock)
+        {
+            if (!IsIntegrationCurrent(expectedVersion) || (_dispatching && lease is null)) return false;
+            if (lease is not null) ValidateIntegrationLease(lease);
+            action();
+            return true;
+        }
+    }
+
+    public bool InvalidateAuthData(long expectedVersion, Action? invalidated = null, IntegrationLease? lease = null)
+    {
+        lock (_lock)
+        {
+            if (!IsIntegrationCurrent(expectedVersion) || (_dispatching && lease is null)) return false;
+            if (lease is not null) ValidateIntegrationLease(lease);
+            if (lease?.Caller?.AuthenticationEnabled == false) ClearAuthData();
+            else InvalidateAuthData();
+            invalidated?.Invoke();
+            return true;
+        }
+    }
+
+    public string? GetIntegrationLoginReason(IntegrationCaller caller)
+    {
+        lock (_lock)
+        {
+            if (!caller.AuthenticationEnabled)
+            {
+                var shared = GetIntegrationAccess(caller);
+                if (!shared.CanManage || shared.OwnershipReason is not null) return shared.OwnershipReason;
+                return HasCredentials(GetAuthData(repair: false)) ? null : "integration-sign-in-required";
+            }
+            if (caller.AccountId is null) return "account-required";
+            var access = GetIntegrationAccess(caller);
+            if (!access.CanManage || access.OwnershipReason is not null) return access.OwnershipReason;
+            return GetOwnerAccountId(GetAuthData()) == caller.AccountId ? null : "integration-sign-in-required";
+        }
+    }
+
+    public async Task<IntegrationLease> AcquireIntegrationLoginAsync(
+        IntegrationCaller caller, CancellationToken cancellationToken = default)
+    {
+        if (caller is { AuthenticationEnabled: false }) caller = new(null, null, false);
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_lock)
+            {
+                var reason = GetIntegrationLoginReason(caller);
+                if (reason is not null) IntegrationLease.Refuse(reason);
+                if (_pendingLogin is { } expired && expired.ExpiresAtUtc <= DateTime.UtcNow)
+                    FinishIntegrationLogin(expired);
+                var generation = _generation;
+                _dispatching = true;
+                return new(this, generation, caller, () =>
+                {
+                    lock (_lock)
+                    {
+                        if (_generation != generation || _releasing) IntegrationLease.Refuse("attempt-expired");
+                        var currentReason = GetIntegrationLoginReason(caller);
+                        if (currentReason is not null) IntegrationLease.Refuse(currentReason);
+                    }
+                }, () =>
+                {
+                    lock (_lock) _dispatching = false;
+                    _admissionGate.Release();
+                });
+            }
+        }
+        catch { _admissionGate.Release(); throw; }
+    }
+
+    public TAuthData GetIntegrationLogin(IntegrationLease lease)
+    {
+        lock (_lock)
+        {
+            ValidateIntegrationLease(lease);
+            var active = GetAuthData();
+            return HasCredentials(active) || lease.Caller!.AuthenticationEnabled == false
+                ? active : GetSavedLogin(lease.Caller.AccountId!.Value);
+        }
+    }
+
+    public TAuthData GetIntegrationLogin(IntegrationCaller caller)
+    {
+        lock (_lock)
+        {
+            var reason = GetIntegrationLoginReason(caller);
+            if (reason is not null) IntegrationLease.Refuse(reason);
+            var active = GetAuthData();
+            return HasCredentials(active) || !caller.AuthenticationEnabled ? active : GetSavedLogin(caller.AccountId!.Value);
+        }
+    }
+
+    public void ValidateIntegrationLease(IntegrationLease lease)
+    {
+        if (!ReferenceEquals(lease.Store, this)) IntegrationLease.Refuse("attempt-expired");
+        lease.Validate();
+    }
+
+    /// <summary>A null caller is reserved for trusted installation invalidation and shutdown paths.</summary>
+    public async Task<IntegrationLease> BeginIntegrationReleaseAsync(
+        IntegrationCaller? caller = null, CancellationToken cancellationToken = default)
+    {
+        if (caller is { AuthenticationEnabled: false }) caller = new(null, null, false);
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_lock)
+            {
+                if (caller is not null)
+                {
+                    var access = GetIntegrationAccess(caller);
+                    if (!access.CanLogout) IntegrationLease.Refuse(access.OwnershipReason ?? "integration-sign-in-required");
+                }
+                _releasing = true;
+                _releaseVersion++;
+                _pendingLogin = null;
+                var generation = ++_generation;
+                _version++;
+                return new(this, generation, caller, () =>
+                {
+                    lock (_lock)
+                        if (!_releasing || _generation != generation) IntegrationLease.Refuse("attempt-expired");
+                }, () =>
+                {
+                    lock (_lock) _releasing = false;
+                    _admissionGate.Release();
+                });
+            }
+        }
+        catch { _admissionGate.Release(); throw; }
+    }
+
+    public void CompleteIntegrationRelease(IntegrationLease lease, Action<TAuthData>? clear = null)
+    {
+        lock (_lock)
+        {
+            ValidateIntegrationLease(lease);
+            if (clear is null) ClearAuthData();
+            else UpdateAuthData(clear, saveSavedLogin: false);
+        }
+    }
+
     /// <summary>
     /// True when the loaded data carries a usable credential.
     /// </summary>
@@ -142,13 +482,15 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         }
     }
 
-    public TAuthData GetAuthData()
+    public TAuthData GetAuthData() => GetAuthData(repair: true);
+
+    private TAuthData GetAuthData(bool repair)
     {
         lock (_lock)
         {
             if (_cachedData != null)
             {
-                return _cachedData;
+                return Snapshot(_cachedData);
             }
 
             try
@@ -167,42 +509,43 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                             "{AuthDataLabel} credentials were stored unencrypted - they have been removed, sign in again to store them encrypted.",
                             AuthDataLabel);
 
-                        DeleteCredentialsFile();
-
                         _cachedData = new TAuthData();
-                        return _cachedData;
+                        if (GetOwnerAccountId(persisted) is { } owner)
+                            SetOwnerAccountId(_cachedData, owner);
+                        else if (repair) DeleteCredentialsFile();
+                        return Snapshot(_cachedData);
                     }
 
                     var decrypted = DecryptPersisted(persisted);
 
                     if (decrypted == null)
                     {
-                        DeleteCredentialsFile();
-
                         _cachedData = new TAuthData();
-                        return _cachedData;
+                        if (GetOwnerAccountId(persisted) is { } owner)
+                            SetOwnerAccountId(_cachedData, owner);
+                        else if (repair) DeleteCredentialsFile();
+                        return Snapshot(_cachedData);
                     }
 
                     _cachedData = decrypted;
 
                     // A secret still under the v1 key is written back with the current one right
                     // now instead of waiting for some later save that may never come.
-                    if (NeedsReEncryption(persisted, decrypted))
+                    if (repair && NeedsReEncryption(persisted, decrypted))
                     {
                         ReEncryptCredentialsFile(decrypted);
                     }
 
-                    return decrypted;
+                    return Snapshot(decrypted);
                 }
 
                 _cachedData = new TAuthData();
-                return _cachedData;
+                return Snapshot(_cachedData);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to load {AuthDataLabel} auth data, using default", AuthDataLabel);
-                _cachedData = new TAuthData();
-                return _cachedData;
+                _logger.LogError(ex, "Failed to load {AuthDataLabel} auth data", AuthDataLabel);
+                throw;
             }
         }
     }
@@ -247,20 +590,27 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         }
     }
 
-    public void SaveAuthData(TAuthData data)
+    public void SaveAuthData(TAuthData data, bool saveSavedLogin = true)
     {
         lock (_lock)
         {
             EnsureDirectoryExists();
 
-            if (GetOwnerAccountId(data) is { } accountId && HasCredentials(data))
-            {
-                _savedLogins[accountId] = SaveFile(GetSavedLoginPath(accountId), data);
-            }
-
+            data = Snapshot(data);
+            if (saveSavedLogin && _cachedData is null && File.Exists(_authFilePath)) GetAuthData();
+            if (saveSavedLogin && _cachedData is not null) MergeCredentials(data, _cachedData);
             SaveFile(_authFilePath, data);
-
             _cachedData = data;
+            if (saveSavedLogin) _version++;
+            if (saveSavedLogin && GetOwnerAccountId(data) is { } accountId && HasCredentials(data))
+            {
+                try { _savedLogins[accountId] = SaveFile(GetSavedLoginPath(accountId), data, savedLogin: true); }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Active {AuthDataLabel} credentials were saved, but the account's saved copy could not be updated", AuthDataLabel);
+                    throw;
+                }
+            }
         }
     }
 
@@ -273,7 +623,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             {
                 if (_savedLogins.TryGetValue(accountId, out var cached))
                 {
-                    var cachedLogin = DecryptPersisted(cached);
+                    var cachedLogin = DecryptSavedLogin(cached);
                     if (cachedLogin is not null && GetOwnerAccountId(cachedLogin) == accountId)
                     {
                         return cachedLogin;
@@ -299,22 +649,22 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                     return new TAuthData();
                 }
 
-                if (IsStoredUnencrypted(persisted))
+                if (IsSavedUnencrypted(persisted))
                 {
                     DeleteSavedLoginFile(path);
                     return new TAuthData();
                 }
 
-                var decrypted = DecryptPersisted(persisted);
+                var decrypted = DecryptSavedLogin(persisted);
                 if (decrypted is null || GetOwnerAccountId(decrypted) != accountId)
                 {
                     DeleteSavedLoginFile(path);
                     return new TAuthData();
                 }
 
-                if (NeedsReEncryption(persisted, decrypted))
+                if (NeedsSavedReEncryption(persisted, decrypted))
                 {
-                    persisted = SaveFile(path, decrypted);
+                    persisted = SaveFile(path, decrypted, savedLogin: true);
                 }
 
                 _savedLogins[accountId] = persisted;
@@ -332,8 +682,9 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     {
         lock (_lock)
         {
+            data = Snapshot(data);
             SetOwnerAccountId(data, accountId);
-            _savedLogins[accountId] = SaveFile(GetSavedLoginPath(accountId), data);
+            _savedLogins[accountId] = SaveFile(GetSavedLoginPath(accountId), data, savedLogin: true);
         }
     }
 
@@ -343,7 +694,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     {
         lock (_lock)
         {
-            DeleteSavedLoginFile(GetSavedLoginPath(accountId));
+            DeleteFile(GetSavedLoginPath(accountId));
             _savedLogins.Remove(accountId);
         }
     }
@@ -352,9 +703,12 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     {
         lock (_lock)
         {
-            var ownerAccountId = GetOwnerAccountId(GetAuthData());
+            var auth = GetAuthData();
+            var ownerAccountId = GetOwnerAccountId(auth);
+            var savedMatches = ownerAccountId is { } owner
+                && JsonSerializer.Serialize(auth) == JsonSerializer.Serialize(GetSavedLogin(owner));
             ClearAuthData();
-            if (ownerAccountId is { } accountId)
+            if (savedMatches && ownerAccountId is { } accountId)
             {
                 ClearSavedLogin(accountId);
             }
@@ -364,14 +718,97 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private string GetSavedLoginPath(Guid accountId)
         => Path.Combine(_authDirectory, "saved", $"{accountId:N}.json");
 
-    private TPersistedAuthData SaveFile(string path, TAuthData data)
+    public async Task ClearAccountLoginsAsync(IReadOnlySet<Guid> accountIds, CancellationToken cancellationToken)
+    {
+        if (accountIds.Count == 0) return;
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_lock)
+            {
+                foreach (var accountId in accountIds.Order())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var path = GetSavedLoginPath(accountId);
+                    foreach (var file in new[] { path, path + ".tmp" })
+                    {
+                        try { DeleteFile(file); }
+                        catch (FileNotFoundException) { }
+                        catch (DirectoryNotFoundException) { }
+                    }
+                    _savedLogins.Remove(accountId);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                var persisted = ReadFile(_authFilePath);
+                var scratch = ReadFile(_authFilePath + ".tmp");
+                if (scratch is not null && GetOwnerAccountId(scratch) is { } scratchOwner && accountIds.Contains(scratchOwner))
+                    DeleteFile(_authFilePath + ".tmp");
+
+                if (persisted is not null && GetOwnerAccountId(persisted) is { } owner && accountIds.Contains(owner))
+                {
+                    var retained = ClearStoredLogin(persisted);
+                    if (retained is null) DeleteFile(_authFilePath);
+                    else
+                    {
+                        if (scratch is not null
+                            && (GetOwnerAccountId(scratch) is not { } pendingOwner || !accountIds.Contains(pendingOwner))
+                            && JsonSerializer.Serialize(scratch) != JsonSerializer.Serialize(retained))
+                            throw new IOException("Authentication scratch file belongs to a preserved login; resolve it before retrying the account reset.");
+                        WriteFile(_authFilePath, retained);
+                    }
+                    _cachedData = null;
+                    _version++;
+                    _releaseVersion++;
+                }
+                else if (_cachedData is not null && GetOwnerAccountId(_cachedData) is { } cachedOwner && accountIds.Contains(cachedOwner))
+                {
+                    _cachedData = null;
+                    _version++;
+                }
+
+                if (_pendingLogin?.AccountId is { } pendingAccount && accountIds.Contains(pendingAccount))
+                {
+                    _pendingLogin = null;
+                    _generation++;
+                }
+            }
+        }
+        finally { _admissionGate.Release(); }
+    }
+
+    protected virtual TPersistedAuthData? ClearStoredLogin(TPersistedAuthData persisted) => null;
+
+    protected virtual TPersistedAuthData? ReadFile(string path)
+    {
+        string json;
+        try { json = File.ReadAllText(path); }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        var persisted = JsonSerializer.Deserialize<TPersistedAuthData>(json, new JsonSerializerOptions
+        {
+            UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
+        })
+            ?? throw new JsonException("Authentication file contains a null record.");
+        if (GetOwnerAccountId(persisted) == Guid.Empty)
+            throw new JsonException("Authentication file contains an empty owner identifier.");
+        return persisted;
+    }
+
+    protected virtual TPersistedAuthData SaveFile(string path, TAuthData data, bool savedLogin = false)
+    {
+        var persisted = savedLogin ? EncryptSavedLogin(data) : EncryptForStorage(data);
+        WriteFile(path, persisted);
+        return persisted;
+    }
+
+    protected virtual void WriteFile(string path, TPersistedAuthData persisted)
     {
         var directory = Path.GetDirectoryName(path)
             ?? throw new InvalidOperationException("Authentication file has no parent directory");
         Directory.CreateDirectory(directory);
         SetDirectoryPermissions(directory);
 
-        var persisted = EncryptForStorage(data);
         var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
         var tempFile = path + ".tmp";
         File.WriteAllText(tempFile, json);
@@ -393,7 +830,6 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             }
         }
 
-        return persisted;
     }
 
     private void DeleteSavedLoginFile(string path)
@@ -408,13 +844,15 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         }
     }
 
-    public void UpdateAuthData(Action<TAuthData> updater)
+    public void UpdateAuthData(Action<TAuthData> updater, bool saveSavedLogin = true, long? expectedReleaseVersion = null)
     {
         lock (_lock)
         {
+            if (expectedReleaseVersion is { } expected && (expected != _releaseVersion || _releasing))
+                IntegrationLease.Refuse("release-in-progress");
             var data = GetAuthData();
             updater(data);
-            SaveAuthData(data);
+            SaveAuthData(data, saveSavedLogin);
         }
     }
 
@@ -422,21 +860,24 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     {
         lock (_lock)
         {
+            _generation++;
+            _pendingLogin = null;
+            _releaseVersion++;
             try
             {
                 if (File.Exists(_authFilePath))
                 {
-                    File.Delete(_authFilePath);
+                    DeleteFile(_authFilePath);
                     _logger.LogInformation("Deleted {AuthDataLabel} credentials file: {Path}", AuthDataLabel, _authFilePath);
                 }
 
                 _cachedData = new TAuthData();
+                _version++;
                 _logger.LogInformation("Cleared {AuthDataLabel} authentication data", AuthDataLabel);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to clear {AuthDataLabel} auth data", AuthDataLabel);
-                _cachedData = new TAuthData();
                 throw;
             }
         }
@@ -461,4 +902,6 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     public string GetCredentialsFilePath() => _authFilePath;
 
     public string GetAuthDirectory() => _authDirectory;
+
+    protected virtual void DeleteFile(string path) => File.Delete(path);
 }

@@ -13,12 +13,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// The three rules the account-management endpoints exist to enforce: a user reaches no
-/// administrator account, the owner is hidden from every other account holder and cannot be taken
-/// away from whoever holds it, and only that account hands out the administrator role.
+/// The account-management rules: the primary administrator owns the installation, ordinary users
+/// share one account level, and the owner is hidden from every other account holder and cannot be
+/// taken away from whoever holds it. New accounts are always ordinary users.
 ///
-/// Every caller below is built by seeding an account row with the role under test and a session that
-/// names it, rather than by taking an administrator's session and flipping the session row: the
+/// Every caller below is built by seeding an account row and a session that names it, rather than by
+/// taking another session and flipping its type: the
 /// checks read the account row, so a caller whose row says something other than its session does
 /// would prove nothing about either.
 /// </summary>
@@ -36,14 +36,14 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// The list a user is answered carries the accounts that are not administrators and nothing else.
+    /// A user sees every ordinary account while the owner remains hidden.
     /// </summary>
     [Fact]
     public async Task AUserIsAnsweredTheAccountListWithoutTheAdministrators()
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         var caller = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
         await SeedAccountAsync(database.Factory, "other-reader", SessionType.User);
 
@@ -51,12 +51,12 @@ public sealed class AccountManagementTests : IDisposable
         var listed = AccountsOf(await controller.GetAccountsAsync());
 
         Assert.Equal(
-            new[] { "other-reader", "reader" },
+            new[] { "other-reader", "reader", "second-admin" },
             listed.Select(a => a.Username).OrderBy(name => name, StringComparer.Ordinal).ToArray());
     }
 
     /// <summary>
-    /// An administrator who is not the owner is answered every account except the owner. Seeing that
+    /// An ordinary account is answered every account except the owner. Seeing that
     /// row is what used to let them name it on edit, disable, delete and the session list.
     /// </summary>
     [Fact]
@@ -64,7 +64,7 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         await SeedAccountAsync(database.Factory, "reader", SessionType.User);
 
         var controller = await NewControllerAsync(database.Factory, caller);
@@ -84,7 +84,7 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         var caller = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         await SeedAccountAsync(database.Factory, "reader", SessionType.User);
 
         var controller = await NewControllerAsync(database.Factory, caller);
@@ -96,8 +96,28 @@ public sealed class AccountManagementTests : IDisposable
         Assert.True(listed.Single(a => a.Username == "owner").IsMainAdmin);
     }
 
+    [Fact]
+    public async Task MainAdministratorOwnershipDoesNotDependOnTheLegacyRole()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
+
+        var ownerController = await NewControllerAsync(database.Factory, owner);
+        Assert.Equal(
+            new[] { "owner", "second-admin" },
+            AccountsOf(await ownerController.GetAccountsAsync())
+                .Select(account => account.Username)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray());
+
+        var administratorController = await NewControllerAsync(database.Factory, administrator);
+        Assert.Equal(StatusCodes.Status404NotFound, StatusOf(await administratorController.GetAccountAsync(owner.Id)));
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(await ownerController.WipeAccountsAsync()));
+    }
+
     /// <summary>
-    /// Every verb, not only the list. An account a second administrator is not shown is also an
+    /// Every verb, not only the list. An account an ordinary caller is not shown is also an
     /// account they cannot name.
     /// </summary>
     [Fact]
@@ -105,7 +125,7 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
 
         var controller = await NewControllerAsync(database.Factory, caller);
         var id = owner.Id;
@@ -117,9 +137,7 @@ public sealed class AccountManagementTests : IDisposable
                 id, new EditAccountRequest { Username = "taken-over", Password = NewPassword })).Result),
             ("disable", (await controller.SetDisabledAsync(
                 id, new SetAccountDisabledRequest { Disabled = true })).Result),
-            ("delete", (await controller.DeleteAccountAsync(id)).Result),
-            ("set-role", (await controller.SetRoleAsync(
-                id, new SetAccountRoleRequest { Role = SessionType.User })).Result)
+            ("delete", (await controller.DeleteAccountAsync(id)).Result)
         };
 
         foreach (var (verb, result) in refusals)
@@ -127,7 +145,7 @@ public sealed class AccountManagementTests : IDisposable
             var status = StatusOf(result);
             Assert.True(
                 status == StatusCodes.Status404NotFound,
-                $"{verb} answered a second administrator {status} for the owner, not 404.");
+                $"{verb} answered an ordinary caller {status} for the owner, not 404.");
             Assert.Equal(AccountRefusalResponse.AccountNotFound, StageKeyOf(result));
         }
 
@@ -138,50 +156,41 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// Every verb, not only the list. An account a user is not shown is also an account a user cannot
-    /// name: leaving read, edit, disable, delete and set-role answering an id the list withholds would
-    /// make the withholding a display choice rather than a permission.
+    /// Every ordinary verb reaches another ordinary account from a user account. Separate targets
+    /// keep the destructive delete from affecting the other assertions.
     /// </summary>
     [Fact]
     public async Task AUserCannotReachAnAdministratorAccountByItsId()
     {
         await using var database = await TestDatabase.CreateAsync();
-        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
         var caller = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
-
         var controller = await NewControllerAsync(database.Factory, caller);
-        var id = administrator.Id;
+        var read = await SeedAccountAsync(database.Factory, "read-admin", SessionType.User);
+        var edited = await SeedAccountAsync(database.Factory, "edit-admin", SessionType.User);
+        var disabled = await SeedAccountAsync(database.Factory, "disable-admin", SessionType.User);
+        var deleted = await SeedAccountAsync(database.Factory, "delete-admin", SessionType.User);
 
-        var refusals = new (string Verb, ActionResult? Result)[]
-        {
-            ("get", (await controller.GetAccountAsync(id)).Result),
-            ("edit", (await controller.EditAccountAsync(
-                id, new EditAccountRequest { Username = "taken-over", Password = NewPassword })).Result),
-            ("disable", (await controller.SetDisabledAsync(
-                id, new SetAccountDisabledRequest { Disabled = true })).Result),
-            ("delete", (await controller.DeleteAccountAsync(id)).Result),
-            ("set-role", (await controller.SetRoleAsync(
-                id, new SetAccountRoleRequest { Role = SessionType.User })).Result)
-        };
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.GetAccountAsync(read.Id)));
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await controller.EditAccountAsync(
+                edited.Id, new EditAccountRequest { Username = "taken-over", Password = NewPassword })));
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await controller.SetDisabledAsync(
+                disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
 
-        foreach (var (verb, result) in refusals)
-        {
-            var status = StatusOf(result);
-            Assert.True(
-                status == StatusCodes.Status404NotFound,
-                $"{verb} answered a user {status} for an administrator account, not 404.");
-            Assert.Equal(AccountRefusalResponse.AccountNotFound, StageKeyOf(result));
-        }
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.DeleteAccountAsync(deleted.Id)));
 
-        var stored = await ReadAccountAsync(database, administrator.Id);
-        Assert.Equal("second-admin", stored.Username);
-        Assert.Equal(SessionType.Admin, stored.Role);
-        Assert.False(stored.IsDisabled);
+        Assert.Equal("taken-over", (await ReadAccountAsync(database, edited.Id)).Username);
+        Assert.True((await ReadAccountAsync(database, disabled.Id)).IsDisabled);
+        await using var context = database.Factory.CreateDbContext();
+        Assert.False(await context.UserAccounts.AnyAsync(account => account.Id == deleted.Id));
     }
 
     /// <summary>
-    /// Twelve attempts on the account that owns the installation: edit, delete, disable and demote,
-    /// tried by a user, by another administrator and by that account itself. All twelve are refused,
+    /// Nine attempts on the account that owns the installation: edit, delete and disable, tried by
+    /// two ordinary users and by that account itself. All nine are refused,
     /// and the row is exactly as it was afterwards.
     ///
     /// A caller who is not the owner is answered 404 because the account is not one they may see at
@@ -194,7 +203,7 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
 
         foreach (var caller in new[] { reader, administrator, owner })
@@ -210,8 +219,7 @@ public sealed class AccountManagementTests : IDisposable
                 ("edit", StatusOf(await controller.EditAccountAsync(
                     owner.Id, new EditAccountRequest { Username = "taken-over", Password = NewPassword }))),
                 ("delete", StatusOf(await controller.DeleteAccountAsync(owner.Id))),
-                ("disable", StatusOf(await controller.SetDisabledAsync(owner.Id, new SetAccountDisabledRequest { Disabled = true }))),
-                ("demote", StatusOf(await controller.SetRoleAsync(owner.Id, new SetAccountRoleRequest { Role = SessionType.User })))
+                ("disable", StatusOf(await controller.SetDisabledAsync(owner.Id, new SetAccountDisabledRequest { Disabled = true })))
             };
 
             foreach (var (verb, status) in attempts)
@@ -230,91 +238,33 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// Nine attempts at the administrator role: creating an account with it, moving somebody else onto
-    /// it, and moving yourself onto it, tried by a user, by a non-main administrator and by the account
-    /// that owns the installation. Only the owner's succeed.
-    ///
-    /// Promoting yourself runs through the same check as promoting anybody else, so it is attempted
-    /// here rather than assumed: a rule that reads the caller's row needs no exception for the caller
-    /// being the target, and writing one is how self-promotion gets left open.
-    ///
-    /// The owner's own promotion is the one attempt of the nine that is refused, because the account
-    /// that owns the installation is refused every set-role, which is what stops it being demoted.
-    /// It already holds the role it is asking for.
-    /// </summary>
-    [Fact]
-    public async Task OnlyTheMainAdministratorHandsOutTheAdministratorRole()
-    {
-        await using var database = await TestDatabase.CreateAsync();
-        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
-        var reader = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
-        var promoted = await SeedAccountAsync(database.Factory, "promoted", SessionType.User);
-
-        foreach (var caller in new[] { reader, administrator })
-        {
-            var controller = await NewControllerAsync(database.Factory, caller);
-
-            var created = await controller.CreateAccountAsync(NewAccountRequest($"minted-by-{caller.Username}", SessionType.Admin));
-            Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(created));
-            Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(created));
-
-            var promotion = await controller.SetRoleAsync(promoted.Id, new SetAccountRoleRequest { Role = SessionType.Admin });
-            Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(promotion));
-            Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(promotion));
-
-            var self = await controller.SetRoleAsync(caller.Id, new SetAccountRoleRequest { Role = SessionType.Admin });
-            Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(self));
-            Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(self));
-        }
-
-        await using var unchanged = database.Factory.CreateDbContext();
-        Assert.Equal(SessionType.User, (await unchanged.UserAccounts.SingleAsync(a => a.Id == promoted.Id)).Role);
-        Assert.False(await unchanged.UserAccounts.AnyAsync(a => a.Username.StartsWith("minted-by-")));
-
-        var ownerController = await NewControllerAsync(database.Factory, owner);
-
-        var mintedByOwner = await ownerController.CreateAccountAsync(NewAccountRequest("minted-by-owner", SessionType.Admin));
-        Assert.Equal(StatusCodes.Status201Created, StatusOf(mintedByOwner));
-        Assert.Equal(SessionType.Admin, AccountOf(mintedByOwner).Role);
-
-        var promotedByOwner = await ownerController.SetRoleAsync(promoted.Id, new SetAccountRoleRequest { Role = SessionType.Admin });
-        Assert.Equal(StatusCodes.Status200OK, StatusOf(promotedByOwner));
-        Assert.Equal(SessionType.Admin, AccountOf(promotedByOwner).Role);
-
-        var ownerPromotingItself = await ownerController.SetRoleAsync(owner.Id, new SetAccountRoleRequest { Role = SessionType.Admin });
-        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(ownerPromotingItself));
-        Assert.Equal(AccountRefusalResponse.MainAdminProtected, StageKeyOf(ownerPromotingItself));
-    }
-
-    /// <summary>
-    /// The caller below carries an administrator session - the same session type and the same claim
-    /// the account that owns the installation carries - and is refused, because the check reads the
-    /// stored row and that row is not the main administrator's. A check written against the claim
-    /// would admit every administrator and the rule would mean nothing.
+    /// The caller below carries an ordinary account session, creates only an ordinary account and
+    /// still cannot perform owner-only work.
     /// </summary>
     [Fact]
     public async Task TheAdministratorRoleCheckReadsTheCallersAccountRowRatherThanItsClaim()
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
 
         var session = await SeedSessionAsync(database.Factory, caller);
-        Assert.Equal(SessionType.Admin, session.SessionType);
+        Assert.Equal(SessionType.User, session.SessionType);
 
         var controller = NewController(database.Factory, session);
-        var created = await controller.CreateAccountAsync(NewAccountRequest("minted-by-claim", SessionType.Admin));
+        var created = await controller.CreateAccountAsync(NewAccountRequest("minted-by-claim"));
 
-        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(created));
-        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(created));
+        Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
+        Assert.Equal(SessionType.User, AccountOf(created).Role);
+        Assert.False(AccountOf(created).IsMainAdmin);
+        var wipe = await controller.WipeAccountsAsync();
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(wipe));
+        Assert.Equal(AccountRefusalResponse.WipeRequiresMainAdmin, StageKeyOf(wipe));
     }
 
     /// <summary>
-    /// With authentication turned off there is no access control for this rule to contradict, so the
-    /// shared session every anonymous caller runs on creates administrators. It has no account row,
-    /// which is the state this whole file has to keep working for, and the account that owns the
-    /// installation is still protected from it.
+    /// With authentication turned off the shared accountless session keeps account-management
+    /// compatibility but creates only ordinary user rows. The real owner remains protected.
     /// </summary>
     [Fact]
     public async Task WithAuthenticationDisabledACallerWithNoAccountCreatesAdministrators()
@@ -325,18 +275,14 @@ public sealed class AccountManagementTests : IDisposable
 
         var controller = NewController(database.Factory, session, authenticationEnabled: false);
 
-        var created = await controller.CreateAccountAsync(NewAccountRequest("minted-with-auth-off", SessionType.Admin));
+        var created = await controller.CreateAccountAsync(NewAccountRequest("minted-with-auth-off"));
         Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
-        Assert.Equal(SessionType.Admin, AccountOf(created).Role);
+        Assert.Equal(SessionType.User, AccountOf(created).Role);
 
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(await controller.DeleteAccountAsync(owner.Id)));
         Assert.Equal(
             StatusCodes.Status403Forbidden,
             StatusOf(await controller.SetDisabledAsync(owner.Id, new SetAccountDisabledRequest { Disabled = true })));
-        Assert.Equal(
-            StatusCodes.Status403Forbidden,
-            StatusOf(await controller.SetRoleAsync(owner.Id, new SetAccountRoleRequest { Role = SessionType.User })));
-
         // The caller proved nothing but the configuration: it has no account, so the actor half of the
         // row is empty rather than the write throwing.
         await using var context = database.Factory.CreateDbContext();
@@ -347,10 +293,8 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// With authentication on, a caller holding only the API key still has no account row, and the
-    /// role check answers that state from the setting rather than from a missing row: it manages
-    /// accounts, and the way it reaches a first administrator is the create-first-admin endpoint
-    /// rather than a standing right to mint more here.
+    /// A direct-controller accountless compatibility call creates an ordinary row. Live authenticated
+    /// routes still require a real session.
     /// </summary>
     [Fact]
     public async Task WithAuthenticationEnabledACallerWithNoAccountCannotCreateAnAdministrator()
@@ -361,18 +305,17 @@ public sealed class AccountManagementTests : IDisposable
 
         var controller = NewController(database.Factory, session);
 
-        var administrator = await controller.CreateAccountAsync(NewAccountRequest("minted-with-a-key", SessionType.Admin));
-        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(administrator));
-        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(administrator));
+        var administrator = await controller.CreateAccountAsync(NewAccountRequest("minted-with-a-key"));
+        Assert.Equal(StatusCodes.Status201Created, StatusOf(administrator));
+        Assert.Equal(SessionType.User, AccountOf(administrator).Role);
 
-        var reader = await controller.CreateAccountAsync(NewAccountRequest("reader-with-a-key", SessionType.User));
+        var reader = await controller.CreateAccountAsync(NewAccountRequest("reader-with-a-key"));
         Assert.Equal(StatusCodes.Status201Created, StatusOf(reader));
         Assert.Equal(SessionType.User, AccountOf(reader).Role);
     }
 
     /// <summary>
-    /// The five events this controller produces. Each one names the account it was done to and the
-    /// caller that did it.
+    /// The four real mutations name their caller and target.
     /// </summary>
     [Fact]
     public async Task TheFiveAccountEventsAreRecordedAgainstTheCallerAndTheTarget()
@@ -380,16 +323,15 @@ public sealed class AccountManagementTests : IDisposable
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
         var session = await SeedSessionAsync(database.Factory, owner);
-        var controller = NewController(database.Factory, session);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, NotificationCalls>();
+        var notificationCalls = (NotificationCalls)(object)notifications;
+        var controller = NewController(database.Factory, session, notifications: notifications);
         var before = DateTime.UtcNow;
 
-        var created = await controller.CreateAccountAsync(NewAccountRequest("audited", SessionType.User));
+        var created = await controller.CreateAccountAsync(NewAccountRequest("audited"));
         Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
         var target = AccountOf(created).Id;
 
-        Assert.Equal(
-            StatusCodes.Status200OK,
-            StatusOf(await controller.SetRoleAsync(target, new SetAccountRoleRequest { Role = SessionType.Admin })));
         Assert.Equal(
             StatusCodes.Status200OK,
             StatusOf(await controller.SetDisabledAsync(target, new SetAccountDisabledRequest { Disabled = true })));
@@ -397,6 +339,7 @@ public sealed class AccountManagementTests : IDisposable
             StatusCodes.Status200OK,
             StatusOf(await controller.SetDisabledAsync(target, new SetAccountDisabledRequest { Disabled = false })));
         Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.DeleteAccountAsync(target)));
+        Assert.Equal(4, notificationCalls.Count);
 
         await using var context = database.Factory.CreateDbContext();
         var entries = await context.IdentityAuditEntries.OrderBy(e => e.Id).ToListAsync();
@@ -405,7 +348,6 @@ public sealed class AccountManagementTests : IDisposable
             new[]
             {
                 IdentityAuditEvent.AccountCreated,
-                IdentityAuditEvent.RoleChanged,
                 IdentityAuditEvent.AccountDisabled,
                 IdentityAuditEvent.AccountEnabled,
                 IdentityAuditEvent.AccountDeleted
@@ -422,11 +364,9 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// Delete, disable and set-role, tried by an administrator on its own account. All three end the
-    /// caller's own sessions and none of them can be put back by the person who did it: re-creating
-    /// an account and granting the admin role both belong to the account that owns the installation.
+    /// Delete and disable, tried by an ordinary account on itself. Both remain protected.
     ///
-    /// The same three verbs on somebody else's row are attempted afterwards, because a guard that
+    /// The same two verbs on somebody else's row are attempted afterwards, because a guard that
     /// refused everybody would pass the first half of this test on its own.
     /// </summary>
     [Fact]
@@ -434,16 +374,14 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         var controller = await NewControllerAsync(database.Factory, caller);
 
         var refusals = new (string Verb, ActionResult? Result)[]
         {
             ("delete", (await controller.DeleteAccountAsync(caller.Id)).Result),
             ("disable", (await controller.SetDisabledAsync(
-                caller.Id, new SetAccountDisabledRequest { Disabled = true })).Result),
-            ("demote", (await controller.SetRoleAsync(
-                caller.Id, new SetAccountRoleRequest { Role = SessionType.User })).Result)
+                caller.Id, new SetAccountDisabledRequest { Disabled = true })).Result)
         };
 
         foreach (var (verb, result) in refusals)
@@ -451,28 +389,24 @@ public sealed class AccountManagementTests : IDisposable
             var status = StatusOf(result);
             Assert.True(
                 status == StatusCodes.Status403Forbidden,
-                $"An administrator was answered {status} when it tried to {verb} its own account, not 403.");
+                $"An account was answered {status} when it tried to {verb} itself, not 403.");
             Assert.Equal(AccountRefusalResponse.SelfProtected, StageKeyOf(result));
         }
 
         var unchanged = await ReadAccountAsync(database, caller.Id);
-        Assert.Equal(SessionType.Admin, unchanged.Role);
+        Assert.Equal(SessionType.User, unchanged.Role);
         Assert.False(unchanged.IsDisabled);
 
-        // Renaming and setting a password on your own account are what the three refusals must leave
+        // Renaming and setting a password on your own account are what the two refusals must leave
         // open: neither signs the caller out, and both are how a person maintains their own account.
         var renamed = await controller.EditAccountAsync(
             caller.Id, new EditAccountRequest { Username = "renamed-itself", Password = NewPassword });
         Assert.Equal(StatusCodes.Status200OK, StatusOf(renamed));
         Assert.Equal("renamed-itself", (await ReadAccountAsync(database, caller.Id)).Username);
 
-        var demoted = await SeedAccountAsync(database.Factory, "third-admin", SessionType.Admin);
         var disabled = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
         var deleted = await SeedAccountAsync(database.Factory, "another-reader", SessionType.User);
 
-        Assert.Equal(
-            StatusCodes.Status200OK,
-            StatusOf(await controller.SetRoleAsync(demoted.Id, new SetAccountRoleRequest { Role = SessionType.User })));
         Assert.Equal(
             StatusCodes.Status200OK,
             StatusOf(await controller.SetDisabledAsync(disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
@@ -567,7 +501,7 @@ public sealed class AccountManagementTests : IDisposable
             session,
             auditService: new IdentityAuditService(new ThrowingDbContextFactory(), NullLogger<IdentityAuditService>.Instance));
 
-        var created = await controller.CreateAccountAsync(NewAccountRequest("audit-is-broken", SessionType.User));
+        var created = await controller.CreateAccountAsync(NewAccountRequest("audit-is-broken"));
 
         Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
 
@@ -577,9 +511,7 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// A session carries its own copy of the role and does not expire while it belongs to an account
-    /// holder, so a change that leaves the sessions alone leaves the person with what they had until
-    /// they sign out. Changing the role, disabling the account and deleting it all end them.
+    /// Disabling and deleting are real mutations and end the target's sessions.
     /// </summary>
     [Fact]
     public async Task ChangingTheRoleDisablingAndDeletingAllEndTheAccountsSessions()
@@ -589,31 +521,26 @@ public sealed class AccountManagementTests : IDisposable
         var callerSession = await SeedSessionAsync(database.Factory, owner);
         var controller = NewController(database.Factory, callerSession);
 
-        var demoted = await SeedAccountAsync(database.Factory, "demoted", SessionType.Admin);
         var disabled = await SeedAccountAsync(database.Factory, "disabled", SessionType.User);
         var deleted = await SeedAccountAsync(database.Factory, "deleted", SessionType.User);
 
-        var demotedSession = await SeedSessionAsync(database.Factory, demoted);
         var disabledSession = await SeedSessionAsync(database.Factory, disabled);
         var deletedSession = await SeedSessionAsync(database.Factory, deleted);
 
-        Assert.Equal(
-            StatusCodes.Status200OK,
-            StatusOf(await controller.SetRoleAsync(demoted.Id, new SetAccountRoleRequest { Role = SessionType.User })));
         Assert.Equal(
             StatusCodes.Status200OK,
             StatusOf(await controller.SetDisabledAsync(disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
         Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.DeleteAccountAsync(deleted.Id)));
 
         await using var context = database.Factory.CreateDbContext();
-        foreach (var sessionId in new[] { demotedSession.Id, disabledSession.Id, deletedSession.Id })
+        foreach (var sessionId in new[] { disabledSession.Id, deletedSession.Id })
         {
             Assert.True(
                 (await context.UserSessions.SingleAsync(s => s.Id == sessionId)).IsRevoked,
                 $"Session {sessionId} outlived the change to the account it belongs to.");
         }
 
-        // The caller's own session is untouched: none of the three changes was about the caller.
+        // The caller's own session is untouched: neither change was about the caller.
         Assert.False((await context.UserSessions.SingleAsync(s => s.Id == callerSession.Id)).IsRevoked);
     }
 
@@ -630,11 +557,11 @@ public sealed class AccountManagementTests : IDisposable
         var controller = await NewControllerAsync(database.Factory, owner);
 
         var weak = await controller.CreateAccountAsync(
-            new CreateAccountRequest { Username = "weak", Password = "short", Role = SessionType.User });
+            new CreateAccountRequest { Username = "weak", Password = "short" });
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(weak));
         Assert.Equal(AccountRefusalResponse.CredentialsRejected, StageKeyOf(weak));
 
-        var created = await controller.CreateAccountAsync(NewAccountRequest("renamed-later", SessionType.User));
+        var created = await controller.CreateAccountAsync(NewAccountRequest("renamed-later"));
         Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
         var target = AccountOf(created).Id;
 
@@ -697,7 +624,7 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// The owner's account is withheld from a second administrator and the unique index still
+    /// The owner's account is withheld from an ordinary account and the unique index still
     /// refuses a second row holding its name, so both duplicate-name paths answer that name the
     /// way they answer a name a visible account holds. The probe behind them reads the whole table
     /// on purpose: narrowed to the visible accounts, a taken name would answer 500.
@@ -707,13 +634,13 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         var visible = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
 
         var controller = await NewControllerAsync(database.Factory, caller);
 
-        var hiddenName = await controller.CreateAccountAsync(NewAccountRequest("owner", SessionType.User));
-        var visibleName = await controller.CreateAccountAsync(NewAccountRequest("reader", SessionType.User));
+        var hiddenName = await controller.CreateAccountAsync(NewAccountRequest("owner"));
+        var visibleName = await controller.CreateAccountAsync(NewAccountRequest("reader"));
 
         Assert.Equal(StatusCodes.Status409Conflict, StatusOf(hiddenName));
         Assert.Equal(StatusOf(visibleName), StatusOf(hiddenName));
@@ -737,7 +664,7 @@ public sealed class AccountManagementTests : IDisposable
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
@@ -755,15 +682,15 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// A second administrator carries the same role as the owner and is still refused: the check
-    /// reads IsMainAdmin on the stored row, not the session type. The table is left as it was.
+    /// An ordinary account is still refused: the check reads IsMainAdmin on the stored row, not the
+    /// session type. The table is left as it was.
     /// </summary>
     [Fact]
     public async Task ANonMainAdministratorCannotWipeAccounts()
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
-        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         await SeedAccountAsync(database.Factory, "reader", SessionType.User);
 
         var controller = await NewControllerAsync(database.Factory, caller);
@@ -799,9 +726,9 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// A caller with no account row is the API-key-only shape. CallerMayGrantAdmin would admit it
-    /// when authentication is off; wipe must not, because emptying the table is not a standing
-    /// right of the key.
+    /// A caller with no account row is the API-key-only or shared-authentication shape. Account
+    /// compatibility may admit it, but wipe must not: emptying the table is not a standing right of
+    /// an accountless session.
     /// </summary>
     [Fact]
     public async Task ACallerWithNoAccountCannotWipeAccounts()
@@ -860,7 +787,8 @@ public sealed class AccountManagementTests : IDisposable
         bool authenticationEnabled = true,
         IdentityAuditService? auditService = null,
         AccountLockout? lockout = null,
-        AccountClaimWindow? claimWindow = null)
+        AccountClaimWindow? claimWindow = null,
+        ISignalRNotificationService? notifications = null)
     {
         var configuration = NewConfiguration(authenticationEnabled);
         var controller = new AccountsController(
@@ -876,7 +804,7 @@ public sealed class AccountManagementTests : IDisposable
             auditService ?? new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance),
             lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance),
             claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
-            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             NullLogger<AccountsController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -930,8 +858,8 @@ public sealed class AccountManagementTests : IDisposable
             })
             .Build();
 
-    private static CreateAccountRequest NewAccountRequest(string username, SessionType role) =>
-        new() { Username = username, Password = NewPassword, Role = role };
+    private static CreateAccountRequest NewAccountRequest(string username) =>
+        new() { Username = username, Password = NewPassword };
 
     private static async Task<UserAccount> SeedAccountAsync(
         TestDbContextFactory factory,
@@ -1001,4 +929,15 @@ public sealed class AccountManagementTests : IDisposable
 
     private static List<AccountResponse> AccountsOf(ActionResult<List<AccountResponse>> result) =>
         Assert.IsType<List<AccountResponse>>(Assert.IsAssignableFrom<ObjectResult>(result.Result).Value);
+
+    public class NotificationCalls : DispatchProxy
+    {
+        public int Count { get; private set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            Count++;
+            return targetMethod?.ReturnType == typeof(Task) ? Task.CompletedTask : null;
+        }
+    }
 }

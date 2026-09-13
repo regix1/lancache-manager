@@ -173,16 +173,36 @@ public sealed class AccountHolderRouteAccessTests
 
         using var adminClient = await host.CreateAdminClientAsync();
         using var userClient = await CreateUserClientAsync(host);
+        var adminStatus = await adminClient.GetFromJsonAsync<JsonElement>("/api/auth/status");
+        var userStatus = await userClient.GetFromJsonAsync<JsonElement>("/api/auth/status");
+        var adminAccountId = adminStatus.GetProperty("accountId").GetGuid();
+        var userAccountId = userStatus.GetProperty("accountId").GetGuid();
+        var adminSessionId = adminStatus.GetProperty("sessionId").GetGuid();
         var userSessionId = await SessionIdAsync(userClient);
+
+        var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var context = await factory.CreateDbContextAsync();
+        var usernames = await context.UserAccounts
+            .Where(account => account.Id == adminAccountId || account.Id == userAccountId)
+            .ToDictionaryAsync(account => account.Id, account => account.Username);
 
         var adminBody = await adminClient.GetFromJsonAsync<JsonElement>("/api/sessions?pageSize=100");
         var body = await userClient.GetFromJsonAsync<JsonElement>("/api/sessions?pageSize=100");
         var userRow = body.GetProperty("sessions").EnumerateArray()
             .Single(row => row.GetProperty("id").GetGuid() == userSessionId);
         var adminRow = adminBody.GetProperty("sessions").EnumerateArray()
-            .First(row => row.GetProperty("sessionType").GetString() == "admin");
+            .Single(row => row.GetProperty("id").GetGuid() == adminSessionId);
 
         AssertSamePrefillAccess(adminRow, userRow, "/api/sessions");
+        Assert.Equal(usernames[adminAccountId], adminRow.GetProperty("username").GetString());
+        Assert.Equal(usernames[userAccountId], userRow.GetProperty("username").GetString());
+        Assert.NotEqual(adminRow.GetProperty("username").GetString(), userRow.GetProperty("username").GetString());
+        Assert.False(adminRow.TryGetProperty("accountId", out _));
+        Assert.False(userRow.TryGetProperty("accountId", out _));
+        Assert.False(adminRow.GetProperty("accountDeleted").GetBoolean());
+        Assert.False(userRow.GetProperty("accountDeleted").GetBoolean());
+        Assert.Equal(adminRow.GetProperty("ipAddress").GetString(), userRow.GetProperty("ipAddress").GetString());
+        Assert.Equal(adminRow.GetProperty("userAgent").GetString(), userRow.GetProperty("userAgent").GetString());
 
         // Two counts and a total that ignores the third type is how the list said a user was nobody.
         Assert.True(body.GetProperty("userCount").GetInt32() >= 1, "the list counts no user sessions");
@@ -191,6 +211,54 @@ public sealed class AccountHolderRouteAccessTests
             body.GetProperty("adminCount").GetInt32()
             + body.GetProperty("userCount").GetInt32()
             + body.GetProperty("guestCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task AuthenticationDisabledKeepsSharedAccountAndSessionRoutesAccountless()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var isolationClient = host.Application.CreateClient();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var statusResponse = await client.GetAsync("/api/auth/status");
+        Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
+        var status = await statusResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var sessionId = status.GetProperty("sessionId").GetGuid();
+        Assert.Equal("admin", status.GetProperty("sessionType").GetString());
+        Assert.False(status.TryGetProperty("accountId", out _));
+
+        client.DefaultRequestHeaders.Add(
+            AntiforgeryToken.HeaderName,
+            EndpointAuthorizationHost.AntiforgeryTokenFrom(statusResponse));
+
+        using var accountsResponse = await client.GetAsync("/api/accounts");
+        Assert.Equal(HttpStatusCode.OK, accountsResponse.StatusCode);
+
+        var sessions = await client.GetFromJsonAsync<JsonElement>("/api/sessions?pageSize=100");
+        var shared = sessions.GetProperty("sessions").EnumerateArray()
+            .Single(session => session.GetProperty("id").GetGuid() == sessionId);
+        Assert.False(shared.TryGetProperty("accountId", out _));
+        Assert.False(shared.TryGetProperty("username", out _));
+        Assert.False(shared.GetProperty("accountDeleted").GetBoolean());
+
+        using var createdResponse = await client.PostAsJsonAsync(
+            "/api/accounts",
+            new CreateAccountRequest
+            {
+                Username = $"shared-{Guid.NewGuid():N}",
+                Password = "Endpoint-Contract-9"
+            });
+        Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
+        var created = await createdResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("user", created.GetProperty("role").GetString());
+        Assert.False(created.GetProperty("isMainAdmin").GetBoolean());
+
+        using var roleResponse = await client.PutAsJsonAsync(
+            $"/api/accounts/{created.GetProperty("id").GetGuid()}/role",
+            new { role = "admin" });
+        Assert.Equal(HttpStatusCode.NotFound, roleResponse.StatusCode);
     }
 
     /// <summary>
@@ -388,7 +456,7 @@ public sealed class AccountHolderRouteAccessTests
     }
 
     /// <summary>
-    /// Two sessions that differ only in their stored session type, resolved into principals by the real
+    /// Two sessions backed by distinct stored accounts, resolved into principals by the real
     /// authentication handler so the claims under test are the ones a live request would carry.
     /// </summary>
     private static async Task<(ClaimsPrincipal Admin, ClaimsPrincipal User)> AdminAndUserPrincipalsAsync(
@@ -396,14 +464,26 @@ public sealed class AccountHolderRouteAccessTests
     {
         using var scope = host.Application.Services.CreateScope();
         var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
-        var adminAccount = NewAccount(SessionType.Admin);
-        var userAccount = NewAccount(SessionType.User);
         var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        UserAccount adminAccount;
+        var userAccount = NewAccount();
         await using (var context = await factory.CreateDbContextAsync())
         {
-            context.UserAccounts.AddRange(adminAccount, userAccount);
+            adminAccount = await context.UserAccounts.SingleOrDefaultAsync(account => account.IsMainAdmin)
+                ?? NewAccount(mainAdmin: true);
+            if (context.Entry(adminAccount).State == EntityState.Detached)
+            {
+                context.UserAccounts.Add(adminAccount);
+            }
+
+            context.UserAccounts.Add(userAccount);
             await context.SaveChangesAsync();
         }
+
+        Assert.True(adminAccount.IsMainAdmin);
+        Assert.Equal(SessionType.Admin, adminAccount.Role);
+        Assert.False(userAccount.IsMainAdmin);
+        Assert.Equal(SessionType.User, userAccount.Role);
 
         var admin = await sessions.CreateAccountSessionAsync(new DefaultHttpContext(), adminAccount);
         var user = await sessions.CreateAccountSessionAsync(new DefaultHttpContext(), userAccount);
@@ -411,12 +491,13 @@ public sealed class AccountHolderRouteAccessTests
         return (await PrincipalForAsync(host, admin.RawToken), await PrincipalForAsync(host, user.RawToken));
     }
 
-    private static UserAccount NewAccount(SessionType role) => new()
+    private static UserAccount NewAccount(bool mainAdmin = false) => new()
     {
         Id = Guid.NewGuid(),
         Username = $"route-{Guid.NewGuid():N}",
         PasswordHash = "unused",
-        Role = role,
+        Role = mainAdmin ? SessionType.Admin : SessionType.User,
+        IsMainAdmin = mainAdmin,
         CreatedAtUtc = DateTime.UtcNow
     };
 
@@ -437,11 +518,27 @@ public sealed class AccountHolderRouteAccessTests
 
     private static async Task<HttpClient> CreateUserClientAsync(EndpointAuthorizationHost host)
     {
-        var client = await host.CreateAdminClientAsync();
+        var client = host.Application.CreateClient();
 
         try
         {
-            await PromoteToUserAsync(host, await SessionIdAsync(client));
+            using var scope = host.Application.Services.CreateScope();
+            var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            var account = NewAccount();
+            await using (var context = await factory.CreateDbContextAsync())
+            {
+                context.UserAccounts.Add(account);
+                await context.SaveChangesAsync();
+            }
+
+            var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+            var session = await sessions.CreateAccountSessionAsync(new DefaultHttpContext(), account);
+            var cookieWriter = new DefaultHttpContext();
+            sessions.SetSessionCookie(cookieWriter, session.RawToken, session.Session.ExpiresAtUtc);
+            client.DefaultRequestHeaders.Add(
+                "Cookie",
+                cookieWriter.Response.Headers.SetCookie.ToString().Split(';')[0]);
+            await EndpointAuthorizationHost.PrimeAntiforgeryAsync(client);
             return client;
         }
         catch
@@ -488,12 +585,4 @@ public sealed class AccountHolderRouteAccessTests
         return status.GetProperty("sessionId").GetGuid();
     }
 
-    private static async Task PromoteToUserAsync(EndpointAuthorizationHost host, Guid sessionId)
-    {
-        var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-        await using var context = await factory.CreateDbContextAsync();
-        var session = await context.UserSessions.FirstAsync(s => s.Id == sessionId);
-        session.SessionType = SessionType.User;
-        await context.SaveChangesAsync();
-    }
 }

@@ -6,7 +6,6 @@ import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionH
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useSteamAuth } from '@contexts/useSteamAuth';
-import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { type AuthMode } from '@services/auth.service';
 import SteamLoginManager from './SteamLoginManager';
@@ -29,13 +28,11 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const { steamAuthMode } = useSteamAuth();
-  const activity = useActivityStatus();
   const { status, loading: webApiLoading } = useSteamWebApiStatus();
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('integrations-steam', expanded, () => setExpanded((prev) => !prev));
 
-  const isConnected =
-    activity.isActive('integration', 'steam', 'authenticated') || steamAuthMode === 'authenticated';
+  const isConnected = steamAuthMode === 'authenticated';
 
   const steamChip = isConnected ? (
     <SectionHeaderChip variant="success">{t('management.steamAuth.connected')}</SectionHeaderChip>

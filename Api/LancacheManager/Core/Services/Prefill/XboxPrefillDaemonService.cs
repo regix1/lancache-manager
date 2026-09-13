@@ -64,37 +64,45 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
     protected override int GetGuestPermissionDurationHours()
         => _stateService.GetXboxGuestPrefillDurationHours();
 
-    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
     {
-        if (accountId is null)
+        if (accountId is null && caller?.AuthenticationEnabled != false)
         {
             return new IntegrationLoginAvailability(false, null, "account-required");
         }
 
-        var auth = _authStorage?.GetSavedLogin(accountId.Value);
+        if (_authStorage is null) return new IntegrationLoginAvailability(false, null, "not-supported");
+        caller ??= new IntegrationCaller(accountId, Guid.Empty, true);
+        var reason = _authStorage.GetIntegrationLoginReason(caller);
+        if (reason is not null) return new IntegrationLoginAvailability(false, null, reason);
+        var auth = _authStorage.GetIntegrationLogin(caller);
         return string.IsNullOrWhiteSpace(auth?.RefreshToken)
             ? new IntegrationLoginAvailability(false, null, "no-saved-login")
             : new IntegrationLoginAvailability(true, auth.DisplayName, null);
     }
 
+    public override Task<IntegrationLease> AcquireIntegrationLoginAsync(IntegrationCaller caller, CancellationToken cancellationToken)
+    {
+        if (_authStorage is null) IntegrationLease.Refuse("not-supported");
+        return _authStorage!.AcquireIntegrationLoginAsync(caller, cancellationToken);
+    }
+
     protected override async Task<bool> ReuseIntegrationLoginAsync(
         DaemonSession session,
-        Guid accountId,
+        Guid? accountId,
         Action onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationLease? lease = null)
     {
-        var auth = _authStorage?.GetSavedLogin(accountId);
-        if (string.IsNullOrWhiteSpace(auth?.RefreshToken))
-        {
-            return false;
-        }
-
+        if (_authStorage is null || lease is null) IntegrationLease.Refuse("attempt-required");
+        _authStorage!.ValidateIntegrationLease(lease!);
+        if (lease!.Caller?.AccountId != accountId) IntegrationLease.Refuse("owned-by-another-account");
+        var auth = _authStorage.GetIntegrationLogin(lease);
+        if (string.IsNullOrWhiteSpace(auth.RefreshToken)) return false;
         EnsureCurrentSession(session);
+        lease.Validate();
         return await session.Client.ProvideXboxAutoLoginWithDispatchAsync(
-            session.Id,
-            auth.RefreshToken,
-            onCommandDispatched,
-            cancellationToken);
+            session.Id, auth.RefreshToken, onCommandDispatched, cancellationToken);
     }
 
     // Diagnostics

@@ -6,7 +6,7 @@ namespace LancacheManager.Security;
 
 /// <summary>
 /// The account that owns the installation is hidden from every caller that is not that account.
-/// Users still do not see any administrator; other administrators see every account except this one.
+/// Every other account holder sees the same set of ordinary accounts, regardless of its legacy role.
 /// </summary>
 internal static class MainAdminVisibility
 {
@@ -54,23 +54,19 @@ internal static class MainAdminVisibility
     }
 
     /// <summary>
-    /// The accounts a caller may see and name. A user is answered without the administrators; an
-    /// administrator who is not the owner is answered without the owner; the owner and a caller
-    /// with no account row are answered with everybody.
+    /// The accounts a caller may see and name. Every account holder that is not the owner is
+    /// answered without the owner; the owner and a caller with no account row are answered with
+    /// everybody.
     /// </summary>
     /// <remarks>
     /// Every account action loads its target through this, which is what makes the rule a
     /// permission rather than a display filter: hiding a row from the list while still answering a
     /// request that names it by id hides nothing. A caller with no account row is an API-key
-    /// request or the shared authentication-disabled session, and both act as an administrator.
+    /// request or the shared authentication-disabled session, and both retain their established
+    /// compatibility behavior.
     /// </remarks>
     public static IQueryable<UserAccount> AccountsVisibleTo(AppDbContext context, UserAccount? caller)
     {
-        if (caller is { Role: SessionType.User })
-        {
-            return context.UserAccounts.Where(a => a.Role != SessionType.Admin);
-        }
-
         if (caller is { IsMainAdmin: false })
         {
             return context.UserAccounts.Where(a => !a.IsMainAdmin);

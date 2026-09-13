@@ -1,7 +1,10 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import { ApiError } from '@services/apiError';
+import { useAuth } from '@contexts/useAuth';
+import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { integrationReasonKeys } from '../types';
 import { useNotifications } from '@contexts/notifications';
 import type { NotificationVariant } from '../types/operations';
 
@@ -22,6 +25,8 @@ interface UseSteamApiKeyOptions {
 }
 
 interface UseSteamApiKeyResult {
+  canManage: boolean;
+  ownershipReason: string | null;
   apiKey: string;
   setApiKey: (key: string) => void;
   testing: boolean;
@@ -41,6 +46,24 @@ interface UseSteamApiKeyResult {
 export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApiKeyResult {
   const { onSaveSuccess, statusNotifications = false } = options;
   const { t } = useTranslation();
+  const { authenticationEnabled, authMode, accountId, sessionId, isLoading } = useAuth();
+  const { status, refresh } = useSteamWebApiStatus();
+  const identity = JSON.stringify([authenticationEnabled, authMode, accountId, sessionId]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const formIdentityRef = useRef(identity);
+  const requestRef = useRef(0);
+  const busyRef = useRef(false);
+  const canManage =
+    !isLoading &&
+    formIdentityRef.current === identity &&
+    (authenticationEnabled === false || status?.canManage === true);
+  const ownershipReason = canManage
+    ? null
+    : t(
+        integrationReasonKeys[status?.ownershipReason ?? ''] ??
+          'errors.integration.statusUnavailable'
+      );
   const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
 
   const [apiKey, setApiKey] = useState('');
@@ -53,6 +76,20 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
   // lifecycle lives in one 'generic' card updated in place; null once settled (mirrors
   // useSteamLoginFlow.loginCardIdRef).
   const webApiCardIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    formIdentityRef.current = identity;
+    requestRef.current += 1;
+    busyRef.current = false;
+    webApiCardIdRef.current = null;
+    setApiKey('');
+    setTesting(false);
+    setSaving(false);
+    setTestResult(null);
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [identity]);
 
   const upsertWebApiCard = (message: string): void => {
     if (!statusNotifications) {
@@ -95,21 +132,31 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
   };
 
   const cancelWebApiCard = (): void => {
+    if (identityRef.current !== identity) return;
+    requestRef.current += 1;
+    busyRef.current = false;
+    setTesting(false);
+    setSaving(false);
     settleWebApiCard('completed', t('signalr.steamWebApi.cancelled'), 'warning', true);
   };
 
   const handleTest = async (emptyKeyMessage: string, networkErrorMessage: string) => {
+    if (identityRef.current !== identity || !canManage || busyRef.current) return;
     if (!apiKey.trim()) {
       setTestResult({ valid: false, message: emptyKeyMessage });
       return;
     }
 
     setTesting(true);
+    busyRef.current = true;
+    const request = ++requestRef.current;
+    const current = () => identityRef.current === identity && requestRef.current === request;
     setTestResult(null);
     upsertWebApiCard(t('signalr.steamWebApi.validating'));
 
     try {
       const data = await ApiService.testSteamApiKey(apiKey.trim());
+      if (!current()) return;
       const verdict = data.valid
         ? t('management.steamWebApi.test.valid')
         : t('management.steamWebApi.test.invalid');
@@ -124,7 +171,11 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
         );
       }
     } catch (error: unknown) {
-      const message = getErrorMessage(error) || networkErrorMessage;
+      if (!current()) return;
+      const message =
+        error instanceof ApiError && error.body?.stageKey
+          ? t(error.body.stageKey, error.body.context ?? {})
+          : networkErrorMessage;
       setTestResult({ valid: false, message });
       settleWebApiCard(
         'failed',
@@ -132,25 +183,37 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
         'error'
       );
     } finally {
-      setTesting(false);
+      if (current()) {
+        busyRef.current = false;
+        setTesting(false);
+      }
     }
   };
 
   const handleSave = async (emptyKeyMessage: string, networkErrorMessage: string) => {
+    if (identityRef.current !== identity || !canManage || busyRef.current) return;
     if (!apiKey.trim()) {
       setTestResult({ valid: false, message: emptyKeyMessage });
       return;
     }
 
     setSaving(true);
+    busyRef.current = true;
+    const request = ++requestRef.current;
+    const current = () => identityRef.current === identity && requestRef.current === request;
     upsertWebApiCard(t('signalr.steamWebApi.saving'));
 
     try {
       await ApiService.saveSteamApiKey(apiKey.trim());
+      if (!current()) return;
       settleWebApiCard('completed', t('signalr.steamWebApi.keySaved'), 'success');
       onSaveSuccess?.();
     } catch (error: unknown) {
-      const message = getErrorMessage(error) || networkErrorMessage;
+      if (!current()) return;
+      const message =
+        error instanceof ApiError && error.body?.stageKey
+          ? t(error.body.stageKey, error.body.context ?? {})
+          : networkErrorMessage;
       setTestResult({ valid: false, message });
       settleWebApiCard(
         'failed',
@@ -158,18 +221,24 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
         'error'
       );
     } finally {
-      setSaving(false);
+      if (current()) {
+        busyRef.current = false;
+        setSaving(false);
+        void refresh();
+      }
     }
   };
 
   const resetTestResult = () => setTestResult(null);
 
   return {
-    apiKey,
+    canManage,
+    ownershipReason,
+    apiKey: formIdentityRef.current === identity ? apiKey : '',
     setApiKey,
-    testing,
-    saving,
-    testResult,
+    testing: formIdentityRef.current === identity && testing,
+    saving: formIdentityRef.current === identity && saving,
+    testResult: formIdentityRef.current === identity ? testResult : null,
     handleTest,
     handleSave,
     resetTestResult,

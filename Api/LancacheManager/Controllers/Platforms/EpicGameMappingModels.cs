@@ -5,6 +5,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 public class EpicAuthCompleteRequest
 {
+    public Guid? AttemptId { get; set; }
     public string AuthorizationCode { get; set; } = string.Empty;
 }
 

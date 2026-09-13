@@ -5,7 +5,10 @@ import ApiService from '@services/api.service';
 import { useNotifications, type NotificationStatus } from '@contexts/notifications';
 import { useErrorHandler } from './useErrorHandler';
 import { useReconnectRefetch } from './useReconnectRefetch';
-import { getErrorMessage } from '@utils/error';
+import { useAuth } from '@contexts/useAuth';
+import { ApiError } from '@services/apiError';
+import { createUuid } from '@utils/uuid';
+import { integrationReasonKeys, type XboxMappingAuthStatus } from '../types';
 import type { XboxMappingAuthStateChangedEvent } from '../contexts/SignalRContext/types';
 
 interface UseXboxMappingAuthOptions {
@@ -21,6 +24,10 @@ interface UseXboxMappingAuthOptions {
 }
 
 export interface XboxAuthState {
+  attemptId?: string | null;
+  canAuthenticate?: boolean;
+  ownershipReason?: string | null;
+  recovering?: boolean;
   loading: boolean;
   needsDeviceCode: boolean;
   deviceUserCode: string;
@@ -36,13 +43,56 @@ export interface XboxAuthActions {
   cancelPendingRequest: () => void;
 }
 
-const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-
 export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const { onSuccess, onError, loginStatusNotifications = false } = options;
   const { on, off, isConnected } = useSignalR();
   const { notifyError } = useErrorHandler();
   const { t } = useTranslation();
+  const { authenticationEnabled, authMode, accountId, sessionId, isLoading } = useAuth();
+  const identity = JSON.stringify([authenticationEnabled, authMode, accountId, sessionId]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const requestRef = useRef(0);
+  const statusRequestRef = useRef(0);
+  const attemptRef = useRef<string | null>(null);
+  const cancelledAttemptRef = useRef<string | null>(null);
+  const operationRef = useRef<string | null>(null);
+  const wasAuthenticatedRef = useRef(false);
+  const busyRef = useRef(false);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
+  const [status, setStatus] = useState<XboxMappingAuthStatus | null>(null);
+  const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState(false);
+  const hasAccess =
+    !isLoading &&
+    (authenticationEnabled === false ||
+      (authMode === 'authenticated' && Boolean(accountId && sessionId)));
+  const formIdentityRef = useRef(identity);
+  const formCurrent = formIdentityRef.current === identity && hasAccess;
+  const authStatus = statusIdentity === identity && hasAccess ? status : null;
+  const refreshStatus = useCallback(async () => {
+    if (!hasAccess || identityRef.current !== identity) return null;
+    const request = ++statusRequestRef.current;
+    try {
+      const next = await ApiService.getXboxMappingAuthStatus();
+      if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
+      setStatus(next);
+      setStatusIdentity(identity);
+      setStatusError(false);
+      return next;
+    } catch (error: unknown) {
+      if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
+      setStatus(null);
+      setStatusError(true);
+      notifyError('Xbox integration status unavailable', error, { silent: true });
+      return null;
+    } finally {
+      if (identityRef.current === identity && statusRequestRef.current === request)
+        setStatusLoading(false);
+    }
+  }, [identity, hasAccess, notifyError]);
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
@@ -87,6 +137,11 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   );
 
   const resetAuthForm = useCallback(() => {
+    requestRef.current += 1;
+    busyRef.current = false;
+    if (attemptRef.current) cancelledAttemptRef.current = attemptRef.current;
+    attemptRef.current = null;
+    setAttemptId(null);
     if (abortController) {
       abortController.abort();
     }
@@ -110,6 +165,24 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     setAbortController(null);
   }, [abortController, pushLoginCard, t]);
 
+  useEffect(() => {
+    formIdentityRef.current = identity;
+    resetAuthForm();
+    cancelledAttemptRef.current = null;
+    operationRef.current = null;
+    setStatus(null);
+    setStatusIdentity(null);
+    setStatusLoading(hasAccess);
+    setStatusError(false);
+    void refreshStatus();
+    return () => {
+      requestRef.current += 1;
+      statusRequestRef.current += 1;
+    };
+    // Authority refreshes do not reset a live same-caller form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity, refreshStatus]);
+
   // Unmount with a device code still waiting on the user (tab switched away mid-flow): nothing
   // else would ever settle the card, so it would sweep forever - settle it as cancelled. Only the
   // pre-approval wait reaches this: once the code is approved the card belongs to the catalog
@@ -129,6 +202,9 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   // same card one message earlier, with the resolved games count. Writing one would replace that
   // with a plainer message and re-arm the auto-dismiss from zero.
   const finishLogin = useCallback(() => {
+    attemptRef.current = null;
+    cancelledAttemptRef.current = null;
+    setAttemptId(null);
     loginInProgressRef.current = false;
     loginNotificationActiveRef.current = false;
     setNeedsDeviceCode(false);
@@ -142,6 +218,8 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   // still owns it, which is the pre-approval death where no reporter exists to settle it.
   const failLogin = useCallback(
     (message: string) => {
+      attemptRef.current = null;
+      setAttemptId(null);
       const loginCardActive = loginNotificationActiveRef.current;
       loginInProgressRef.current = false;
       loginNotificationActiveRef.current = false;
@@ -156,124 +234,102 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     [onError, pushLoginCard, t]
   );
 
-  // Listen for the dedicated, non-notification auth event that signals login success or failure.
+  const resyncLogin = useCallback(
+    async (event?: XboxMappingAuthStateChangedEvent) => {
+      const submittedAttempt = attemptRef.current;
+      const next = await refreshStatus();
+      if (
+        !next ||
+        !submittedAttempt ||
+        attemptRef.current !== submittedAttempt ||
+        !loginInProgressRef.current
+      )
+        return;
+      if (next.attemptId === submittedAttempt || next.loginInProgress) return;
+      const matchingEvent = Boolean(
+        operationRef.current && event?.operationId === operationRef.current
+      );
+      if (
+        next.canManage === true &&
+        next.isAuthenticated &&
+        (!wasAuthenticatedRef.current || (matchingEvent && event?.status === 'completed'))
+      ) {
+        finishLogin();
+      } else if (needsDeviceCode) {
+        const stageKey = matchingEvent ? event?.stageKey : null;
+        failLogin(
+          stageKey ? t(stageKey, event?.context ?? {}) : t('modals.xboxAuth.errors.loginFailed')
+        );
+      }
+    },
+    [refreshStatus, finishLogin, failLogin, needsDeviceCode, t]
+  );
+
   useEffect(() => {
     const handleAuthStateChanged = (event: XboxMappingAuthStateChangedEvent) => {
-      if (!loginInProgressRef.current) return;
-      if (event.status === 'waiting') {
-        // No card is written here. The backend builds its reporter before the device code is even
-        // requested, so its started event has already put the card up and that card carries the
-        // operationId the cancel X needs. Seeding one here would insert a fresh object over it and
-        // throw the id away. All this branch does is record that a login is live, so the terminal
-        // paths below know whether a card is still theirs to settle.
-        loginNotificationActiveRef.current = true;
-        return;
-      }
-      if (!TERMINAL_STATUSES.has(event.status)) return;
-      if (event.status === 'completed') {
-        finishLogin();
-        return;
-      }
-      if (event.status === 'failed') {
-        // A classified provider refusal (XboxLogonException on the backend) carries a stage key
-        // under signalr.xbox.mapping.errors.* and no error/message; the general catch keeps
-        // sending ex.Message as error, which still wins so today's text is unchanged for it.
-        const stageDetail = event.stageKey ? t(event.stageKey, event.context ?? {}) : undefined;
-        if (!event.error && event.stageKey) {
-          // A classified refusal can only be thrown from inside the catalog harvest, so it is always
-          // past approval and the reporter has already settled the card with this exact translated
-          // sentence one message earlier. Hand ownership over before failLogin snapshots it, or a
-          // second card lands carrying the generic "Xbox login failed" and demotes the real reason to
-          // a detail line the condensed strip never draws.
-          loginNotificationActiveRef.current = false;
-        }
-        failLogin(
-          event.error ?? stageDetail ?? event.message ?? t('modals.xboxAuth.errors.loginFailed')
-        );
-        return;
-      }
-      // Cancelled. Same ownership snapshot failLogin takes, for the same reason.
-      const loginCardActive = loginNotificationActiveRef.current;
-      loginInProgressRef.current = false;
-      loginNotificationActiveRef.current = false;
-      setNeedsDeviceCode(false);
-      setLoading(false);
-      if (loginCardActive) {
-        // Reached when the poll is cancelled or expires server-side while the modal is still
-        // open. Before approval the catalog reporter does not exist yet, so this is the only
-        // event that can settle the card.
-        pushLoginCard('completed', t('signalr.xbox.mapping.cancelled'), undefined, true);
-      }
-    };
-    // A mapping run owns the xbox_game_mapping card from its started event until its own terminal
-    // one, so the hook must not settle it: an unmount (or resetAuthForm) during the collect /
-    // resolve / backfill stretch would stamp a red "cancelled" over a run that is still going.
-    // The login's own started event arrives just before the 'waiting' event that arms the settles,
-    // so this leaves the pre-approval back-out paths below intact.
-    const handleMappingStarted = () => {
-      loginNotificationActiveRef.current = false;
+      void resyncLogin(event);
     };
     on('XboxMappingAuthStateChanged', handleAuthStateChanged);
-    on('XboxMappingStarted', handleMappingStarted);
-    return () => {
-      off('XboxMappingAuthStateChanged', handleAuthStateChanged);
-      off('XboxMappingStarted', handleMappingStarted);
-    };
-  }, [on, off, finishLogin, failLogin, pushLoginCard, t]);
+    return () => off('XboxMappingAuthStateChanged', handleAuthStateChanged);
+  }, [on, off, resyncLogin]);
 
-  // The backend polls Microsoft for the device code and pushes the outcome, so a socket that drops
-  // during that wait loses the only message that can end this login: the modal would sit on a code
-  // the user has already approved, or on one the poll has since given up on. The status route reads
-  // cached flags with no I/O, so asking it again on recovery is cheap. A failed ask leaves the login
-  // in flight for the next recovery.
   useReconnectRefetch(isConnected, () => {
-    if (!loginInProgressRef.current) return;
-    void ApiService.getXboxMappingAuthStatus()
-      .then((status) => {
-        // Closing the modal aborts nothing here, and two reconnects in quick succession both ask.
-        // Re-read the flag the caller checked before the request went out, or a login the user
-        // backed out of is completed anyway, and onSuccess fires twice for one login.
-        if (!loginInProgressRef.current) return;
-        if (status.isAuthenticated) {
-          finishLogin();
-          return;
-        }
-        // Signed out AND no attempt alive: the poll died while the socket was down, so nothing will
-        // ever end this login. loginInProgress stays true through the catalog stretch after
-        // approval, so a busy login never reaches here. The device code is the proof the backend
-        // registered this attempt at all - without it the login POST is still on the wire, its own
-        // rejection handles the failure, and reading the flag now would kill a login that has not
-        // started yet.
-        if (!status.loginInProgress && needsDeviceCode) {
-          failLogin(t('modals.xboxAuth.errors.loginFailed'));
-        }
-      })
-      .catch((error) => {
-        notifyError('Failed to resync Xbox mapping auth status', error, {
-          silent: true,
-          logLabel: 'useXboxMappingAuth reconnect'
-        });
-      });
+    void resyncLogin();
   });
 
   const startLogin = useCallback(async () => {
+    if (identityRef.current !== identity || !formCurrent || busyRef.current || attemptRef.current)
+      return;
+    if (authStatus?.canSignIn !== true && authStatus?.canRecover !== true) {
+      setError(
+        t(
+          integrationReasonKeys[authStatus?.ownershipReason ?? ''] ??
+            'errors.integration.statusUnavailable'
+        )
+      );
+      return;
+    }
     resetAuthForm();
+    const submittedAttempt = createUuid();
+    cancelledAttemptRef.current = null;
+    attemptRef.current = submittedAttempt;
+    setAttemptId(submittedAttempt);
+    wasAuthenticatedRef.current = authStatus.isAuthenticated;
+    operationRef.current = null;
+    busyRef.current = true;
+    const request = ++requestRef.current;
+    const current = () => identityRef.current === identity && requestRef.current === request;
     loginInProgressRef.current = true;
     setLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
 
     try {
-      const response = await ApiService.startXboxMappingLogin(controller.signal);
+      const response = await ApiService.startXboxMappingLogin(controller.signal, {
+        attemptId: submittedAttempt,
+        recover: authStatus.canRecover === true
+      });
+      if (!current()) return;
+      attemptRef.current = response.attemptId;
+      setAttemptId(response.attemptId);
+      operationRef.current = response.operationId ?? null;
+      setLoginDeadline(Date.parse(response.expiresAtUtc));
       setDeviceUserCode(response.userCode);
       setDeviceVerificationUri(response.verificationUri);
       setNeedsDeviceCode(true);
       setLoading(false);
+      loginNotificationActiveRef.current = true;
     } catch (error) {
+      if (!current()) return;
+      attemptRef.current = null;
+      setAttemptId(null);
       loginInProgressRef.current = false;
       setLoading(false);
       if (error instanceof Error && error.name === 'AbortError') return;
-      const message = getErrorMessage(error);
+      const message =
+        error instanceof ApiError && error.body?.stageKey
+          ? t(error.body.stageKey, error.body.context ?? {})
+          : t('modals.xboxAuth.errors.loginFailed');
       setError(message);
       // The backend fires "waiting" from a fire-and-forget poll task it starts BEFORE returning the
       // device code, so a card can already be up when the response itself fails. The auth-state
@@ -285,9 +341,13 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       }
       onError?.(message);
     } finally {
-      setAbortController(null);
+      if (current()) {
+        busyRef.current = false;
+        setAbortController(null);
+        void refreshStatus();
+      }
     }
-  }, [resetAuthForm, onError, pushLoginCard, t]);
+  }, [resetAuthForm, onError, pushLoginCard, t, authStatus, identity, refreshStatus, formCurrent]);
 
   // The backend polls the device code automatically, so there is no code-paste "complete" step.
   // The modal's Continue button instead RE-STARTS the login: this gives a working retry if the
@@ -302,34 +362,64 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   // poll stops immediately instead of hammering Microsoft until expiry. Best-effort: the client form
   // is already reset by resetAuthForm; an already-authenticated account is NOT signed out.
   const cancelLogin = useCallback(async () => {
+    if (identityRef.current !== identity || !formCurrent) return;
+    const cancelled = attemptId;
+    if (cancelledAttemptRef.current === cancelled) cancelledAttemptRef.current = null;
+    if (!cancelled) return;
     try {
-      await ApiService.cancelXboxMappingLogin();
+      await ApiService.cancelXboxMappingLogin(cancelled);
     } catch (error) {
       // Best-effort: the poll will expire on its own if the cancel request fails.
       notifyError('Failed to cancel Xbox mapping login', error, {
         silent: true,
         logLabel: 'useXboxMappingAuth cancelLogin'
       });
+    } finally {
+      void refreshStatus();
     }
-  }, [notifyError]);
+  }, [notifyError, refreshStatus, formCurrent, identity, attemptId]);
 
   const cancelPendingRequest = useCallback(() => {
     resetAuthForm();
   }, [resetAuthForm]);
 
   const state: XboxAuthState = {
-    loading,
-    needsDeviceCode,
-    deviceUserCode,
-    deviceVerificationUri,
-    error
+    attemptId: formCurrent ? attemptId : null,
+    canAuthenticate:
+      formCurrent &&
+      (authStatus?.canSignIn === true ||
+        authStatus?.canRecover === true ||
+        (authStatus?.canCancel === true && authStatus.attemptId === attemptId)),
+    ownershipReason: authStatus?.ownershipReason,
+    recovering: authStatus?.canRecover === true,
+    loading: formCurrent && loading,
+    needsDeviceCode: formCurrent && needsDeviceCode,
+    deviceUserCode: formCurrent ? deviceUserCode : '',
+    deviceVerificationUri: formCurrent ? deviceVerificationUri : '',
+    error: formCurrent ? error : null
   };
 
   const actions: XboxAuthActions = {
     handleAuthenticate,
-    resetAuthForm,
-    cancelPendingRequest
+    resetAuthForm: () => {
+      if (identityRef.current === identity && attemptRef.current === attemptId) resetAuthForm();
+    },
+    cancelPendingRequest: () => {
+      if (identityRef.current === identity && attemptRef.current === attemptId)
+        cancelPendingRequest();
+    }
   };
 
-  return { state, actions, startLogin, cancelLogin };
+  return {
+    state,
+    actions,
+    startLogin,
+    cancelLogin,
+    authStatus,
+    refreshStatus,
+    loginDeadline: formCurrent ? loginDeadline : null,
+    statusLoading,
+    statusError,
+    identity
+  };
 }

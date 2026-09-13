@@ -49,14 +49,18 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         => _stateService.GetGuestPrefillDurationHours();
 
 
-    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
     {
-        if (accountId is null)
+        if (accountId is null && caller?.AuthenticationEnabled != false)
         {
             return new(false, null, "account-required");
         }
 
-        var auth = _authStorage?.GetSavedLogin(accountId.Value);
+        if (_authStorage is null) return new(false, null, "not-supported");
+        caller ??= new IntegrationCaller(accountId, Guid.Empty, true);
+        var reason = _authStorage.GetIntegrationLoginReason(caller);
+        if (reason is not null) return new(false, null, reason);
+        var auth = _authStorage.GetIntegrationLogin(caller);
         if (auth is null || !string.Equals(auth.Mode, "authenticated", StringComparison.OrdinalIgnoreCase))
         {
             return new(false, null, "no-saved-login");
@@ -72,11 +76,15 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
 
     protected override async Task<bool> ReuseIntegrationLoginAsync(
         DaemonSession session,
-        Guid accountId,
+        Guid? accountId,
         Action onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationLease? lease = null)
     {
-        var auth = _authStorage?.GetSavedLogin(accountId);
+        if (_authStorage is null || lease is null) IntegrationLease.Refuse("attempt-required");
+        _authStorage!.ValidateIntegrationLease(lease!);
+        if (lease!.Caller?.AccountId != accountId) IntegrationLease.Refuse("owned-by-another-account");
+        var auth = _authStorage.GetIntegrationLogin(lease);
         if (auth is null
             || !string.Equals(auth.Mode, "authenticated", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(auth.Username)
@@ -91,12 +99,20 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         }
 
         EnsureCurrentSession(session);
+        _authStorage.ValidateIntegrationLease(lease);
         return await session.Client.ProvideAutoLoginWithDispatchAsync(
             session.Id,
             auth.Username,
             auth.RefreshToken,
             onCommandDispatched,
             cancellationToken);
+    }
+
+    public override Task<IntegrationLease> AcquireIntegrationLoginAsync(
+        IntegrationCaller caller, CancellationToken cancellationToken = default)
+    {
+        if (_authStorage is null) IntegrationLease.Refuse("not-supported");
+        return _authStorage!.AcquireIntegrationLoginAsync(caller, cancellationToken);
     }
 
     // === Diagnostics ===

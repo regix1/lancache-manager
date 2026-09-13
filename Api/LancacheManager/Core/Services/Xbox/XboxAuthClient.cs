@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Core.Services.Xbox;
 
@@ -80,7 +81,7 @@ public class XboxAuthClient
     /// <c>authorization_pending</c> (keep polling) and <c>slow_down</c> (increase interval); any other
     /// error is fatal. Times out at the device code's <c>expires_in</c> deadline.
     /// </summary>
-    internal async Task<XboxMsaTokenResponse> PollForTokenAsync(XboxDeviceCodeResponse deviceCode, CancellationToken ct = default)
+    internal async Task<XboxMsaTokenResponse> PollForTokenAsync(XboxDeviceCodeResponse deviceCode, CancellationToken ct = default, DateTime? expiresAtUtc = null)
     {
         if (string.IsNullOrEmpty(deviceCode.DeviceCode))
         {
@@ -88,12 +89,13 @@ public class XboxAuthClient
         }
 
         var interval = TimeSpan.FromSeconds(Math.Max(deviceCode.Interval, 1));
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(deviceCode.ExpiresIn > 0 ? deviceCode.ExpiresIn : 900);
+        var deadline = expiresAtUtc is { } expiry ? new DateTimeOffset(expiry) : DateTimeOffset.UtcNow.AddSeconds(deviceCode.ExpiresIn > 0 ? deviceCode.ExpiresIn : 900);
 
         while (DateTimeOffset.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(interval, ct);
+            if (DateTimeOffset.UtcNow >= deadline) break;
 
             var form = new Dictionary<string, string>
             {
@@ -170,7 +172,15 @@ public class XboxAuthClient
 
         var json = await response.Content.ReadAsStringAsync(ct);
         var token = JsonSerializer.Deserialize<XboxMsaTokenResponse>(json, _readOptions);
-        return token ?? new XboxMsaTokenResponse();
+        if (form["grant_type"] == "refresh_token"
+            && response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.Unauthorized
+            && token?.Error == "invalid_grant")
+            throw new ValidationException("The Xbox refresh token was rejected")
+            {
+                StageKey = "errors.integration.reauthenticationRequired"
+            };
+        if ((int)response.StatusCode >= 500) response.EnsureSuccessStatusCode();
+        return token ?? throw new InvalidOperationException("Microsoft returned an empty token response.");
     }
 
     #endregion

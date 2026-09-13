@@ -255,7 +255,9 @@ public class SteamWebApiService
     /// <summary>
     /// Save or update the Steam Web API key
     /// </summary>
-    public void SaveApiKey(string apiKey)
+    public long IntegrationReleaseVersion => _steamAuthRepository.IntegrationReleaseVersion;
+
+    public void SaveApiKey(string apiKey, long? expectedReleaseVersion = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -265,7 +267,7 @@ public class SteamWebApiService
         _steamAuthRepository.UpdateAuthData(data =>
         {
             data.SteamApiKey = apiKey.Trim();
-        });
+        }, saveSavedLogin: false, expectedReleaseVersion);
 
         // Invalidate cache to force re-check with new key
         _cachedVersion = SteamApiVersion.Unknown;
@@ -282,7 +284,7 @@ public class SteamWebApiService
         _steamAuthRepository.UpdateAuthData(data =>
         {
             data.SteamApiKey = null;
-        });
+        }, saveSavedLogin: false);
 
         // Invalidate cache
         _cachedVersion = SteamApiVersion.Unknown;

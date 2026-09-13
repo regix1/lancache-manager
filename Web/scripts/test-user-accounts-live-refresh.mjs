@@ -6,7 +6,7 @@ import { compileToUrl, transpile } from './transpile-module.mjs';
 
 /**
  * The accounts table is loaded once and never told anything again, so a second administrator's
- * rename, role change, disable or delete sits invisible until somebody reloads the page. The event
+ * rename, disable or delete sits invisible until somebody reloads the page. The event
  * that fixes that has to exist on both sides of the wire, be sent by the routes that change a row,
  * and be listened for by the screen, and none of the three is checked by the compiler: the names
  * are string literals in C#, in a TypeScript array and in a subscription call.
@@ -66,7 +66,6 @@ test('every route that changes an account row sends it', () => {
   const routes = [
     'CreateAccountAsync',
     'EditAccountAsync',
-    'SetRoleAsync',
     'SetDisabledAsync',
     'DeleteAccountAsync',
     'WipeAccountsAsync'

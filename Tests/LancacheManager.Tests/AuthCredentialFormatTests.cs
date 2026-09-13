@@ -207,11 +207,20 @@ public sealed class AuthCredentialFormatTests : IDisposable
         };
         storage.SaveAuthData(active);
 
-        Assert.Same(active, storage.GetAuthData());
+        var snapshot = storage.GetAuthData();
+        Assert.NotSame(active, snapshot);
+        Assert.Equal(accountId, snapshot.OwnerAccountId);
+        Assert.Equal("authenticated", snapshot.Mode);
+        Assert.Equal("steam-user", snapshot.Username);
+        Assert.Equal("steam-token", snapshot.RefreshToken);
+        Assert.Equal("steam-api-key", snapshot.SteamApiKey);
         active.OwnerAccountId = null;
         active.Mode = "anonymous";
         active.Username = null;
         active.RefreshToken = null;
+
+        Assert.Equal(accountId, storage.GetAuthData().OwnerAccountId);
+        Assert.Equal("steam-token", storage.GetAuthData().RefreshToken);
 
         var saved = storage.GetSavedLogin(accountId);
         Assert.Null(active.RefreshToken);

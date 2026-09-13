@@ -19,8 +19,8 @@ namespace LancacheManager.Tests;
 /// event names it was given, and the recording is read back.
 ///
 /// The caller is the account that owns the installation in every case: it is the only one the wipe
-/// accepts, and the only one that may hand out the administrator role, so the same caller can drive
-/// all six routes without a role change confusing what is being tested.
+/// accepts, so the same caller can drive every route without caller differences confusing what is
+/// being tested.
 /// </summary>
 public sealed class AccountChangeBroadcastTests : IDisposable
 {
@@ -44,8 +44,7 @@ public sealed class AccountChangeBroadcastTests : IDisposable
         var created = await controller.CreateAccountAsync(new CreateAccountRequest
         {
             Username = "newcomer",
-            Password = NewPassword,
-            Role = SessionType.User
+            Password = NewPassword
         });
 
         Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
@@ -63,19 +62,6 @@ public sealed class AccountChangeBroadcastTests : IDisposable
             target.Id, new EditAccountRequest { Username = "renamed-again", Password = null });
 
         Assert.Equal(StatusCodes.Status200OK, StatusOf(edited));
-        Assert.Contains(SignalREvents.AccountsChanged, sent);
-    }
-
-    [Fact]
-    public async Task ChangingARoleBroadcastsAsync()
-    {
-        await using var database = await TestDatabase.CreateAsync();
-        var (controller, sent) = await NewControllerAsync(database);
-        var target = await SeedAccountAsync(database, "promoted", SessionType.User);
-
-        var moved = await controller.SetRoleAsync(target.Id, new SetAccountRoleRequest { Role = SessionType.Admin });
-
-        Assert.Equal(StatusCodes.Status200OK, StatusOf(moved));
         Assert.Contains(SignalREvents.AccountsChanged, sent);
     }
 

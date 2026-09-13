@@ -27,6 +27,8 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
   const { t } = useTranslation();
 
   const {
+    canManage,
+    ownershipReason,
     apiKey,
     setApiKey,
     testing,
@@ -75,6 +77,11 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
       size="lg"
     >
       <div className="space-y-4">
+        {ownershipReason && (
+          <p className="text-sm text-themed-muted" role="status">
+            {ownershipReason}
+          </p>
+        )}
         {/* Info Section */}
         <div className="rounded-lg p-4 border bg-info border-info">
           <p className="text-sm text-themed-secondary mb-3">
@@ -118,6 +125,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
                 {...noAutofill}
                 {...field}
                 type="password"
+                disabled={!canManage || testing || saving}
                 value={apiKey}
                 onChange={(e) => {
                   setApiKey(e.target.value);
@@ -170,7 +178,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
               )
             }
             variant="default"
-            disabled={!apiKey.trim() || testing || saving}
+            disabled={!canManage || !apiKey.trim() || testing || saving}
             loading={testing}
             className="flex-1"
           >
@@ -188,7 +196,13 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             }
             variant="filled"
             color="primary"
-            disabled={!apiKey.trim() || testing || saving || !!(testResult && !testResult.valid)}
+            disabled={
+              !canManage ||
+              !apiKey.trim() ||
+              testing ||
+              saving ||
+              !!(testResult && !testResult.valid)
+            }
             loading={saving}
             className="flex-1"
           >

@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using LancacheManager.Core.Services.SteamKit2;
-using LancacheManager.Middleware;
 
 
 namespace LancacheManager.Controllers;
@@ -40,16 +39,27 @@ public class SteamAuthController : ControllerBase
     /// </remarks>
     [HttpGet("status")]
     [ProducesResponseType(typeof(SteamAuthStatusResponse), StatusCodes.Status200OK)]
-    public ActionResult<SteamAuthStatusResponse> GetStatus()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<SteamAuthStatusResponse>> GetStatus()
     {
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+        var access = _steamKit2Service.GetIntegrationAccess(caller);
         var isAuthenticated = _steamKit2Service.IsSteamAuthenticated;
         var authMode = isAuthenticated ? SteamAuthMode.Authenticated : SteamAuthMode.Anonymous;
-        var username = isAuthenticated ? _stateService.GetSteamUsername() : null;
+        var username = isAuthenticated && access.CanManage ? _stateService.GetSteamUsername() : null;
         var isConnected = _steamKit2Service.GetProgress().IsConnected;
 
         var authModeWire = authMode.ToWireString();
         return Ok(new SteamAuthStatusResponse
         {
+            CanManage = access.CanManage,
+            CanSignIn = access.CanSignIn,
+            CanLogout = access.CanLogout,
+            CanCancel = access.CanCancel,
+            CanRecover = access.CanRecover,
+            OwnershipReason = access.OwnershipReason,
+            AttemptId = access.AttemptId,
+            LoginExpiresAtUtc = access.LoginExpiresAtUtc,
             Mode = authModeWire,
             Username = username ?? string.Empty,
             IsAuthenticated = isAuthenticated,
@@ -73,6 +83,7 @@ public class SteamAuthController : ControllerBase
     [ProducesResponseType(typeof(SteamLoginResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> LoginAsync([FromBody] SteamLoginRequest? request)
     {
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
         // If user provides credentials, they want to authenticate (regardless of current mode)
         if (request != null && !string.IsNullOrEmpty(request.Username) && !string.IsNullOrEmpty(request.Password))
         {
@@ -85,7 +96,9 @@ public class SteamAuthController : ControllerBase
                 request.TwoFactorCode,
                 request.EmailCode,
                 request.AllowMobileConfirmation,
-                HttpContext.GetUserSession()?.AccountId
+                caller: caller,
+                attemptId: request.AttemptId,
+                recover: request.Recover
             );
 
             if (result.Success)
@@ -101,7 +114,7 @@ public class SteamAuthController : ControllerBase
                     _steamKit2Service.TryStartRebuild();
                 }
 
-                return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username, result.OperationId));
+                return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username, result.OperationId, result.AttemptId, result.ExpiresAtUtc));
             }
 
             return SteamLoginResponseMapper.MapChallengeOrFailure(result)!;
@@ -121,10 +134,10 @@ public class SteamAuthController : ControllerBase
         }
         else if (authMode == SteamAuthMode.Authenticated)
         {
-            var username = _stateService.GetSteamUsername();
+            var username = _steamKit2Service.GetIntegrationAccess(caller).CanManage ? _stateService.GetSteamUsername() : null;
             return Ok(new SteamLoginResponse
             {
-                Message = $"Already authenticated as {username}",
+                Message = "Steam is authenticated",
                 AuthMode = "authenticated",
                 Username = username,
                 Status = "connected"
@@ -147,9 +160,10 @@ public class SteamAuthController : ControllerBase
     /// </remarks>
     [HttpPost("login/cancel")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
-    public ActionResult<MessageOnlyResponse> CancelLogin()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<MessageOnlyResponse>> CancelLogin([FromBody] IntegrationLoginRequest? request = null)
     {
-        _steamKit2Service.CancelLogin();
+        _steamKit2Service.CancelLogin(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
         return Ok(new MessageOnlyResponse { Message = "Steam sign-in cancelled" });
     }
 
@@ -162,7 +176,8 @@ public class SteamAuthController : ControllerBase
     /// </remarks>
     [HttpPut("mode")]
     [ProducesResponseType(typeof(SteamModeResponse), StatusCodes.Status200OK)]
-    public ActionResult<SteamModeResponse> SetMode([FromBody] SetSteamModeRequest request)
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<SteamModeResponse>> SetMode([FromBody] SetSteamModeRequest request)
     {
         if (request?.Mode is null)
         {
@@ -170,7 +185,7 @@ public class SteamAuthController : ControllerBase
         }
 
         var mode = request.Mode.Value;
-        _stateService.SetSteamAuthMode(mode);
+        await _steamKit2Service.SetModeAsync(await IntegrationLease.ResolveCallerAsync(HttpContext), mode);
         var wire = mode.ToWireString();
         _logger.LogInformation("Steam auth mode set to: {Mode}", wire);
 
@@ -193,7 +208,7 @@ public class SteamAuthController : ControllerBase
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> LogoutAsync()
     {
-        await _steamKit2Service.LogoutAsync();
+        await _steamKit2Service.LogoutAsync(await IntegrationLease.ResolveCallerAsync(HttpContext));
         _logger.LogInformation("Steam logout completed");
 
         return Ok(MessageResponse.Ok("Logged out from Steam successfully"));

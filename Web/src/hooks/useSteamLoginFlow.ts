@@ -3,11 +3,19 @@ import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { NOTIFICATION_IDS, useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
+import { ApiError } from '@services/apiError';
+import { createUuid } from '@utils/uuid';
+import { integrationReasonKeys, type IntegrationAccess } from '../types';
 import { STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
 interface SteamLoginFlowOptions {
+  integration?: {
+    identity: string;
+    access: IntegrationAccess | null;
+    refresh: () => Promise<void>;
+  };
   loginUrl: string;
   onSuccess?: (message: string) => void;
   onError?: (message: string) => void;
@@ -23,6 +31,8 @@ interface SteamLoginFlowOptions {
 }
 
 interface SteamLoginApiResult {
+  attemptId?: string;
+  expiresAtUtc?: string;
   sessionExpired?: boolean;
   requiresTwoFactor?: boolean;
   requiresEmailCode?: boolean;
@@ -69,9 +79,25 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     onSuccess,
     onError,
     getExtraRequestBody,
+    integration,
     loginStatusNotifications = false
   } = options;
   const { t } = useTranslation();
+  const identityRef = useRef(integration?.identity);
+  identityRef.current = integration?.identity;
+  const formIdentityRef = useRef(integration?.identity);
+  const formCurrent = formIdentityRef.current === integration?.identity;
+  const requestRef = useRef(0);
+  const attemptRef = useRef<string | null>(null);
+  const cancelledAttemptRef = useRef<string | null>(null);
+  const busyRef = useRef(false);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const canAuthenticate =
+    formCurrent &&
+    (!integration ||
+      integration.access?.canSignIn === true ||
+      integration.access?.canRecover === true ||
+      (integration.access?.canCancel === true && integration.access.attemptId === attemptId));
   const { addNotification, updateNotification, removeNotification, scheduleAutoDismiss } =
     useNotifications();
 
@@ -176,6 +202,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   }, []);
 
   const cancelPendingRequest = () => {
+    requestRef.current += 1;
+    busyRef.current = false;
+    setLoading(false);
     if (abortController) {
       abortController.abort();
       setAbortController(null);
@@ -183,6 +212,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   };
 
   const resetAuthForm = () => {
+    if (attemptRef.current) cancelledAttemptRef.current = attemptRef.current;
+    attemptRef.current = null;
+    setAttemptId(null);
     // A card still live here means the user backed out mid-flow (closed the modal during the
     // Steam Guard step or the mobile-confirmation wait) - success/failure settle the card
     // themselves BEFORE calling this, so this can only be a cancel.
@@ -203,7 +235,54 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     setLoading(false);
   };
 
+  const cancelLogin = () => {
+    if (!formCurrent || identityRef.current !== integration?.identity) return;
+    const cancelled = attemptId;
+    if (cancelledAttemptRef.current === cancelled) cancelledAttemptRef.current = null;
+    if (!integration || !cancelled) return;
+    void ApiService.cancelSteamLogin(cancelled)
+      .catch((error: unknown) => {
+        console.warn('Steam sign-in cancellation was not acknowledged:', getErrorMessage(error));
+      })
+      .finally(() => {
+        void integration.refresh();
+      });
+  };
+
+  useEffect(() => {
+    formIdentityRef.current = integration?.identity;
+    requestRef.current += 1;
+    busyRef.current = false;
+    attemptRef.current = null;
+    cancelledAttemptRef.current = null;
+    setAttemptId(null);
+    setUsername('');
+    resetAuthForm();
+    return () => {
+      requestRef.current += 1;
+    };
+    // The identity, not an authority refresh during this attempt, owns the form lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integration?.identity]);
+
   const handleAuthenticate = async (): Promise<boolean> => {
+    if (!canAuthenticate || identityRef.current !== integration?.identity || busyRef.current)
+      return false;
+    const continuation = needsTwoFactor || needsEmailCode || useManualCode;
+    if (
+      integration &&
+      (continuation
+        ? !attemptRef.current
+        : integration.access?.canSignIn !== true && integration.access?.canRecover !== true)
+    ) {
+      setError(
+        t(
+          integrationReasonKeys[integration.access?.ownershipReason ?? ''] ??
+            'errors.integration.statusUnavailable'
+        )
+      );
+      return false;
+    }
     if (!username.trim() || !password.trim()) {
       addNotification({
         type: 'generic',
@@ -237,6 +316,14 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     // A fresh attempt starts here, so the last one's failure stops being the current answer.
     setError(null);
     setLoading(true);
+    busyRef.current = true;
+    const request = ++requestRef.current;
+    const identity = integration?.identity;
+    const current = () => requestRef.current === request && identityRef.current === identity;
+    const submittedAttempt = integration ? (attemptRef.current ?? createUuid()) : null;
+    cancelledAttemptRef.current = null;
+    attemptRef.current = submittedAttempt;
+    setAttemptId(submittedAttempt);
 
     const controller = new AbortController();
     setAbortController(controller);
@@ -279,15 +366,34 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
             twoFactorCode: needsTwoFactor || useManualCode ? twoFactorCode : undefined,
             emailCode: needsEmailCode ? emailCode : undefined,
             allowMobileConfirmation: !useManualCode,
-            ...getExtraRequestBody?.()
+            ...getExtraRequestBody?.(),
+            ...(integration
+              ? {
+                  attemptId: submittedAttempt,
+                  recover: !continuation && integration.access?.canRecover === true
+                }
+              : {})
           },
           { method: 'POST', signal: controller.signal }
         )
       );
+      if (!current()) return false;
+
+      let refusal: ApiError | null = null;
+      if (!response.ok) {
+        try {
+          await ApiService.handleResponse(response.clone());
+        } catch (error: unknown) {
+          if (!(error instanceof ApiError)) throw error;
+          refusal = error;
+        }
+        if (!current()) return false;
+      }
 
       let result: SteamLoginApiResult;
       try {
         result = await response.json();
+        if (!current()) return false;
       } catch (_jsonError) {
         const invalidResponse = t('modals.steamAuth.errors.invalidServerResponse');
         notifyLoginFailure(invalidResponse);
@@ -298,6 +404,11 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       }
 
       if (response.ok) {
+        if (result.attemptId) {
+          attemptRef.current = result.attemptId;
+          setAttemptId(result.attemptId);
+        }
+        if (result.expiresAtUtc) setLoginDeadline(Date.parse(result.expiresAtUtc));
         if (result.sessionExpired) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
@@ -327,17 +438,17 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         }
 
         if (result.success) {
+          attemptRef.current = null;
+          cancelledAttemptRef.current = null;
           // Settled BEFORE resetAuthForm below, which treats a still-live card as a cancel.
           settleLoginCard('completed', t('signalr.steamLogin.signedIn', { username }), 'success');
-          onSuccess?.(
-            result.message || t('modals.steamAuth.success.authenticatedAs', { username })
-          );
+          onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username }));
           resetAuthForm();
           return true;
         }
 
         setWaitingForMobileConfirmation(false);
-        const refused = result.message || t('modals.steamAuth.errors.authenticationFailed');
+        const refused = t('modals.steamAuth.errors.authenticationFailed');
         notifyLoginFailure(refused);
         setError(refused);
         return false;
@@ -345,8 +456,18 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
 
       setWaitingForMobileConfirmation(false);
       setLoading(false);
-      const errorMsg =
-        result.message || result.error || t('modals.steamAuth.errors.authenticationFailed');
+      if (result.attemptId) {
+        attemptRef.current = result.attemptId;
+        setAttemptId(result.attemptId);
+        setNeedsTwoFactor(true);
+        setUseManualCode(true);
+        if (result.expiresAtUtc) setLoginDeadline(Date.parse(result.expiresAtUtc));
+        if (refusal?.body?.stageKey) setError(t(refusal.body.stageKey, refusal.body.context ?? {}));
+        return false;
+      }
+      const errorMsg = refusal?.body?.stageKey
+        ? t(refusal.body.stageKey, refusal.body.context ?? {})
+        : t('modals.steamAuth.errors.authenticationFailed');
       notifyLoginFailure(errorMsg);
       resetAuthForm();
       // After the reset, which clears the previous attempt's error along with the typed
@@ -355,10 +476,14 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       onError?.(errorMsg);
       return false;
     } catch (err: unknown) {
+      if (!current()) return false;
       if (!(err instanceof Error && err.name === 'AbortError')) {
         setWaitingForMobileConfirmation(false);
         setLoading(false);
-        const errorMessage = getErrorMessage(err);
+        const errorMessage =
+          err instanceof ApiError && err.body?.stageKey
+            ? t(err.body.stageKey, err.body.context ?? {})
+            : t('modals.steamAuth.errors.authenticationFailed');
         notifyLoginFailure(errorMessage);
         resetAuthForm();
         // Set after the reset, same as the refused-credentials path above.
@@ -386,23 +511,26 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       if (requestTimeout) {
         clearTimeout(requestTimeout);
       }
-      setLoginDeadline(null);
-      setLoading(false);
-      setAbortController(null);
+      if (current()) {
+        busyRef.current = false;
+        setLoading(false);
+        setAbortController(null);
+      }
+      if (identityRef.current === integration?.identity) void integration?.refresh();
     }
   };
 
   const state = buildSteamOnlyState(
-    loading,
-    needsTwoFactor,
-    needsEmailCode,
-    waitingForMobileConfirmation,
-    useManualCode,
-    username,
-    password,
-    twoFactorCode,
-    emailCode,
-    error
+    formCurrent && loading,
+    formCurrent && needsTwoFactor,
+    formCurrent && needsEmailCode,
+    formCurrent && waitingForMobileConfirmation,
+    formCurrent && useManualCode,
+    formCurrent ? username : '',
+    formCurrent ? password : '',
+    formCurrent ? twoFactorCode : '',
+    formCurrent ? emailCode : '',
+    formCurrent ? error : null
   );
 
   const actions: SteamAuthActions = {
@@ -416,9 +544,30 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     setAuthorizationCode: () => {},
     handleAuthenticate,
-    resetAuthForm,
-    cancelPendingRequest
+    resetAuthForm: () => {
+      if (identityRef.current === integration?.identity && attemptRef.current === attemptId)
+        resetAuthForm();
+    },
+    cancelPendingRequest: () => {
+      if (identityRef.current === integration?.identity && attemptRef.current === attemptId)
+        cancelPendingRequest();
+    },
+    ...(integration ? { cancelLogin } : {})
   };
 
-  return { state, actions, loginDeadline };
+  return {
+    state: {
+      ...state,
+      ...(integration
+        ? {
+            attemptId: formCurrent ? attemptId : null,
+            canAuthenticate,
+            ownershipReason: integration.access?.ownershipReason,
+            recovering: integration.access?.canRecover === true
+          }
+        : {})
+    },
+    actions,
+    loginDeadline: formCurrent ? loginDeadline : null
+  };
 }

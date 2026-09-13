@@ -10,6 +10,7 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -26,7 +27,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
@@ -46,6 +47,10 @@ public sealed class MainAdminSessionProtectionTests
             Assert.Contains(adminSession.Id, ids);
             Assert.Contains(readerSession.Id, ids);
             Assert.Contains(guestSession.Id, ids);
+            Assert.Equal(administrator.Username, listed.Sessions.Single(s => s.Id == adminSession.Id).Username);
+            Assert.Equal(reader.Username, listed.Sessions.Single(s => s.Id == readerSession.Id).Username);
+            Assert.DoesNotContain(listed.Sessions, session => session.Username == owner.Username);
+            Assert.DoesNotContain(listed.HistorySessions, session => session.Username == owner.Username);
         }
     }
 
@@ -54,7 +59,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
         var adminSession = await SeedSessionAsync(database.Factory, administrator);
@@ -65,6 +70,8 @@ public sealed class MainAdminSessionProtectionTests
         Assert.Contains(listed.Sessions.Select(s => s.Id), id => id == ownerSession.Id);
         Assert.Contains(listed.Sessions.Select(s => s.Id), id => id == adminSession.Id);
         Assert.Contains(listed.HistorySessions.Select(s => s.Id), id => id == revokedOwnerSession.Id);
+        Assert.Equal(owner.Username, listed.Sessions.Single(s => s.Id == ownerSession.Id).Username);
+        Assert.Equal(owner.Username, listed.HistorySessions.Single(s => s.Id == revokedOwnerSession.Id).Username);
     }
 
     [Fact]
@@ -72,7 +79,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
@@ -81,7 +88,11 @@ public sealed class MainAdminSessionProtectionTests
 
         foreach (var caller in new[] { readerSession, adminSession })
         {
-            var controller = NewSessionsController(database, caller);
+            using var services = SessionServices(database);
+            var controller = NewSessionsController(
+                database,
+                caller,
+                services.GetRequiredService<IServiceScopeFactory>());
 
             Assert.Equal(StatusCodes.Status404NotFound, StatusOf(await controller.RevokeAsync(ownerSession.Id)));
             Assert.Equal(StatusCodes.Status404NotFound, StatusOf(await controller.DeleteAsync(ownerSession.Id)));
@@ -98,7 +109,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
@@ -130,7 +141,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
@@ -202,6 +213,74 @@ public sealed class MainAdminSessionProtectionTests
         Assert.Contains($"'{hiddenAccountId}'", sql, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void TheSessionAccountLookupTranslatesToOneProjectedMembershipQuery()
+    {
+        using var context = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseNpgsql("Host=localhost;Database=session_account_translation_smoke_test")
+                .Options);
+
+        var accountIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var sql = context.UserAccounts
+            .AsNoTracking()
+            .Where(account => accountIds.Contains(account.Id))
+            .Select(account => new { account.Id, account.Username })
+            .ToQueryString();
+
+        Assert.Contains("\"UserAccounts\"", sql, StringComparison.Ordinal);
+        Assert.Contains("\"Id\"", sql, StringComparison.Ordinal);
+        Assert.Contains("\"Username\"", sql, StringComparison.Ordinal);
+        Assert.Contains("WHERE", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SessionIdentityUsesCurrentNamesAndKeepsDeletedAndAccountlessRowsDistinct()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
+        var renamed = await SeedAccountAsync(database.Factory, role: SessionType.User);
+        var deleted = await SeedAccountAsync(database.Factory, role: SessionType.User);
+        var disabled = await SeedAccountAsync(database.Factory, role: SessionType.User);
+
+        var caller = await SeedSessionAsync(database.Factory, owner);
+        var renamedActive = await SeedSessionAsync(database.Factory, renamed);
+        var renamedHistory = await SeedSessionAsync(database.Factory, renamed, revoked: true);
+        var deletedSession = await SeedSessionAsync(database.Factory, deleted);
+        var disabledSession = await SeedSessionAsync(database.Factory, disabled);
+        var sharedSession = await SeedSessionAsync(database.Factory, account: null, sessionType: SessionType.Admin);
+        var guestSession = await SeedSessionAsync(database.Factory, account: null, sessionType: SessionType.Guest);
+
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            var renamedRow = await context.UserAccounts.SingleAsync(account => account.Id == renamed.Id);
+            renamedRow.Username = "renamed-account";
+            var deletedRow = await context.UserAccounts.SingleAsync(account => account.Id == deleted.Id);
+            context.UserAccounts.Remove(deletedRow);
+            var disabledRow = await context.UserAccounts.SingleAsync(account => account.Id == disabled.Id);
+            disabledRow.IsDisabled = true;
+            await context.SaveChangesAsync();
+        }
+
+        var listed = await ListSessionsAsync(database, caller);
+
+        Assert.Equal("renamed-account", listed.Sessions.Single(session => session.Id == renamedActive.Id).Username);
+        Assert.Equal("renamed-account", listed.HistorySessions.Single(session => session.Id == renamedHistory.Id).Username);
+        Assert.Equal(disabled.Username, listed.Sessions.Single(session => session.Id == disabledSession.Id).Username);
+
+        var deletedResult = listed.Sessions.Single(session => session.Id == deletedSession.Id);
+        Assert.Null(deletedResult.Username);
+        Assert.True(deletedResult.AccountDeleted);
+
+        var sharedResult = listed.Sessions.Single(session => session.Id == sharedSession.Id);
+        Assert.Null(sharedResult.Username);
+        Assert.False(sharedResult.AccountDeleted);
+
+        var guestResult = listed.Sessions.Single(session => session.Id == guestSession.Id);
+        Assert.Null(guestResult.Username);
+        Assert.False(guestResult.AccountDeleted);
+    }
+
     /// <summary>
     /// A ban records the acting administrator's auth session id and the ban list answers every
     /// administrator, so the owner's id is withheld from it. The ban record itself stays.
@@ -211,7 +290,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
         var adminSession = await SeedSessionAsync(database.Factory, administrator);
@@ -256,7 +335,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
         var adminSession = await SeedSessionAsync(database.Factory, administrator);
@@ -289,7 +368,7 @@ public sealed class MainAdminSessionProtectionTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, mainAdmin: true);
-        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.Admin);
+        var administrator = await SeedAccountAsync(database.Factory, role: SessionType.User);
         var reader = await SeedAccountAsync(database.Factory, role: SessionType.User);
 
         var ownerSession = await SeedSessionAsync(database.Factory, owner);
@@ -313,23 +392,37 @@ public sealed class MainAdminSessionProtectionTests
 
     private static async Task<SessionListResponse> ListSessionsAsync(TestDatabase database, UserSession caller)
     {
-        var result = await NewSessionsController(database, caller).GetAllAsync();
+        using var services = SessionServices(database);
+        var result = await NewSessionsController(
+            database,
+            caller,
+            services.GetRequiredService<IServiceScopeFactory>()).GetAllAsync();
         return Assert.IsType<SessionListResponse>(
             Assert.IsAssignableFrom<ObjectResult>(result.Result).Value);
     }
 
-    private static SessionsController NewSessionsController(TestDatabase database, UserSession caller)
+    private static SessionsController NewSessionsController(
+        TestDatabase database,
+        UserSession caller,
+        IServiceScopeFactory scopeFactory)
     {
         var controller = new SessionsController(
             NewSessionService(database),
             DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
-            scopeFactory: null!,
+            scopeFactory,
             stateService: null!);
 
         var httpContext = new DefaultHttpContext();
         httpContext.Items["Session"] = caller;
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;
+    }
+
+    private static ServiceProvider SessionServices(TestDatabase database)
+    {
+        return new ServiceCollection()
+            .AddSingleton<IDbContextFactory<AppDbContext>>(database.Factory)
+            .BuildServiceProvider();
     }
 
     private static UserPreferencesController NewPreferencesController(TestDatabase database, UserSession caller)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { User, UserCheck } from 'lucide-react';
 
@@ -12,7 +12,9 @@ import { useSteamAuth } from '@contexts/useSteamAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
-import { getErrorMessage } from '@utils/error';
+import { ApiError } from '@services/apiError';
+import { useAuth } from '@contexts/useAuth';
+import { integrationReasonKeys } from '../../../../types';
 
 interface SteamLoginManagerProps {
   authMode: AuthMode;
@@ -21,25 +23,27 @@ interface SteamLoginManagerProps {
   onSuccess?: (message: string) => void;
 }
 
-const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
-  authMode,
-  mockMode,
-  onError,
-  onSuccess
-}) => {
+const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError, onSuccess }) => {
   const { t } = useTranslation();
   const {
     steamAuthMode,
+    access,
     username: authenticatedUsername,
     autoLogoutMessage,
     refreshSteamAuth,
-    setSteamAuthMode: setContextSteamAuthMode,
-    setUsername: setContextUsername,
     clearAutoLogoutMessage
   } = useSteamAuth();
+  const { authenticationEnabled, accountId, sessionId, authMode } = useAuth();
+  const identity = JSON.stringify([authenticationEnabled, accountId, sessionId, authMode]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
+  useEffect(() => {
+    setShowAuthModal(false);
+    setLoading(false);
+  }, [identity]);
 
   const { state, actions, loginDeadline } = useSteamAuthentication({
     autoStartPics,
@@ -59,37 +63,35 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   }, []);
 
   const handleAutoStartPicsChange = (enabled: boolean) => {
+    if (loading || mockMode || (access?.canSignIn !== true && access?.canRecover !== true)) return;
     setAutoStartPics(enabled);
     storage.setItem('autoStartPics', enabled.toString());
   };
 
   const handleSwitchToAnonymous = async () => {
-    if (authMode !== 'authenticated') {
-      onError?.(t('common.fullAuthRequired'));
+    if (identityRef.current !== identity || loading || mockMode || access?.canLogout !== true)
       return;
-    }
 
     setLoading(true);
+    const caller = identity;
     try {
-      const response = await fetch(
-        '/api/steam-auth',
-        ApiService.getFetchOptions({
-          method: 'DELETE'
-        })
-      );
-
-      if (response.ok) {
-        setContextSteamAuthMode('anonymous');
-        setContextUsername('');
-        onSuccess?.(t('management.steamAuth.switchedToAnonymous'));
-      } else {
-        const errorBody = await response.json();
-        onError?.(errorBody?.message || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
-      }
+      await ApiService.clearSteamAuth();
+      if (identityRef.current !== caller) return;
+      await refreshSteamAuth();
+      if (identityRef.current !== caller) return;
+      onSuccess?.(t('management.steamAuth.switchedToAnonymous'));
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err) || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
+      if (identityRef.current !== caller) return;
+      onError?.(
+        err instanceof ApiError && err.body?.stageKey
+          ? t(err.body.stageKey, err.body.context ?? {})
+          : t('modals.steamAuth.errors.failedToSwitchToAnonymous')
+      );
     } finally {
-      setLoading(false);
+      if (identityRef.current === caller) {
+        setLoading(false);
+        void refreshSteamAuth();
+      }
     }
   };
 
@@ -105,17 +107,22 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   // has already approved on their phone, but pressing Cancel has to. Best-effort: the poll gives up
   // on its own window if this request fails, and the form is already reset either way.
   const handleCancelLogin = () => {
-    void ApiService.cancelSteamLogin().catch((err: unknown) => {
-      console.error('Cancel Steam login failed:', getErrorMessage(err));
-    });
+    actions.cancelLogin?.();
   };
 
-  const canManage = authMode === 'authenticated' && !mockMode;
+  const canManage = !mockMode && access?.canManage === true;
+  const canSignIn = !mockMode && (access?.canSignIn === true || access?.canRecover === true);
+  const reason = !access
+    ? t('errors.integration.statusUnavailable')
+    : access.ownershipReason
+      ? t(integrationReasonKeys[access.ownershipReason] ?? 'errors.integration.statusUnavailable')
+      : null;
   const isAuthenticated = steamAuthMode === 'authenticated';
 
   return (
     <>
       <div className="steam-integration">
+        {reason && <p className="text-sm text-themed-secondary">{reason}</p>}
         <div className="steam-integration__subhead">
           <h4 className="mgmt-subhead caps-label">{t('management.steamAuth.sectionTitle')}</h4>
           <HelpPopover position="left" width={320}>
@@ -189,42 +196,45 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   : t('management.steamAuth.status.publicOnly')}
               </p>
             </div>
-            <div className="mgmt-row__actions">
-              {canManage ? (
-                isAuthenticated ? (
-                  <>
-                    <Button
-                      onClick={() => setShowAuthModal(true)}
-                      variant="filled"
-                      color="primary"
-                      size="sm"
-                      disabled={loading}
-                    >
-                      {t('management.steamAuth.signInAgain')}
-                    </Button>
-                    <Button
-                      onClick={handleSwitchToAnonymous}
-                      loading={loading}
-                      variant="filled"
-                      color="secondary"
-                      size="sm"
-                      stableWidth
-                    >
-                      {t('management.steamAuth.logout')}
-                    </Button>
-                  </>
-                ) : (
+            <div className="mgmt-row__actions steam-integration__pair">
+              {isAuthenticated || access?.canLogout || access?.ownershipReason ? (
+                <>
                   <Button
-                    onClick={() => setShowAuthModal(true)}
+                    onClick={() => {
+                      if (canSignIn) setShowAuthModal(true);
+                    }}
                     variant="filled"
                     color="primary"
                     size="sm"
-                    disabled={loading}
+                    disabled={loading || !canSignIn}
                   >
-                    {t('management.steamAuth.accountLogin')}
+                    {t('management.steamAuth.signInAgain')}
                   </Button>
-                )
-              ) : null}
+                  <Button
+                    onClick={handleSwitchToAnonymous}
+                    loading={loading}
+                    variant="filled"
+                    color="secondary"
+                    size="sm"
+                    stableWidth
+                    disabled={!canManage || access?.canLogout !== true}
+                  >
+                    {t('management.steamAuth.logout')}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  onClick={() => {
+                    if (canSignIn) setShowAuthModal(true);
+                  }}
+                  variant="filled"
+                  color="primary"
+                  size="sm"
+                  disabled={loading || !canSignIn}
+                >
+                  {t('management.steamAuth.accountLogin')}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -248,12 +258,12 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   {
                     value: 'automatic',
                     label: t('management.steamAuth.automatic'),
-                    disabled: loading || mockMode
+                    disabled: loading || !canSignIn
                   },
                   {
                     value: 'manual',
                     label: t('management.steamAuth.manual'),
-                    disabled: loading || mockMode
+                    disabled: loading || !canSignIn
                   }
                 ]}
               />

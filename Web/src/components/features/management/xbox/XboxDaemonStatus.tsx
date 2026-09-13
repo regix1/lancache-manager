@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
-import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type {
   XboxMappingAuthStateChangedEvent,
   XboxMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
-import type { XboxMappingAuthStatus } from '../../../../types';
+import { integrationReasonKeys } from '../../../../types';
 import XboxGameMappings from './XboxGameMappings';
 import XboxMappingLoginModal from './XboxMappingLoginModal';
 import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
@@ -31,59 +31,42 @@ interface XboxDaemonStatusProps {
 
 const TERMINAL_AUTH_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
-const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
-  authMode,
-  mockMode,
-  onError,
-  onSuccess
-}) => {
+const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, onSuccess }) => {
   const { t } = useTranslation();
   const { on, off, isConnected } = useSignalR();
-  // Authentication now flows through the unified activity registry, which is authoritative once ready -
-  // trusting a stale cached authStatus over a fresh registry false is exactly the bug found in Epic's
-  // scheduled-refresh path (EpicDaemonStatus.tsx), so this stays consistent rather than an `||`.
-  const activity = useActivityStatus();
-  const [authStatus, setAuthStatus] = useState<XboxMappingAuthStatus | null>(null);
-  const [hasError, setHasError] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [loading, setLoading] = useState(!mockMode);
 
-  const loadStatus = useCallback(async () => {
-    // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403
-    // and permanently error the card. Surface a clean empty status instead of hitting the endpoint.
-    if (mockMode) {
-      setAuthStatus({
-        isAuthenticated: false,
-        displayName: null,
-        lastCollectionUtc: null,
-        gamesDiscovered: 0,
-        loginInProgress: false,
-        expiresAtUtc: null
-      });
-      setHasError(false);
-      return;
+  const {
+    state: loginState,
+    actions: loginActions,
+    startLogin,
+    cancelLogin,
+    authStatus,
+    refreshStatus: loadStatus,
+    statusLoading: loading,
+    statusError: hasError,
+    loginDeadline,
+    identity
+  } = useXboxMappingAuth({
+    loginStatusNotifications: true,
+    onSuccess: () => {
+      setShowAuthModal(false);
+      loadStatus();
+      onSuccess?.(t('management.sections.integrations.xboxDaemonStatus.loginSuccess'));
+    },
+    onError: (message: string) => {
+      console.error('Xbox mapping login error:', message);
+      onError?.(message);
     }
-    try {
-      const auth = await ApiService.getXboxMappingAuthStatus();
-      setAuthStatus(auth);
-      setHasError(false);
-    } catch {
-      setHasError(true);
-      setAuthStatus({
-        isAuthenticated: false,
-        displayName: null,
-        lastCollectionUtc: null,
-        gamesDiscovered: 0,
-        loginInProgress: false,
-        expiresAtUtc: null
-      });
-    }
-  }, [mockMode]);
+  });
 
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
   useEffect(() => {
-    loadStatus().finally(() => setLoading(false));
-  }, [loadStatus]);
+    setShowAuthModal(false);
+    setLoggingOut(false);
+  }, [identity]);
 
   // Refresh on relevant events
   useEffect(() => {
@@ -109,25 +92,12 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
   useReconnectRefetch(isConnected, loadStatus);
 
-  const {
-    state: loginState,
-    actions: loginActions,
-    startLogin,
-    cancelLogin
-  } = useXboxMappingAuth({
-    loginStatusNotifications: true,
-    onSuccess: () => {
-      setShowAuthModal(false);
-      loadStatus();
-      onSuccess?.(t('management.sections.integrations.xboxDaemonStatus.loginSuccess'));
-    },
-    onError: (message: string) => {
-      console.error('Xbox mapping login error:', message);
-      onError?.(message);
-    }
-  });
-
   const handleLoginClick = async () => {
+    if (
+      mockMode ||
+      (authStatus?.canSignIn !== true && authStatus?.canRecover !== true && !loginState.attemptId)
+    )
+      return;
     // Guard against a double-click: a second login-start would mint a second operationId and its own
     // terminal notification, showing the card twice. The modal being open (or a start in flight) means
     // one attempt already owns the flow.
@@ -137,25 +107,40 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   };
 
   const handleLogout = async () => {
+    if (
+      identityRef.current !== identity ||
+      mockMode ||
+      authStatus?.canLogout !== true ||
+      loggingOut
+    )
+      return;
+    const caller = identity;
     setLoggingOut(true);
     try {
       await ApiService.logoutXboxMapping();
+      if (identityRef.current !== caller) return;
       await loadStatus();
+      if (identityRef.current !== caller) return;
       onSuccess?.(t('management.sections.integrations.xboxDaemonStatus.logoutSuccess'));
     } catch (err) {
+      if (identityRef.current !== caller) return;
       console.error('Logout failed:', err);
-      onError?.(t('management.sections.integrations.xboxDaemonStatus.logoutFailed'));
+      onError?.(
+        err instanceof ApiError && err.body?.stageKey
+          ? t(err.body.stageKey, err.body.context ?? {})
+          : t('management.sections.integrations.xboxDaemonStatus.logoutFailed')
+      );
     } finally {
-      setLoggingOut(false);
+      if (identityRef.current === caller) setLoggingOut(false);
     }
   };
 
-  const isAuthenticated = activity.isActiveOrFallback(
-    'integration',
-    'xbox',
-    'authenticated',
-    authStatus?.isAuthenticated ?? false
-  );
+  const isAuthenticated = authStatus?.canManage === true && authStatus.isAuthenticated;
+  const reason = authStatus?.ownershipReason
+    ? t(integrationReasonKeys[authStatus.ownershipReason] ?? 'errors.integration.statusUnavailable')
+    : authStatus
+      ? null
+      : t('errors.integration.statusUnavailable');
 
   const loginExpiresInDays =
     authStatus?.expiresAtUtc != null
@@ -228,14 +213,16 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
           )
         }
         auth={{
-          enabled: authMode === 'authenticated' && !mockMode,
+          enabled: !mockMode,
+          reason,
+          logoutDisabled: authStatus?.canLogout !== true,
+          loginDisabled: loginState.canAuthenticate !== true,
+          loginPending: loginState.loading,
           loginLabel: t('management.sections.integrations.xboxDaemonStatus.loginButton'),
           logoutLabel: t('management.sections.integrations.xboxDaemonStatus.logout'),
           onLogin: handleLoginClick,
           onLogout: handleLogout,
-          loggingOut,
-          loginPending: loginState.loading,
-          loginDisabled: showAuthModal || loginState.loading
+          loggingOut
         }}
       >
         <XboxGameMappings />
@@ -247,6 +234,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         state={loginState}
         actions={loginActions}
         onCancelLogin={cancelLogin}
+        loginDeadline={loginDeadline}
       />
     </>
   );

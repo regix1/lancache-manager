@@ -8,6 +8,7 @@ interface XboxMappingLoginModalProps {
   state: XboxAuthState;
   actions: XboxAuthActions;
   onCancelLogin?: () => void;
+  loginDeadline?: number | null;
 }
 
 // Thin adapter: re-points XboxAuthModal from the prefill-daemon state stack
@@ -20,7 +21,8 @@ const XboxMappingLoginModal: React.FC<XboxMappingLoginModalProps> = ({
   onClose,
   state,
   actions,
-  onCancelLogin
+  onCancelLogin,
+  loginDeadline
 }) => (
   <XboxAuthModal
     opened={opened}
@@ -28,6 +30,7 @@ const XboxMappingLoginModal: React.FC<XboxMappingLoginModalProps> = ({
     state={state}
     actions={actions}
     onCancelLogin={onCancelLogin}
+    loginDeadline={loginDeadline}
   />
 );
 

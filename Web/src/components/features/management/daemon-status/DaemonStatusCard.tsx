@@ -29,6 +29,8 @@ interface DaemonStatusAuth {
    */
   loginPending?: boolean;
   loginDisabled?: boolean;
+  logoutDisabled?: boolean;
+  reason?: string | null;
 }
 
 interface DaemonStatusCardProps {
@@ -137,6 +139,11 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
                 <p className="text-themed-primary text-sm font-medium mb-1">{headline}</p>
                 <p className="text-xs text-themed-muted">{detail}</p>
                 {extraDetail}
+                {auth?.reason && (
+                  <p className="text-xs text-themed-muted mt-1" role="status">
+                    {auth.reason}
+                  </p>
+                )}
               </div>
               {readout && <div className="flex-shrink-0">{readout}</div>}
               {/* Stacked, the row is a column and the button would sit against the left edge while
@@ -148,6 +155,7 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
                     <Button
                       onClick={auth.onLogout}
                       loading={auth.loggingOut}
+                      disabled={auth.logoutDisabled}
                       variant="filled"
                       color="secondary"
                       size="sm"

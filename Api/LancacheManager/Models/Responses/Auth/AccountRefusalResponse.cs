@@ -15,35 +15,22 @@ public class AccountRefusalResponse
     public const string AccountNotFound = "errors.accounts.notFound";
 
     /// <summary>
-    /// The account that owns the installation cannot be deleted, disabled, demoted or edited, by
-    /// anybody. Closing delete alone leaves demotion, and closing all three leaves resetting its
-    /// password and signing in as it.
+    /// The account that owns the installation cannot be deleted, disabled or edited by anybody.
+    /// Closing delete alone still leaves resetting its password and signing in as it.
     /// </summary>
     public const string MainAdminProtected = "errors.accounts.mainAdminProtected";
 
     /// <summary>
-    /// Only the account that owns the installation hands out the admin role, whether by creating an
-    /// account with it or by moving an existing account onto it.
-    /// </summary>
-    public const string AdminRoleRequiresMainAdmin = "errors.accounts.adminRoleRequiresMainAdmin";
-
-    /// <summary>
-    /// Deleting every account is the owning account's alone. Separate from
-    /// <see cref="AdminRoleRequiresMainAdmin"/> because the person who pressed the button reads
-    /// the refusal, and a wipe turned down with a sentence about roles names the wrong action.
+    /// Deleting every account is the owning account's alone.
     /// </summary>
     public const string WipeRequiresMainAdmin = "errors.accounts.wipeRequiresMainAdmin";
 
     /// <summary>
-    /// The caller's own account cannot be deleted, disabled or moved to another role. All three end
-    /// the caller's sessions, and none of them can be undone by the person who did it: only the
-    /// account that owns the installation creates accounts or grants the admin role. Renaming your
-    /// own account and changing your own password stay open.
+    /// The caller's own account cannot be deleted or disabled. Both end the caller's sessions, and
+    /// neither can be undone by the person who did it. Renaming their own account and changing their
+    /// own password stay open.
     /// </summary>
     public const string SelfProtected = "errors.accounts.selfProtected";
-
-    /// <summary>Guest is a session a visitor is handed, not a role an account can hold.</summary>
-    public const string RoleNotAssignable = "errors.accounts.roleNotAssignable";
 
     /// <summary>Another account already holds that username.</summary>
     public const string UsernameTaken = "errors.accounts.usernameTaken";

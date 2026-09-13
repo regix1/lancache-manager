@@ -1,4 +1,8 @@
 export interface SteamLoginFlowState {
+  attemptId?: string | null;
+  canAuthenticate?: boolean;
+  ownershipReason?: string | null;
+  recovering?: boolean;
   loading: boolean;
   needsTwoFactor: boolean;
   needsEmailCode: boolean;
@@ -38,4 +42,5 @@ export interface SteamAuthActions {
   handleAuthenticate: () => Promise<boolean>;
   resetAuthForm: () => void;
   cancelPendingRequest: () => void;
+  cancelLogin?: () => void;
 }

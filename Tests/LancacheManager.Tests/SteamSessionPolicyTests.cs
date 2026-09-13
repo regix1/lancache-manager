@@ -16,6 +16,16 @@ namespace LancacheManager.Tests;
 
 public sealed class SteamSessionPolicyTests
 {
+    [Fact]
+    public async Task RejectedCredentialCannotInvalidateAnAdmittedDispatch()
+    {
+        using var fixture = new Fixture();
+        using var lease = await fixture.Storage.AcquireIntegrationLoginAsync(new(fixture.Owner, Guid.NewGuid(), true));
+        Assert.Equal(false, Invoke(fixture.Service, "ClearSteamCredentials", true));
+        Assert.Equal("token", fixture.Storage.GetAuthData().RefreshToken);
+        Assert.Equal("token", fixture.Storage.GetIntegrationLogin(lease).RefreshToken);
+    }
+
     [Theory]
     [InlineData(EResult.LogonSessionReplaced)]
     [InlineData(EResult.LoggedInElsewhere)]
@@ -49,6 +59,8 @@ public sealed class SteamSessionPolicyTests
         Assert.False(fixture.Service.IsSteamAuthenticated);
         Assert.Equal("token", fixture.Storage.GetSavedLogin(fixture.Owner)?.RefreshToken);
         Assert.Equal("other-token", fixture.Storage.GetSavedLogin(fixture.OtherOwner)?.RefreshToken);
+        Assert.Null(fixture.Storage.GetAuthData().OwnerAccountId);
+        Assert.Equal("api-key", fixture.Storage.GetAuthData().SteamApiKey);
     }
 
     [Theory]
@@ -323,6 +335,7 @@ public sealed class SteamSessionPolicyTests
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "steam-session-tests", Guid.NewGuid().ToString("N"));
         private readonly SteamService _steam;
+        private readonly ServiceProvider _services = new ServiceCollection().BuildServiceProvider();
         public Guid Owner { get; } = Guid.NewGuid();
         public Guid OtherOwner { get; } = Guid.NewGuid();
         public SteamAuthStorageService Storage { get; }
@@ -352,7 +365,7 @@ public sealed class SteamSessionPolicyTests
                 RefreshToken = "other-token"
             });
             var state = new StateService(NullLogger<StateService>.Instance, paths, encryption, Storage);
-            var scopes = DispatchProxy.Create<IServiceScopeFactory, NullReturningProxy>();
+            var scopes = _services.GetRequiredService<IServiceScopeFactory>();
             var clients = DispatchProxy.Create<IHttpClientFactory, NullReturningProxy>();
             _steam = new SteamService(new HttpClient(), NullLogger<SteamService>.Instance);
             Service = new SteamKit2Service(NullLogger<SteamKit2Service>.Instance, scopes, _steam,
@@ -361,6 +374,7 @@ public sealed class SteamSessionPolicyTests
                 new SteamWebApiService(NullLogger<SteamWebApiService>.Instance, clients, Storage), Storage,
                 DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>());
             Set(Service, "_sessionCredential", ((Guid?)Owner, "token"));
+            Set(Service, "_sessionAuthVersion", Storage.GetIntegrationSnapshot().Version);
             Set(Service, "_isLoggedOn", true);
         }
 
@@ -400,6 +414,7 @@ public sealed class SteamSessionPolicyTests
         {
             Service.Dispose();
             _steam.Dispose();
+            _services.Dispose();
             Directory.Delete(_root, true);
         }
     }

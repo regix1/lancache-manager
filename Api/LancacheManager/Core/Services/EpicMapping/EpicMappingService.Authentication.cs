@@ -8,98 +8,93 @@ namespace LancacheManager.Core.Services.EpicMapping;
 
 public partial class EpicMappingService
 {
-    public bool TryGetSavedLoginAccount(Guid accountId, out string? account)
+    private IntegrationLogin? _loginAttempt;
+    private IntegrationLogin? _processingLogin;
+
+    public IntegrationAccess GetIntegrationAccess(IntegrationCaller caller) => _authStorage.GetIntegrationAccess(caller);
+    public string? GetIntegrationLoginReason(IntegrationCaller caller) => _authStorage.GetIntegrationLoginReason(caller);
+    public Task<IntegrationLease> AcquireIntegrationLoginAsync(IntegrationCaller caller, CancellationToken cancellationToken = default)
+        => _authStorage.AcquireIntegrationLoginAsync(caller, cancellationToken);
+
+    public bool TryGetSavedLoginAccount(Guid? accountId, out string? account, IntegrationCaller? caller = null)
     {
-        var auth = _authStorage.GetSavedLogin(accountId);
+        caller ??= new IntegrationCaller(accountId, Guid.Empty, true);
+        account = null;
+        if (_authStorage.GetIntegrationLoginReason(caller) is not null) return false;
+        var auth = _authStorage.GetIntegrationLogin(caller);
         account = string.IsNullOrWhiteSpace(auth.RefreshToken) ? null : auth.DisplayName;
         return !string.IsNullOrWhiteSpace(auth.RefreshToken);
     }
 
     public async Task<string> CreatePrefillRefreshTokenAsync(
-        Guid accountId,
-        CancellationToken cancellationToken = default)
+        Guid? accountId,
+        CancellationToken cancellationToken = default,
+        IntegrationLease? lease = null)
     {
+        await using var acquired = lease is null
+            ? await AcquireIntegrationLoginAsync(new(accountId, Guid.Empty, true), cancellationToken)
+            : null;
+        lease ??= acquired!;
+        _authStorage.ValidateIntegrationLease(lease);
+        if (lease.Caller?.AccountId != accountId) IntegrationLease.Refuse("owned-by-another-account");
         await _sessionLock.WaitAsync(cancellationToken);
         try
         {
-            var activeAuth = _authStorage.GetAuthData();
-            var useActive = activeAuth.OwnerAccountId == accountId && _currentTokens is not null;
-            var savedAuth = useActive ? activeAuth : _authStorage.GetSavedLogin(accountId);
-            if (string.IsNullOrWhiteSpace(savedAuth.RefreshToken))
-            {
-                throw new ValidationException("No saved Epic login is available for this account")
-                {
-                    StageKey = "errors.epic.noSavedLogin"
-                };
-            }
-
+            var savedAuth = _authStorage.GetIntegrationLogin(lease);
+            var version = _authStorage.GetIntegrationSnapshot().Version;
+            if (string.IsNullOrWhiteSpace(savedAuth.RefreshToken)) IntegrationLease.Refuse("no-saved-login");
             EpicOAuthTokens tokens;
-            if (useActive && _currentTokens!.ExpiresAt > DateTime.UtcNow)
+            try
             {
-                tokens = _currentTokens;
+                tokens = await _epicApiClient.RefreshTokenAsync(savedAuth.RefreshToken!, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                var updated = _authStorage.UpdateAuthData(version, auth =>
+                {
+                    auth.RefreshToken = tokens.RefreshToken;
+                    auth.DisplayName = tokens.DisplayName;
+                    auth.AccountId = tokens.AccountId;
+                    auth.LastAuthenticated = DateTime.UtcNow;
+                }, () =>
+                {
+                    _currentTokens = tokens;
+                    _displayName = tokens.DisplayName;
+                }, lease);
+                if (updated is null) throw new OperationCanceledException();
             }
-            else
+            catch (ValidationException)
             {
-                try
+                _authStorage.InvalidateAuthData(version, () =>
                 {
-                    tokens = await _epicApiClient.RefreshTokenAsync(
-                        savedAuth.RefreshToken,
-                        cancellationToken);
-                    var refreshedAuth = new EpicAuthData
-                    {
-                        OwnerAccountId = accountId,
-                        RefreshToken = tokens.RefreshToken,
-                        DisplayName = tokens.DisplayName,
-                        AccountId = tokens.AccountId,
-                        LastAuthenticated = DateTime.UtcNow,
-                        GamesDiscovered = savedAuth.GamesDiscovered
-                    };
-
-                    if (useActive)
-                    {
-                        _currentTokens = tokens;
-                        _authStorage.SaveAuthData(refreshedAuth);
-                        _displayName = tokens.DisplayName;
-                    }
-                    else
-                    {
-                        _authStorage.SaveSavedLogin(accountId, refreshedAuth);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (ValidationException)
-                {
-                    if (useActive)
-                    {
-                        _authStorage.InvalidateAuthData();
-                        SetIsAuthenticated(false);
-                        _displayName = null;
-                        _gamesDiscovered = 0;
-                        _currentTokens = null;
-                    }
-                    else
-                    {
-                        _authStorage.ClearSavedLogin(accountId);
-                    }
-                    throw;
-                }
+                    SetIsAuthenticated(false);
+                    _displayName = null;
+                    _gamesDiscovered = 0;
+                    _currentTokens = null;
+                }, lease);
+                throw;
             }
-
-            var exchangeCode = await _epicApiClient.GetExchangeCodeAsync(
-                tokens.AccessToken,
-                cancellationToken);
-            var tokensForPrefill = await _epicApiClient.ExchangeCodeAsync(
-                exchangeCode,
-                cancellationToken);
+            var exchangeCode = await _epicApiClient.GetExchangeCodeAsync(tokens.AccessToken, cancellationToken);
+            lease.Validate();
+            var tokensForPrefill = await _epicApiClient.ExchangeCodeAsync(exchangeCode, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            lease.Validate();
             return tokensForPrefill.RefreshToken;
         }
-        finally
+        finally { _sessionLock.Release(); }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<EpicLoginUrlResponse> GetAuthorizationUrl(
+        IntegrationCaller caller, Guid? attemptId = null, bool recover = false)
+    {
+        var login = await _authStorage.BeginIntegrationLoginAsync(caller, attemptId, recover);
+        if (!_authStorage.RunIntegrationLogin(login, () => _loginAttempt = login))
+            throw new OperationCanceledException();
+        return new EpicLoginUrlResponse
         {
-            _sessionLock.Release();
-        }
+            AuthorizationUrl = _epicApiClient.GetAuthorizationUrl(),
+            AttemptId = login.AttemptId,
+            ExpiresAtUtc = login.ExpiresAtUtc
+        };
     }
 
     public string GetAuthorizationUrl()
@@ -113,8 +108,11 @@ public partial class EpicMappingService
     /// Exchanges the one-time auth code first. Only after that prerequisite succeeds does the owned
     /// game/CDN mapping operation enter the tracked lifecycle.
     /// </summary>
-    public async Task OnAuthCodeReceivedAsync(string authorizationCode, Guid? ownerAccountId = null)
+    public async Task OnAuthCodeReceivedAsync(string authorizationCode, Guid? ownerAccountId = null,
+        IntegrationCaller? caller = null, Guid? attemptId = null)
     {
+        caller ??= new(ownerAccountId, ownerAccountId, ownerAccountId is not null);
+        var login = _authStorage.ContinueIntegrationLogin(caller, attemptId);
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
             throw new ConflictException("Epic auth is already in progress")
@@ -134,8 +132,23 @@ public partial class EpicMappingService
             authCts = new CancellationTokenSource();
         }
 
-        _currentRefreshCts = authCts;
+        var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
+        authCts.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        if (!_authStorage.RunIntegrationLogin(login, () =>
+        {
+            _processingLogin = login;
+            _currentRefreshCts = authCts;
+        }))
+        {
+            authCts.Dispose();
+            _sessionLock.Release();
+            Interlocked.Exchange(ref _isProcessingInt, 0);
+            throw new OperationCanceledException();
+        }
         MappingOperationReporter? reporter = null;
+        var gamesDiscovered = 0;
+        var newGames = 0;
+        var updatedGames = 0;
         try
         {
             _currentStatus = EpicMappingStatus.Authenticating;
@@ -143,7 +156,8 @@ public partial class EpicMappingService
             var tokens = await _epicApiClient.ExchangeAuthCodeAsync(
                 authorizationCode,
                 authCts.Token);
-            _currentTokens = tokens;
+            authCts.Token.ThrowIfCancellationRequested();
+            if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
 
             // Authentication is an explicit user action. Do not inherit the visibility decision
             // from the last scheduled refresh (which may have been silent under Manual mode).
@@ -152,12 +166,15 @@ public partial class EpicMappingService
                 authCts.Token,
                 () =>
                 {
-                    _currentOperationId = null;
-                    _currentMappingReporter = null;
-                    _currentStatus = EpicMappingStatus.Idle;
+                    if (ReferenceEquals(_currentRefreshCts, authCts))
+                    {
+                        _currentOperationId = null;
+                        _currentMappingReporter = null;
+                        _currentStatus = EpicMappingStatus.Idle;
+                    }
                 });
             _currentMappingReporter = reporter;
-            await reporter.StartAsync(CreateEpicContext());
+            await reporter.StartAsync(CreateEpicContext(), login: login);
             _currentOperationId = reporter.OperationId;
             _currentStatus = EpicMappingStatus.RefreshingCatalog;
 
@@ -168,9 +185,9 @@ public partial class EpicMappingService
             var games = await _epicApiClient.GetOwnedGamesAsync(
                 tokens.AccessToken,
                 reporter.Token);
-            _gamesDiscovered = games.Count;
-            _lastNewGames = 0;
-            _lastUpdatedGames = 0;
+            authCts.Token.ThrowIfCancellationRequested();
+            if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
+            gamesDiscovered = games.Count;
 
             if (games.Count > 0)
             {
@@ -180,9 +197,9 @@ public partial class EpicMappingService
                     sessionHash,
                     "mapping-login",
                     reporter.Token);
-                _gamesDiscovered = result.TotalGames;
-                _lastNewGames = result.NewGames;
-                _lastUpdatedGames = result.UpdatedGames;
+                gamesDiscovered = result.TotalGames;
+                newGames = result.NewGames;
+                updatedGames = result.UpdatedGames;
             }
 
             await reporter.ReportAsync(
@@ -194,6 +211,8 @@ public partial class EpicMappingService
                 var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
                     tokens.AccessToken,
                     reporter.Token);
+                authCts.Token.ThrowIfCancellationRequested();
+                if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
                 if (cdnInfos.Count > 0)
                 {
                     await MergeCdnPatternsAsync(cdnInfos, reporter.Token);
@@ -204,20 +223,27 @@ public partial class EpicMappingService
                 _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
             }
 
-            _authStorage.SaveAuthData(new EpicAuthData
+            authCts.Token.ThrowIfCancellationRequested();
+            if (!_authStorage.CompleteIntegrationLogin(login, new EpicAuthData
             {
-                OwnerAccountId = ownerAccountId,
+                OwnerAccountId = login.AccountId,
                 RefreshToken = tokens.RefreshToken,
                 DisplayName = tokens.DisplayName,
                 AccountId = tokens.AccountId,
                 LastAuthenticated = DateTime.UtcNow,
-                GamesDiscovered = _gamesDiscovered
-            });
-            SetIsAuthenticated(true);
-            _displayName = tokens.DisplayName;
-            _lastCollectionUtc = DateTime.UtcNow;
-            _lastRefreshTime = DateTime.UtcNow;
-            _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
+                GamesDiscovered = gamesDiscovered
+            }, () =>
+            {
+                _gamesDiscovered = gamesDiscovered;
+                _lastNewGames = newGames;
+                _lastUpdatedGames = updatedGames;
+                _currentTokens = tokens;
+                SetIsAuthenticated(true);
+                _displayName = tokens.DisplayName;
+                _lastCollectionUtc = DateTime.UtcNow;
+                _lastRefreshTime = DateTime.UtcNow;
+                _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
+            })) throw new OperationCanceledException();
 
             await reporter.ReportAsync(
                 85,
@@ -257,6 +283,7 @@ public partial class EpicMappingService
                     cancelled: true,
                     context: CreateEpicContext());
             }
+            throw;
         }
         catch (Exception ex)
         {
@@ -283,20 +310,28 @@ public partial class EpicMappingService
                 _currentRefreshCts = null;
             }
 
-            _currentMappingReporter = null;
-            _currentOperationId = null;
-            _currentStatus = EpicMappingStatus.Idle;
+            if (ReferenceEquals(_currentMappingReporter, reporter))
+            {
+                _currentMappingReporter = null;
+                _currentOperationId = null;
+                _currentStatus = EpicMappingStatus.Idle;
+            }
+            _authStorage.FinishIntegrationLogin(login);
+            if (_loginAttempt == login) _loginAttempt = null;
+            if (_processingLogin == login) _processingLogin = null;
             _sessionLock.Release();
             Interlocked.Exchange(ref _isProcessingInt, 0);
         }
     }
 
-    public async Task LogoutAsync()
+    public async Task LogoutAsync(IntegrationCaller? caller = null)
     {
+        await using var release = await _authStorage.BeginIntegrationReleaseAsync(caller);
+        _currentRefreshCts?.Cancel();
         await _sessionLock.WaitAsync();
         try
         {
-            _authStorage.ClearAuthData();
+            _authStorage.CompleteIntegrationRelease(release);
             SetIsAuthenticated(false);
             _displayName = null;
             _lastCollectionUtc = null;
@@ -314,60 +349,51 @@ public partial class EpicMappingService
     {
         var cancellationToken = _cancellationTokenSource.Token;
         await _sessionLock.WaitAsync(cancellationToken);
+        var snapshot = _authStorage.GetIntegrationSnapshot();
         try
         {
-            var authData = _authStorage.GetAuthData();
-            if (string.IsNullOrEmpty(authData.RefreshToken))
-            {
-                _logger.LogInformation("No saved Epic refresh token, skipping auto-reconnect");
-                return;
-            }
-
+            if (string.IsNullOrEmpty(snapshot.Auth.RefreshToken) || !_authStorage.IsIntegrationCurrent(snapshot.Version)) return;
             try
             {
-                var tokens = await _epicApiClient.RefreshTokenAsync(
-                    authData.RefreshToken,
-                    cancellationToken);
-                _currentTokens = tokens;
-                _authStorage.SaveAuthData(new EpicAuthData
+                var tokens = await _epicApiClient.RefreshTokenAsync(snapshot.Auth.RefreshToken, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                _authStorage.UpdateAuthData(snapshot.Version, auth =>
                 {
-                    OwnerAccountId = authData.OwnerAccountId,
-                    RefreshToken = tokens.RefreshToken,
-                    DisplayName = tokens.DisplayName,
-                    AccountId = tokens.AccountId,
-                    LastAuthenticated = DateTime.UtcNow,
-                    GamesDiscovered = authData.GamesDiscovered
+                    auth.RefreshToken = tokens.RefreshToken;
+                    auth.DisplayName = tokens.DisplayName;
+                    auth.AccountId = tokens.AccountId;
+                    auth.LastAuthenticated = DateTime.UtcNow;
+                }, () =>
+                {
+                    _currentTokens = tokens;
+                    SetIsAuthenticated(true);
+                    _displayName = tokens.DisplayName;
+                    _gamesDiscovered = snapshot.Auth.GamesDiscovered;
+                    _lastCollectionUtc = _stateService.GetEpicMappingCollectedAt() ?? snapshot.Auth.LastAuthenticated;
                 });
-                SetIsAuthenticated(true);
-                _displayName = tokens.DisplayName;
-                _gamesDiscovered = authData.GamesDiscovered;
-                _lastCollectionUtc =
-                    _stateService.GetEpicMappingCollectedAt() ?? authData.LastAuthenticated;
             }
+            catch (OperationCanceledException) { throw; }
             catch (ValidationException ex)
             {
-                _logger.LogWarning(ex, "Epic refresh token expired or invalid, clearing credentials");
-                _authStorage.InvalidateAuthData();
-                SetIsAuthenticated(false);
-                _displayName = null;
-                _gamesDiscovered = 0;
-                _currentTokens = null;
+                _logger.LogWarning(ex, "Epic refresh token was rejected");
+                _authStorage.InvalidateAuthData(snapshot.Version, () =>
+                {
+                    SetIsAuthenticated(false);
+                    _displayName = null;
+                    _gamesDiscovered = 0;
+                    _currentTokens = null;
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to refresh Epic mapping session");
-                SetIsAuthenticated(false);
-                _currentTokens = null;
+                _authStorage.RunIfCurrent(snapshot.Version, () =>
+                {
+                    SetIsAuthenticated(false);
+                    _currentTokens = null;
+                });
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to auto-reconnect Epic mapping session");
-            SetIsAuthenticated(false);
-        }
-        finally
-        {
-            _sessionLock.Release();
-        }
+        finally { _sessionLock.Release(); }
     }
 }

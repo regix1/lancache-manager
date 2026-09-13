@@ -7,6 +7,14 @@ namespace LancacheManager.Core.Services.Xbox;
 /// </summary>
 public class XboxMappingAuthStatus
 {
+    public bool CanManage { get; set; }
+    public bool CanSignIn { get; set; }
+    public bool CanLogout { get; set; }
+    public bool CanCancel { get; set; }
+    public bool CanRecover { get; set; }
+    public string? OwnershipReason { get; set; }
+    public Guid? AttemptId { get; set; }
+    public DateTime? LoginExpiresAtUtc { get; set; }
     public bool IsAuthenticated { get; set; }
     public string? DisplayName { get; set; }
     public DateTime? LastCollectionUtc { get; set; }
@@ -33,11 +41,13 @@ public class XboxMappingAuthStatus
 /// </summary>
 public class XboxDeviceCodeChallenge
 {
+    public Guid AttemptId { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
     public string UserCode { get; set; } = string.Empty;
     public string VerificationUri { get; set; } = string.Empty;
     public int ExpiresIn { get; set; }
     public int Interval { get; set; }
-    public Guid OperationId { get; set; }
+    public Guid? OperationId { get; set; }
 }
 
 /// <summary>

@@ -7,6 +7,8 @@ using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -121,7 +123,7 @@ public sealed class OperationWaitingBlockerTests
         }
         else
         {
-            var response = Assert.IsType<OperationCancelResponse>(Assert.IsType<OkObjectResult>(controller.CancelOperation(waiter).Result).Value);
+            var response = Assert.IsType<OperationCancelResponse>(Assert.IsType<OkObjectResult>((await controller.CancelOperation(waiter)).Result).Value);
             Assert.Equal(waiter, response.OperationId);
             Assert.Equal(OperationStatus.Cancelling, response.Status);
             Assert.False(response.AlreadyFinished);
@@ -131,7 +133,7 @@ public sealed class OperationWaitingBlockerTests
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(unrelated)!.Status);
         Assert.False(tracker.GetOperation(unrelated)!.Cancelled);
         var terminal = tracker.GetOperation(successor)!;
-        var finished = Assert.IsType<OperationCancelResponse>(Assert.IsType<OkObjectResult>(controller.CancelOperation(waiter).Result).Value);
+        var finished = Assert.IsType<OperationCancelResponse>(Assert.IsType<OkObjectResult>((await controller.CancelOperation(waiter)).Result).Value);
         Assert.Equal(waiter, finished.OperationId);
         Assert.Equal(OperationStatus.Cancelled, finished.Status);
         Assert.True(finished.AlreadyFinished);
@@ -143,7 +145,7 @@ public sealed class OperationWaitingBlockerTests
         Assert.Null(tracker.GetOperation(waiter, followHandoff: true));
         var missing = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(waiter).Result).Value);
         Assert.Null(missing.NextOperationId);
-        Assert.IsType<NotFoundObjectResult>(controller.CancelOperation(waiter).Result);
+        Assert.IsType<NotFoundObjectResult>((await controller.CancelOperation(waiter)).Result);
         Assert.IsType<NotFoundObjectResult>((await controller.ForceKillAsync(waiter)).Result);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(unrelated)!.Status);
         tracker.CompleteOperation(unrelated, true);
@@ -187,7 +189,18 @@ public sealed class OperationWaitingBlockerTests
         tracker,
         new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance),
         CreateProxy<IOperationQueue>((method, _) => DefaultReturn(method.ReturnType)),
-        CreateProxy<IServiceScheduleRegistry>((method, _) => DefaultReturn(method.ReturnType)));
+        CreateProxy<IServiceScheduleRegistry>((method, _) => DefaultReturn(method.ReturnType)))
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    RequestServices = new ServiceCollection()
+                        .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+                        .BuildServiceProvider()
+                }
+            }
+        };
 
     [Theory]
     [InlineData(OperationType.GameDetection, true)]

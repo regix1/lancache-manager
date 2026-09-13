@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LancacheManager.Core.Services.Xbox;
+using LancacheManager.Middleware;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -16,6 +17,40 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class XboxAuthClientTests
 {
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, "invalid_grant", true)]
+    [InlineData(HttpStatusCode.Unauthorized, "invalid_grant", true)]
+    [InlineData(HttpStatusCode.BadRequest, "invalid_scope", false)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "invalid_grant", false)]
+    public async Task RefreshRejectionRequiresDefiniteTokenEvidence(HttpStatusCode status, string error, bool invalid)
+    {
+        using var http = new HttpClient(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { error }), Encoding.UTF8, "application/json")
+            })));
+        var client = new XboxAuthClient(http, NullLogger<XboxAuthClient>.Instance);
+        var exception = await Record.ExceptionAsync(() => client.RefreshAccessTokenAsync("saved"));
+        Assert.NotNull(exception);
+        Assert.Equal(invalid, exception is ValidationException);
+    }
+
+    [Fact]
+    public async Task ExpiredDeviceReceiptDoesNotIssueATokenRequest()
+    {
+        var calls = 0;
+        using var http = new HttpClient(new StubHttpMessageHandler((_, _) =>
+        {
+            calls++;
+            return Task.FromResult(JsonResponse("{}"));
+        }));
+        var client = new XboxAuthClient(http, NullLogger<XboxAuthClient>.Instance);
+        await Assert.ThrowsAsync<TimeoutException>(() => client.PollForTokenAsync(
+            new XboxDeviceCodeResponse { DeviceCode = "expired", ExpiresIn = 900 },
+            expiresAtUtc: DateTime.UtcNow.AddSeconds(-1)));
+        Assert.Equal(0, calls);
+    }
+
     // A fixed Windows-filetime timestamp (Int64). 0x01d51856b75ee000.
     private const long FixedFiletime = 132038524800000000L;
 

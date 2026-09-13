@@ -94,6 +94,7 @@ import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useSteamAuth } from '@contexts/useSteamAuth';
+import { integrationReasonKeys } from '../../../../../types';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
@@ -274,7 +275,13 @@ export function ScheduledPrefillConfigModal({
   onSaved
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
-  const { accountId, authMode, sessionId } = useAuth();
+  const {
+    accountId,
+    authMode,
+    sessionId,
+    authenticationEnabled,
+    isLoading: authLoading
+  } = useAuth();
   const { revision } = useSteamAuth();
   const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
   const [setScrollAreaEl, scrollAreaHeight] = useScrollAreaHeight();
@@ -351,11 +358,15 @@ export function ScheduledPrefillConfigModal({
   const editSessionCleanupPromiseRef = useRef<Promise<void> | null>(null);
   const storedCleanupPromiseRef = useRef<Promise<void> | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
-  const privateAvailabilityIdentity = `${authMode}:${accountId ?? ''}:${sessionId ?? ''}`;
+  const privateAvailabilityIdentity = `${authenticationEnabled}:${authMode}:${accountId ?? ''}:${sessionId ?? ''}`;
   const privateAvailabilityIdentityRef = useRef(privateAvailabilityIdentity);
   privateAvailabilityIdentityRef.current = privateAvailabilityIdentity;
-  const canUseSavedLogin = authMode === 'authenticated' && accountId !== null;
-  const requiresIndividualAccount = authMode === 'authenticated' && accountId === null;
+  const canUseSavedLogin =
+    !authLoading &&
+    (authenticationEnabled === false ||
+      (authMode === 'authenticated' && Boolean(accountId && sessionId)));
+  const requiresIndividualAccount =
+    authenticationEnabled !== false && authMode === 'authenticated' && !accountId;
 
   // Auto-dismiss the "logins cleared" success note so it does not linger forever.
   const scheduleClearLoginsSuccessDismiss = useTimeoutCallback(2500);
@@ -1625,6 +1636,23 @@ export function ScheduledPrefillConfigModal({
     serviceKey: ScheduledPrefillServiceKey,
     reuseIntegration: boolean
   ) => {
+    if (reuseIntegration) {
+      const availability = visibleIntegrationLoginAvailabilityByService.get(serviceKey);
+      if (
+        privateAvailabilityIdentityRef.current !== privateAvailabilityIdentity ||
+        !canUseSavedLogin ||
+        availability?.available !== true ||
+        loadingIntegrationLoginAvailability
+      ) {
+        setPersistentError(
+          t(
+            integrationReasonKeys[availability?.reason ?? ''] ??
+              'errors.integration.statusUnavailable'
+          )
+        );
+        return;
+      }
+    }
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
     if (!container?.isRunning) {

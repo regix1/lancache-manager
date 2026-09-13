@@ -1123,15 +1123,14 @@
       "neverSignedIn": "Never",
       "columns": {
         "username": "Username",
-        "role": "Role",
+        "role": "Account Type",
         "status": "Status",
         "created": "Created",
         "lastSignIn": "Last Sign-In",
         "actions": "Actions"
       },
       "roles": {
-        "admin": "Administrator",
-        "user": "User"
+        "user": "Account"
       },
       "status": {
         "active": "Active",
@@ -1139,8 +1138,6 @@
       },
       "actions": {
         "create": "Create Account",
-        "promote": "Make Administrator",
-        "demote": "Make User",
         "enable": "Enable",
         "disable": "Disable",
         "wipe": "Wipe All Accounts"
@@ -1155,16 +1152,11 @@
         "username": "Username",
         "password": "Password",
         "newPassword": "New Password",
-        "passwordHint": "Leave this blank to keep the current password.",
-        "role": "Role",
-        "adminRoleReserved": "Only the Primary account can grant the administrator role."
+        "passwordHint": "Leave this blank to keep the current password."
       },
       "confirm": {
         "deleteTitle": "Delete Account",
         "deleteBody": "Delete {{username}}? Their sessions end straight away and this cannot be undone.",
-        "roleTitle": "Change Account Role",
-        "roleLabel": "Change Role",
-        "roleBody": "Give {{username}} the {{role}} role? Their sessions end straight away.",
         "wipeTitle": "Wipe All Accounts",
         "wipeBody": "This deletes every account, including yours, and signs everyone out. The next screen is create the first administrator. This cannot be undone."
       },
@@ -1172,7 +1164,6 @@
         "load": "Failed to load accounts",
         "disabled": "Failed to update the account status",
         "delete": "Failed to delete the account",
-        "role": "Failed to change the account role",
         "wipe": "Failed to wipe accounts"
       }
     },
@@ -1369,6 +1360,18 @@
     "edit": "Edit"
   },
   "activeSessions": {
+    "account": "Account",
+    "deletedAccount": "Deleted account",
+    "sharedAccess": "Shared access",
+    "initialLoadFailed": "Sessions could not be loaded",
+    "initialLoadFailedMessage": "Retry to load the current sessions and history.",
+    "refreshFailed": "Sessions could not be refreshed. The last loaded sessions are still shown.",
+    "retry": "Retry",
+    "noMatches": "No sessions match your search or filters.",
+    "showDetails": "Show session details for {{name}}",
+    "hideDetails": "Hide session details for {{name}}",
+    "sessionActions": "Session actions for {{name}}",
+    "accountFilter": "Accounts",
     "title": "Active Sessions",
     "loading": "Loading sessions...",
     "paginationLabel": "sessions",
@@ -5393,6 +5396,9 @@
     "epicAuth": {
       "title": "Epic Games Account Login",
       "containerAccountNotice": "This is the container's Epic Games account, not your LANCache Manager login.",
+      "errors": {
+        "authenticationFailed": "Epic sign-in could not be completed. Try again."
+      },
       "signInTitle": "Sign in with Epic Games",
       "signInDescription": "You sign in at Epic, then paste a code here.",
       "connectingSubtitle": "Getting your sign-in link",
@@ -7795,6 +7801,22 @@
     }
   },
   "errors": {
+    "integration": {
+      "accountRequired": "Sign in with a LANCache account to manage this integration.",
+      "ownedByAnotherAccount": "In use by another account. That account must sign out of this integration first.",
+      "loginInProgress": "A sign-in is already in progress. Finish or cancel it before trying again.",
+      "reauthenticationRequired": "Sign in again to restore this integration. Only the installation owner can recover a shared login.",
+      "releaseInProgress": "This integration is signing out. Wait a moment and try again.",
+      "attemptRequired": "This sign-in is no longer attached to this dialog. Start a new sign-in.",
+      "attemptExpired": "This sign-in has ended or expired. Start a new sign-in.",
+      "mainOwnerRequired": "Only the installation owner can change this setting.",
+      "signInRequired": "Sign in to this integration before using its saved login.",
+      "noSavedLogin": "No usable saved login is available. Sign in manually.",
+      "notSupported": "Saved integration login is not supported for this platform.",
+      "statusUnavailable": "Integration permissions could not be checked. Refresh and try again.",
+      "recovery": "Sign in again to replace the shared login and link this integration to your account. The existing login is retained unless sign-in succeeds.",
+      "loginAvailable": "An integration login is available."
+    },
     "accountSetup": {
       "apiKeyRequired": "A valid API key is required.",
       "claimWindowClosed": "The window for creating the first account has closed. Restart the application to reopen it.",
@@ -7805,10 +7827,8 @@
     "accounts": {
       "notFound": "No such account.",
       "mainAdminProtected": "The account that owns this installation cannot be changed here.",
-      "adminRoleRequiresMainAdmin": "Only the account that owns this installation can grant the administrator role.",
       "wipeRequiresMainAdmin": "Only the account that owns this installation can delete every account.",
-      "selfProtected": "You cannot delete, disable or change the role of the account you are signed in as.",
-      "roleNotAssignable": "An account can hold the administrator or the user role.",
+      "selfProtected": "You cannot delete or disable the account you are signed in as.",
       "usernameTaken": "That username is already taken.",
       "credentialsRejected": "The username or password does not meet the requirements."
     },

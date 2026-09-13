@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -23,17 +25,12 @@ public class AccountResponse
 }
 
 /// <summary>Body of <c>POST /api/accounts</c>.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class CreateAccountRequest
 {
     public string Username { get; set; } = string.Empty;
 
     public string Password { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Required rather than defaulted, because <see cref="SessionType.Admin"/> is the zero value of
-    /// the enum: an omitted field would ask for an admin while the caller meant a user.
-    /// </summary>
-    public required SessionType Role { get; set; }
 }
 
 /// <summary>Body of <c>PUT /api/accounts/{id}</c>.</summary>
@@ -47,13 +44,6 @@ public class EditAccountRequest
     /// the recovery endpoint resets that one account and no other.
     /// </summary>
     public string? Password { get; set; }
-}
-
-/// <summary>Body of <c>PUT /api/accounts/{id}/role</c>.</summary>
-public class SetAccountRoleRequest
-{
-    /// <summary>Required for the same reason <see cref="CreateAccountRequest.Role"/> is.</summary>
-    public required SessionType Role { get; set; }
 }
 
 /// <summary>Body of <c>PUT /api/accounts/{id}/disabled</c>.</summary>

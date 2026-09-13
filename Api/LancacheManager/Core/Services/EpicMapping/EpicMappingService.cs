@@ -169,12 +169,21 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     /// <summary>
     /// Returns current auth and progress status for REST endpoints.
     /// </summary>
-    public EpicMappingAuthStatus GetAuthStatus()
+    public EpicMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null)
     {
+        var access = caller is null ? null : GetIntegrationAccess(caller);
         return new EpicMappingAuthStatus
         {
             IsAuthenticated = _isAuthenticated,
-            DisplayName = _displayName,
+            CanManage = access?.CanManage ?? false,
+            CanSignIn = access?.CanSignIn ?? false,
+            CanLogout = access?.CanLogout ?? false,
+            CanCancel = access?.CanCancel ?? false,
+            CanRecover = access?.CanRecover ?? false,
+            OwnershipReason = access?.OwnershipReason,
+            AttemptId = access?.AttemptId,
+            LoginExpiresAtUtc = access?.LoginExpiresAtUtc,
+            DisplayName = caller is null || access!.CanManage ? _displayName : null,
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered
         };

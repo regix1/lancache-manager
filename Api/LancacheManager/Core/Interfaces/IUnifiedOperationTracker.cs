@@ -59,7 +59,7 @@ public interface IUnifiedOperationTracker
     /// A cancel aimed at an operation that has handed its work on (see
     /// <see cref="RecordHandoff"/>) is forwarded to whichever operation is actually running.
     /// </summary>
-    OperationCancelResult CancelOperation(Guid operationId);
+    OperationCancelResult CancelOperation(Guid operationId, bool followHandoff = true);
 
     /// <summary>
     /// Records that <paramref name="fromOperationId"/> handed its work to
@@ -88,7 +88,7 @@ public interface IUnifiedOperationTracker
     /// Force kills the associated process for an operation (if any) and cancels its token.
     /// Returns true when the operation was found (even if no process was running).
     /// </summary>
-    bool ForceKillOperation(Guid operationId);
+    bool ForceKillOperation(Guid operationId, bool followHandoff = true);
 
     /// <summary>
     /// Gets information about a specific operation.

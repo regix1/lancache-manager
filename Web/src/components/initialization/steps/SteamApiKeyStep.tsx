@@ -17,6 +17,8 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
   const { t } = useTranslation();
 
   const {
+    canManage,
+    ownershipReason,
     apiKey,
     setApiKey,
     testing,
@@ -39,6 +41,11 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
   return (
     <div className="space-y-5">
+      {ownershipReason && (
+        <p className="text-sm text-themed-muted" role="status">
+          {ownershipReason}
+        </p>
+      )}
       <StepHeader
         icon={<Key className="w-7 h-7 icon-primary" />}
         iconBackground="bg-themed-primary-subtle"
@@ -85,7 +92,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
               }}
               placeholder={t('initialization.steamWebApiKey.placeholder')}
               className="themed-input setup-input"
-              disabled={testing || saving}
+              disabled={!canManage || testing || saving}
             />
           )}
         </FormField>
@@ -120,7 +127,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
             )
           }
           loading={testing}
-          disabled={!apiKey.trim() || testing || saving}
+          disabled={!canManage || !apiKey.trim() || testing || saving}
           className="flex-1"
         >
           {testing
@@ -138,7 +145,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
             )
           }
           loading={saving}
-          disabled={!apiKey.trim() || testing || saving || !testResult?.valid}
+          disabled={!canManage || !apiKey.trim() || testing || saving || !testResult?.valid}
           className="flex-1"
         >
           {saving

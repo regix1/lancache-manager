@@ -101,7 +101,8 @@ public sealed class EpicExchangeCodeTests
                 DisplayName = "Inactive Account"
             });
 
-            using var httpClient = new HttpClient(new InactiveOwnerHandler());
+            var handler = new InactiveOwnerHandler();
+            using var httpClient = new HttpClient(handler);
             var api = new EpicApiDirectClient(httpClient, NullLogger<EpicApiDirectClient>.Instance);
             var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
             var tracker = (IUnifiedOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>();
@@ -117,17 +118,17 @@ public sealed class EpicExchangeCodeTests
                 scopeFactory,
                 stateService);
 
-            var daemonRefresh = await service.CreatePrefillRefreshTokenAsync(inactiveAccount);
+            await Assert.ThrowsAsync<ForbiddenException>(() => service.CreatePrefillRefreshTokenAsync(inactiveAccount));
+            Assert.Equal(0, handler.Calls);
 
             var fresh = new EpicAuthStorageService(
                 NullLogger<EpicAuthStorageService>.Instance,
                 paths,
                 encryption);
-            Assert.Equal("daemon-refresh", daemonRefresh);
             Assert.Equal(activeAccount, fresh.GetAuthData().OwnerAccountId);
             Assert.Equal("active-refresh", fresh.GetAuthData().RefreshToken);
             Assert.Equal(inactiveAccount, fresh.GetSavedLogin(inactiveAccount).OwnerAccountId);
-            Assert.Equal("rotated-inactive-refresh", fresh.GetSavedLogin(inactiveAccount).RefreshToken);
+            Assert.Equal("inactive-refresh", fresh.GetSavedLogin(inactiveAccount).RefreshToken);
         }
         finally
         {
@@ -182,6 +183,7 @@ public sealed class EpicExchangeCodeTests
     private sealed class InactiveOwnerHandler : HttpMessageHandler
     {
         private int _call;
+        public int Calls => _call;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,

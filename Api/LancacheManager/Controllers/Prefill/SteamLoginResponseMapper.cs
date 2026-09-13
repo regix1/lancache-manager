@@ -12,14 +12,16 @@ public static class SteamLoginResponseMapper
     /// <summary>
     /// Builds the standard success response after credentials were persisted by the caller.
     /// </summary>
-    public static SteamLoginResponse CreateSuccessResponse(string username, Guid? operationId) =>
+    public static SteamLoginResponse CreateSuccessResponse(string username, Guid? operationId, Guid? attemptId = null, DateTime? expiresAtUtc = null) =>
         new()
         {
             Success = true,
             Message = "Authentication successful",
             AuthMode = "authenticated",
             Username = username,
-            OperationId = operationId
+            OperationId = operationId,
+            AttemptId = attemptId,
+            ExpiresAtUtc = expiresAtUtc
         };
 
     /// <summary>
@@ -43,7 +45,9 @@ public static class SteamLoginResponseMapper
             {
                 RequiresTwoFactor = true,
                 Message = result.Message ?? "Two-factor authentication required",
-                OperationId = result.OperationId
+                OperationId = result.OperationId,
+                AttemptId = result.AttemptId,
+                ExpiresAtUtc = result.ExpiresAtUtc
             });
         }
 
@@ -53,7 +57,9 @@ public static class SteamLoginResponseMapper
             {
                 RequiresEmailCode = true,
                 Message = result.Message ?? "Email verification code required",
-                OperationId = result.OperationId
+                OperationId = result.OperationId,
+                AttemptId = result.AttemptId,
+                ExpiresAtUtc = result.ExpiresAtUtc
             });
         }
 
@@ -64,7 +70,20 @@ public static class SteamLoginResponseMapper
                 SessionExpired = true,
                 RequiresTwoFactor = true,
                 Message = result.Message ?? "Session expired. Please enter your 2FA code instead.",
-                OperationId = result.OperationId
+                OperationId = result.OperationId,
+                AttemptId = result.AttemptId,
+                ExpiresAtUtc = result.ExpiresAtUtc
+            });
+        }
+
+        if (result.RequiresMobileConfirmation)
+        {
+            return new BadRequestObjectResult(new SteamAuthChallengeResponse
+            {
+                Error = result.Message ?? "Mobile confirmation required",
+                StageKey = result.StageKey,
+                AttemptId = result.AttemptId,
+                ExpiresAtUtc = result.ExpiresAtUtc
             });
         }
 

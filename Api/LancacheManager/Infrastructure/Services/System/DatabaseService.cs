@@ -75,6 +75,7 @@ public class DatabaseService
     /// </summary>
     private static readonly HashSet<string> _fullResetExcludedTables =
     [
+        "AccountResets",
         "UserAccounts",
         "__EFMigrationsHistory"
     ];

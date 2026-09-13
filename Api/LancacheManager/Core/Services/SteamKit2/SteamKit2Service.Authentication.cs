@@ -9,8 +9,8 @@ public partial class SteamKit2Service
 {
     private readonly object _loginOwnerLock = new();
     private bool _hasPendingLoginOwner;
-    private Guid? _pendingLoginOwnerAccountId;
     private string? _pendingLoginUsername;
+    private IntegrationLogin? _loginAttempt;
 
     /// <summary>
     /// Authenticate with Steam using username and password. The sign-in owns a tracked depot mapping
@@ -30,97 +30,82 @@ public partial class SteamKit2Service
         string? twoFactorCode = null,
         string? emailCode = null,
         bool allowMobileConfirmation = false,
-        Guid? ownerAccountId = null)
+        Guid? ownerAccountId = null,
+        IntegrationCaller? caller = null,
+        Guid? attemptId = null,
+        bool recover = false)
     {
-        if (Interlocked.CompareExchange(ref _loginActive, 1, 0) != 0)
-        {
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = "A Steam sign-in is already in progress.",
-                StageKey = "errors.steam.signInInProgress"
-            };
-        }
+        // The nullable-owner entry is retained for trusted internal callers. HTTP callers supply
+        // the server-resolved identity, including the initiating LANCache session.
+        caller ??= new(ownerAccountId, ownerAccountId, ownerAccountId is not null);
+        lock (_loginOwnerLock)
+            if (_loginReporter is not null) IntegrationLease.Refuse("login-in-progress");
+        var access = _steamAuthRepository.GetIntegrationAccess(caller);
+        var continuation = !string.IsNullOrWhiteSpace(twoFactorCode)
+            || !string.IsNullOrWhiteSpace(emailCode)
+            || (attemptId is not null && access.AttemptId == attemptId);
+        var login = continuation
+            ? _steamAuthRepository.ContinueIntegrationLogin(caller, attemptId)
+            : await _steamAuthRepository.BeginIntegrationLoginAsync(caller, attemptId, recover);
 
         MappingOperationReporter? reporter = null;
+        var admitted = false;
         var keepPendingLoginOwner = false;
-        Guid? loginOwnerAccountId = ownerAccountId;
         try
         {
-            var submitsGuardCode = !string.IsNullOrWhiteSpace(twoFactorCode)
-                || !string.IsNullOrWhiteSpace(emailCode);
             lock (_loginOwnerLock)
             {
-                if (submitsGuardCode
-                    && (!_hasPendingLoginOwner
-                        || _pendingLoginOwnerAccountId != ownerAccountId
-                        || !string.Equals(_pendingLoginUsername, username, StringComparison.OrdinalIgnoreCase)))
+                if (!_steamAuthRepository.RunIntegrationLogin(login, () =>
                 {
-                    keepPendingLoginOwner = _hasPendingLoginOwner;
-                    return new AuthenticationResult
-                    {
-                        Success = false,
-                        Message = "This Steam sign-in was started by another account.",
-                        StageKey = "errors.steam.signInOwnerChanged"
-                    };
-                }
-
-                if (!submitsGuardCode)
-                {
+                    if (_loginReporter is not null) IntegrationLease.Refuse("login-in-progress");
+                    if (continuation && !string.Equals(_pendingLoginUsername, username, StringComparison.OrdinalIgnoreCase))
+                        IntegrationLease.Refuse("attempt-expired");
                     _hasPendingLoginOwner = true;
-                    _pendingLoginOwnerAccountId = ownerAccountId;
                     _pendingLoginUsername = username;
-                }
-
-                loginOwnerAccountId = _pendingLoginOwnerAccountId;
+                    _loginAttempt = login;
+                    Interlocked.Exchange(ref _loginActive, 1);
+                    _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+                    reporter = CreateDepotMappingReporter(_cancellationTokenSource.Token);
+                    _loginReporter = reporter;
+                    admitted = true;
+                })) IntegrationLease.Refuse("attempt-expired");
             }
 
-            // Signing in is an explicit user action, so do not inherit the visibility decision of the
-            // last scheduled crawl - a silent one would leave the sign-in with no card at all.
-            _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
-            reporter = CreateDepotMappingReporter(_cancellationTokenSource.Token);
-            // Published before the poll starts, so a modal closed during the phone-approval wait has
-            // something to cancel for the whole time the wait can run.
-            _loginReporter = reporter;
-
-            // This stage key is what the card shows for the whole wait, which runs to a minute while
-            // the user goes and finds their phone. The reporter's default would say "Starting depot
-            // mapping...", which is the wrong thing to read at that moment.
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(reporter!.Token);
+            lifetime.CancelAfter(login.ExpiresAtUtc > DateTime.UtcNow ? login.ExpiresAtUtc - DateTime.UtcNow : TimeSpan.Zero);
+            using var cancelled = lifetime.Token.Register(() =>
+            {
+                lock (_loginOwnerLock)
+                    if (_loginAttempt == login) CancelLogin();
+            });
             await reporter.StartAsync(
                 CreateDepotContext(message: "Waiting for Steam sign-in..."),
-                stageKey: "signalr.steamLogin.waitingSignIn");
-
+                stageKey: "signalr.steamLogin.waitingSignIn", login: login);
+            lifetime.Token.ThrowIfCancellationRequested();
+            if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             var pollResult = await PollCredentialsWithRetryAsync(
-                username,
-                password,
-                twoFactorCode,
-                emailCode,
-                allowMobileConfirmation,
-                "Steam authentication",
-                reporter.Token);
+                login, username, password, twoFactorCode, emailCode, allowMobileConfirmation,
+                "Steam authentication", lifetime.Token);
+            lifetime.Token.ThrowIfCancellationRequested();
+            if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
 
             if (!pollResult.Success)
             {
                 keepPendingLoginOwner = pollResult.Result.RequiresTwoFactor
                     || pollResult.Result.RequiresEmailCode
                     || pollResult.Result.RequiresMobileConfirmation;
-                // A Steam Guard prompt, a wrong code or an expired confirmation window. The attempt
-                // is over either way; the next submit from the modal starts its own operation.
-                return await CompleteLoginAsync(
-                    reporter,
-                    cancelled: false,
-                    pollResult.Result);
+                return await CompleteLoginAsync(login, reporter, false, pollResult.Result);
             }
 
-            // Now log on with the fresh refresh token through the shared session engine
-            await _sessionGate.WaitAsync(reporter.Token);
+            await _sessionGate.WaitAsync(lifetime.Token);
             try
             {
+                if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
                 var anonymous = IsSteamDaemonActive() != false;
                 if (_isLoggedOn && (!anonymous || !HasSessionMode(anonymous: true)))
-                {
-                    await ResetConnectionLockedAsync(reporter.Token);
-                }
+                    await ResetConnectionLockedAsync(lifetime.Token);
+                lifetime.Token.ThrowIfCancellationRequested();
+                if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
                 if (!anonymous || !_isLoggedOn || _steamClient?.IsConnected != true)
                 {
                     await LogonLockedAsync(anonymous ? null : new SteamUser.LogOnDetails
@@ -129,158 +114,114 @@ public partial class SteamKit2Service
                         AccessToken = pollResult.RefreshToken!,
                         ShouldRememberPassword = true,
                         LoginID = _steamLoginId
-                    }, reporter.Token, logonTimeout: TimeSpan.FromMinutes(2), anonymous: anonymous);
+                    }, lifetime.Token, logonTimeout: TimeSpan.FromMinutes(2), anonymous: anonymous);
                 }
 
-                reporter.Token.ThrowIfCancellationRequested();
                 lock (_loginOwnerLock)
                 {
-                    reporter.Token.ThrowIfCancellationRequested();
-                    if (!_hasPendingLoginOwner || _pendingLoginOwnerAccountId != loginOwnerAccountId)
+                    lifetime.Token.ThrowIfCancellationRequested();
+                    if (!_isLoggedOn) throw new SteamConnectionLostException("Steam ended the connection before sign-in completed. Please try again.");
+                    var auth = new SteamAuthData
                     {
-                        throw new OperationCanceledException("Steam sign-in was cancelled.");
-                    }
-                    if (!_isLoggedOn)
+                        Mode = SteamAuthMode.Authenticated.ToWireString(),
+                        Username = pollResult.AccountName,
+                        RefreshToken = pollResult.RefreshToken,
+                        LastAuthenticated = DateTime.UtcNow,
+                        OwnerAccountId = login.AccountId
+                    };
+                    if (!_steamAuthRepository.CompleteIntegrationLogin(login, auth, () =>
                     {
-                        throw new SteamConnectionLostException("Steam ended the connection before sign-in completed. Please try again.");
-                    }
-                    var auth = _steamAuthRepository.GetAuthData();
-                    auth.Mode = SteamAuthMode.Authenticated.ToWireString();
-                    auth.Username = pollResult.AccountName;
-                    auth.RefreshToken = pollResult.RefreshToken;
-                    auth.LastAuthenticated = DateTime.UtcNow;
-                    auth.OwnerAccountId = loginOwnerAccountId;
-                    _steamAuthRepository.SaveAuthData(auth);
-                    _sessionReplaced = false;
-                    _sessionCredential = anonymous ? null : (loginOwnerAccountId, pollResult.RefreshToken!);
+                        _sessionReplaced = false;
+                        _sessionCredential = anonymous ? null : (login.AccountId, pollResult.RefreshToken!);
+                        _sessionAuthVersion = _steamAuthRepository.GetIntegrationSnapshot().Version;
+                    })) throw new OperationCanceledException();
                 }
             }
-            finally
-            {
-                _sessionGate.Release();
-            }
+            finally { _sessionGate.Release(); }
 
-            _logger.LogInformation("Successfully authenticated and saved refresh token");
-
-            // Terminal here rather than at the caller, so this operation is finished before the
-            // caller starts the PICS rebuild and its own depotMapping operation.
-            return await CompleteLoginAsync(
-                reporter,
-                cancelled: false,
-                new AuthenticationResult
-                {
-                    Success = true,
-                    Message = "Authentication successful"
-                });
+            return await CompleteLoginAsync(login, reporter, false,
+                new AuthenticationResult { Success = true, Message = "Authentication successful" });
         }
         catch (OperationCanceledException)
         {
-            // The tracked operation was cancelled: the card's cancel, or shutdown. Not an error.
             _logger.LogInformation("Steam sign-in cancelled");
-            return await CompleteLoginAsync(
-                reporter,
-                cancelled: true,
-                new AuthenticationResult
-                {
-                    Success = false,
-                    Message = "Sign-in was cancelled.",
-                    StageKey = "errors.steam.signInCancelled"
-                });
+            return await CompleteLoginAsync(login, reporter, true, new AuthenticationResult
+            {
+                Success = false, Message = "Sign-in was cancelled.", StageKey = "errors.steam.signInCancelled"
+            });
+        }
+        catch (LancacheManager.Middleware.ApiException)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
         {
-            // A CM dropped the auth job or the connection mid-login and the CM-rotation retries
-            // were exhausted. Surface a friendly message, not the raw exception text.
-            _logger.LogError(ex, "Authentication failed (Steam servers busy): {Message}", ex.Message);
-            return await CompleteLoginAsync(
-                reporter,
-                cancelled: false,
-                new AuthenticationResult
-                {
-                    Success = false,
-                    Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
-                    StageKey = "errors.steam.serversBusy"
-                });
+            _logger.LogWarning(ex, "Steam authentication could not reach a usable connection");
+            return await CompleteLoginAsync(login, reporter, false, new AuthenticationResult
+            {
+                Success = false, Message = "Steam's servers are busy right now. Please try again.",
+                StageKey = "errors.steam.serversBusy"
+            });
         }
         catch (SteamLogonException ex)
         {
-            // The logon was rejected after retries. Message is already friendly; the toast keeps
-            // the second frontend surface (SteamSessionError) in sync with the modal response.
-            _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
-            NotifySessionError(ex);
-            return await CompleteLoginAsync(
-                reporter,
-                cancelled: false,
-                new AuthenticationResult
-                {
-                    Success = false,
-                    Message = ex.Message
-                });
+            if (_steamAuthRepository.IsIntegrationLoginCurrent(login)) NotifySessionError(ex);
+            return await CompleteLoginAsync(login, reporter, false, new AuthenticationResult
+            {
+                Success = false, Message = ex.Message, StageKey = ex.StageKey
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Authentication failed");
-            return await CompleteLoginAsync(
-                reporter,
-                cancelled: false,
-                new AuthenticationResult
-                {
-                    Success = false,
-                    Message = "Steam sign-in could not be completed. Please try again."
-                });
+            _logger.LogError(ex, "Steam authentication failed");
+            return await CompleteLoginAsync(login, reporter, false, new AuthenticationResult
+            {
+                Success = false, Message = "Steam sign-in could not be completed. Please try again."
+            });
         }
         finally
         {
-            // Cleared before the dispose below, so a cancel arriving now finds nothing rather than a
-            // reporter that is about to go away.
-            _loginReporter = null;
-
-            if (!keepPendingLoginOwner)
+            lock (_loginOwnerLock)
             {
-                lock (_loginOwnerLock)
+                if (admitted && ReferenceEquals(_loginReporter, reporter))
                 {
-                    _hasPendingLoginOwner = false;
-                    _pendingLoginOwnerAccountId = null;
-                    _pendingLoginUsername = null;
+                    _loginReporter = null;
+                    Interlocked.Exchange(ref _loginActive, 0);
+                    if (!keepPendingLoginOwner)
+                    {
+                        _steamAuthRepository.FinishIntegrationLogin(login);
+                        _hasPendingLoginOwner = false;
+                        _pendingLoginUsername = null;
+                        _loginAttempt = null;
+                        ReportSteamIntegrationAuthenticated();
+                    }
                 }
             }
-
-            if (reporter is not null)
-            {
-                // Backstop: a path that reached neither the returns above nor a catch still lands on
-                // one terminal here, because the reporter completes itself when it is disposed
-                // unfinished. A sign-in that registers and never completes would leave a card that
-                // never clears, which is worse than the untracked login this replaced.
-                await reporter.DisposeAsync();
-            }
-
-            Interlocked.Exchange(ref _loginActive, 0);
+            if (reporter is not null) await reporter.DisposeAsync();
         }
     }
 
-    /// <summary>
-    /// Cancels an in-flight sign-in WITHOUT touching saved credentials or an authenticated session -
-    /// safe to call when the user closes the login modal. Only the sign-in's own tracked operation is
-    /// stopped, so a PICS rebuild running beside it keeps going. Nothing in flight is a no-op, which
-    /// is what a close during the Steam Guard step hits: that step waits on the person, not on Steam.
-    /// </summary>
+    /// <summary>Trusted shutdown cancellation; HTTP callers use the actor-bound overload.</summary>
     public void CancelLogin()
     {
         lock (_loginOwnerLock)
         {
+            if (_loginAttempt is { } login)
+                _steamAuthRepository.FinishIntegrationLogin(login);
             _hasPendingLoginOwner = false;
-            _pendingLoginOwnerAccountId = null;
             _pendingLoginUsername = null;
+            _loginAttempt = null;
+            var reporter = _loginReporter;
+            _loginReporter = null;
+            Interlocked.Exchange(ref _loginActive, 0);
+            reporter?.RequestCancellation();
         }
+    }
 
-        try
-        {
-            _loginReporter?.RequestCancellation();
-        }
-        catch (ObjectDisposedException)
-        {
-            // The poll finished between the field read and the cancel.
-        }
+    public void CancelLogin(IntegrationCaller caller, Guid? attemptId)
+    {
+        lock (_loginOwnerLock)
+            _steamAuthRepository.CancelIntegrationLogin(caller, attemptId, CancelLogin);
     }
 
     /// <summary>
@@ -289,10 +230,13 @@ public partial class SteamKit2Service
     /// leaves the id empty, which is the honest answer: no operation was ever registered.
     /// </summary>
     private async Task<AuthenticationResult> CompleteLoginAsync(
+        IntegrationLogin login,
         MappingOperationReporter? reporter,
         bool cancelled,
         AuthenticationResult result)
     {
+        result.AttemptId = login.AttemptId;
+        result.ExpiresAtUtc = login.ExpiresAtUtc;
         if (reporter is null)
         {
             return result;
@@ -315,6 +259,7 @@ public partial class SteamKit2Service
     /// no other flow can log the shared client into a different mode mid-authentication.
     /// </summary>
     private async Task<CredentialsAuthPollOutcome> PollCredentialsWithRetryAsync(
+        IntegrationLogin login,
         string username,
         string password,
         string? twoFactorCode,
@@ -326,6 +271,16 @@ public partial class SteamKit2Service
         await _sessionGate.WaitAsync(ct);
         try
         {
+            lock (_loginOwnerLock)
+            {
+                if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
+                if (_initialized)
+                {
+                    _steamClient?.Disconnect();
+                    InitializeSteamClient();
+                    _isLoggedOn = false;
+                }
+            }
             // A guard code the user just typed is single-use. Re-running the poll starts a fresh
             // auth session carrying a code Steam has already spent, so the retry cannot succeed and
             // the user is told the servers are busy when the real answer is that the code is gone.
@@ -362,75 +317,54 @@ public partial class SteamKit2Service
     /// <summary>
     /// Logout from Steam and clear stored credentials
     /// </summary>
-    public async Task LogoutAsync()
+    /// <summary>Trusted installation invalidation; request paths supply their resolved caller.</summary>
+    public Task LogoutAsync() => LogoutAsync((IntegrationCaller?)null);
+
+    public async Task LogoutAsync(IntegrationCaller? caller)
     {
+        await using var release = await _steamAuthRepository.BeginIntegrationReleaseAsync(caller);
+        await LogoutAsync(release);
+    }
+
+    private async Task LogoutAsync(IntegrationLease release)
+    {
+        _steamAuthRepository.ValidateIntegrationLease(release);
+        CancelLogin();
+        if (IsRebuildRunning && _currentRebuildCts is { } rebuild)
+        {
+            _currentMappingReporter?.RequestCancellation();
+            rebuild.Cancel();
+            if (_currentBuildTask is { } build) await Task.WhenAny(build, Task.Delay(3000));
+        }
+
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var daemon = scope.ServiceProvider.GetService<SteamDaemonService>();
+            if (daemon is not null)
+                await daemon.TerminateAllSessionsAsync("Steam PICS authentication logged out", includePersistent: false);
+        }
+
+        await _sessionGate.WaitAsync(_cancellationTokenSource.Token);
         try
         {
-            CancelLogin();
-            // Cancel any active PICS rebuild
-            if (IsRebuildRunning && _currentRebuildCts != null)
+            _intentionalDisconnect = true;
+            await DisconnectAsync();
+            _steamAuthRepository.CompleteIntegrationRelease(release, auth =>
             {
-                _logger.LogInformation("Cancelling active PICS rebuild before logout");
-                try
-                {
-                    if (_currentPicsOperationId.HasValue)
-                    {
-                        _depotRunFailures.TryRemove(_currentPicsOperationId.Value, out _);
-                    }
-                    _currentMappingReporter?.RequestCancellation();
-                    _currentRebuildCts.Cancel();
-
-                    // Wait briefly for cancellation to complete
-                    if (_currentBuildTask != null)
-                    {
-                        await Task.WhenAny(_currentBuildTask, Task.Delay(3000));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error cancelling rebuild during logout");
-                }
-            }
-
-            // Terminate Steam daemon sessions
-            try
+                auth.OwnerAccountId = null;
+                auth.RefreshToken = null;
+                auth.Username = null;
+                auth.LastAuthenticated = null;
+                auth.Mode = SteamAuthMode.Anonymous.ToWireString();
+            });
+            lock (_loginOwnerLock)
             {
-                using var scope = _scopeFactory.CreateScope();
-                var daemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
-
-                if (daemonService != null)
-                {
-                    await daemonService.TerminateAllSessionsAsync(
-                        "Steam PICS authentication logged out", includePersistent: false);
-                }
+                _sessionCredential = null;
+                _isLoggedOn = false;
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error terminating Steam daemon sessions during logout");
-            }
-
-            await _sessionGate.WaitAsync(_cancellationTokenSource.Token);
-            try
-            {
-                ClearSteamCredentials(invalidateSavedLogin: false);
-                _intentionalDisconnect = true;
-                await DisconnectAsync();
-            }
-            finally
-            {
-                _sessionGate.Release();
-            }
-
-            _logger.LogInformation("Logged out from Steam and cleared credentials");
+            ReportSteamIntegrationAuthenticated();
         }
-        catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
-        {
-            _logger.LogInformation("Steam logout cancelled during shutdown");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during logout");
-        }
+        finally { _sessionGate.Release(); }
     }
 
     private sealed class CredentialsAuthPollOutcome
@@ -649,31 +583,4 @@ public partial class SteamKit2Service
         }
     }
 
-    /// <summary>
-    /// Authentication result
-    /// </summary>
-    public class AuthenticationResult
-    {
-        public bool Success { get; set; }
-        public bool RequiresTwoFactor { get; set; }
-        public bool RequiresEmailCode { get; set; }
-        public bool RequiresMobileConfirmation { get; set; }
-        public bool SessionExpired { get; set; }
-        public string? Message { get; set; }
-
-        /// <summary>
-        /// i18n key naming the same reason as <see cref="Message"/>, written onto the refusal body
-        /// so the browser can show it in the reader's language. Null where the text came from Steam
-        /// itself, which no key can translate.
-        /// </summary>
-        public string? StageKey { get; set; }
-        public string? AccountName { get; set; }
-        public string? RefreshToken { get; set; }
-
-        /// <summary>
-        /// The tracked operation the sign-in ran under. Null only when the service was shutting down
-        /// and no operation was ever registered.
-        /// </summary>
-        public Guid? OperationId { get; set; }
-    }
 }

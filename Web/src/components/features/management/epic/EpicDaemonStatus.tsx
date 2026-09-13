@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
@@ -6,11 +6,11 @@ import EpicGameMappings from './EpicGameMappings';
 import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
-import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
-import type { EpicMappingAuthStatus } from '../../../../types';
+import { integrationReasonKeys } from '../../../../types';
 
 interface EpicDaemonStatusProps {
   authMode: AuthMode;
@@ -19,43 +19,41 @@ interface EpicDaemonStatusProps {
   onSuccess?: (message: string) => void;
 }
 
-const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
-  authMode,
-  mockMode,
-  onError,
-  onSuccess
-}) => {
+const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, onSuccess }) => {
   const { t } = useTranslation();
   const { on, off, isConnected } = useSignalR();
-  // Authentication now flows through the unified activity registry, which is authoritative once ready.
-  // NOT an `||`: a scheduled catalog refresh whose token renewal fails calls SetIsAuthenticated(false)
-  // without emitting EpicGameMappingsUpdated/EpicMappingProgress (see EpicMappingService.Scheduling.cs),
-  // so a stale cached authStatus.isAuthenticated=true would otherwise mask that correct registry false.
-  const activity = useActivityStatus();
-  const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
-  const [hasError, setHasError] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [loading, setLoading] = useState(true);
 
-  const loadStatus = useCallback(async () => {
-    try {
-      const auth = await ApiService.getEpicMappingAuthStatus();
-      setAuthStatus(auth);
-    } catch {
-      setHasError(true);
-      setAuthStatus({
-        isAuthenticated: false,
-        displayName: null,
-        lastCollectionUtc: null,
-        gamesDiscovered: 0
-      });
+  const {
+    state: loginState,
+    actions: loginActions,
+    startLogin,
+    authStatus,
+    refreshStatus: loadStatus,
+    statusLoading: loading,
+    statusError: hasError,
+    loginDeadline,
+    identity
+  } = useEpicMappingAuth({
+    loginStatusNotifications: true,
+    onSuccess: () => {
+      setShowAuthModal(false);
+      loadStatus();
+      onSuccess?.(t('management.sections.integrations.epicDaemonStatus.authSuccess'));
+    },
+    onError: (message: string) => {
+      console.error('Epic mapping login error:', message);
+      onError?.(message);
     }
-  }, []);
+  });
 
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
   useEffect(() => {
-    loadStatus().finally(() => setLoading(false));
-  }, [loadStatus]);
+    setShowAuthModal(false);
+    setLoggingOut(false);
+  }, [identity]);
 
   // Refresh on relevant events
   useEffect(() => {
@@ -75,48 +73,51 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
   useReconnectRefetch(isConnected, loadStatus);
 
-  const {
-    state: loginState,
-    actions: loginActions,
-    startLogin
-  } = useEpicMappingAuth({
-    loginStatusNotifications: true,
-    onSuccess: () => {
-      setShowAuthModal(false);
-      loadStatus();
-      onSuccess?.(t('management.sections.integrations.epicDaemonStatus.authSuccess'));
-    },
-    onError: (message: string) => {
-      console.error('Epic mapping login error:', message);
-      onError?.(message);
-    }
-  });
-
   const handleLoginClick = async () => {
+    if (
+      mockMode ||
+      (authStatus?.canSignIn !== true && authStatus?.canRecover !== true && !loginState.attemptId)
+    )
+      return;
     setShowAuthModal(true);
     await startLogin();
   };
 
   const handleLogout = async () => {
+    if (
+      identityRef.current !== identity ||
+      mockMode ||
+      authStatus?.canLogout !== true ||
+      loggingOut
+    )
+      return;
+    const caller = identity;
     setLoggingOut(true);
     try {
       await ApiService.logoutEpicMapping();
+      if (identityRef.current !== caller) return;
       await loadStatus();
+      if (identityRef.current !== caller) return;
       onSuccess?.(t('management.sections.integrations.epicDaemonStatus.logoutSuccess'));
     } catch (err) {
+      if (identityRef.current !== caller) return;
       console.error('Logout failed:', err);
-      onError?.(t('management.sections.integrations.epicDaemonStatus.logoutError'));
+      onError?.(
+        err instanceof ApiError && err.body?.stageKey
+          ? t(err.body.stageKey, err.body.context ?? {})
+          : t('management.sections.integrations.epicDaemonStatus.logoutError')
+      );
     } finally {
-      setLoggingOut(false);
+      if (identityRef.current === caller) setLoggingOut(false);
     }
   };
 
-  const isAuthenticated = activity.isActiveOrFallback(
-    'integration',
-    'epic',
-    'authenticated',
-    authStatus?.isAuthenticated ?? false
-  );
+  const isAuthenticated = authStatus?.canManage === true && authStatus.isAuthenticated;
+  const reason = authStatus?.ownershipReason
+    ? t(integrationReasonKeys[authStatus.ownershipReason] ?? 'errors.integration.statusUnavailable')
+    : authStatus
+      ? null
+      : t('errors.integration.statusUnavailable');
 
   return (
     <>
@@ -170,7 +171,11 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
             : t('management.sections.integrations.epicDaemonStatus.notConnectedDesc')
         }
         auth={{
-          enabled: authMode === 'authenticated' && !mockMode,
+          enabled: !mockMode,
+          reason,
+          logoutDisabled: authStatus?.canLogout !== true,
+          loginDisabled: loginState.canAuthenticate !== true,
+          loginPending: loginState.loading,
           loginLabel: t('management.sections.integrations.epicDaemonStatus.loginButton'),
           logoutLabel: t('management.sections.integrations.epicDaemonStatus.logout'),
           onLogin: handleLoginClick,
@@ -182,6 +187,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
       </DaemonStatusCard>
 
       <EpicAuthModal
+        loginDeadline={loginDeadline}
         opened={showAuthModal}
         onClose={() => setShowAuthModal(false)}
         state={loginState}

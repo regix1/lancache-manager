@@ -7,6 +7,7 @@ using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
@@ -111,20 +112,40 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
     {
         var service = CreateService(CreateTracker());
         var owner = Guid.NewGuid();
+        var caller = new IntegrationCaller(owner, Guid.NewGuid(), true);
+        var storage = GetPrivateField<SteamAuthStorageService>(service, "_steamAuthRepository");
+        var login = await storage.BeginIntegrationLoginAsync(caller);
         SetPrivateField(service, "_hasPendingLoginOwner", true);
-        SetPrivateField<Guid?>(service, "_pendingLoginOwnerAccountId", owner);
         SetPrivateField<string?>(service, "_pendingLoginUsername", "steam-user");
 
-        var result = await service.AuthenticateAsync(
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => service.AuthenticateAsync(
             "steam-user",
             "password",
             twoFactorCode: "12345",
-            ownerAccountId: Guid.NewGuid());
+            caller: caller with { AccountId = Guid.NewGuid() },
+            attemptId: login.AttemptId));
 
-        Assert.False(result.Success);
-        Assert.Equal("errors.steam.signInOwnerChanged", result.StageKey);
+        Assert.Equal("errors.integration.ownedByAnotherAccount", error.StageKey);
         Assert.True(GetPrivateField<bool>(service, "_hasPendingLoginOwner"));
-        Assert.Equal(owner, GetPrivateField<Guid?>(service, "_pendingLoginOwnerAccountId"));
+        Assert.Equal(owner, storage.ContinueIntegrationLogin(caller, login.AttemptId).AccountId);
+        Assert.True(storage.IsIntegrationLoginCurrent(login));
+    }
+
+    [Fact]
+    public async Task ActiveOwnerRefusalCreatesNoOperationAndDoesNotChangeCredentials()
+    {
+        var tracker = CreateTracker();
+        var service = CreateService(tracker);
+        var storage = GetPrivateField<SteamAuthStorageService>(service, "_steamAuthRepository");
+        var owner = Guid.NewGuid();
+        storage.SaveAuthData(new SteamAuthData { OwnerAccountId = owner, Mode = "authenticated", Username = "owner", RefreshToken = "token" });
+        var bytes = File.ReadAllBytes(storage.GetCredentialsFilePath());
+        var caller = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true, true);
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.AuthenticateAsync("other", "password", caller: caller));
+        Assert.Empty(tracker.GetActiveOperations());
+        Assert.Equal(0, GetPrivateField<int>(service, "_loginActive"));
+        Assert.Null(GetPrivateField<MappingOperationReporter?>(service, "_loginReporter"));
+        Assert.Equal(bytes, File.ReadAllBytes(storage.GetCredentialsFilePath()));
     }
 
     /// <summary>Polls until the sign-in has registered its operation, so the cancel lands mid-flight.</summary>

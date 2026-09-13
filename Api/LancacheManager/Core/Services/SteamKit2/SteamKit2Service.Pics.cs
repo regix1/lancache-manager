@@ -104,10 +104,19 @@ public partial class SteamKit2Service
             }
             finally
             {
-                if (_steamClient?.IsConnected == true)
+                if (!_hasPendingLoginOwner && _steamClient?.IsConnected == true)
                 {
-                    _intentionalDisconnect = true;
-                    await DisconnectAsync();
+                    var version = Interlocked.Read(ref _sessionVersion);
+                    await _sessionGate.WaitAsync();
+                    try
+                    {
+                        if (!_hasPendingLoginOwner && version == Interlocked.Read(ref _sessionVersion))
+                        {
+                            _intentionalDisconnect = true;
+                            await DisconnectAsync();
+                        }
+                    }
+                    finally { _sessionGate.Release(); }
                 }
 
                 runCts.Dispose();
@@ -155,8 +164,7 @@ public partial class SteamKit2Service
         {
             _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
 
-            // Fail any pending connection/login tasks to unblock waiting code
-            FailConnectionTasks(new OperationCanceledException("PICS rebuild cancelled"));
+            // The crawl's token stops its own waits. Shared connection waits may belong to a sign-in.
 
             if (_currentPicsOperationId.HasValue)
             {

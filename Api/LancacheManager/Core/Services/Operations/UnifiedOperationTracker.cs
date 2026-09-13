@@ -152,12 +152,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return resolved;
     }
 
-    public OperationCancelResult CancelOperation(Guid requestedOperationId)
+    public OperationCancelResult CancelOperation(Guid requestedOperationId, bool followHandoff = true)
     {
         // The caller's card may still carry the id of an operation that has already handed its work
         // to another one (the wait-queue promoting a parked operation is the case that matters).
         // Cancelling the id as given would stop nothing while reporting success.
-        var operationId = ResolveHandoff(requestedOperationId);
+        var operationId = followHandoff ? ResolveHandoff(requestedOperationId) : requestedOperationId;
         if (operationId != requestedOperationId)
         {
             _logger.LogInformation(
@@ -244,10 +244,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
     }
 
-    public bool ForceKillOperation(Guid requestedOperationId)
+    public bool ForceKillOperation(Guid requestedOperationId, bool followHandoff = true)
     {
         // Same reasoning as CancelOperation: follow the work, not the id the caller happens to hold.
-        var operationId = ResolveHandoff(requestedOperationId);
+        var operationId = followHandoff ? ResolveHandoff(requestedOperationId) : requestedOperationId;
         if (!_operations.TryGetValue(operationId, out var operation))
         {
             _logger.LogWarning("Operation {Id} not found for force kill", operationId);

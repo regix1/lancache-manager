@@ -5,6 +5,8 @@ namespace LancacheManager.Models;
 /// </summary>
 public class EpicLoginUrlResponse
 {
+    public Guid AttemptId { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
     public string AuthorizationUrl { get; set; } = string.Empty;
 }
 

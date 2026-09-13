@@ -893,14 +893,44 @@ export interface DaemonStatusDto {
   sessionTimeoutMinutes: number;
 }
 
-export interface EpicMappingAuthStatus {
+export interface IntegrationAccess {
+  canManage?: boolean;
+  canSignIn?: boolean;
+  canLogout?: boolean;
+  canCancel?: boolean;
+  canRecover?: boolean;
+  ownershipReason?: string | null;
+  attemptId?: string | null;
+  loginExpiresAtUtc?: string | null;
+}
+
+export interface IntegrationLoginRequest {
+  attemptId?: string;
+  recover?: boolean;
+}
+
+export const integrationReasonKeys: Readonly<Record<string, string>> = {
+  'account-required': 'errors.integration.accountRequired',
+  'owned-by-another-account': 'errors.integration.ownedByAnotherAccount',
+  'login-in-progress': 'errors.integration.loginInProgress',
+  'reauthentication-required': 'errors.integration.reauthenticationRequired',
+  'release-in-progress': 'errors.integration.releaseInProgress',
+  'attempt-required': 'errors.integration.attemptRequired',
+  'attempt-expired': 'errors.integration.attemptExpired',
+  'main-owner-required': 'errors.integration.mainOwnerRequired',
+  'integration-sign-in-required': 'errors.integration.signInRequired',
+  'no-saved-login': 'errors.integration.noSavedLogin',
+  'not-supported': 'errors.integration.notSupported'
+};
+
+export interface EpicMappingAuthStatus extends IntegrationAccess {
   isAuthenticated: boolean;
   displayName: string | null;
   lastCollectionUtc: string | null;
   gamesDiscovered: number;
 }
 
-export interface XboxMappingAuthStatus {
+export interface XboxMappingAuthStatus extends IntegrationAccess {
   isAuthenticated: boolean;
   displayName: string | null;
   lastCollectionUtc: string | null;

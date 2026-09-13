@@ -4,6 +4,7 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services;
@@ -50,31 +51,37 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     protected override int GetGuestPermissionDurationHours()
         => _stateService.GetEpicGuestPrefillDurationHours();
 
-    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
     {
-        if (accountId is null)
+        if (accountId is null && caller?.AuthenticationEnabled != false)
         {
             return new IntegrationLoginAvailability(false, null, "account-required");
         }
 
-        return _mappingService.TryGetSavedLoginAccount(accountId.Value, out var account)
+        caller ??= new(accountId, Guid.Empty, true);
+        var reason = _mappingService.GetIntegrationLoginReason(caller);
+        if (reason is not null) return new IntegrationLoginAvailability(false, null, reason);
+        return _mappingService.TryGetSavedLoginAccount(accountId, out var account, caller)
             ? new IntegrationLoginAvailability(true, account, null)
             : new IntegrationLoginAvailability(false, null, "no-saved-login");
     }
 
+    public override Task<IntegrationLease> AcquireIntegrationLoginAsync(IntegrationCaller caller, CancellationToken cancellationToken)
+        => _mappingService.AcquireIntegrationLoginAsync(caller, cancellationToken);
+
     protected override async Task<bool> ReuseIntegrationLoginAsync(
         DaemonSession session,
-        Guid accountId,
+        Guid? accountId,
         Action onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationLease? lease = null)
     {
-        var refreshToken = await _mappingService.CreatePrefillRefreshTokenAsync(accountId, cancellationToken);
+        if (lease is null) IntegrationLease.Refuse("attempt-required");
+        var refreshToken = await _mappingService.CreatePrefillRefreshTokenAsync(accountId, cancellationToken, lease);
         EnsureCurrentSession(session);
+        lease!.Validate();
         return await session.Client.ProvideEpicAutoLoginWithDispatchAsync(
-            session.Id,
-            refreshToken,
-            onCommandDispatched,
-            cancellationToken);
+            session.Id, refreshToken, onCommandDispatched, cancellationToken);
     }
 
     // Diagnostics

@@ -1,5 +1,5 @@
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Middleware;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.Xbox;
 using Microsoft.AspNetCore.Authorization;
@@ -99,9 +99,10 @@ public class XboxGameMappingController : ControllerBase
     /// </remarks>
     [HttpGet("auth-status")]
     [ProducesResponseType(typeof(XboxMappingAuthStatus), StatusCodes.Status200OK)]
-    public ActionResult<XboxMappingAuthStatus> GetAuthStatus()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<XboxMappingAuthStatus>> GetAuthStatus()
     {
-        return Ok(_xboxCatalogMappingService.GetAuthStatus());
+        return Ok(_xboxCatalogMappingService.GetAuthStatus(await IntegrationLease.ResolveCallerAsync(HttpContext)));
     }
 
     /// <summary>
@@ -116,14 +117,13 @@ public class XboxGameMappingController : ControllerBase
     /// </remarks>
     [HttpPost("auth/login")]
     [ProducesResponseType(typeof(XboxDeviceCodeChallenge), StatusCodes.Status200OK)]
-    public async Task<ActionResult<XboxDeviceCodeChallenge>> StartLoginAsync(CancellationToken ct = default)
+    public async Task<ActionResult<XboxDeviceCodeChallenge>> StartLoginAsync(CancellationToken ct = default, [FromBody] IntegrationLoginRequest? request = null)
     {
         // Cancellation can come from the initiating request, a superseding login, logout, or
         // modal close. Let the global exception middleware classify it as a quiet 499 instead of
         // logging the expected TaskCanceledException as a failed login here.
         var challenge = await _xboxCatalogMappingService.StartLoginAsync(
-            HttpContext.GetUserSession()?.AccountId,
-            ct);
+            null, ct, await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId, request?.Recover ?? false);
         return Ok(challenge);
     }
 
@@ -137,9 +137,10 @@ public class XboxGameMappingController : ControllerBase
     /// </remarks>
     [HttpPost("auth/cancel")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
-    public ActionResult<MessageOnlyResponse> CancelLogin()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<MessageOnlyResponse>> CancelLogin([FromBody] IntegrationLoginRequest? request = null)
     {
-        _xboxCatalogMappingService.CancelLogin();
+        _xboxCatalogMappingService.CancelLogin(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
         return Ok(new MessageOnlyResponse { Message = "Xbox login cancelled" });
     }
 
@@ -153,7 +154,7 @@ public class XboxGameMappingController : ControllerBase
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> LogoutAsync()
     {
-        await _xboxCatalogMappingService.LogoutAsync();
+        await _xboxCatalogMappingService.LogoutAsync(await IntegrationLease.ResolveCallerAsync(HttpContext));
         return Ok(new MessageOnlyResponse { Message = "Xbox mapping logged out" });
     }
 

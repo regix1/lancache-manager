@@ -172,53 +172,20 @@ public class ApiKeysController : ControllerBase
         var hadXbox = _xboxAuthStorage.HasSavedCredentials();
         var hadEpic = _epicAuthStorage.HasSavedCredentials();
 
-        // Each platform clear is best-effort so a failure on one cannot leave the new key unissued.
-        // Logout drops the in-memory session; the storage wipe is what removes the files if logout
-        // does not run (tests leave the mapping services unbuilt, same as Steam).
-        try
-        {
-            await _steamKit2Service.ClearAllSteamAuthAsync();
-        }
-        catch (Exception steamEx)
-        {
-            _logger.LogWarning(steamEx, "Error clearing Steam auth during API key regeneration (continuing anyway)");
-        }
+        // Stop process work before taking the three admission gates in their fixed order.
+        try { await _steamKit2Service.ClearAllSteamAuthAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Steam process logout failed during API key rotation"); }
+        try { await _epicMappingService.LogoutAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Epic process logout failed during API key rotation"); }
+        try { await _xboxCatalogMappingService.LogoutAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Xbox process logout failed during API key rotation"); }
 
-        try
-        {
-            await _xboxCatalogMappingService.LogoutAsync();
-        }
-        catch (Exception xboxEx)
-        {
-            _logger.LogWarning(xboxEx, "Error clearing Xbox auth during API key regeneration (continuing anyway)");
-        }
-
-        try
-        {
-            await _epicMappingService.LogoutAsync();
-        }
-        catch (Exception epicEx)
-        {
-            _logger.LogWarning(epicEx, "Error clearing Epic auth during API key regeneration (continuing anyway)");
-        }
-
-        try
-        {
-            _xboxAuthStorage.ClearAuthData();
-        }
-        catch (Exception xboxStorageEx)
-        {
-            _logger.LogWarning(xboxStorageEx, "Error clearing Xbox credentials during API key regeneration (continuing anyway)");
-        }
-
-        try
-        {
-            _epicAuthStorage.ClearAuthData();
-        }
-        catch (Exception epicStorageEx)
-        {
-            _logger.LogWarning(epicStorageEx, "Error clearing Epic credentials during API key regeneration (continuing anyway)");
-        }
+        await using var steamRelease = await _steamAuthStorage.BeginIntegrationReleaseAsync();
+        await using var epicRelease = await _epicAuthStorage.BeginIntegrationReleaseAsync();
+        await using var xboxRelease = await _xboxAuthStorage.BeginIntegrationReleaseAsync();
+        _steamAuthStorage.CompleteIntegrationRelease(steamRelease);
+        _epicAuthStorage.CompleteIntegrationRelease(epicRelease);
+        _xboxAuthStorage.CompleteIntegrationRelease(xboxRelease);
 
         var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
         _apiKeyService.DisplayApiKey(revealKey: true);

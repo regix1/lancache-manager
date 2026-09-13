@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Services.SteamKit2;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -36,10 +37,13 @@ public class SteamApiKeysController : ControllerBase
     [ProducesResponseType(typeof(SteamApiStatusResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SteamApiStatusResponse>> GetStatusAsync([FromQuery] bool forceRefresh = false)
     {
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
         var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);
 
         return Ok(new SteamApiStatusResponse
         {
+            CanManage = !caller.AuthenticationEnabled || caller.OwnsInstallation,
+            OwnershipReason = caller.AuthenticationEnabled && !caller.OwnsInstallation ? "main-owner-required" : null,
             Version = status.Version.ToString(),
             IsV2Available = status.IsV2Available,
             IsV1Available = status.IsV1Available,
@@ -87,6 +91,9 @@ public class SteamApiKeysController : ControllerBase
     [ProducesResponseType(typeof(ApiKeySaveResponse), StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiKeySaveResponse>> SaveKeyAsync([FromBody] SaveApiKeyRequest request)
     {
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+        if (caller.AuthenticationEnabled && !caller.OwnsInstallation) IntegrationLease.Refuse("main-owner-required");
+        var version = _steamWebApiService.IntegrationReleaseVersion;
         // Validation is handled automatically by FluentValidation
         // Test the key first
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
@@ -102,7 +109,7 @@ public class SteamApiKeysController : ControllerBase
         }
 
         // Save the key
-        _steamWebApiService.SaveApiKey(request.ApiKey);
+        _steamWebApiService.SaveApiKey(request.ApiKey, version);
 
         _logger.LogInformation("Steam Web API key saved successfully");
 
@@ -121,8 +128,11 @@ public class SteamApiKeysController : ControllerBase
     /// </remarks>
     [HttpDelete("current")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
-    public ActionResult<MessageResponse> RemoveKey()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<MessageResponse>> RemoveKey()
     {
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+        if (caller.AuthenticationEnabled && !caller.OwnsInstallation) IntegrationLease.Refuse("main-owner-required");
         _steamWebApiService.RemoveApiKey();
 
         _logger.LogInformation("Steam Web API key removed successfully");

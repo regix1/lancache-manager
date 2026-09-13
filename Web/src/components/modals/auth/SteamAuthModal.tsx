@@ -10,6 +10,7 @@ import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
+import { integrationReasonKeys } from '../../../types';
 
 interface SteamAuthModalProps {
   opened: boolean;
@@ -84,7 +85,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   // MANAGER's own mapping-flow session; a persistent-container login is unrelated and must not be
   // force-closed by it (diagnostic §6 item 5).
   useEffect(() => {
-    if (!opened || disableAutoLogoutClose) return;
+    if (!opened || disableAutoLogoutClose || state.canAuthenticate !== undefined) return;
 
     const handleAutoLogout = () => {
       cancelPendingRequest();
@@ -96,9 +97,22 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     return () => {
       off('SteamAutoLogout', handleAutoLogout);
     };
-  }, [opened, disableAutoLogoutClose, on, off, cancelPendingRequest, actions, onClose]);
+  }, [
+    opened,
+    disableAutoLogoutClose,
+    on,
+    off,
+    cancelPendingRequest,
+    actions,
+    onClose,
+    state.canAuthenticate
+  ]);
 
   const handleCloseModal = () => {
+    if (state.canAuthenticate !== undefined) {
+      handleExplicitCancel();
+      return;
+    }
     // Allow closing when waiting for mobile confirmation (user should be able to cancel).
     // onCancelLogin ends the daemon session in prefill mode and stops the credentials poll in the
     // manager's own flow: both are this dismiss ending the sign-in, so neither is gated on the mode.
@@ -128,19 +142,16 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     cancelAuthModalLogin({
       cancelPendingRequest,
       resetAuthForm: actions.resetAuthForm,
-      onCancelLogin,
+      onCancelLogin: actions.cancelLogin ?? onCancelLogin,
       onClose
     });
   };
 
-  // keep-pending (persistent-container flow): X/backdrop/Escape now do the same login-ending work
-  // as the explicit Cancel button - a soft, cancel-nothing close used to leave the daemon login
-  // (and the Configure card's "Authenticating..." badge) stuck forever.
-  const handleSoftClose = handleExplicitCancel;
+  const handleSoftClose = onClose;
 
   const handleSubmit = async () => {
     // Prevent multiple clicks - check immediately before any async work
-    if (isSubmitting || loading) return;
+    if (isSubmitting || loading || state.canAuthenticate === false) return;
     setIsSubmitting(true);
 
     try {
@@ -161,8 +172,9 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   // sign-in is already in progress" until that window expires. The typed code is still good by
   // then, but the person has been told it is not.
   const handleSwitchToManualCode = () => {
+    if (state.canAuthenticate === false) return;
     cancelPendingRequest();
-    onCancelLogin?.();
+    if (state.canAuthenticate === undefined) onCancelLogin?.();
     actions.setWaitingForMobileConfirmation(false);
     actions.setNeedsTwoFactor(true);
     actions.setUseManualCode(true);
@@ -201,6 +213,17 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       size="md"
     >
       <div className="space-y-6">
+        {state.recovering && (
+          <p className="text-sm text-themed-secondary">{t('errors.integration.recovery')}</p>
+        )}
+        {state.canAuthenticate === false && (
+          <p className="text-sm text-themed-secondary" role="status">
+            {t(
+              integrationReasonKeys[state.ownershipReason ?? ''] ??
+                'errors.integration.statusUnavailable'
+            )}
+          </p>
+        )}
         <LoginSteps
           notice={isKeepPending ? t('modals.steamAuth.containerAccountNotice') : null}
           deadline={loginDeadline}
@@ -233,7 +256,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                         onChange={(e) => setUsername(e.target.value)}
                         placeholder={t('modals.steamAuth.placeholders.username')}
                         className="w-full px-3 py-2.5 themed-input"
-                        disabled={loading || awaitingChallenge || waitingForMobileConfirmation}
+                        disabled={
+                          state.canAuthenticate === false ||
+                          loading ||
+                          awaitingChallenge ||
+                          waitingForMobileConfirmation
+                        }
                         autoComplete="username"
                       />
                     )}
@@ -251,7 +279,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                         onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                         placeholder={t('modals.steamAuth.placeholders.password')}
                         className="w-full px-3 py-2.5 themed-input"
-                        disabled={loading || awaitingChallenge || waitingForMobileConfirmation}
+                        disabled={
+                          state.canAuthenticate === false ||
+                          loading ||
+                          awaitingChallenge ||
+                          waitingForMobileConfirmation
+                        }
                         autoComplete="current-password"
                       />
                     )}
@@ -273,7 +306,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                       onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                       placeholder={t('modals.steamAuth.placeholders.guardCode')}
                       className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                      disabled={loading}
+                      disabled={state.canAuthenticate === false || loading}
                       autoFocus
                       maxLength={5}
                     />
@@ -295,7 +328,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                       onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                       placeholder={t('modals.steamAuth.placeholders.guardCode')}
                       className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                      disabled={loading}
+                      disabled={state.canAuthenticate === false || loading}
                       autoFocus
                       maxLength={5}
                     />
@@ -351,7 +384,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             {t('common.cancel')}
           </Button>
           {showManualCodeButton && (
-            <Button variant="default" onClick={handleSwitchToManualCode} className="flex-1">
+            <Button
+              variant="default"
+              onClick={handleSwitchToManualCode}
+              disabled={state.canAuthenticate === false}
+              className="flex-1"
+            >
               {t('modals.steamAuth.actions.enterCodeManually')}
             </Button>
           )}
@@ -361,6 +399,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               color="primary"
               onClick={handleSubmit}
               disabled={
+                state.canAuthenticate === false ||
                 loading ||
                 isSubmitting ||
                 (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||

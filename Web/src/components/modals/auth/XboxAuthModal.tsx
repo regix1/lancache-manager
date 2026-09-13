@@ -9,11 +9,15 @@ import { cancelAuthModalLogin } from './authModalCancel';
 import { useCopyFeedback } from '@hooks/useCopyFeedback';
 import { copyText } from '@utils/clipboard';
 import { useTranslation } from 'react-i18next';
+import { integrationReasonKeys } from '../../../types';
 
 // The Xbox modal only consumes the device-code slice of an auth flow. Both the prefill-daemon
 // flow (SteamLoginFlowState/SteamAuthActions, a superset) and the manager-side useXboxMappingAuth
 // hook satisfy these narrow shapes structurally, so the modal stays decoupled from either stack.
 interface XboxAuthModalState {
+  canAuthenticate?: boolean;
+  ownershipReason?: string | null;
+  recovering?: boolean;
   loading: boolean;
   needsDeviceCode: boolean;
   deviceUserCode: string;
@@ -98,13 +102,10 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
     });
   };
 
-  // keep-pending (persistent-container flow): X/backdrop/Escape now do the same login-ending work
-  // as the explicit Cancel button, even mid device-code - a soft, cancel-nothing close used to
-  // leave the daemon login (and the Configure card's "Authenticating..." badge) stuck forever.
-  const handleSoftClose = handleExplicitCancel;
+  const handleSoftClose = onClose;
 
   const handleSubmit = async () => {
-    if (isSubmitting || loading) return;
+    if (state.canAuthenticate === false || isSubmitting || loading) return;
     setIsSubmitting(true);
 
     try {
@@ -118,12 +119,14 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
   };
 
   const handleOpenVerificationUrl = () => {
+    if (state.canAuthenticate === false) return;
     if (deviceVerificationUri) {
       window.open(deviceVerificationUri, '_blank', 'noopener,noreferrer');
     }
   };
 
   const handleCopyCode = async () => {
+    if (state.canAuthenticate === false) return;
     // Says which of the two happened. navigator.clipboard is absent over plain http, which is how
     // most people reach this app, and a button that reports nothing there reads as dead next to a
     // nine-character code the user would otherwise retype by hand.
@@ -150,6 +153,17 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
       size="md"
     >
       <div className="space-y-6">
+        {state.canAuthenticate === false && (
+          <p className="text-sm text-themed-muted" role="status">
+            {t(
+              integrationReasonKeys[state.ownershipReason ?? ''] ??
+                'errors.integration.statusUnavailable'
+            )}
+          </p>
+        )}
+        {state.recovering && (
+          <p className="text-sm text-themed-muted">{t('errors.integration.recovery')}</p>
+        )}
         <LoginSteps
           notice={isKeepPending ? t('modals.xboxAuth.containerAccountNotice') : null}
           deadline={loginDeadline}
@@ -183,7 +197,11 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
                     <div className="well-surface flex-1 px-3 py-2.5 font-mono text-xl font-bold tracking-widest text-center text-themed-primary select-all">
                       {deviceUserCode}
                     </div>
-                    <Button variant="default" onClick={handleCopyCode}>
+                    <Button
+                      variant="default"
+                      onClick={handleCopyCode}
+                      disabled={state.canAuthenticate === false}
+                    >
                       {copied
                         ? t('modals.xboxAuth.codeCopied')
                         : copyFailed
@@ -199,6 +217,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
                     variant="filled"
                     color="secondary"
                     onClick={handleOpenVerificationUrl}
+                    disabled={state.canAuthenticate === false}
                     className="w-full"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -241,7 +260,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
               variant="filled"
               color="primary"
               onClick={handleSubmit}
-              disabled={loading || isSubmitting}
+              disabled={state.canAuthenticate === false || loading || isSubmitting}
               className="flex-1"
             >
               {/* No spinner here: the LoginAttemptStatus row above already carries one. */}

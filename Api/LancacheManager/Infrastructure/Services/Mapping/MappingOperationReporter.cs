@@ -48,8 +48,8 @@ public sealed class MappingOperationReporter : IAsyncDisposable
 
     public CancellationToken Token => _inner.Token;
 
-    public Task StartAsync(Dictionary<string, object?>? context = null, string? stageKey = null) =>
-        _inner.StartAsync(stageKey ?? $"{_definition.StageKeyPrefix}.starting", context);
+    public Task StartAsync(Dictionary<string, object?>? context = null, string? stageKey = null, IntegrationLogin? login = null) =>
+        _inner.StartAsync(stageKey ?? $"{_definition.StageKeyPrefix}.starting", context, login);
 
     /// <summary>
     /// Stops <see cref="ReportAsync"/> emitting anything for the rest of the run. Call it as soon as

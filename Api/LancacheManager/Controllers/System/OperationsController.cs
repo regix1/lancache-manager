@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -123,7 +124,8 @@ public class OperationsController : ControllerBase
     /// </remarks>
     [HttpPost("{id}/cancel")]
     [ProducesResponseType(typeof(OperationCancelResponse), StatusCodes.Status200OK)]
-    public ActionResult<OperationCancelResponse> CancelOperation(Guid id)
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<OperationCancelResponse>> CancelOperation(Guid id)
     {
         var operation = _operationTracker.GetOperation(id, followHandoff: true);
         if (operation == null)
@@ -133,7 +135,8 @@ public class OperationsController : ControllerBase
 
         try
         {
-            switch (_cancellationService.Cancel(operation.Id))
+            var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+            switch (_cancellationService.Cancel(operation.Id, caller))
             {
                 case OperationCancelResult.Requested:
                     return Ok(new OperationCancelResponse
@@ -189,7 +192,8 @@ public class OperationsController : ControllerBase
     {
         try
         {
-            var killed = await _cancellationService.ForceKillAsync(id);
+            var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+            var killed = await _cancellationService.ForceKillAsync(id, caller);
             if (!killed)
             {
                 return NotFound(ApiResponse.Error("Operation not found or already completed"));

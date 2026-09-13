@@ -117,7 +117,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     /// signed in). Prefer the second whenever the user triggered the run themselves, because silence
     /// there reads as a button that did not work.
     /// </summary>
-    public async Task StartAsync(string stageKey, Dictionary<string, object?>? context = null)
+    public async Task StartAsync(string stageKey, Dictionary<string, object?>? context = null, IntegrationLogin? login = null)
     {
         await _sendGate.WaitAsync(CancellationToken.None);
         try
@@ -142,6 +142,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                     ["showNotification"] = _showNotification,
                     ["context"] = context,
                     ["runNotice"] = _notice,
+                    ["integrationLogin"] = login,
                 },
                 onTerminalCleanup: null,
                 onTerminalEmit: EmitTerminalAsync);

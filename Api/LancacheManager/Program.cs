@@ -564,6 +564,7 @@ builder.Services.AddScoped<SessionService>();
 // both of which are singletons themselves. Scoped would also make it uninjectable into ApiKeyService,
 // which is a singleton and owns the key rotation this records.
 builder.Services.AddSingleton<IdentityAuditService>();
+builder.Services.AddScoped<AccountResetService>();
 // Singleton because the count has to be shared by every request: one per scope would reset on each
 // sign-in attempt and never reach the threshold.
 builder.Services.AddSingleton<AccountLockout>();
@@ -1105,6 +1106,9 @@ using (var scope = app.Services.CreateScope())
             }
 
             // Note: LancacheMetricsService will start automatically as IHostedService
+
+            await scope.ServiceProvider.GetRequiredService<AccountResetService>()
+                .RunAsync(app.Lifetime.ApplicationStopping);
 
             logger.LogInformation("Database initialization complete");
 

@@ -34,10 +34,8 @@ public sealed class DatabaseResetFullWipeTablesTests
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        // The wipe leaves UserAccounts alone so the user stays signed in, and __EFMigrationsHistory
-        // is not a mapped entity so it never reaches this comparison. A third name appearing here is
-        // a table the wipe stopped covering.
-        Assert.Equal(["UserAccounts"], mapped.Except(wiped, StringComparer.Ordinal).ToList());
+        // The reset journal prevents a later start from deleting accounts created after the reset.
+        Assert.Equal(["AccountResets", "UserAccounts"], mapped.Except(wiped, StringComparer.Ordinal).Order().ToList());
 
         foreach (var table in wiped)
         {

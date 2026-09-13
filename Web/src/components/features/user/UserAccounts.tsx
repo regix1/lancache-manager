@@ -8,7 +8,6 @@ import Badge from '@components/ui/Badge';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { RowActionsMenu } from '@components/ui/RowActionsMenu';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import FormField from '@components/ui/FormField';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { Pagination } from '@components/ui/Pagination';
@@ -27,12 +26,12 @@ import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { getErrorMessage } from '@utils/error';
 import { API_BASE } from '@utils/constants';
 import WipeAccountsButton from './WipeAccountsButton';
-import type { AccountConfirmation, AccountEditor, AccountRole, UserAccount } from './types';
+import type { AccountConfirmation, AccountEditor, UserAccount } from './types';
 
 // Not exported - a .tsx file exports components only, and Fast Refresh needs it that way.
 const PAGE_SIZE = 10;
 
-// An administrator working through several accounts sends one event per row, close together, and
+// Someone working through several accounts sends one event per row, close together, and
 // the list is reloaded whole either way, so the burst collapses into one reload.
 const RELOAD_DEBOUNCE_MS = 1000;
 
@@ -40,8 +39,8 @@ const RELOAD_DEBOUNCE_MS = 1000;
  * Reads and writes the accounts people sign in with, as the third segment of the user tab.
  *
  * Nothing here decides who may do what. The account rows a caller is answered with, and every
- * refusal, come from the server, so a user and an admin run the same screen and see whatever their
- * own session is entitled to. The owner is the only caller answered with the owner's row; everyone
+ * refusal, come from the server, so every account runs the same screen and sees whatever its own
+ * session is entitled to. The owner is the only caller answered with the owner's row; everyone
  * else is answered without it. The one thing the screen does decide is what a control that is going
  * to be refused looks like: when the owner sees their own row, the menu stays, with the items on
  * it disabled, because a control that vanishes reads as a bug while a disabled one reads as a rule.
@@ -49,7 +48,7 @@ const RELOAD_DEBOUNCE_MS = 1000;
 const UserAccounts: React.FC = () => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
-  const { isMainAdmin, accountId } = useAuth();
+  const { accountId } = useAuth();
   const { mockMode } = useMockMode();
   const { on, off, isConnected } = useSignalR();
   // The six-column table needs 772px of column minimums, so on a phone it can only be reached by
@@ -143,7 +142,7 @@ const UserAccounts: React.FC = () => {
         ? // An edit that leaves the password blank is a rename: null tells the server to keep the
           // stored password rather than replace it with an empty one.
           { username: open.username, password: open.password ? open.password : null }
-        : { username: open.username, password: open.password, role: open.role };
+        : { username: open.username, password: open.password };
 
       const response = await fetch(
         url,
@@ -192,36 +191,20 @@ const UserAccounts: React.FC = () => {
     try {
       setBusyAccountId(account.id);
 
-      if (pending.kind === 'delete') {
-        const response = await fetch(
-          `${API_BASE}/accounts/${account.id}`,
-          ApiService.getFetchOptions({ method: 'DELETE' })
-        );
-        await ApiService.handleResponse<{ message: string }>(response);
-        setAccounts((prev: UserAccount[]) =>
-          prev.filter((existing: UserAccount) => existing.id !== account.id)
-        );
-      } else {
-        const role: AccountRole = account.role === 'admin' ? 'user' : 'admin';
-        const response = await fetch(
-          `${API_BASE}/accounts/${account.id}/role`,
-          ApiService.getJsonFetchOptions({ role }, { method: 'PUT' })
-        );
-        const saved = await ApiService.handleResponse<UserAccount>(response);
-        setAccounts((prev: UserAccount[]) =>
-          prev.map((existing: UserAccount) => (existing.id === saved.id ? saved : existing))
-        );
-      }
+      const response = await fetch(
+        `${API_BASE}/accounts/${account.id}`,
+        ApiService.getFetchOptions({ method: 'DELETE' })
+      );
+      await ApiService.handleResponse<{ message: string }>(response);
+      setAccounts((prev: UserAccount[]) =>
+        prev.filter((existing: UserAccount) => existing.id !== account.id)
+      );
 
       setConfirmation(null);
     } catch (err: unknown) {
-      notifyError(
-        pending.kind === 'delete'
-          ? t('user.accounts.errors.delete')
-          : t('user.accounts.errors.role'),
-        err,
-        { logLabel: 'Failed to change an account' }
-      );
+      notifyError(t('user.accounts.errors.delete'), err, {
+        logLabel: 'Failed to delete an account'
+      });
     } finally {
       setBusyAccountId(null);
     }
@@ -262,14 +245,9 @@ const UserAccounts: React.FC = () => {
       // column, and without wrapping the second one is clipped by the cell's own overflow.
       render: (account: UserAccount) => (
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={account.role === 'admin' ? 'info' : 'neutral'}>
-            {account.role === 'admin'
-              ? t('user.accounts.roles.admin')
-              : t('user.accounts.roles.user')}
+          <Badge variant={account.isMainAdmin ? 'warning' : 'neutral'}>
+            {account.isMainAdmin ? t('user.accounts.mainAdmin') : t('user.accounts.roles.user')}
           </Badge>
-          {/* Names the rule behind the disabled row menu, so the greyed-out items read as
-              deliberate rather than broken. */}
-          {account.isMainAdmin && <Badge variant="warning">{t('user.accounts.mainAdmin')}</Badge>}
           {/* The status column is one of the three dropped on a narrow screen, so its badge joins
               this cell instead of the account's state leaving the screen altogether. */}
           {!roomForFullTable && (
@@ -327,16 +305,13 @@ const UserAccounts: React.FC = () => {
       width: roomForFullTable ? '72px' : '64px',
       align: 'center',
       render: (account: UserAccount) => {
-        // The installation's own account refuses every one of these on the server, and a promotion
-        // is refused for anyone but the main administrator. Both are shown disabled.
+        // The installation's own account refuses every one of these on the server. They stay shown
+        // disabled so the protected row reads as deliberate rather than broken.
         const owner = account.isMainAdmin;
         const busy = busyAccountId === account.id;
-        const promoting = account.role !== 'admin';
-
-        // Deleting, disabling or moving your own account off its role all end your own sessions, and
-        // none of the three can be undone by the person who did it: creating an account and granting
-        // the admin role both belong to the account that owns the installation. Renaming yourself and
-        // setting your own password stay open, so Edit is not disabled here.
+        // Deleting or disabling your own account ends your own sessions, and neither can be undone
+        // by the person who did it. Renaming yourself and setting your own password stay open, so
+        // Edit is not disabled here.
         const yourself = account.id === accountId;
 
         return (
@@ -354,23 +329,11 @@ const UserAccounts: React.FC = () => {
                     setEditor({
                       account,
                       username: account.username,
-                      password: '',
-                      role: account.role
+                      password: ''
                     });
                   }}
                 >
                   {t('common.edit')}
-                </ActionMenuItem>
-                <ActionMenuItem
-                  disabled={owner || yourself || busy || (promoting && !isMainAdmin)}
-                  onClick={() => {
-                    close();
-                    setConfirmation({ kind: 'role', account });
-                  }}
-                >
-                  {promoting
-                    ? t('user.accounts.actions.promote')
-                    : t('user.accounts.actions.demote')}
                 </ActionMenuItem>
                 <ActionMenuItem
                   disabled={owner || yourself || busy}
@@ -388,7 +351,7 @@ const UserAccounts: React.FC = () => {
                   disabled={owner || yourself || busy}
                   onClick={() => {
                     close();
-                    setConfirmation({ kind: 'delete', account });
+                    setConfirmation({ account });
                   }}
                 >
                   {t('common.delete')}
@@ -417,7 +380,7 @@ const UserAccounts: React.FC = () => {
               size="sm"
               onClick={() => {
                 setFormError(null);
-                setEditor({ account: null, username: '', password: '', role: 'user' });
+                setEditor({ account: null, username: '', password: '' });
               }}
             >
               {t('user.accounts.actions.create')}
@@ -519,32 +482,6 @@ const UserAccounts: React.FC = () => {
               </FormField>
             </div>
 
-            {!editor.account && (
-              <div>
-                {/* No htmlFor: the dropdown's control is a button, not a labelable field, so the
-                    name reaches it through triggerAriaLabel instead. */}
-                <label className="form-field-label">{t('user.accounts.form.role')}</label>
-                <EnhancedDropdown
-                  triggerAriaLabel={t('user.accounts.form.role')}
-                  options={[
-                    { value: 'user', label: t('user.accounts.roles.user') },
-                    {
-                      value: 'admin',
-                      label: t('user.accounts.roles.admin'),
-                      // Only the installation's own account hands out the administrator role, so
-                      // for everyone else the choice is shown and refused rather than hidden.
-                      disabled: !isMainAdmin,
-                      tooltip: isMainAdmin ? undefined : t('user.accounts.form.adminRoleReserved')
-                    }
-                  ]}
-                  value={editor.role}
-                  onChange={(value: string) =>
-                    setEditor({ ...editor, role: value === 'admin' ? 'admin' : 'user' })
-                  }
-                />
-              </div>
-            )}
-
             {formError && <p className="text-sm text-themed-error">{formError}</p>}
 
             <div className="flex justify-end gap-2">
@@ -574,28 +511,12 @@ const UserAccounts: React.FC = () => {
           onClose={() => setConfirmation(null)}
           onConfirm={() => runConfirmation(confirmation)}
           loading={busyAccountId === confirmation.account.id}
-          title={
-            confirmation.kind === 'delete'
-              ? t('user.accounts.confirm.deleteTitle')
-              : t('user.accounts.confirm.roleTitle')
-          }
-          confirmLabel={
-            confirmation.kind === 'delete'
-              ? t('common.delete')
-              : t('user.accounts.confirm.roleLabel')
-          }
-          confirmColor={confirmation.kind === 'delete' ? 'red' : 'yellow'}
+          title={t('user.accounts.confirm.deleteTitle')}
+          confirmLabel={t('common.delete')}
+          confirmColor="red"
         >
           <p className="text-sm text-themed-secondary">
-            {confirmation.kind === 'delete'
-              ? t('user.accounts.confirm.deleteBody', { username: confirmation.account.username })
-              : t('user.accounts.confirm.roleBody', {
-                  username: confirmation.account.username,
-                  role:
-                    confirmation.account.role === 'admin'
-                      ? t('user.accounts.roles.user')
-                      : t('user.accounts.roles.admin')
-                })}
+            {t('user.accounts.confirm.deleteBody', { username: confirmation.account.username })}
           </p>
         </ConfirmationModal>
       )}

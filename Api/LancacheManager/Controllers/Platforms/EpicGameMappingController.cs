@@ -2,7 +2,7 @@ using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using LancacheManager.Middleware;
+using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Controllers;
 
@@ -71,9 +71,10 @@ public class EpicGameMappingController : ControllerBase
     /// </summary>
     [HttpGet("auth-status")]
     [ProducesResponseType(typeof(EpicMappingAuthStatus), StatusCodes.Status200OK)]
-    public ActionResult<EpicMappingAuthStatus> GetAuthStatus()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<EpicMappingAuthStatus>> GetAuthStatus()
     {
-        return Ok(_epicMappingService.GetAuthStatus());
+        return Ok(_epicMappingService.GetAuthStatus(await IntegrationLease.ResolveCallerAsync(HttpContext)));
     }
 
     /// <summary>
@@ -84,10 +85,11 @@ public class EpicGameMappingController : ControllerBase
     /// </remarks>
     [HttpPost("auth/login")]
     [ProducesResponseType(typeof(EpicLoginUrlResponse), StatusCodes.Status200OK)]
-    public ActionResult<EpicLoginUrlResponse> StartLogin()
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<EpicLoginUrlResponse>> StartLogin([FromBody] IntegrationLoginRequest? request = null)
     {
-        var authorizationUrl = _epicMappingService.GetAuthorizationUrl();
-        return Ok(new EpicLoginUrlResponse { AuthorizationUrl = authorizationUrl });
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+        return Ok(await _epicMappingService.GetAuthorizationUrl(caller, request?.AttemptId, request?.Recover ?? false));
     }
 
     /// <summary>
@@ -97,7 +99,7 @@ public class EpicGameMappingController : ControllerBase
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> LogoutAsync()
     {
-        await _epicMappingService.LogoutAsync();
+        await _epicMappingService.LogoutAsync(await IntegrationLease.ResolveCallerAsync(HttpContext));
         return Ok(ApiResponse.Message("Epic mapping logged out"));
     }
 
@@ -118,7 +120,7 @@ public class EpicGameMappingController : ControllerBase
 
         await _epicMappingService.OnAuthCodeReceivedAsync(
             request.AuthorizationCode.Trim(),
-            HttpContext.GetUserSession()?.AccountId);
+            caller: await IntegrationLease.ResolveCallerAsync(HttpContext), attemptId: request.AttemptId);
         var status = _epicMappingService.GetAuthStatus();
         return Ok(new EpicAuthCompleteResponse
         {
@@ -146,9 +148,9 @@ public class EpicGameMappingController : ControllerBase
     /// </remarks>
     [HttpDelete("schedule/refresh")]
     [ProducesResponseType(typeof(EpicRefreshCancelResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<EpicRefreshCancelResponse>> CancelRefreshAsync()
+    public async Task<ActionResult<EpicRefreshCancelResponse>> CancelRefreshAsync([FromBody] IntegrationLoginRequest? request = null)
     {
-        var cancelled = await _epicMappingService.CancelRefreshAsync();
+        var cancelled = await _epicMappingService.CancelRefreshAsync(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
         if (cancelled)
         {
             return Ok(new EpicRefreshCancelResponse { Cancelled = true, Message = "Epic catalog refresh cancelled" });

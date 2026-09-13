@@ -1,12 +1,13 @@
-import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
+import React, { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { SteamAutoLogoutEvent, SteamSessionErrorEvent } from '@contexts/SignalRContext/types';
 import { SteamAuthContext, type SteamAuthMode } from './SteamAuthContext.types';
+import type { IntegrationAccess } from '../types';
 
-interface SteamAuthenticationState {
+interface SteamAuthenticationState extends IntegrationAccess {
   mode: SteamAuthMode;
   username?: string;
   isAuthenticated: boolean;
@@ -18,8 +19,22 @@ interface SteamAuthProviderProps {
 
 export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }) => {
   const signalR = useSignalR();
-  const { authMode, isLoading: authLoading } = useAuth();
-  const isAdmin = authMode === 'authenticated';
+  const {
+    authMode,
+    authenticationEnabled,
+    accountId,
+    sessionId,
+    isLoading: authLoading
+  } = useAuth();
+  const isAdmin =
+    authenticationEnabled === false ||
+    (authMode === 'authenticated' && Boolean(accountId && sessionId));
+  const identity = JSON.stringify([authenticationEnabled, accountId, sessionId, authMode]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const requestRef = useRef(0);
+  const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
+  const [access, setAccess] = useState<IntegrationAccess | null>(null);
   const [steamAuthMode, setSteamAuthMode] = useState<SteamAuthMode>('anonymous');
   const [username, setUsername] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
@@ -27,21 +42,33 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
   const [autoLogoutMessage, setAutoLogoutMessage] = useState<string | null>(null);
 
   const fetchSteamAuth = useCallback(async () => {
+    if (authLoading || !isAdmin || identityRef.current !== identity) return;
+    const request = ++requestRef.current;
+    const current = () => identityRef.current === identity && requestRef.current === request;
     try {
       const response = await fetch('/api/steam-auth/status', ApiService.getFetchOptions());
-      if (response.ok) {
-        const authState: SteamAuthenticationState = await response.json();
+      const authState = await ApiService.handleResponse<SteamAuthenticationState>(response);
+      if (!current()) return;
+      setStatusIdentity(identity);
+      if (authState) {
+        setAccess(authState);
+        setStatusIdentity(identity);
         const authenticated =
+          authState.canManage === true &&
           authState.mode === 'authenticated' &&
           authState.isAuthenticated === true &&
           Boolean(authState.username?.trim());
         setSteamAuthMode(authenticated ? 'authenticated' : 'anonymous');
         setUsername(authenticated ? authState.username! : '');
       } else {
+        setAccess(null);
         setSteamAuthMode('anonymous');
         setUsername('');
       }
     } catch (error) {
+      if (!current()) return;
+      setStatusIdentity(identity);
+      setAccess(null);
       setSteamAuthMode('anonymous');
       setUsername('');
       // Background poll (mount + SteamAutoLogout/SteamSessionError SignalR recovery). Steam
@@ -49,10 +76,12 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
       // Deliberately silent.
       console.error('[SteamAuth] Failed to fetch Steam auth status:', error);
     } finally {
-      setIsLoading(false);
-      setRevision((current) => current + 1);
+      if (current()) {
+        setIsLoading(false);
+        setRevision((current) => current + 1);
+      }
     }
-  }, []);
+  }, [identity, isAdmin, authLoading]);
 
   const refreshSteamAuth = async () => {
     await fetchSteamAuth();
@@ -66,10 +95,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
   useEffect(() => {
     if (!isAdmin) return;
 
-    const handleSteamAutoLogout = async (event: SteamAutoLogoutEvent) => {
-      setSteamAuthMode('anonymous');
-      setUsername('');
-      setAutoLogoutMessage(event.message);
+    const handleSteamAutoLogout = async (_event: SteamAutoLogoutEvent) => {
       await fetchSteamAuth();
     };
 
@@ -105,12 +131,22 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
 
   // Initial fetch - only for admin users (guests don't need Steam auth status)
   useEffect(() => {
+    requestRef.current += 1;
+    setAccess(null);
+    setStatusIdentity(null);
+    setSteamAuthMode('anonymous');
+    setUsername('');
+    setAutoLogoutMessage(null);
     if (authLoading) return;
     if (!isAdmin) {
       setIsLoading(false);
       return;
     }
+    setIsLoading(true);
     fetchSteamAuth();
+    return () => {
+      requestRef.current += 1;
+    };
   }, [authLoading, isAdmin, fetchSteamAuth]);
 
   // SteamAutoLogout and SteamSessionError are the only things that move this state, and neither is
@@ -126,9 +162,11 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
   return (
     <SteamAuthContext.Provider
       value={{
-        steamAuthMode,
-        username,
-        isLoading,
+        steamAuthMode:
+          statusIdentity === identity && isAdmin && !authLoading ? steamAuthMode : 'anonymous',
+        username: statusIdentity === identity && isAdmin && !authLoading ? username : '',
+        access: statusIdentity === identity && isAdmin && !authLoading ? access : null,
+        isLoading: authLoading || (isAdmin && (statusIdentity !== identity || isLoading)),
         revision,
         autoLogoutMessage,
         refreshSteamAuth,

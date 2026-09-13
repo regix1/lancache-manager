@@ -10,6 +10,7 @@ using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,6 +20,27 @@ namespace LancacheManager.Tests;
 
 public sealed class SteamAuthStatusTests
 {
+    [Fact]
+    public void MobileChallengeKeepsItsErrorContractAndReturnsTheAttempt()
+    {
+        var id = Guid.NewGuid();
+        var expires = DateTime.UtcNow.AddMinutes(15);
+        var mapped = SteamLoginResponseMapper.MapChallengeOrFailure(new SteamKit2Service.AuthenticationResult
+        {
+            RequiresMobileConfirmation = true,
+            Message = "Mobile confirmation required",
+            StageKey = "errors.steam.mobileConfirmationRequired",
+            AttemptId = id,
+            ExpiresAtUtc = expires
+        });
+        var result = Assert.IsType<BadRequestObjectResult>(mapped);
+        Assert.Equal(400, result.StatusCode);
+        var body = Assert.IsType<SteamAuthChallengeResponse>(result.Value);
+        Assert.Equal("Mobile confirmation required", body.Error);
+        Assert.Equal("errors.steam.mobileConfirmationRequired", body.StageKey);
+        Assert.Equal(id, body.AttemptId);
+        Assert.Equal(expires, body.ExpiresAtUtc);
+    }
     [Theory]
     [InlineData(null, "refresh-token")]
     [InlineData("", "refresh-token")]
@@ -26,7 +48,7 @@ public sealed class SteamAuthStatusTests
     [InlineData("steam-user", null)]
     [InlineData("steam-user", "")]
     [InlineData("steam-user", "   ")]
-    public void GetStatus_IncompleteAuthenticatedCredentialsBecomeAnonymous(string? username, string? refreshToken)
+    public async Task GetStatus_IncompleteAuthenticatedCredentialsBecomeAnonymous(string? username, string? refreshToken)
     {
         using var fixture = new SteamFixture();
         var storage = fixture.NewStorage();
@@ -40,7 +62,7 @@ public sealed class SteamAuthStatusTests
         using var steamKit = fixture.NewSteamKit(state, storage);
         MarkLoggedOn(steamKit);
 
-        var status = ReadStatus(fixture.NewController(steamKit, state));
+        var status = await ReadStatus(fixture.NewController(steamKit, state));
 
         Assert.False(steamKit.IsSteamAuthenticated);
         Assert.False(steamKit.GetProgress().IsLoggedOn);
@@ -51,7 +73,7 @@ public sealed class SteamAuthStatusTests
     }
 
     [Fact]
-    public void GetStatus_PartialDecryptionBecomesAnonymous()
+    public async Task GetStatus_PartialDecryptionBecomesAnonymous()
     {
         using var fixture = new SteamFixture();
         var storage = fixture.NewStorage();
@@ -70,7 +92,7 @@ public sealed class SteamAuthStatusTests
         using var steamKit = fixture.NewSteamKit(state, freshStorage);
         MarkLoggedOn(steamKit);
 
-        var status = ReadStatus(fixture.NewController(steamKit, state));
+        var status = await ReadStatus(fixture.NewController(steamKit, state));
 
         Assert.Equal("steam-user", loaded.Username);
         Assert.Null(loaded.RefreshToken);
@@ -83,7 +105,7 @@ public sealed class SteamAuthStatusTests
     }
 
     [Fact]
-    public void GetStatus_CompleteCredentialsDoNotDependOnMappingsOrConnectivity()
+    public async Task GetStatus_CompleteCredentialsDoNotDependOnMappingsOrConnectivity()
     {
         using var fixture = new SteamFixture();
         var storage = fixture.NewStorage();
@@ -99,7 +121,7 @@ public sealed class SteamAuthStatusTests
         MarkRebuildRunning(steamKit);
 
         var progress = steamKit.GetProgress();
-        var status = ReadStatus(fixture.NewController(steamKit, state));
+        var status = await ReadStatus(fixture.NewController(steamKit, state));
 
         Assert.True(steamKit.IsSteamAuthenticated);
         Assert.True(progress.IsLoggedOn);
@@ -114,7 +136,7 @@ public sealed class SteamAuthStatusTests
     }
 
     [Fact]
-    public void ConfiguredOwnerlessLoginStaysSeparateFromAccountSavedLogin()
+    public async Task ConfiguredOwnerlessLoginStaysSeparateFromAccountSavedLogin()
     {
         using var fixture = new SteamFixture();
         var accountId = Guid.NewGuid();
@@ -136,19 +158,19 @@ public sealed class SteamAuthStatusTests
         using var steamKit = fixture.NewSteamKit(state, storage);
         var daemon = fixture.NewDaemon(storage);
 
-        var status = ReadStatus(fixture.NewController(steamKit, state));
+        var status = await ReadStatus(fixture.NewController(steamKit, state));
         var available = daemon.GetIntegrationLoginAvailability(accountId);
         var unavailable = daemon.GetIntegrationLoginAvailability(otherAccountId);
         var accountRequired = daemon.GetIntegrationLoginAvailability(null);
 
         Assert.True(status.IsAuthenticated);
         Assert.Equal("shared-login", status.Username);
-        Assert.True(available.Available);
-        Assert.Equal("account-login", available.Account);
-        Assert.Null(available.Reason);
+        Assert.False(available.Available);
+        Assert.Null(available.Account);
+        Assert.Equal("reauthentication-required", available.Reason);
         Assert.False(unavailable.Available);
         Assert.Null(unavailable.Account);
-        Assert.Equal("no-saved-login", unavailable.Reason);
+        Assert.Equal("reauthentication-required", unavailable.Reason);
         Assert.False(accountRequired.Available);
         Assert.Equal("account-required", accountRequired.Reason);
     }
@@ -182,15 +204,15 @@ public sealed class SteamAuthStatusTests
 
         Assert.False(missingToken.Available);
         Assert.Null(missingToken.Account);
-        Assert.Equal("no-saved-login", missingToken.Reason);
+        Assert.Equal("integration-sign-in-required", missingToken.Reason);
         Assert.False(partial.Available);
         Assert.Null(partial.Account);
-        Assert.Equal("no-saved-login", partial.Reason);
+        Assert.Equal("integration-sign-in-required", partial.Reason);
     }
 
-    private static SteamAuthStatusResponse ReadStatus(SteamAuthController controller)
+    private static async Task<SteamAuthStatusResponse> ReadStatus(SteamAuthController controller)
     {
-        var response = controller.GetStatus();
+        var response = await controller.GetStatus();
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         return Assert.IsType<SteamAuthStatusResponse>(ok.Value);
     }
@@ -274,10 +296,17 @@ public sealed class SteamAuthStatusTests
                 Proxy<IUnifiedOperationTracker>());
         }
 
-        public SteamAuthController NewController(SteamKit2Service steamKit, StateService state) => new(
-            steamKit,
-            state,
-            NullLogger<SteamAuthController>.Instance);
+        public SteamAuthController NewController(SteamKit2Service steamKit, StateService state)
+        {
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["Security:EnableAuthentication"] = "false" }).Build();
+            var services = new ServiceCollection().AddSingleton<IConfiguration>(configuration).BuildServiceProvider();
+            _resources.Add(services);
+            var context = new DefaultHttpContext { RequestServices = services };
+            context.Items["Session"] = new UserSession { Id = Guid.NewGuid(), SessionType = SessionType.Admin };
+            return new(steamKit, state, NullLogger<SteamAuthController>.Instance)
+            { ControllerContext = new ControllerContext { HttpContext = context } };
+        }
 
         public SteamDaemonService NewDaemon(SteamAuthStorageService storage) => new(
             NullLogger<SteamDaemonService>.Instance,

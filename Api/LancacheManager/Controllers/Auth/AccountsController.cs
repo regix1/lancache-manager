@@ -22,15 +22,16 @@ namespace LancacheManager.Controllers;
 /// account row rather than against the claims on their cookie. The row is the current answer; a claim
 /// is a copy taken when the session was minted.
 ///
-/// A user sees and reaches only accounts that are not administrators, and an administrator who is
-/// not the owner does not see or reach the owner. Both are enforced by the query every action loads
-/// its target through, so an account a caller cannot see is also an account they cannot name by id.
+/// Every account holder that is not the owner sees and reaches every ordinary account but does not
+/// see or reach the owner. This is enforced by the query every action loads its target through, so
+/// an account a caller cannot see is also an account they cannot name by id.
 ///
-/// The account that owns the installation cannot be deleted, disabled, demoted or edited, by anybody
+/// The account that owns the installation cannot be deleted, disabled or edited, by anybody
 /// including itself. The wipe action is the exception: only that account can run it, and it
 /// deletes every row including its own.
 ///
-/// Only that account hands out the administrator role.
+/// Administrator and user values remain stored and returned for the primary and ordinary identities,
+/// but account creation always creates an ordinary user account.
 /// </remarks>
 [ApiController]
 [Route("api/accounts")]
@@ -70,8 +71,8 @@ public class AccountsController : ControllerBase
     }
 
     /// <summary>
-    /// Lists the accounts the caller may see: every account for the owner, every account except the
-    /// owner for another administrator, and every account that is not an administrator for a user.
+    /// Lists the accounts the caller may see: every account for the owner, and every account except
+    /// the owner for any other account holder.
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(List<AccountResponse>), StatusCodes.Status200OK)]
@@ -111,9 +112,8 @@ public class AccountsController : ControllerBase
     /// Creates an account.
     /// </summary>
     /// <remarks>
-    /// Asking for the administrator role is the half of role assignment that does not go through
-    /// <see cref="SetRoleAsync"/>: without it a user creates an admin instead of promoting one, and
-    /// the distinction between the two roles is decorative.
+    /// Every account created here is an ordinary user account; owner creation remains a separate
+    /// setup path.
     ///
     /// Throttled because it takes a password, which is the coverage rule every route that accepts a
     /// secret is held to.
@@ -123,19 +123,9 @@ public class AccountsController : ControllerBase
     [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status201Created)]
     public async Task<ActionResult<AccountResponse>> CreateAccountAsync([FromBody] CreateAccountRequest request)
     {
-        if (request.Role == SessionType.Guest)
-        {
-            return RoleNotAssignable();
-        }
-
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var session = HttpContext.GetUserSession();
         var caller = await LoadCallerAccountAsync(context, session);
-
-        if (request.Role == SessionType.Admin && !CallerMayGrantAdmin(caller))
-        {
-            return AdminRoleRefused();
-        }
 
         // The rules the first account was created under, run against this one, so an account made
         // here cannot hold a password that could not have been chosen at setup. The single validator
@@ -156,7 +146,8 @@ public class AccountsController : ControllerBase
         {
             Id = Guid.NewGuid(),
             Username = credentials.Username,
-            Role = request.Role,
+            Role = SessionType.User,
+            IsMainAdmin = false,
             CreatedAtUtc = DateTime.UtcNow
         };
         account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
@@ -206,9 +197,9 @@ public class AccountsController : ControllerBase
     /// a password is replaced because somebody lost it, which is also the shape of somebody else
     /// having found it.
     ///
-    /// The main administrator is refused here as well as on role change, disable and delete. An
-    /// administrator who could set that account's password could sign in as it and hand out the
-    /// administrator role, which is the escalation those refusals exist to close.
+    /// The main administrator is refused here as well as on role change, disable and delete. Anyone
+    /// who could set that account's password could sign in as the installation owner, which is the
+    /// escalation those refusals exist to close.
     ///
     /// Throttled because it takes a password.
     /// </remarks>
@@ -291,68 +282,6 @@ public class AccountsController : ControllerBase
         }
 
         _logger.LogInformation("Account {AccountId} edited", account.Id);
-
-        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
-
-        return Ok(ToResponse(account));
-    }
-
-    /// <summary>
-    /// Moves an account onto a role.
-    /// </summary>
-    /// <remarks>
-    /// Promoting anybody to administrator is the main administrator's alone, and promoting yourself
-    /// runs through this same check rather than a case of its own: a rule that reads the caller's row
-    /// needs no exception for the caller being the target.
-    ///
-    /// The main administrator cannot be moved off the administrator role, which is what makes
-    /// refusing to delete it worth anything: demoting it and then deleting it would otherwise reach
-    /// the same place.
-    /// </remarks>
-    [HttpPut("{id:guid}/role")]
-    [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<AccountResponse>> SetRoleAsync(Guid id, [FromBody] SetAccountRoleRequest request)
-    {
-        if (request.Role == SessionType.Guest)
-        {
-            return RoleNotAssignable();
-        }
-
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var session = HttpContext.GetUserSession();
-        var caller = await LoadCallerAccountAsync(context, session);
-
-        var account = await MainAdminVisibility.AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
-        if (account == null)
-        {
-            return NotFoundAccount();
-        }
-
-        if (account.IsMainAdmin)
-        {
-            return MainAdminRefused();
-        }
-
-        if (request.Role == SessionType.Admin && !CallerMayGrantAdmin(caller))
-        {
-            return AdminRoleRefused();
-        }
-
-        if (account.Id == caller?.Id)
-        {
-            return SelfRefused();
-        }
-
-        account.Role = request.Role;
-        await context.SaveChangesAsync();
-
-        // The session carries its own copy of the role, so without this the person keeps the role
-        // they had until they sign out, and an account holder's session does not expire.
-        await _sessionService.RevokeAccountSessionsAsync(account.Id);
-
-        await RecordAsync(IdentityAuditEvent.RoleChanged, caller, session, account.Id);
-
-        _logger.LogInformation("Account {AccountId} moved to the {Role} role", account.Id, account.Role);
 
         await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
 
@@ -470,10 +399,8 @@ public class AccountsController : ControllerBase
     /// Single-account delete refuses the main administrator so that row cannot vanish by accident.
     /// This is the explicit exception: the owner is emptying the table so the first-admin wizard can
     /// run again. Anyone who is not that owner is refused with its own message and stage key, because
-    /// a refusal that talks about granting the administrator role names an action the person did not
-    /// take. A missing account row — API key only, or authentication
-    /// off — is not treated as a grant, because <see cref="CallerMayGrantAdmin"/> would admit those
-    /// callers.
+    /// a refusal that talks about an ordinary account role names an action the person did not take.
+    /// A missing account row - API key only, or authentication off - is not treated as ownership.
     ///
     /// Each removed row is recorded as <see cref="IdentityAuditEvent.AccountDeleted"/> while the
     /// caller's session still exists, then every session is deleted rather than revoked one account
@@ -521,23 +448,6 @@ public class AccountsController : ControllerBase
         await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
 
         return Ok(MessageResponse.Ok("Accounts deleted"));
-    }
-
-    /// <summary>
-    /// Whether the caller may hand out the administrator role, read from the caller's stored account
-    /// row.
-    /// </summary>
-    /// <remarks>
-    /// The claim on the cookie says "admin" for every administrator, so a check that read it would
-    /// admit all of them and the rule would mean nothing.
-    ///
-    /// A caller with no account row is answered by the authentication setting: with it off there is
-    /// no access control to contradict, and with it on the API key's way to a first administrator is
-    /// the create-first-admin endpoint rather than a standing right to mint more.
-    /// </remarks>
-    private bool CallerMayGrantAdmin(UserAccount? caller)
-    {
-        return caller?.IsMainAdmin ?? !_sessionService.IsAuthenticationEnabled();
     }
 
     private static async Task<UserAccount?> LoadCallerAccountAsync(AppDbContext context, UserSession? session)
@@ -594,22 +504,10 @@ public class AccountsController : ControllerBase
             });
     }
 
-    private ObjectResult AdminRoleRefused()
-    {
-        return StatusCode(
-            StatusCodes.Status403Forbidden,
-            new AccountRefusalResponse
-            {
-                StageKey = AccountRefusalResponse.AdminRoleRequiresMainAdmin,
-                Error = "Only the account that owns this installation can grant the administrator role"
-            });
-    }
-
     /// <summary>
-    /// Refuses a change the caller is making to its own account. Delete, disable and set-role all end
-    /// the caller's own sessions, and none of the three can be put back by the person who did it:
-    /// re-creating an account and granting the admin role both belong to the account that owns the
-    /// installation. Renaming and setting a password on your own account are not refused here.
+    /// Refuses a change the caller is making to its own account. Delete and disable both end the
+    /// caller's own sessions, and neither can be put back by the person who did it.
+    /// Renaming and setting a password on your own account are not refused here.
     /// </summary>
     private ObjectResult SelfRefused()
     {
@@ -618,17 +516,8 @@ public class AccountsController : ControllerBase
             new AccountRefusalResponse
             {
                 StageKey = AccountRefusalResponse.SelfProtected,
-                Error = "You cannot delete, disable or change the role of the account you are signed in as"
+                Error = "You cannot delete or disable the account you are signed in as"
             });
-    }
-
-    private BadRequestObjectResult RoleNotAssignable()
-    {
-        return BadRequest(new AccountRefusalResponse
-        {
-            StageKey = AccountRefusalResponse.RoleNotAssignable,
-            Error = "An account can hold the administrator or the user role"
-        });
     }
 
     private BadRequestObjectResult CredentialsRefused(string error)

@@ -2,6 +2,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -663,7 +664,8 @@ public class PersistentPrefillController : ControllerBase
 
     [HttpGet("integration-login")]
     [ProducesResponseType(typeof(IntegrationLoginAvailability), StatusCodes.Status200OK)]
-    public ActionResult<IntegrationLoginAvailability> GetIntegrationLoginAvailability(
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
+    public async Task<ActionResult<IntegrationLoginAvailability>> GetIntegrationLoginAvailability(
         [FromQuery] PrefillPlatform service)
     {
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
@@ -672,7 +674,8 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'"));
         }
 
-        return Ok(daemon.GetIntegrationLoginAvailability(HttpContext.GetUserSession()?.AccountId));
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
+        return Ok(daemon.GetIntegrationLoginAvailability(caller.AccountId, caller));
     }
 
     /// <summary>
@@ -699,6 +702,15 @@ public class PersistentPrefillController : ControllerBase
             return error;
         }
 
+        var caller = request.ReuseIntegration ? await IntegrationLease.ResolveCallerAsync(HttpContext) : null;
+        await using var lease = caller is not null
+            ? await daemon!.AcquireIntegrationLoginAsync(caller, cancellationToken)
+            : null;
+        if (caller is not null)
+        {
+            var availability = daemon!.GetIntegrationLoginAvailability(caller.AccountId, caller);
+            if (!availability.Available) IntegrationLease.Refuse(availability.Reason ?? "no-saved-login");
+        }
         var editActionError = BeginEditAction(
             daemon!,
             request.EditSessionId,
@@ -714,12 +726,6 @@ public class PersistentPrefillController : ControllerBase
         var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
-            var accountId = HttpContext.GetUserSession()?.AccountId;
-            if (request.ReuseIntegration && accountId is null)
-            {
-                return Forbid();
-            }
-
             await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
                 cancellationToken);
             var loginCommandDispatched = false;
@@ -732,9 +738,10 @@ public class PersistentPrefillController : ControllerBase
             var challenge = request.ReuseIntegration
                 ? await daemon!.ReuseIntegrationLoginForEditAsync(
                     session!.Id,
-                    accountId!.Value,
+                    caller!.AccountId,
                     ConfirmLoginDispatch,
-                    cancellationToken)
+                    cancellationToken,
+                    lease)
                 : await daemon!.StartLoginForEditAsync(
                     session!.Id,
                     TimeSpan.FromSeconds(30),
