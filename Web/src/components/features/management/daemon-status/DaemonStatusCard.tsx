@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
+import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -123,11 +124,11 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
       {loading ? (
         <LoadingState message={loadingMessage} shape="cards" rows={1} />
       ) : (
-        <>
+        <div className="space-y-3">
           {hasError && (
-            <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-              {errorMessage}
-            </div>
+            <Alert color="error">
+              <p className="text-sm">{errorMessage}</p>
+            </Alert>
           )}
 
           <div className="p-3 rounded-lg bg-themed-tertiary">
@@ -169,7 +170,7 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
               )}
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {children && <div className="mt-4">{children}</div>}

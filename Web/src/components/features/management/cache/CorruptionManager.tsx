@@ -47,6 +47,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
@@ -1187,19 +1188,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           )}
 
           {cachedLoadFailed && !isLoading && (
-            <Alert color="red">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-medium">{t('management.corruption.errors.loadCachedData')}</p>
-                  <p className="text-sm mt-1">
-                    {t('management.corruption.errors.loadCachedRetry')}
-                  </p>
-                </div>
-                <Button size="sm" onClick={() => void loadCachedData()}>
-                  {t('common.retry')}
-                </Button>
-              </div>
-            </Alert>
+            <ErrorBlock
+              title={t('management.corruption.errors.loadCachedData')}
+              message={t('management.corruption.errors.loadCachedRetry')}
+              retryLabel={t('common.retry')}
+              onRetry={() => void loadCachedData()}
+            />
           )}
 
           <CardDirectoryNotice notice={directoryNotice} />

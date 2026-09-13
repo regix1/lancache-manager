@@ -20,6 +20,7 @@ import { assertOk } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Button } from '@components/ui/Button';
 import { GroupHeading } from '@components/ui/GroupHeading';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -71,6 +72,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentTheme, setCurrentTheme] = useState('dark-default');
   const { isLoading, setLoading, hasInitiallyLoaded, markLoaded } = useManagerLoading(false);
   const [dragActive, setDragActive] = useState(false);
@@ -142,10 +144,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   // Handler Functions
   const loadThemes = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await themeService.loadThemes();
       setThemes(data);
     } catch (error) {
+      setLoadError(getErrorMessage(error));
       notifyError(t('management.themes.notifications.loadFailed'), error, {
         logLabel: 'Error loading themes:'
       });
@@ -716,6 +720,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     <p className="text-sm">{t('management.themes.guestMode.description')}</p>
                   </div>
                 </Alert>
+              )}
+
+              {loadError && (
+                <ErrorBlock
+                  title={t('management.themes.notifications.loadFailed')}
+                  message={loadError}
+                  retryLabel={t('common.retry')}
+                  onRetry={() => void loadThemes()}
+                />
               )}
 
               <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">

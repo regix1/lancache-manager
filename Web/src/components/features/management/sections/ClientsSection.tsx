@@ -15,6 +15,7 @@ import Badge from '@components/ui/Badge';
 import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
@@ -89,7 +90,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
-  const { clientGroups, loading, error, deleteClientGroup, getGroupForIp } = useClientGroups();
+  const { clientGroups, loading, error, deleteClientGroup, refreshGroups, getGroupForIp } =
+    useClientGroups();
   const {
     enabled: hostnamesEnabled,
     loading: hostnamesLoading,
@@ -566,11 +568,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               {/* The context carries the technical message for the console; the reader gets a
                   translated one. */}
               {error && (
-                <Alert color="red">
-                  <span className="text-sm">
-                    {t('management.sections.clients.errors.failedToLoadNicknames')}
-                  </span>
-                </Alert>
+                <ErrorBlock
+                  title={t('management.sections.clients.errors.failedToLoadNicknames')}
+                  message={error}
+                  retryLabel={t('common.retry')}
+                  onRetry={() => void refreshGroups()}
+                />
               )}
               {loading ? (
                 <LoadingState

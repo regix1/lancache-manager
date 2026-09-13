@@ -1,5 +1,5 @@
 import { noAutofill } from '@utils/autofill';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -9,6 +9,7 @@ import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -66,6 +67,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const { checkingPermissions } = useDirectoryPermissionsContext();
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(!mockMode);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const { selected: expandedDatasources, toggle: toggleExpanded } = useSelectionSet<string>();
   const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(
@@ -141,25 +143,31 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     status: ['running', 'waiting']
   });
 
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const positionsData = await fetchLogPositions();
+      setLogPositions(positionsData);
+    } catch (err) {
+      setLoadError(getErrorMessage(err));
+      notifyError(t('management.datasources.errors.loadFailed'), err, {
+        logLabel: 'Failed to load datasource data'
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [notifyError, t]);
+
   // Load log positions
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const positionsData = await fetchLogPositions();
-        setLogPositions(positionsData);
-      } catch (err) {
-        notifyError(t('management.datasources.errors.loadFailed'), err, {
-          logLabel: 'Failed to load datasource data'
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (!mockMode) {
-      loadData();
+      void loadData();
+    } else {
+      setLoading(false);
+      setLoadError(null);
     }
-  }, [mockMode, notifyError, t]);
+  }, [loadData, mockMode]);
 
   // Listen for processing complete events to refresh positions
   useEffect(() => {
@@ -410,6 +418,15 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           <LoadingState message={t('management.datasources.loadingDatasources')} shape="rows" />
         ) : (
           <div className="space-y-3">
+            {loadError && (
+              <ErrorBlock
+                title={t('management.datasources.errors.loadFailed')}
+                message={loadError}
+                retryLabel={t('common.retry')}
+                onRetry={() => void loadData()}
+              />
+            )}
+
             {datasources.map((ds: DatasourceInfo) => {
               const position = getPositionForDatasource(ds.name);
               const isDatasourceExpanded = expandedDatasources.has(ds.name);

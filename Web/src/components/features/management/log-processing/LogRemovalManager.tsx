@@ -24,6 +24,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
@@ -175,6 +176,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Client-only selection of (datasource::service) pairs for the "Remove Selected"
   // batch. Toggling a checkbox never hits the network - the batch runs only on confirm.
@@ -279,6 +281,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       return;
     }
     beginLoad(forceRefresh);
+    setLoadError(null);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
       setDatasourceCounts(dsCounts);
@@ -286,6 +289,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     } catch (err: unknown) {
       // markFailed only stops the spinner, which on its own reads as "this card has no logs".
       console.error('Failed to load log data:', getErrorMessage(err));
+      setLoadError(getErrorMessage(err));
       onError?.(t('management.logRemoval.errors.loadFailed'));
       markFailed();
     }
@@ -559,6 +563,15 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         <div className="space-y-4">
           <CardDirectoryNotice notice={directoryNotice} />
 
+          {loadError && (
+            <ErrorBlock
+              title={t('management.logRemoval.errors.loadFailed')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void loadData(true)}
+            />
+          )}
+
           {/* Content */}
           <>
             {isLoading ? (
@@ -763,12 +776,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                   );
                 })}
               </div>
-            ) : (
+            ) : !loadError ? (
               <EmptyState
                 title={t('management.logRemoval.emptyState.title')}
                 subtitle={t('management.logRemoval.emptyState.subtitle')}
               />
-            )}
+            ) : null}
           </>
         </div>
       </AccordionSection>

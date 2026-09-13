@@ -5,7 +5,7 @@ import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SearchInput } from '@components/ui/SearchInput';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -287,10 +287,17 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
         </p>
 
         {/* Error / Info Message */}
-        {error && <Alert color="red">{error}</Alert>}
+        {error && (
+          <ErrorBlock
+            title={loadErrorMessage}
+            message={error}
+            retryLabel={t('common.retry')}
+            onRetry={() => void loadData()}
+          />
+        )}
 
         {/* Empty State */}
-        {mappings.length === 0 && !searchQuery && (
+        {!error && mappings.length === 0 && !searchQuery && (
           <EmptyState variant="text" title={t(labels.noGames)} />
         )}
 

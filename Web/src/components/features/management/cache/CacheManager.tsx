@@ -18,6 +18,7 @@ import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
@@ -375,10 +376,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               )}
 
               {cacheSizeError ? (
-                <Alert color="red">
-                  <p className="font-medium">{t('management.cache.cacheSizeError')}</p>
-                  <p className="text-sm mt-1">{cacheSizeError}</p>
-                </Alert>
+                <ErrorBlock
+                  title={t('management.cache.cacheSizeError')}
+                  message={cacheSizeError}
+                  retryLabel={t('common.retry')}
+                  onRetry={() => void fetchCacheSize()}
+                />
               ) : cacheSizeLoading && !cacheSize ? (
                 <div className="flex items-center gap-2 text-xs text-themed-muted">
                   <LoadingSpinner inline size="xs" />

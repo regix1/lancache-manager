@@ -15,6 +15,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { LoadingState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { useNotifications } from '@contexts/notifications';
@@ -1932,7 +1933,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   if (error) {
     return (
       <TabPanel tabId="schedules" className="schedules-error">
-        {error}
+        <ErrorBlock
+          title={t('management.schedules.title')}
+          message={error}
+          retryLabel={t('common.retry')}
+          onRetry={() => void fetchSchedules()}
+        />
       </TabPanel>
     );
   }

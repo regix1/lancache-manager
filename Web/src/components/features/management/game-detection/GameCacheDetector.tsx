@@ -49,6 +49,7 @@ import { formatBytes } from '@utils/formatters';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import '../managementSectionContent.css';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
@@ -195,6 +196,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
   const [isLoadingInitialCache, setIsLoadingInitialCache] = useState(() => !mockMode);
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
+  const [initialLoadRetry, setInitialLoadRetry] = useState(0);
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
@@ -258,7 +261,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   }, []);
 
   const syncCachedDetection = useCallback(
-    async (errorContext: string, options?: { invalidateImages?: boolean }) => {
+    async (
+      errorContext: string,
+      options?: { invalidateImages?: boolean; onError?: (error: unknown) => void }
+    ) => {
       try {
         const snapshot = await loadCachedDetectionSnapshot();
 
@@ -274,9 +280,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
         return snapshot;
       } catch (err) {
-        // Shared background-resync helper (initial load + post-removal/scan auto-refresh); every
-        // caller already has a working fallback (empty state or stale list), so a failure here is
-        // explicit background noise rather than a blocking error.
+        options?.onError?.(err);
+        // Background resync callers keep their stale or empty fallback. The initial-load caller
+        // also receives the error so its card can offer an in-view retry.
         notifyError(t('management.gameDetection.errors.syncFailed'), err, {
           silent: true,
           logLabel: `[GameCacheDetector] ${errorContext}`
@@ -308,6 +314,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   useEffect(() => {
     const loadCachedGames = async () => {
       if (mockMode) {
+        setInitialLoadError(null);
         // The same detection the Dashboard's Games on Disk card shows in mock mode, widened to
         // the fuller shape this tab renders: the summary the dashboard reads carries no depot
         // ids, sample URLs or datasources.
@@ -333,8 +340,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
 
       setIsLoadingInitialCache(true);
+      setInitialLoadError(null);
       try {
-        const snapshot = await syncCachedDetection('Failed to load cached games and services');
+        const snapshot = await syncCachedDetection('Failed to load cached games and services', {
+          onError: (error) => setInitialLoadError(getErrorMessage(error))
+        });
         if (!snapshot?.hasCachedResults) {
           return;
         }
@@ -361,7 +371,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     void loadCachedGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
+  }, [mockMode, refreshKey, initialLoadRetry]); // Re-run when mockMode or refreshKey changes
 
   // A dropped socket can swallow the completion event of a scan or removal that
   // finished while it was down; resync the cached detection snapshot on reconnect.
@@ -1162,6 +1172,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         <div className="space-y-3">
           <CardDirectoryNotice notice={directoryNotice} />
 
+          {initialLoadError && (
+            <ErrorBlock
+              title={t('management.gameDetection.errors.syncFailed')}
+              message={initialLoadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => setInitialLoadRetry((current) => current + 1)}
+            />
+          )}
+
           {/* Datasource Filter */}
           {cacheExist && datasources.length > 1 && (
             <div className="flex justify-end">
@@ -1329,34 +1348,37 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               )}
 
               {/* Empty State - shown only when no scan results (games/services) exist */}
-              {filteredGames.length === 0 && filteredServices.length === 0 && !loading && (
-                <EmptyState
-                  title={
-                    selectedDatasource
-                      ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
-                          datasource: selectedDatasource
-                        })
-                      : t('management.gameDetection.emptyState.noGamesServices')
-                  }
-                  subtitle={
-                    noProcessedLogs
-                      ? t('management.gameDetection.emptyState.processLogsFirst')
-                      : t('management.gameDetection.emptyState.clickFullScan')
-                  }
-                  action={
-                    selectedDatasource ? (
-                      <Button
-                        variant="filled"
-                        color="secondary"
-                        size="sm"
-                        onClick={() => setSelectedDatasource(null)}
-                      >
-                        {t('management.gameDetection.clearFilter')}
-                      </Button>
-                    ) : undefined
-                  }
-                />
-              )}
+              {filteredGames.length === 0 &&
+                filteredServices.length === 0 &&
+                !loading &&
+                !initialLoadError && (
+                  <EmptyState
+                    title={
+                      selectedDatasource
+                        ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
+                            datasource: selectedDatasource
+                          })
+                        : t('management.gameDetection.emptyState.noGamesServices')
+                    }
+                    subtitle={
+                      noProcessedLogs
+                        ? t('management.gameDetection.emptyState.processLogsFirst')
+                        : t('management.gameDetection.emptyState.clickFullScan')
+                    }
+                    action={
+                      selectedDatasource ? (
+                        <Button
+                          variant="filled"
+                          color="secondary"
+                          size="sm"
+                          onClick={() => setSelectedDatasource(null)}
+                        >
+                          {t('management.gameDetection.clearFilter')}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                )}
             </>
           )}
         </div>

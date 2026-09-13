@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './StatusCheckSection.css';
 import { useTranslation } from 'react-i18next';
-import { Alert } from '@components/ui/Alert';
-import { Button } from '@components/ui/Button';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { TogglePill } from '@components/ui/TogglePill';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -341,14 +340,12 @@ const StatusCheckSection: React.FC = () => {
 
   if (statusError && !status) {
     return sectionShell(
-      <div className="flex flex-col items-center gap-3 py-8 text-center">
-        <p className="text-sm text-themed-secondary">
-          {t(`${keys}.loadFailed`, { error: statusError })}
-        </p>
-        <Button variant="filled" color="secondary" size="sm" onClick={() => void loadAll()}>
-          {t(`${keys}.retry`)}
-        </Button>
-      </div>
+      <ErrorBlock
+        title={t(`${keys}.title`)}
+        message={t(`${keys}.loadFailed`, { error: statusError })}
+        retryLabel={t(`${keys}.retry`)}
+        onRetry={() => void loadAll()}
+      />
     );
   }
 
@@ -375,9 +372,14 @@ const StatusCheckSection: React.FC = () => {
   return sectionShell(
     <>
       {statusError && status && (
-        <Alert color="red" className="mb-4">
-          {t(`${keys}.loadFailed`, { error: statusError })}
-        </Alert>
+        <div className="mb-4">
+          <ErrorBlock
+            title={t(`${keys}.title`)}
+            message={t(`${keys}.loadFailed`, { error: statusError })}
+            retryLabel={t(`${keys}.retry`)}
+            onRetry={() => void loadAll()}
+          />
+        </div>
       )}
       <div className="space-y-8">
         <section>

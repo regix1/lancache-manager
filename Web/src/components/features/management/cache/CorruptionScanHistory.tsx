@@ -14,6 +14,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Modal } from '@components/ui/Modal';
 import Badge from '@components/ui/Badge';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -402,17 +403,12 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
             </div>
           </div>
         ) : listError ? (
-          <Alert color="red">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-medium">{t('management.corruption.history.loadError')}</p>
-                <p className="text-sm mt-1">{t('management.corruption.history.loadErrorRetry')}</p>
-              </div>
-              <Button size="sm" onClick={() => void loadHistory()}>
-                {t('common.retry')}
-              </Button>
-            </div>
-          </Alert>
+          <ErrorBlock
+            title={t('management.corruption.history.loadError')}
+            message={t('management.corruption.history.loadErrorRetry')}
+            retryLabel={t('common.retry')}
+            onRetry={() => void loadHistory()}
+          />
         ) : entries !== null && entries.length === 0 ? (
           <EmptyState variant="text" title={t('management.corruption.history.empty')} />
         ) : entries !== null ? (
