@@ -789,8 +789,15 @@ public abstract partial class PrefillDaemonServiceBase
 
             if (appCompleted)
             {
-                var isCached = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
-                var status = isCached ? "Cached" : progress.Result == "Failed" ? "Failed" : "Completed";
+                var isCached = progress.Result == "AlreadyUpToDate";
+                var status = progress.Result switch
+                {
+                    "AlreadyUpToDate" => "Cached",
+                    "Skipped" or "NoDepotsToDownload" => "Skipped",
+                    "Cancelled" => "Cancelled",
+                    "Failed" => "Failed",
+                    _ => "Completed"
+                };
                 try
                 {
                     var failure = progress.Result == "Failed"
@@ -800,7 +807,9 @@ public abstract partial class PrefillDaemonServiceBase
                     if (!IsSessionLive(session)) return;
                     await BroadcastHistoryUpdatedAsync(session.Id, appId!, status);
                     if (!IsSessionLive(session)) return;
-                    if (entry is not null && progress.Result != "Failed" && !session.CancellationTokenSource.IsCancellationRequested)
+                    // A skipped result only repeats a prior cache decision; it cannot establish or
+                    // recreate completion records after cache removal.
+                    if (entry is not null && progress.Result == "Success" && !session.CancellationTokenSource.IsCancellationRequested)
                     {
                         try
                         {
@@ -809,7 +818,6 @@ public abstract partial class PrefillDaemonServiceBase
                             if (!IsSessionLive(session)) return;
                             if (!session.CancellationTokenSource.IsCancellationRequested
                                 && Platform == PrefillPlatform.Steam
-                                && progress.Result is "Success" or "AlreadyUpToDate"
                                 && progress.Depots is { Count: > 0 }
                                 && uint.TryParse(appId, out var numericAppId))
                             {
@@ -1197,7 +1205,7 @@ public abstract partial class PrefillDaemonServiceBase
     {
         foreach (var item in changed)
         {
-            if (item.Result is "success" or "already_cached")
+            if (item.Result == "success")
             {
                 try
                 {

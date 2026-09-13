@@ -49,6 +49,56 @@ public sealed class PrefillRunTests
         Assert.True(fixture.Session.IsPrefilling);
     }
 
+    [Theory]
+    [InlineData("success", 100, true)]
+    [InlineData("already_cached", 0, false)]
+    [InlineData("cancelled", 25, false)]
+    [InlineData("failed", 25, false)]
+    [InlineData("skipped", 0, false)]
+    public async Task OnlySuccessfulDownloadsCreateCacheRecordsAsync(string result, long bytes, bool cached)
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var run = await fixture.StartAsync("10");
+        fixture.Client.Set(run, "completed", bytes, result);
+        var page = fixture.Client.Pages[run.PrefillRunId];
+        fixture.Client.Pages[run.PrefillRunId] = page with
+        {
+            Items = [page.Items[0] with
+            {
+                Depots = [new DepotManifestProgressInfo { DepotId = 11, ManifestId = 12, TotalBytes = 100 }]
+            }]
+        };
+        await fixture.RefreshAsync();
+        await using var context = new AppDbContext(fixture.Options);
+        Assert.Equal(cached ? 1 : 0, await context.PrefillCachedApps.CountAsync());
+        Assert.Equal(cached ? 1 : 0, await context.PrefillCachedDepots.CountAsync());
+    }
+
+    [Fact]
+    public async Task CachedResultDoesNotRestoreClearedRecordsAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var cache = new PrefillCacheService(new TestDbContextFactory(fixture.Options),
+            NullLogger<PrefillCacheService>.Instance);
+        await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
+        await cache.RecordCachedDepotsAsync(10, "Game", [(11, 12, 100)], null);
+        var run = await fixture.StartAsync("10");
+        Assert.Single(fixture.Client.CachedDepots!);
+        await cache.ClearAppCacheAsync(PrefillPlatform.Steam, "10");
+        fixture.Client.Set(run, "completed", 0, "already_cached");
+        var page = fixture.Client.Pages[run.PrefillRunId];
+        fixture.Client.Pages[run.PrefillRunId] = page with
+        {
+            Items = [page.Items[0] with
+            {
+                Depots = [new DepotManifestProgressInfo { DepotId = 11, ManifestId = 12, TotalBytes = 100 }]
+            }]
+        };
+        await fixture.RefreshAsync();
+        Assert.Empty(await cache.GetCachedAppsAsync(PrefillPlatform.Steam));
+        Assert.Empty(await cache.GetAllCachedDepotsAsync());
+    }
+
     [Fact]
     public async Task RunAdmissionAsync()
     {

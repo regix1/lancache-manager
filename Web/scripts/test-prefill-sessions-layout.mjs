@@ -138,10 +138,11 @@ test('neutral buttons have no decorative ring and retain keyboard focus styling'
   );
 });
 
-test('active prefill progress uses a separate track surface and a visible boundary', () => {
+test('active prefill progress uses a separate track surface without an outline', () => {
   const css = readFileSync(new URL('../src/styles/features/prefill.css', import.meta.url), 'utf8');
   assert.match(css, /\.prefill-run-progress\s*\{[^}]*background: var\(--theme-bg-primary\);/);
-  assert.match(css, /\.prefill-run-progress\s*\{[^}]*border: 1px solid var\(--theme-text-muted\);/);
+  assert.match(css, /\.prefill-run-progress\s*\{[^}]*border: 0;/);
+  assert.match(css, /\.prefill-run-progress\s*\{[^}]*appearance: none;/);
   assert.match(
     css,
     /\.prefill-run-progress::-webkit-progress-bar\s*\{[^}]*background: var\(--theme-bg-primary\);/

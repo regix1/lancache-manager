@@ -20,9 +20,8 @@ namespace LancacheManager.Tests;
 /// client makes has to reach the rest. The per-app delete route reaches
 /// <see cref="PrefillCacheService.ClearAppCacheAsync"/>, takes only its own app's rows, and says how
 /// many it took so an app that owns none is not reported as removed. The
-/// download choke point announces a change only when a depot was actually written: an
-/// <c>AlreadyUpToDate</c> app re-records depots the table already holds, so prefilling 200
-/// already-cached games walks that line 200 times with nothing new to say. Two containers writing
+/// download choke point announces a change only after a successful download adds a record.
+/// An already-cached result does not establish a new completion record. Two containers writing
 /// the same depot lose one insert to the unique index, and the batch has to carry on past it.
 /// </summary>
 public sealed class PrefillCacheChangeTests
@@ -103,31 +102,34 @@ public sealed class PrefillCacheChangeTests
         Assert.Equal(CachedDepotId + 1, Assert.Single(depotIds));
     }
 
-    [Theory]
-    [InlineData("Success")]
-    [InlineData("AlreadyUpToDate")]
-    [InlineData("Skipped")]
-    [InlineData("NoDepotsToDownload")]
-    [InlineData("CompletedWithWarnings")]
-    public async Task CompletedApp_NewDepot_AnnouncesTheCacheChange(string result)
+    [Fact]
+    public async Task CompletedApp_NewDepot_AnnouncesTheCacheChange()
     {
         var (daemon, session, recorder) = NewDaemon(NewOptions());
 
-        await InvokeCompletedAppAsync(daemon, session, result);
+        await InvokeCompletedAppAsync(daemon, session, "Success");
 
         Assert.Single(CacheChangeBroadcasts(recorder));
     }
 
-    [Fact]
-    public async Task FailedCompletion_WritesNeitherStore()
+    [Theory]
+    [InlineData("Failed", PrefillHistoryEntryStatus.Failed)]
+    [InlineData("Cancelled", PrefillHistoryEntryStatus.Cancelled)]
+    [InlineData("AlreadyUpToDate", PrefillHistoryEntryStatus.Cached)]
+    [InlineData("Skipped", PrefillHistoryEntryStatus.Skipped)]
+    [InlineData("NoDepotsToDownload", PrefillHistoryEntryStatus.Skipped)]
+    [InlineData("CompletedWithWarnings", PrefillHistoryEntryStatus.Completed)]
+    public async Task FailedCompletion_WritesNeitherStore(string result, PrefillHistoryEntryStatus status)
     {
         var options = NewOptions();
         var (daemon, session, recorder) = NewDaemon(options);
-        await InvokeCompletedAppAsync(daemon, session, "Failed");
+        await InvokeCompletedAppAsync(daemon, session, result);
         await using var context = new AppDbContext(options);
         Assert.Empty(await context.PrefillCachedApps.ToListAsync());
         Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
         Assert.Empty(CacheChangeBroadcasts(recorder));
+        Assert.Equal(status, (await context.PrefillHistoryEntries.SingleAsync()).Status);
+        Assert.Equal(result == "AlreadyUpToDate" ? "already_cached" : "app_completed", session.LastProgress!.State);
     }
 
     [Fact]

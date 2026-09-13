@@ -56,7 +56,7 @@ public enum PrefillProgressState
 
     /// <summary>
     /// Per-app already-cached event emitted by C# when a daemon app_completed has
-    /// Result = AlreadyUpToDate / Skipped / NoDepotsToDownload. Wire value:
+    /// Result = AlreadyUpToDate. Wire value:
     /// <c>"already_cached"</c>.
     /// </summary>
     AlreadyCached
