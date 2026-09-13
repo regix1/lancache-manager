@@ -1,0 +1,155 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ts from 'typescript';
+import {
+  bindLifted,
+  compileTree,
+  findSoleNode,
+  liftConstArrow,
+  moduleUrl,
+  parseSource
+} from './transpile-module.mjs';
+
+const timezoneUrl = await compileTree('../src/utils/timezone.ts');
+const { setServerTimezone } = await import(timezoneUrl);
+const { formatTimestamp } = await import(
+  await compileTree('../src/utils/dateTimeFormat.ts', {
+    './timezone': timezoneUrl,
+    '@/i18n': moduleUrl('export default { t: key => key };')
+  })
+);
+const { getPrefillRunProgress, isPrefillRunActive } = await import(
+  await compileTree('../src/components/features/prefill/hooks/prefillTypes.ts')
+);
+const { clockFromTimeSetting } = await import(
+  await compileTree('../src/utils/pendingPreferences.ts')
+);
+const ClockContext = React.createContext(clockFromTimeSetting('server-24h'));
+const useReaderClock = bindLifted(liftConstArrow('src/hooks/useReaderClock.ts', 'useReaderClock'), {
+  useMemo: React.useMemo,
+  useTimezone: () => React.useContext(ClockContext)
+});
+const useFormattedDateTime = bindLifted(
+  liftConstArrow('src/hooks/useFormattedDateTime.ts', 'useFormattedDateTime'),
+  {
+    useMemo: React.useMemo,
+    useReaderClock,
+    formatTimestamp
+  }
+);
+const FormattedTimestamp = bindLifted(
+  liftConstArrow('src/components/common/FormattedDateTime.tsx', 'FormattedTimestamp'),
+  {
+    React,
+    useFormattedDateTime
+  },
+  { jsx: ts.JsxEmit.React }
+);
+const source = parseSource(
+  'src/components/features/prefill/PrefillProgressCard.tsx',
+  ts.ScriptKind.TSX
+);
+const component = findSoleNode(
+  source,
+  'run card',
+  (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'PrefillProgressCard'
+);
+const content = ({ children }) => React.createElement(React.Fragment, null, children);
+const PrefillProgressCard = bindLifted(
+  component.getText(source).replace(/^export\s+/, ''),
+  {
+    React,
+    useTranslation: () => ({ t: (key) => key }),
+    useContext: React.useContext,
+    useEffect: React.useEffect,
+    useId: React.useId,
+    useState: React.useState,
+    PrefillContext: React.createContext(null),
+    FormattedTimestamp,
+    Card: content,
+    Button: content,
+    Tooltip: content,
+    Alert: content,
+    CollapsibleRegion: content,
+    Badge: content,
+    ChevronDown: () => null,
+    LoadingSpinner: () => null,
+    isPrefillRunActive,
+    formatBytes: String,
+    formatSpeed: String,
+    formatPercent: String,
+    formatCount: String,
+    formatTimeRemaining: String,
+    formatEtaShort: String
+  },
+  { jsx: ts.JsxEmit.React }
+);
+const startedAt = '2026-09-13T23:42:13Z';
+const render = (setting, state, timestamp = startedAt) => {
+  const run = {
+    runId: 'run',
+    sessionId: 'session',
+    daemonInstanceId: 'daemon',
+    scheduleName: 'Daily',
+    options: { selection: 'selected', appIds: ['440'], operatingSystems: ['windows'] },
+    snapshot: {
+      startedAt: timestamp,
+      state,
+      totalApps: 1,
+      completedApps: 0,
+      cachedApps: 0,
+      failedApps: 0,
+      skippedApps: 0,
+      cancelledApps: state === 'cancelled' ? 1 : 0,
+      bytesTransferred: 10
+    },
+    recovering: state === 'reconnecting',
+    cancelRequested: false
+  };
+  const html = renderToStaticMarkup(
+    React.createElement(
+      ClockContext.Provider,
+      {
+        value: { ...clockFromTimeSetting(setting), refreshKey: 0 }
+      },
+      React.createElement(PrefillProgressCard, {
+        run,
+        progress: getPrefillRunProgress(run),
+        history: true
+      })
+    )
+  );
+  return html.match(/<dt>prefill\.runs\.startedLabel<\/dt><dd>(.*?)<\/dd>/)?.[1];
+};
+
+test('every run state renders its start using the selected reader clock and time format', () => {
+  setServerTimezone('Europe/Berlin');
+  for (const state of ['downloading', 'reconnecting', 'completed', 'cancelled', 'failed']) {
+    for (const setting of ['server-24h', 'server-12h', 'local-24h', 'local-12h', 'utc']) {
+      const expected = new Date(startedAt).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone:
+          setting === 'utc' ? 'UTC' : setting.startsWith('server') ? 'Europe/Berlin' : undefined,
+        hour12: setting.endsWith('12h')
+      });
+      assert.equal(render(setting, state), expected, `${state} on ${setting}`);
+    }
+  }
+});
+
+test('run dates cross midnight with the selected zone without changing the recorded instant', () => {
+  setServerTimezone('Europe/Berlin');
+  const utc = render('utc', 'cancelled');
+  const server = render('server-24h', 'cancelled');
+  assert.notEqual(utc, server);
+  assert.equal(render('utc', 'cancelled'), utc);
+  assert.equal(render('server-24h', 'cancelled'), server);
+});
+
+test('missing and invalid run starts use the shared timestamp placeholders', () => {
+  assert.equal(render('utc', 'cancelled', ''), 'common.notAvailable');
+  assert.equal(render('utc', 'cancelled', 'invalid'), 'common.time.invalidDate');
+});

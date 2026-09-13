@@ -12,6 +12,7 @@ import { isPrefillRunActive, type PrefillRun, type PrefillProgress } from './hoo
 import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import Badge from '@components/ui/Badge';
+import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 
 interface PrefillProgressCardProps {
   run?: PrefillRun;
@@ -302,7 +303,9 @@ export function PrefillProgressCard({
                   <dl className="prefill-run-detail-grid">
                     <div className="prefill-run-detail-grid__item">
                       <dt>{t('prefill.runs.startedLabel')}</dt>
-                      <dd>{new Date(snapshot.startedAt).toLocaleString()}</dd>
+                      <dd>
+                        <FormattedTimestamp timestamp={snapshot.startedAt} />
+                      </dd>
                     </div>
                     <div className="prefill-run-detail-grid__item">
                       <dt>{t('prefill.runs.selectionLabel')}</dt>
