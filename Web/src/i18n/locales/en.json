@@ -5163,8 +5163,10 @@
       "loginBeforePrefill": "Please log in to {{service}} before starting prefill"
     },
     "gameSelection": {
-      "cacheStatusUnknown": "Some cache statuses could not be checked. Marked badges show the last known result.",
+      "cacheStatusUnknown": "Some cached games could not be checked against the current service version.",
       "lastKnownCached": "Previously cached",
+      "updateAvailable": "Update available",
+      "statusUnknown": "Status unknown",
       "title": "Select Games to Prefill",
       "importAppIds": "Import App IDs",
       "showCached": "Show Cached",

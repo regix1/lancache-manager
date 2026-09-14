@@ -314,8 +314,23 @@ public class PersistentPrefillController : ControllerBase
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var (cachedAppIds, unknownAppIds) = await ResolveCachedAppIdsForGamePickerAsync(
-            service, daemon, session.Id, ownedAppIds, cancellationToken);
+        var cachedAppIds = await ResolveCachedAppIdsForGamePickerAsync(
+            service, ownedAppIds, cancellationToken);
+        List<string> outdatedAppIds = [];
+        List<string> unknownAppIds = [];
+        if (cachedAppIds.Count > 0)
+        {
+            try
+            {
+                var status = await daemon!.GetCacheStatusAsync(session.Id, cachedAppIds, cancellationToken);
+                (_, outdatedAppIds, unknownAppIds) = status.ResolveAppIds(cachedAppIds);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not verify cached games for {Service}", service);
+                unknownAppIds = cachedAppIds.ToList();
+            }
+        }
 
         var (_, current, currentError) = ResolveRunningPersistentSession(service, session.Id);
         if (currentError is not null) return currentError;
@@ -326,6 +341,7 @@ public class PersistentPrefillController : ControllerBase
         {
             Games = games,
             CachedAppIds = cachedAppIds,
+            OutdatedAppIds = outdatedAppIds,
             UnknownAppIds = unknownAppIds
         });
     }
@@ -1346,52 +1362,22 @@ public class PersistentPrefillController : ControllerBase
     /// <summary>
     /// Resolves cached app ids for the game picker using manager DB only (no live daemon commands).
     /// </summary>
-    private async Task<(List<string> CachedAppIds, List<string> UnknownAppIds)> ResolveCachedAppIdsForGamePickerAsync(
+    private async Task<List<string>> ResolveCachedAppIdsForGamePickerAsync(
         PrefillPlatform platform,
-        PrefillDaemonServiceBase daemon,
-        string sessionId,
         List<string> ownedAppIds,
         CancellationToken cancellationToken)
     {
         if (ownedAppIds.Count == 0)
         {
-            return ([], []);
+            return [];
         }
 
-        List<string> eligible;
-        try
-        {
-            var cachedApps = await _cacheService.GetCachedAppsAsync(platform, cancellationToken);
-            var ownedSet = new HashSet<string>(ownedAppIds, StringComparer.Ordinal);
-            eligible = cachedApps
-                .Select(a => a.AppId)
-                .Where(id => ownedSet.Contains(id))
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "Failed to resolve cached app ids for persistent game picker");
-            return ([], ownedAppIds);
-        }
-        if (eligible.Count == 0) return ([], []);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
-        try
-        {
-            var status = await daemon.GetCacheStatusAsync(sessionId, eligible, timeout.Token);
-            var (verified, _, unknown) = status.ResolveAppIds(eligible);
-            return (verified, unknown);
-        }
-        catch (DaemonCommandException ex) when (ex.RequiresLogin)
-        {
-            throw;
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "Failed to verify cached app ids for persistent game picker");
-            return ([], eligible);
-        }
+        var cachedApps = await _cacheService.GetCachedAppsAsync(platform, cancellationToken);
+        var cachedSet = cachedApps.Select(app => app.AppId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return ownedAppIds
+            .Where(cachedSet.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>

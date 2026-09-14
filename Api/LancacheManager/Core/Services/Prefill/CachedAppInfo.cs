@@ -11,4 +11,5 @@ public class CachedAppInfo
     public long TotalBytes { get; set; }
     public DateTime CachedAtUtc { get; set; }
     public string? CachedBy { get; set; }
+    public string? CacheRevision { get; set; }
 }

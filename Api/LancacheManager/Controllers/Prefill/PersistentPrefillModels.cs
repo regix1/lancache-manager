@@ -234,5 +234,6 @@ public sealed class PersistentPrefillGamesDto
 
     /// <summary>App ids whose cached content is up to date for the session.</summary>
     public required List<string> CachedAppIds { get; init; }
+    public List<string> OutdatedAppIds { get; init; } = [];
     public List<string> UnknownAppIds { get; init; } = [];
 }

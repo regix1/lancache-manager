@@ -115,6 +115,7 @@ interface ScheduledPrefillGameSelectionState {
   sessionId: string;
   games: ScheduledPrefillOwnedGame[];
   cachedAppIds: string[];
+  outdatedAppIds: string[];
   unknownAppIds: string[];
 }
 
@@ -1698,7 +1699,7 @@ export function ScheduledPrefillConfigModal({
       setLoadingGameSelectionService(serviceKey);
       setGameSelection((current) =>
         current?.serviceKey === serviceKey && current.sessionId === sessionId
-          ? { ...current, unknownAppIds: current.cachedAppIds }
+          ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds }
           : current
       );
       const isCurrent = () =>
@@ -1712,7 +1713,7 @@ export function ScheduledPrefillConfigModal({
             try {
               // Persistent sessions are system-owned, so the user-scoped games route 403s. Use the
               // AdminOnly endpoint that resolves the running persistent session and bypasses ownership.
-              const { games, cachedAppIds, unknownAppIds } =
+              const { games, cachedAppIds, outdatedAppIds, unknownAppIds } =
                 await ApiService.getPersistentPrefillGames(
                   getPersistentServiceId(serviceKey),
                   controller.signal,
@@ -1730,6 +1731,7 @@ export function ScheduledPrefillConfigModal({
                   ? {
                       ...current,
                       games: normalizedGames,
+                      outdatedAppIds,
                       unknownAppIds,
                       cachedAppIds: resolveCachedAppIds(
                         current.cachedAppIds,
@@ -1752,7 +1754,7 @@ export function ScheduledPrefillConfigModal({
               );
               setGameSelection((current) =>
                 current?.serviceKey === serviceKey && current.sessionId === sessionId
-                  ? { ...current, unknownAppIds: current.cachedAppIds }
+                  ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds }
                   : current
               );
             }
@@ -1811,7 +1813,18 @@ export function ScheduledPrefillConfigModal({
         gameRequestRef.current = null;
         setGameSelection((current) =>
           current
-            ? { ...current, cachedAppIds: current.cachedAppIds.filter((id) => id !== appId) }
+            ? {
+                ...current,
+                cachedAppIds: current.cachedAppIds.filter(
+                  (id) => id.toLowerCase() !== appId.toLowerCase()
+                ),
+                outdatedAppIds: current.outdatedAppIds.filter(
+                  (id) => id.toLowerCase() !== appId.toLowerCase()
+                ),
+                unknownAppIds: current.unknownAppIds.filter(
+                  (id) => id.toLowerCase() !== appId.toLowerCase()
+                )
+              }
             : current
         );
         await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
@@ -1836,7 +1849,9 @@ export function ScheduledPrefillConfigModal({
       if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
       gameRequestRef.current?.controller.abort();
       gameRequestRef.current = null;
-      setGameSelection((current) => (current ? { ...current, cachedAppIds: [] } : current));
+      setGameSelection((current) =>
+        current ? { ...current, cachedAppIds: [], outdatedAppIds: [], unknownAppIds: [] } : current
+      );
       await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
     } catch {
       if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
@@ -1871,7 +1886,7 @@ export function ScheduledPrefillConfigModal({
       gameRequestRef.current = null;
       setLoadingGameSelectionService(null);
       setGameSelection((current) =>
-        current ? { ...current, unknownAppIds: current.cachedAppIds } : current
+        current ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds } : current
       );
     }
     if (!previous.authenticated && container.isAuthenticated) {
@@ -1936,6 +1951,7 @@ export function ScheduledPrefillConfigModal({
       sessionId: container.sessionId,
       games: [],
       cachedAppIds: [],
+      outdatedAppIds: [],
       unknownAppIds: []
     };
     gameSelectionRef.current = selection;
@@ -2617,6 +2633,7 @@ export function ScheduledPrefillConfigModal({
         onSave={handleSaveGameSelection}
         isLoading={loadingGameSelectionService !== null}
         cachedAppIds={gameSelection?.cachedAppIds ?? []}
+        outdatedAppIds={gameSelection?.outdatedAppIds ?? []}
         unknownAppIds={gameSelection?.unknownAppIds ?? []}
         error={gameSelectionError ?? gameLoadError}
         onRemoveFromCache={handleRemoveGameFromCache}

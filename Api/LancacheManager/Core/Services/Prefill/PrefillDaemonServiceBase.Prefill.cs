@@ -114,10 +114,20 @@ public abstract partial class PrefillDaemonServiceBase
         {
             return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
         }
+        var requested = appIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var requestedSet = requested.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var cachedApps = (await _cacheService.GetCachedAppsAsync(Platform, cancellationToken))
+            .Where(app => requestedSet.Contains(app.AppId))
+            .Select(app => new CachedAppInput { AppId = app.AppId, Revision = app.CacheRevision })
+            .ToList();
+        if (cachedApps.Count == 0)
+        {
+            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No cached apps found" };
+        }
 
         var parameters = new Dictionary<string, string>
         {
-            ["appIds"] = JsonSerializer.Serialize(appIds)
+            ["cachedApps"] = JsonSerializer.Serialize(cachedApps)
         };
 
         var response = await session.Client.SendCommandAsync(
@@ -128,20 +138,16 @@ public abstract partial class PrefillDaemonServiceBase
 
         if (!response.Success)
         {
-            return new CacheStatusResult
-            {
-                Apps = new List<AppCacheStatus>(),
-                Message = response.Error ?? "Failed to check cache status"
-            };
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
         }
 
         if (response.Data is JsonElement element)
         {
-            var result = JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText());
-            return result ?? new CacheStatusResult { Message = "Failed to parse result" };
+            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText())
+                ?? throw new JsonException("Required cache status result is null.");
         }
 
-        return new CacheStatusResult { Message = response.Message };
+        throw new JsonException("Required cache status result is absent.");
     }
 
     /// <summary>
@@ -187,6 +193,11 @@ public abstract partial class PrefillDaemonServiceBase
         }
         if (session.Capabilities?.SupportsConcurrentPrefill == true)
         {
+            List<CachedAppInput> cachedApps = force
+                ? []
+                : (await _cacheService.GetCachedAppsAsync(Platform, cancellationToken))
+                    .Select(app => new CachedAppInput { AppId = app.AppId, Revision = app.CacheRevision })
+                    .ToList();
             var selection = all ? "all" : recent ? "recent" : recentlyPurchased ? "recently_purchased"
                 : top.HasValue ? "top" : "selected";
             if ((all ? 1 : 0) + (recent ? 1 : 0) + (recentlyPurchased ? 1 : 0) + (top.HasValue ? 1 : 0) > 1
@@ -202,6 +213,7 @@ public abstract partial class PrefillDaemonServiceBase
                 TopCount = top,
                 OperatingSystems = ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(Platform)
                     ? operatingSystems?.ToArray() ?? [] : [],
+                CachedApps = cachedApps,
                 MaxConcurrency = Math.Clamp(maxConcurrency ?? session.Capabilities.MaxConcurrentRequests,
                     1, session.Capabilities.MaxConcurrentRequests)
             };

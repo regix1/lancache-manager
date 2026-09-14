@@ -508,10 +508,10 @@ public class CacheStatusResult
 {
     public (List<string> UpToDateAppIds, List<string> OutdatedAppIds, List<string> UnknownAppIds) ResolveAppIds(IEnumerable<string> requested)
     {
-        var ids = requested.Distinct(StringComparer.Ordinal).ToList();
-        var outdated = Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToHashSet(StringComparer.Ordinal);
+        var ids = requested.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var outdated = Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var verified = Apps.Where(a => a.IsUpToDate && !outdated.Contains(a.AppId))
-            .Select(a => a.AppId).ToHashSet(StringComparer.Ordinal);
+            .Select(a => a.AppId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return (ids.Where(verified.Contains).ToList(), ids.Where(outdated.Contains).ToList(),
             ids.Where(id => !verified.Contains(id) && !outdated.Contains(id)).ToList());
     }

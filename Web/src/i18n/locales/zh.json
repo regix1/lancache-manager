@@ -5163,8 +5163,10 @@
       "loginBeforePrefill": "请在开始预填充前登录 {{service}}"
     },
     "gameSelection": {
-      "cacheStatusUnknown": "部分缓存状态无法检查。带标记的徽章显示上次已知的结果。",
+      "cacheStatusUnknown": "部分已缓存游戏无法与当前服务版本进行核对。",
       "lastKnownCached": "上次已缓存",
+      "updateAvailable": "有可用更新",
+      "statusUnknown": "状态未知",
       "title": "选择要预填充的游戏",
       "importAppIds": "导入应用 ID",
       "showCached": "显示已缓存",

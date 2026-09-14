@@ -1465,6 +1465,7 @@ public abstract class DaemonClientBase : IDaemonClient
         }
         if (cachedDepots is not null)
             parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
+        parameters["cachedApps"] = JsonSerializer.Serialize(options.CachedApps, _jsonOptions);
         var response = await SendCoreAsync("prefill", parameters, TimeSpan.FromSeconds(30), cancellationToken,
             commandId: runId.ToString(), expectedGeneration: generation);
         if (!response.Success || response.RequiresLogin == true)

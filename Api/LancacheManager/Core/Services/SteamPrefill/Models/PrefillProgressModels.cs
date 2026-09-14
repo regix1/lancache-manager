@@ -8,6 +8,7 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public class PrefillProgress
 {
+    public string? CacheRevision { get; set; }
     public string? DaemonInstanceId { get; set; }
     public long Sequence { get; set; }
     public int SkippedApps { get; set; }

@@ -35,7 +35,7 @@ const recoveryMessages = {
   'signalr.steamSession.savedSignInPreserved':
     'Steam ended the current connection. Your saved sign-in is still available. Retry the operation.',
   'prefill.gameSelection.cacheStatusUnknown':
-    'Some cache statuses could not be checked. Marked badges show the last known result.',
+    'Some cached games could not be checked against the current service version.',
   'prefill.gameSelection.lastKnownCached': 'Previously cached'
 };
 
@@ -80,7 +80,7 @@ test('recovery keys exist in both locales and production translations do not hid
       }
     }
   }
-  assert.equal(affectedCalls, 11);
+  assert.equal(affectedCalls, 10);
 });
 
 const translator = i18next.createInstance();
@@ -242,7 +242,14 @@ test('both picker load failures translate typed reasons and expose missing requi
       const key = stageKey ?? 'errors.prefill.requestFailed';
       const expected = language === 'missing' ? key : translator.t(key);
       let scheduledMessage;
-      const selection = { serviceKey: 'steam', sessionId: 's1', cachedAppIds: [], games: [] };
+      const selection = {
+        serviceKey: 'steam',
+        sessionId: 's1',
+        cachedAppIds: [],
+        outdatedAppIds: [],
+        unknownAppIds: [],
+        games: []
+      };
       await bindLifted(scheduledSource, {
         ApiError,
         t,
@@ -276,6 +283,7 @@ test('both picker load failures translate typed reasons and expose missing requi
         ownedGames: [],
         setIsLoadingGames: () => undefined,
         setIsUsingGamesCache: () => undefined,
+        setOutdatedAppIds: () => undefined,
         setUnknownAppIds: () => undefined,
         setGameLoadError: (message) => {
           ordinaryMessage = message;

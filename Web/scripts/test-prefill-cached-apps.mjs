@@ -39,9 +39,15 @@ const modalPath =
 
 const panel = (
   previous = [],
-  status = async () => ({ upToDateAppIds: ['A'], unknownAppIds: ['B'] })
+  status = async () => ({
+    upToDateAppIds: ['A'],
+    outdatedAppIds: [],
+    unknownAppIds: ['B']
+  })
 ) => {
   let badges = previous;
+  let outdated = [];
+  let unknown = [];
   const calls = [];
   const bindings = {
     signalR: { session: { id: 'session-a' } },
@@ -52,7 +58,12 @@ const panel = (
     ownedGames: previous.map((appId) => ({ appId })),
     assertOk: async () => undefined,
     ApiError: Error,
-    setUnknownAppIds: () => undefined,
+    setOutdatedAppIds: (value) => {
+      outdated = value;
+    },
+    setUnknownAppIds: (value) => {
+      unknown = value;
+    },
     setGameLoadError: () => undefined,
     gamesRequestRef: { current: null },
     gamesCacheRef: { current: null },
@@ -86,6 +97,8 @@ const panel = (
     bindings,
     calls,
     badges: () => badges,
+    outdated: () => outdated,
+    unknown: () => unknown,
     load: bindLifted(liftHookCallback(panelPath, 'useCallback', 'const gamesCache ='), bindings)
   };
 };
@@ -93,20 +106,23 @@ const panel = (
 test('ordinary picker consumes explicit unknowns and filters unsolicited positives by eligibility', async () => {
   const picker = panel(['B', 'C'], async () => ({
     upToDateAppIds: ['A', 'C'],
+    outdatedAppIds: [],
     unknownAppIds: ['B', 'C']
   }));
   await picker.load();
   assert.deepEqual(picker.badges(), ['A', 'B']);
+  assert.deepEqual(picker.unknown(), ['B']);
   assert.deepEqual(picker.calls, ['epic']);
-  assert.equal(picker.bindings.gamesCacheRef.current.hasData, false);
+  assert.equal(picker.bindings.gamesCacheRef.current.hasData, true);
 });
 
-test('ordinary picker timeout preserves eligible previous badges and remains retryable', async () => {
+test('ordinary picker timeout keeps manager membership and marks it unknown', async () => {
   const picker = panel(['B', 'C'], async () => {
     throw new DOMException('timeout', 'TimeoutError');
   });
   await picker.load();
-  assert.deepEqual(picker.badges(), ['B']);
+  assert.deepEqual(picker.badges(), ['A', 'B']);
+  assert.deepEqual(picker.unknown(), ['A', 'B']);
   assert.equal(picker.bindings.gamesCacheRef.current.hasData, false);
 });
 
@@ -129,7 +145,7 @@ test('ordinary picker service reset aborts stale verification without restoring 
     picker.bindings
   );
   reset();
-  release({ upToDateAppIds: ['A'], unknownAppIds: [] });
+  release({ upToDateAppIds: ['A'], outdatedAppIds: [], unknownAppIds: [] });
   await pending;
   assert.deepEqual(picker.badges(), []);
   assert.equal(picker.bindings.gamesCacheRef.current, null);
@@ -194,7 +210,13 @@ test('ordinary picker controls pass service and abort stale badge requests', asy
 });
 
 test('scheduled picker merges unknowns, coalesces bursts and rejects old-session replies', async () => {
-  let selection = { serviceKey: 'epic', sessionId: 's1', cachedAppIds: ['B', 'C'] };
+  let selection = {
+    serviceKey: 'epic',
+    sessionId: 's1',
+    cachedAppIds: ['B', 'C'],
+    outdatedAppIds: [],
+    unknownAppIds: []
+  };
   let release;
   let calls = 0;
   const bindings = {
@@ -216,7 +238,12 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
           await new Promise((resolve) => {
             release = resolve;
           });
-        return { games: [], cachedAppIds: ['A'], unknownAppIds: ['B'] };
+        return {
+          games: [],
+          cachedAppIds: ['A'],
+          outdatedAppIds: [],
+          unknownAppIds: ['B']
+        };
       }
     }
   };
@@ -231,14 +258,26 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
   await pending;
   assert.equal(calls, 2);
   assert.deepEqual(selection.cachedAppIds, ['A', 'B']);
-  selection = { serviceKey: 'xbox', sessionId: 's2', cachedAppIds: [] };
+  selection = {
+    serviceKey: 'xbox',
+    sessionId: 's2',
+    cachedAppIds: [],
+    outdatedAppIds: [],
+    unknownAppIds: []
+  };
   bindings.gameSelectionRef.current = selection;
   await load('epic', 's1');
   assert.deepEqual(selection.cachedAppIds, []);
 });
 
 test('scheduled picker controls scope deletion and clear, and re-read without a socket', async () => {
-  let selection = { serviceKey: 'xbox', sessionId: 's2', cachedAppIds: ['opaque/id', 'B'] };
+  let selection = {
+    serviceKey: 'xbox',
+    sessionId: 's2',
+    cachedAppIds: ['opaque/id', 'B'],
+    outdatedAppIds: ['opaque/id'],
+    unknownAppIds: ['B']
+  };
   const calls = [];
   const bindings = {
     gameSelection: selection,
@@ -248,6 +287,7 @@ test('scheduled picker controls scope deletion and clear, and re-read without a 
     setRemovingCachedAppId: () => undefined,
     setIsClearingCachedGames: () => undefined,
     setGameSelectionError: (error) => assert.equal(error, null),
+    t: (key) => key,
     getErrorMessage: String,
     getPersistentServiceId: (service) => service,
     setGameSelection: (update) => {
@@ -264,11 +304,15 @@ test('scheduled picker controls scope deletion and clear, and re-read without a 
     bindings
   )('opaque/id');
   assert.deepEqual(selection.cachedAppIds, ['B']);
+  assert.deepEqual(selection.outdatedAppIds, []);
+  assert.deepEqual(selection.unknownAppIds, ['B']);
   await bindLifted(
     liftHookCallback(modalPath, 'useCallback', 'await ApiService.clearAllPrefillCache'),
     bindings
   )();
   assert.deepEqual(selection.cachedAppIds, []);
+  assert.deepEqual(selection.outdatedAppIds, []);
+  assert.deepEqual(selection.unknownAppIds, []);
   assert.deepEqual(calls, [['opaque/id', 'xbox'], ['xbox', 's2'], ['xbox'], ['xbox', 's2']]);
 });
 
@@ -278,6 +322,7 @@ const scheduled = (fetchGames) => {
     sessionId: 's1',
     games: [{ appId: 'A', name: 'Alpha' }],
     cachedAppIds: ['A'],
+    outdatedAppIds: [],
     unknownAppIds: []
   };
   let loadError = 'previous load failure';
@@ -323,7 +368,12 @@ test('failed scheduled load drains queued authentication and clears only its loa
       await new Promise((_resolve, fail) => {
         reject = fail;
       });
-    return { games: [{ appId: 'A', name: 'Alpha' }], cachedAppIds: ['A'], unknownAppIds: [] };
+    return {
+      games: [{ appId: 'A', name: 'Alpha' }],
+      cachedAppIds: ['A'],
+      outdatedAppIds: [],
+      unknownAppIds: []
+    };
   });
   const pending = picker.load('steam', 's1');
   assert.deepEqual(picker.state().selection.unknownAppIds, ['A']);
@@ -343,7 +393,7 @@ test('scheduled failure remains safe and visible until an authoritative result',
   let attempt = 0;
   const picker = scheduled(async () => {
     if (++attempt === 1) throw new Error('SteamKit2.AsyncJobFailedException');
-    return { games: [], cachedAppIds: [], unknownAppIds: ['A'] };
+    return { games: [], cachedAppIds: [], outdatedAppIds: [], unknownAppIds: ['A'] };
   });
   await picker.load('steam', 's1');
   const safeError = picker.state().loadError;
@@ -456,7 +506,13 @@ test('ordinary same-session authentication invalidates freshness and reloads onl
 });
 
 test('scheduled authoritative same-session authentication refreshes the current picker', () => {
-  const selection = { serviceKey: 'steam', sessionId: 's1', cachedAppIds: ['A'] };
+  const selection = {
+    serviceKey: 'steam',
+    sessionId: 's1',
+    cachedAppIds: ['A'],
+    outdatedAppIds: [],
+    unknownAppIds: []
+  };
   const calls = [];
   const bindings = {
     opened: true,
@@ -501,7 +557,12 @@ test('persistent games request pins the session and retains the unpinned client 
   });
   const receiver = {
     getFetchOptions: (options) => options,
-    handleResponse: async () => ({ games: [], cachedAppIds: [], unknownAppIds: [] })
+    handleResponse: async () => ({
+      games: [],
+      cachedAppIds: [],
+      outdatedAppIds: [],
+      unknownAppIds: []
+    })
   };
   await request.call(receiver, 'steam', undefined, 'session / one');
   await request.call(receiver, 'steam');
@@ -513,7 +574,12 @@ test('persistent games request pins the session and retains the unpinned client 
 });
 
 test('scheduled cache action failure survives a concurrent successful library refresh', async () => {
-  const picker = scheduled(async () => ({ games: [], cachedAppIds: [], unknownAppIds: [] }));
+  const picker = scheduled(async () => ({
+    games: [],
+    cachedAppIds: [],
+    outdatedAppIds: [],
+    unknownAppIds: []
+  }));
   let reject;
   let actionError = null;
   const bindings = {

@@ -32,25 +32,27 @@ public class PrefillCachedAppTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PersistentPicker_NoCandidatesSkipsDaemonAndFailurePreservesEligibility(bool seed)
+    [InlineData(PrefillPlatform.Steam)]
+    [InlineData(PrefillPlatform.Epic)]
+    [InlineData(PrefillPlatform.BattleNet)]
+    [InlineData(PrefillPlatform.Riot)]
+    [InlineData(PrefillPlatform.Xbox)]
+    public async Task PersistentPicker_UsesSharedCacheAcrossPlatforms(PrefillPlatform platform)
     {
         await using var database = await TestDatabase.CreateAsync();
         var service = new PrefillCacheService(new TestDbContextFactory(database.Options), NullLogger<PrefillCacheService>.Instance);
-        if (seed) await service.RecordCachedAppAsync(PrefillPlatform.Steam, "123", "Game", 1, null);
-        var (daemon, _, _) = PrefillCacheChangeTests.NewDaemon(database.Options);
+        await service.RecordCachedAppAsync(platform, "CACHED-ID", "Game", 1, null);
         var controller = new PersistentPrefillController(null!, null!, service, NullLogger<PersistentPrefillController>.Instance);
         var method = typeof(PersistentPrefillController).GetMethod("ResolveCachedAppIdsForGamePickerAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var task = (Task<(List<string> CachedAppIds, List<string> UnknownAppIds)>)method.Invoke(controller,
-            [PrefillPlatform.Steam, seed ? daemon : null, "missing", new List<string> { "123", "456" }, CancellationToken.None])!;
+        var task = (Task<List<string>>)method.Invoke(controller,
+            [platform, new List<string> { "cached-id", "not-cached" }, CancellationToken.None])!;
         var result = await task;
-        Assert.Empty(result.CachedAppIds);
-        Assert.Equal(seed ? new[] { "123" } : [], result.UnknownAppIds);
+        Assert.Equal(["cached-id"], result);
+
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
-        var cancelledTask = (Task<(List<string>, List<string>)>)method.Invoke(controller,
-            [PrefillPlatform.Steam, daemon, "missing", new List<string> { "123" }, cancelled.Token])!;
+        var cancelledTask = (Task<List<string>>)method.Invoke(controller,
+            [platform, new List<string> { "cached-id" }, cancelled.Token])!;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledTask);
     }
 
@@ -173,12 +175,14 @@ public class PrefillCachedAppTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var service = new PrefillCacheService(new TestDbContextFactory(database.Options), NullLogger<PrefillCacheService>.Instance);
-        Assert.True(await service.RecordCachedAppAsync(platform, "AbC-001", "Game", 10, "user"));
-        Assert.False(await service.RecordCachedAppAsync(platform, "AbC-001", null, 20, null));
+        Assert.True(await service.RecordCachedAppAsync(platform, "AbC-001", "Game", 10, "user", "revision-1"));
+        Assert.False(await service.RecordCachedAppAsync(platform, "AbC-001", null, 20, null, "revision-1"));
+        Assert.True(await service.RecordCachedAppAsync(platform, "AbC-001", null, 20, null, "revision-2"));
         var app = Assert.Single(await service.GetCachedAppsAsync(platform));
         Assert.Equal("AbC-001", app.AppId);
         Assert.Equal("Game", app.AppName);
         Assert.Equal(20, app.TotalBytes);
+        Assert.Equal("revision-2", app.CacheRevision);
     }
 
     [Fact]

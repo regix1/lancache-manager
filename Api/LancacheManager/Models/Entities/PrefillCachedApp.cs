@@ -14,4 +14,6 @@ public class PrefillCachedApp
     [MaxLength(100)]
     public string? CachedBy { get; set; }
     public long TotalBytes { get; set; }
+    [MaxLength(512)]
+    public string? CacheRevision { get; set; }
 }

@@ -819,7 +819,7 @@ public abstract partial class PrefillDaemonServiceBase
                         try
                         {
                             var recorded = await _cacheService.RecordCachedAppAsync(
-                                Platform, appId!, appName, totalBytes, account);
+                                Platform, appId!, appName, totalBytes, account, progress.CacheRevision);
                             if (!IsSessionLive(session)) return;
                             if (!session.CancellationTokenSource.IsCancellationRequested
                                 && Platform == PrefillPlatform.Steam
@@ -1215,7 +1215,7 @@ public abstract partial class PrefillDaemonServiceBase
                 try
                 {
                     var recorded = await _cacheService.RecordCachedAppAsync(Platform, item.AppId, item.Name,
-                        item.TotalBytes ?? 0, session.AccountUsername);
+                        item.TotalBytes ?? 0, session.AccountUsername, item.CacheRevision);
                     if (Platform == PrefillPlatform.Steam && item.Depots is { Count: > 0 }
                         && uint.TryParse(item.AppId, out var appId))
                         recorded |= await _cacheService.RecordCachedDepotsAsync(appId, item.Name,

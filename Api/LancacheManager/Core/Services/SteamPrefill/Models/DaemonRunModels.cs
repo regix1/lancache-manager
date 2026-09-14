@@ -11,6 +11,14 @@ public sealed record DaemonRunOptions
     public IReadOnlyList<string> OperatingSystems { get; init; } = [];
     public int MaxConcurrency { get; init; }
     public int? TopCount { get; init; }
+    public IReadOnlyList<CachedAppInput> CachedApps { get; init; } = [];
+}
+
+public sealed record CachedAppInput
+{
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public required string AppId { get; init; }
+    public string? Revision { get; init; }
 }
 
 public sealed record DaemonRunItem
@@ -24,6 +32,7 @@ public sealed record DaemonRunItem
     public long Sequence { get; init; }
     public long BytesTransferred { get; init; }
     public long? TotalBytes { get; init; }
+    public string? CacheRevision { get; init; }
     public IReadOnlyList<DepotManifestProgressInfo>? Depots { get; init; }
 }
 

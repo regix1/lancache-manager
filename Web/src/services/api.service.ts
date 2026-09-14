@@ -4496,6 +4496,7 @@ interface PersistentPrefillOwnedGameDto {
 interface PersistentPrefillGamesDto {
   games: PersistentPrefillOwnedGameDto[];
   cachedAppIds: string[];
+  outdatedAppIds: string[];
   unknownAppIds: string[];
 }
 

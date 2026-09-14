@@ -32,6 +32,7 @@ interface GameSelectionModalProps {
   onSave: (selectedIds: string[]) => Promise<void>;
   isLoading?: boolean;
   cachedAppIds?: string[];
+  outdatedAppIds?: string[];
   unknownAppIds?: string[];
   error?: string | null;
   isUsingCache?: boolean;
@@ -52,6 +53,7 @@ export function GameSelectionModal({
   onSave,
   isLoading = false,
   cachedAppIds = [],
+  outdatedAppIds = [],
   unknownAppIds = [],
   error = null,
   isUsingCache = false,
@@ -75,7 +77,18 @@ export function GameSelectionModal({
   const openEpochRef = useRef(0);
 
   // Create a Set for O(1) lookup
-  const cachedAppIdsSet = useMemo(() => new Set(cachedAppIds), [cachedAppIds]);
+  const cachedAppIdsSet = useMemo(
+    () => new Set(cachedAppIds.map((id) => id.toLowerCase())),
+    [cachedAppIds]
+  );
+  const outdatedAppIdsSet = useMemo(
+    () => new Set(outdatedAppIds.map((id) => id.toLowerCase())),
+    [outdatedAppIds]
+  );
+  const unknownAppIdsSet = useMemo(
+    () => new Set(unknownAppIds.map((id) => id.toLowerCase())),
+    [unknownAppIds]
+  );
   const gameIdSet = useMemo(() => new Set(games.map((g) => g.appId)), [games]);
 
   const canImportAppIds = serviceId === 'steam';
@@ -205,7 +218,7 @@ export function GameSelectionModal({
 
   // Count cached games for display
   const cachedCount = useMemo(
-    () => games.filter((g) => cachedAppIdsSet.has(g.appId)).length,
+    () => games.filter((g) => cachedAppIdsSet.has(g.appId.toLowerCase())).length,
     [games, cachedAppIdsSet]
   );
 
@@ -217,8 +230,14 @@ export function GameSelectionModal({
   );
 
   const cachedSelectedCount = useMemo(
-    () => selectedInLibrary.filter((id) => cachedAppIdsSet.has(id)).length,
-    [selectedInLibrary, cachedAppIdsSet]
+    () =>
+      selectedInLibrary.filter((id) => {
+        const key = id.toLowerCase();
+        return (
+          cachedAppIdsSet.has(key) && !outdatedAppIdsSet.has(key) && !unknownAppIdsSet.has(key)
+        );
+      }).length,
+    [selectedInLibrary, cachedAppIdsSet, outdatedAppIdsSet, unknownAppIdsSet]
   );
 
   // Sort: selected first, then alphabetically
@@ -242,7 +261,8 @@ export function GameSelectionModal({
       hideCached
         ? []
         : sortedGames.filter(
-            (game) => !localSelected.has(game.appId) && cachedAppIdsSet.has(game.appId)
+            (game) =>
+              !localSelected.has(game.appId) && cachedAppIdsSet.has(game.appId.toLowerCase())
           ),
     [sortedGames, localSelected, hideCached, cachedAppIdsSet]
   );
@@ -250,7 +270,7 @@ export function GameSelectionModal({
   const availableGames = useMemo(
     () =>
       sortedGames.filter(
-        (game) => !localSelected.has(game.appId) && !cachedAppIdsSet.has(game.appId)
+        (game) => !localSelected.has(game.appId) && !cachedAppIdsSet.has(game.appId.toLowerCase())
       ),
     [sortedGames, localSelected, cachedAppIdsSet]
   );
@@ -344,7 +364,10 @@ export function GameSelectionModal({
   }, [games.length, selectedInLibrary, localSelected, onSave, onClose, notifyError, t]);
 
   const renderGameRow = (game: OwnedGame, selected: boolean) => {
-    const isCached = cachedAppIdsSet.has(game.appId);
+    const appKey = game.appId.toLowerCase();
+    const isCached = cachedAppIdsSet.has(appKey);
+    const isOutdated = outdatedAppIdsSet.has(appKey);
+    const isUnknown = unknownAppIdsSet.has(appKey);
 
     return (
       <div
@@ -383,11 +406,13 @@ export function GameSelectionModal({
                 {t('prefill.gameSelection.appId', { id: game.appId })}
               </span>
               {isCached && (
-                <Badge variant={unknownAppIds.includes(game.appId) ? 'warning' : 'success'}>
-                  {unknownAppIds.includes(game.appId)
-                    ? t('prefill.gameSelection.lastKnownCached')
-                    : t('prefill.gameSelection.cachedBadge')}
-                </Badge>
+                <Badge variant="success">{t('prefill.gameSelection.cachedBadge')}</Badge>
+              )}
+              {isOutdated && (
+                <Badge variant="warning">{t('prefill.gameSelection.updateAvailable')}</Badge>
+              )}
+              {isUnknown && (
+                <Badge variant="warning">{t('prefill.gameSelection.statusUnknown')}</Badge>
               )}
             </div>
           </div>

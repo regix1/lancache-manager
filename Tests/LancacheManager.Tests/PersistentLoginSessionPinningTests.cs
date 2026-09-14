@@ -77,33 +77,22 @@ public class PersistentLoginSessionPinningTests
         Assert.Equal("errors.steam.signInLost", failure.StageKey);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task GetGames_CacheCheckSeparatesLoginLossFromUnknownStatus(bool requiresLogin)
+    [Fact]
+    public async Task GetGames_CacheCheckSeparatesLoginLossFromUnknownStatus()
     {
         var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
         client.Games = () => Task.FromResult(new List<OwnedGame> { new() { AppId = "10", Name = "Game" } });
         daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(
-            new DaemonCommandException(requiresLogin ? "auth-lost" : "game-details-unavailable"));
+            new InvalidOperationException("The game picker must not query container-local cache state."));
         var cache = (PrefillCacheService)typeof(PersistentPrefillController)
             .GetField("_cacheService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)!;
         await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
 
-        if (requiresLogin)
-        {
-            var failure = await Assert.ThrowsAsync<DaemonCommandException>(() =>
-                controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A"));
-            Assert.True(failure.RequiresLogin);
-        }
-        else
-        {
-            var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
-            var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
-            Assert.Empty(body.CachedAppIds);
-            Assert.Equal(["10"], body.UnknownAppIds);
-            Assert.Single(body.Games);
-        }
+        var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+        var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(["10"], body.CachedAppIds);
+        Assert.Equal(["10"], body.UnknownAppIds);
+        Assert.Single(body.Games);
     }
 
     // ---- RC3: controller pinning ---------------------------------------------------------------

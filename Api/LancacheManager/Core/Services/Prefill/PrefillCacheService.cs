@@ -250,15 +250,18 @@ public class PrefillCacheService
     /// Gets all cached apps with their cache timestamps.
     /// </summary>
     public async Task<bool> RecordCachedAppAsync(
-        PrefillPlatform platform, string appId, string? appName, long totalBytes, string? cachedBy)
+        PrefillPlatform platform, string appId, string? appName, long totalBytes, string? cachedBy,
+        string? cacheRevision = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appId);
         await using var context = await _contextFactory.CreateDbContextAsync();
         var existing = await context.PrefillCachedApps
             .FirstOrDefaultAsync(a => a.Platform == platform && a.AppId == appId);
         var app = existing ?? new PrefillCachedApp { Platform = platform, AppId = appId };
+        var changed = existing == null || !StringComparer.Ordinal.Equals(existing.CacheRevision, cacheRevision);
         app.CachedAtUtc = DateTime.UtcNow;
         app.TotalBytes = totalBytes;
+        app.CacheRevision = cacheRevision;
         if (!string.IsNullOrWhiteSpace(appName)) app.AppName = appName;
         if (!string.IsNullOrWhiteSpace(cachedBy)) app.CachedBy = cachedBy;
         if (existing == null) context.PrefillCachedApps.Add(app);
@@ -271,7 +274,7 @@ public class PrefillCacheService
             _logger.LogDebug(ex, "App {AppId} for {Platform} was recorded by another writer", appId, platform);
             return false;
         }
-        return existing == null;
+        return changed;
     }
 
     public async Task<List<CachedAppInfo>> GetCachedAppsAsync(PrefillPlatform platform, CancellationToken cancellationToken = default)
@@ -289,7 +292,8 @@ public class PrefillCacheService
                     ? context.PrefillCachedDepots.Count(d => d.AppId.ToString() == a.AppId) : 0,
                 TotalBytes = a.TotalBytes,
                 CachedAtUtc = a.CachedAtUtc,
-                CachedBy = a.CachedBy
+                CachedBy = a.CachedBy,
+                CacheRevision = a.CacheRevision
             })
             .OrderByDescending(a => a.CachedAtUtc)
             .ToListAsync(cancellationToken);

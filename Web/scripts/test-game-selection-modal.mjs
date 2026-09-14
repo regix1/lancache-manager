@@ -264,7 +264,9 @@ test('the header splits the selection into what will download and what is alread
   });
   const cachedSelectedCount = runMemo('cachedSelectedCount', {
     selectedInLibrary,
-    cachedAppIdsSet: new Set(['3'])
+    cachedAppIdsSet: new Set(['2', '3', '4']),
+    outdatedAppIdsSet: new Set(['3']),
+    unknownAppIdsSet: new Set(['4'])
   });
   const willDownload = selectedInLibrary.length - cachedSelectedCount;
 
