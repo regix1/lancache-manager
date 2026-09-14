@@ -1030,6 +1030,24 @@ test('all integration modal submissions and provider links refuse disabled actio
   assert.equal(opens, 0);
 });
 
+test('primary recovery keeps every integration modal submission enabled', async () => {
+  for (const platform of ['Steam', 'Epic', 'Xbox']) {
+    const events = [];
+    await bindLifted(
+      liftConstArrow(`src/components/modals/auth/${platform}AuthModal.tsx`, 'handleSubmit'),
+      {
+        state: { canAuthenticate: true },
+        isSubmitting: false,
+        loading: false,
+        setIsSubmitting: (value) => events.push(value),
+        handleAuthenticate: async () => true,
+        onClose: () => events.push('closed')
+      }
+    )();
+    assert.deepEqual(events, [true, 'closed', false]);
+  }
+});
+
 test('every ownership reason has matching copy and Steam actions retain one-line tracks', () => {
   for (const locale of ['en', 'zh']) {
     const messages = JSON.parse(

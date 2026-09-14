@@ -140,7 +140,7 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         var owner = Guid.NewGuid();
         storage.SaveAuthData(new SteamAuthData { OwnerAccountId = owner, Mode = "authenticated", Username = "owner", RefreshToken = "token" });
         var bytes = File.ReadAllBytes(storage.GetCredentialsFilePath());
-        var caller = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true, true);
+        var caller = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
         await Assert.ThrowsAsync<ForbiddenException>(() => service.AuthenticateAsync("other", "password", caller: caller));
         Assert.Empty(tracker.GetActiveOperations());
         Assert.Equal(0, GetPrivateField<int>(service, "_loginActive"));

@@ -20,7 +20,7 @@ public partial class XboxScheduledRefreshProgressTests
             using var auth = new StubDeviceCodeHandler();
             using var harness = new Harness(authHandler: auth);
             var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
-            var other = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true, true);
+            var other = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
             harness.AuthStorage.SaveAuthData(new XboxAuthData { OwnerAccountId = owner.AccountId, RefreshToken = usable ? "original" : null });
             var path = Path.Combine(harness.AuthStorage.GetAuthDirectory(), "credentials.json");
             var before = File.ReadAllBytes(path);

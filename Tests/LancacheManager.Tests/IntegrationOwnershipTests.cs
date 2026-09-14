@@ -82,6 +82,45 @@ public sealed class IntegrationOwnershipTests
     }
 
     [Fact]
+    public async Task CallerResolutionLetsTheMainAdministratorRecoverAnotherLogin()
+    {
+        using var fixture = new IntegrationFixture();
+        using var services = new ServiceCollection()
+            .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+            .AddDbContextFactory<AppDbContext>(options => options.UseInMemoryDatabase(Guid.NewGuid().ToString()))
+            .BuildServiceProvider();
+        await using (var accounts = await services
+            .GetRequiredService<IDbContextFactory<AppDbContext>>()
+            .CreateDbContextAsync())
+        {
+            accounts.UserAccounts.Add(new UserAccount
+            {
+                Id = fixture.Other.AccountId!.Value,
+                Username = "primary",
+                Role = SessionType.Admin,
+                IsMainAdmin = true
+            });
+            await accounts.SaveChangesAsync();
+        }
+
+        var context = new DefaultHttpContext { RequestServices = services };
+        context.Items["Session"] = new UserSession
+        {
+            Id = fixture.Other.SessionId!.Value,
+            AccountId = fixture.Other.AccountId,
+            SessionType = SessionType.Admin
+        };
+        var caller = await IntegrationLease.ResolveCallerAsync(context);
+        Assert.True(caller.OwnsInstallation);
+        fixture.Seed();
+        var access = fixture.Storage.GetIntegrationAccess(caller);
+        Assert.False(access.CanSignIn);
+        Assert.True(access.CanRecover);
+        Assert.False(access.CanLogout);
+        Assert.Equal("reauthentication-required", access.OwnershipReason);
+    }
+
+    [Fact]
     public async Task WebApiKeyAuthorityUsesTheCurrentOwnerRowAndNeverThePicsOwnerOrRole()
     {
         using var fixture = new IntegrationFixture();
@@ -148,17 +187,18 @@ public sealed class IntegrationOwnershipTests
     public async Task DurableOwnerBlocksAnotherAccountEvenWithoutAUsableToken(bool usable)
     {
         using var fixture = new IntegrationFixture();
+        var caller = fixture.Other with { OwnsInstallation = false };
         var auth = fixture.Credentials();
         if (!usable) auth.RefreshToken = null;
         fixture.Storage.SaveAuthData(auth);
         var writes = fixture.Storage.Writes;
         var before = File.ReadAllBytes(fixture.Storage.GetCredentialsFilePath());
-        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Storage.BeginIntegrationLoginAsync(fixture.Other, recover: true));
-        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Storage.BeginIntegrationReleaseAsync(fixture.Other));
-        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Storage.AcquireIntegrationLoginAsync(fixture.Other));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Storage.BeginIntegrationLoginAsync(caller, recover: true));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Storage.BeginIntegrationReleaseAsync(caller));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Storage.AcquireIntegrationLoginAsync(caller));
         Assert.Equal(writes, fixture.Storage.Writes);
         Assert.Equal(before, File.ReadAllBytes(fixture.Storage.GetCredentialsFilePath()));
-        Assert.Null(fixture.Storage.GetIntegrationAccess(fixture.Other).AttemptId);
+        Assert.Null(fixture.Storage.GetIntegrationAccess(caller).AttemptId);
     }
 
     [Fact]
@@ -218,6 +258,25 @@ public sealed class IntegrationOwnershipTests
         recovered.OwnerAccountId = fixture.Other.AccountId;
         Assert.True(fixture.Storage.CompleteIntegrationLogin(second, recovered));
         Assert.Equal(fixture.Other.AccountId, fixture.Storage.GetAuthData().OwnerAccountId);
+    }
+
+    [Fact]
+    public async Task MainAdministratorCanReplaceAnotherLogin()
+    {
+        using var fixture = new IntegrationFixture();
+        fixture.Seed();
+        var primary = fixture.Other;
+        var recoverable = fixture.Storage.GetIntegrationAccess(primary);
+        Assert.False(recoverable.CanSignIn);
+        Assert.True(recoverable.CanRecover);
+        Assert.False(recoverable.CanLogout);
+        Assert.Equal("reauthentication-required", recoverable.OwnershipReason);
+
+        var login = await fixture.Storage.BeginIntegrationLoginAsync(primary, recover: true);
+        var replacement = fixture.Credentials("replacement");
+        replacement.OwnerAccountId = primary.AccountId;
+        Assert.True(fixture.Storage.CompleteIntegrationLogin(login, replacement));
+        Assert.Equal(primary.AccountId, fixture.Storage.GetAuthData().OwnerAccountId);
     }
 
     [Fact]

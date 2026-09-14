@@ -123,7 +123,11 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             if (caller.AuthenticationEnabled && (caller.AccountId is null || caller.SessionId is null))
                 return new(false, false, false, false, false, "account-required");
             if (caller.AuthenticationEnabled && owner is not null && owner != caller.AccountId)
-                return new(false, false, false, false, false, "owned-by-another-account");
+            {
+                return caller.OwnsInstallation
+                    ? new(false, false, false, false, true, "reauthentication-required")
+                    : new(false, false, false, false, false, "owned-by-another-account");
+            }
             if (_releasing)
                 return new(false, false, false, false, false, "release-in-progress");
             if (_pendingLogin is { } pending && pending.ExpiresAtUtc > DateTime.UtcNow)

@@ -10,6 +10,64 @@ namespace LancacheManager.Tests;
 public sealed class IntegrationStorageTests
 {
     [Theory]
+    [InlineData("Steam")]
+    [InlineData("Epic")]
+    [InlineData("Xbox")]
+    public async Task PrimaryRecoveryIsAvailableAcrossPlatforms(string platform)
+    {
+        using var fixture = new IntegrationFixture();
+        switch (platform)
+        {
+            case "Steam":
+                fixture.Seed();
+                break;
+            case "Epic":
+                fixture.Epic.SaveAuthData(new EpicAuthData
+                {
+                    OwnerAccountId = fixture.Owner.AccountId,
+                    RefreshToken = "epic"
+                });
+                break;
+            default:
+                fixture.Xbox.SaveAuthData(new XboxAuthData
+                {
+                    OwnerAccountId = fixture.Owner.AccountId,
+                    RefreshToken = "xbox"
+                });
+                break;
+        }
+
+        var primary = fixture.Other;
+        var recoverable = platform switch
+        {
+            "Steam" => fixture.Storage.GetIntegrationAccess(primary),
+            "Epic" => fixture.Epic.GetIntegrationAccess(primary),
+            _ => fixture.Xbox.GetIntegrationAccess(primary)
+        };
+        Assert.True(recoverable.CanRecover);
+        Assert.False(recoverable.CanLogout);
+        Assert.Equal("reauthentication-required", recoverable.OwnershipReason);
+
+        var account = primary with { OwnsInstallation = false };
+        var refused = platform switch
+        {
+            "Steam" => fixture.Storage.GetIntegrationAccess(account),
+            "Epic" => fixture.Epic.GetIntegrationAccess(account),
+            _ => fixture.Xbox.GetIntegrationAccess(account)
+        };
+        Assert.False(refused.CanRecover);
+        Assert.Equal("owned-by-another-account", refused.OwnershipReason);
+
+        var login = platform switch
+        {
+            "Steam" => await fixture.Storage.BeginIntegrationLoginAsync(primary, recover: true),
+            "Epic" => await fixture.Epic.BeginIntegrationLoginAsync(primary, recover: true),
+            _ => await fixture.Xbox.BeginIntegrationLoginAsync(primary, recover: true)
+        };
+        Assert.Equal(primary.AccountId, login.AccountId);
+    }
+
+    [Theory]
     [InlineData("Steam", "target")]
     [InlineData("Steam", "primary")]
     [InlineData("Steam", "shared")]
@@ -335,7 +393,8 @@ public sealed class IntegrationStorageTests
         }
         Assert.Equal(fixture.Owner.AccountId, fixture.Storage.GetAuthData().OwnerAccountId);
         Assert.Equal("token", fixture.Storage.GetAuthData().RefreshToken);
-        Assert.Equal("owned-by-another-account", fixture.Storage.GetIntegrationAccess(fixture.Other).OwnershipReason);
+        var account = fixture.Other with { OwnsInstallation = false };
+        Assert.Equal("owned-by-another-account", fixture.Storage.GetIntegrationAccess(account).OwnershipReason);
     }
 
     [Fact]

@@ -49,11 +49,12 @@ public sealed class EpicIntegrationOwnershipTests
             OwnerAccountId = fixture.Owner.AccountId,
             RefreshToken = usable ? "original" : null
         });
+        var account = fixture.Other with { OwnsInstallation = false };
         var before = File.ReadAllBytes(fixture.ActivePath);
-        Assert.Equal("owned-by-another-account", fixture.Service.GetAuthStatus(fixture.Other).OwnershipReason);
-        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.GetAuthorizationUrl(fixture.Other, recover: true));
-        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.LogoutAsync(fixture.Other));
-        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreatePrefillRefreshTokenAsync(fixture.Other.AccountId!.Value));
+        Assert.Equal("owned-by-another-account", fixture.Service.GetAuthStatus(account).OwnershipReason);
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.GetAuthorizationUrl(account, recover: true));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.LogoutAsync(account));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreatePrefillRefreshTokenAsync(account.AccountId!.Value));
         Assert.Equal(0, fixture.Handler.Calls);
         Assert.Equal(before, File.ReadAllBytes(fixture.ActivePath));
     }
