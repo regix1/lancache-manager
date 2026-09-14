@@ -73,18 +73,13 @@ public sealed class DaemonClientConnectionLifecycleTests
     }
 
     [Theory]
-    [InlineData(false, false, false, 0)]
-    [InlineData(false, true, false, 0)]
-    [InlineData(false, true, true, 0)]
-    [InlineData(true, false, false, 0)]
-    [InlineData(true, true, false, 0)]
-    [InlineData(true, true, true, 0)]
-    [InlineData(true, true, true, 5250)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task SavedLogin_UsesPlatformChallengeAndCredentialCommandsAsync(
         bool useTcp,
-        bool epic,
-        bool challengeAfterResponse,
-        int challengeDelayMilliseconds)
+        bool epic)
     {
         using var endpoint = LoopbackEndpoint.Create(useTcp);
         using var client = endpoint.CreateClient();
@@ -105,19 +100,10 @@ public sealed class DaemonClientConnectionLifecycleTests
             using var connection = await endpoint.AcceptAsync(timeout.Token);
             using var stream = new NetworkStream(connection, ownsSocket: false);
             var start = await ReadRequestAsync(stream, timeout.Token);
-            Assert.Equal("provide-auto-login", start.Type);
-            if (epic && !challengeAfterResponse)
-            {
-                await WriteFrameAsync(stream, JsonSerializer.Serialize(new { type = "credential-challenge", data = challenge }), timeout.Token);
-            }
-            await WriteResponseAsync(stream, start.Id, true, null, null, timeout.Token, result: epic ? null : challenge);
-            if (epic && challengeAfterResponse)
-            {
-                await Task.Delay(challengeDelayMilliseconds, timeout.Token);
-                await WriteFrameAsync(stream, JsonSerializer.Serialize(new { type = "credential-challenge", data = challenge }), timeout.Token);
-            }
+            Assert.Equal(epic ? "get-auto-login-challenge" : "provide-auto-login", start.Type);
+            await WriteResponseAsync(stream, start.Id, true, null, null, timeout.Token, result: challenge);
             var credential = await ReadRequestAsync(stream, timeout.Token);
-            Assert.Equal(epic ? "provide-credential" : "provide-auto-login", credential.Type);
+            Assert.Equal("provide-auto-login", credential.Type);
             await WriteResponseAsync(stream, credential.Id, true, null, null, timeout.Token);
             await release.Task.WaitAsync(timeout.Token);
         }, timeout.Token);

@@ -967,22 +967,16 @@ public abstract class DaemonClientBase : IDaemonClient
         CancellationToken cancellationToken = default)
         => ProvideEpicAutoLoginWithDispatchAsync(sessionId, refreshToken, static () => { }, cancellationToken);
 
-    public async Task<bool> ProvideEpicAutoLoginWithDispatchAsync(
+    public Task<bool> ProvideEpicAutoLoginWithDispatchAsync(
         string sessionId,
         string refreshToken,
         Action onCommandDispatched,
         CancellationToken cancellationToken = default)
-    {
-        // Epic's headless command starts a refresh-token challenge on the credential channel.
-        var challenge = await RequestLoginChallengeAsync(
-            sessionId, "provide-auto-login", onCommandDispatched, cancellationToken);
-        if (challenge is null)
-        {
-            return false;
-        }
-        await ProvideCredentialAsync(challenge, refreshToken, cancellationToken);
-        return true;
-    }
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new RefreshTokenLogin { RefreshToken = refreshToken },
+            onCommandDispatched,
+            cancellationToken);
 
     /// <summary>
     /// Perform a non-interactive Xbox auto-login by encrypting a <c>{refreshToken}</c>
