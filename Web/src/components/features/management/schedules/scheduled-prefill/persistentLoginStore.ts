@@ -5,7 +5,7 @@ import type {
   PersistentSessionNotFoundState
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
-import { loginAttemptTimeoutMs } from '@hooks/loginAttemptTimeout';
+import { sessionStore } from '@utils/storage';
 import { isRecord } from './typeGuards';
 
 /**
@@ -50,11 +50,9 @@ interface PersistentLoginStoreState {
    */
   sessionId: string | null;
   /**
-   * Epoch milliseconds at which THIS attempt expires - the same instant the `setTimeout` armed by
-   * `armPersistentLoginTimeout` fires, written from the same constant, so the countdown the auth
-   * modal renders and the timer that actually ends the login can never disagree. `null` whenever no
-   * attempt is running, which includes the moments after a page reload where a challenge was
-   * restored from the backend cache but no clock has been armed for it yet.
+   * Absolute browser attempt expiry, persisted with session and challenge identity. Null when no
+   * attempt is admitted; a cached challenge without matching clock authority remains recoverable
+   * through explicit Cancel but cannot submit credentials or start polling.
    */
   loginDeadline: number | null;
 }
@@ -68,6 +66,19 @@ interface PersistentChallengeFlags {
   needsDeviceCode: boolean;
   deviceUserCode: string;
   deviceVerificationUri: string;
+}
+
+interface PersistentLoginMessages {
+  noResult: string;
+  timedOut: string;
+}
+
+interface PersistentLoginClock {
+  version: 1;
+  deadline: number;
+  sessionId: string | null;
+  operationId: string | null;
+  challengeId: string | null;
 }
 
 const EMPTY_CHALLENGE_FLAGS: PersistentChallengeFlags = {
@@ -320,7 +331,9 @@ export function usePersistentLoginStoreVersion(): number {
   return useSyncExternalStore(subscribePersistentLoginStoreVersion, () => storeVersion);
 }
 
-function getPersistentLoginState(service: PersistentPrefillServiceId): PersistentLoginStoreState {
+export function getPersistentLoginState(
+  service: PersistentPrefillServiceId
+): PersistentLoginStoreState {
   return states.get(service) ?? INITIAL_PERSISTENT_LOGIN_STATE;
 }
 
@@ -348,67 +361,187 @@ function clearPersistentLoginTimeout(service: PersistentPrefillServiceId): void 
   }
 }
 
-/**
- * Arms the overall login-attempt timeout. Lives at module level (not a component ref) for the same
- * reason every other piece of this flow's lifecycle does - the attempt must keep timing out even
- * across a PersistentLoginHost remount (Configure modal closed/reopened, container-list churn).
- * Call once per fresh attempt (from `start()`); resuming an already-pending challenge via
- * resumeModal() must NOT re-arm it - the original attempt's clock keeps ticking correctly on its
- * own, tracked here independent of any component's mount state. Use
- * `ensurePersistentLoginTimeout` for the resume paths, which is exactly that rule in code.
- *
- * `timedOutMessage` is resolved by the caller: this module is not a component and cannot call
- * `t()`, the same reason `resetPersistentLoginSessionReplaced` takes its message as an argument.
- */
+const clocks = new Map<PersistentPrefillServiceId, PersistentLoginClock>();
+const snapshots = new Map<PersistentPrefillServiceId, PersistentLoginClock>();
+const clockMessages = new Map<PersistentPrefillServiceId, PersistentLoginMessages>();
+let suspended = false;
+
+export function isPersistentLoginSuspended(): boolean {
+  return suspended;
+}
+
+function readPersistentLoginClock(
+  service: PersistentPrefillServiceId
+): PersistentLoginClock | null {
+  const clock = sessionStore.getJSON<unknown>(`persistent-login-deadline:${service}`);
+  if (
+    !isRecord(clock) ||
+    clock.version !== 1 ||
+    typeof clock.deadline !== 'number' ||
+    !Number.isFinite(clock.deadline) ||
+    !Number.isFinite(new Date(clock.deadline).getTime()) ||
+    !(clock.sessionId === null || typeof clock.sessionId === 'string') ||
+    !(clock.operationId === null || typeof clock.operationId === 'string') ||
+    !(clock.challengeId === null || typeof clock.challengeId === 'string')
+  )
+    return null;
+  return {
+    version: 1,
+    deadline: clock.deadline,
+    sessionId: clock.sessionId,
+    operationId: clock.operationId,
+    challengeId: clock.challengeId
+  };
+}
+
+function clearPersistentLoginClock(service: PersistentPrefillServiceId): void {
+  const clock = snapshots.get(service);
+  const stored = readPersistentLoginClock(service);
+  if (
+    clock &&
+    stored &&
+    clock.deadline === stored.deadline &&
+    clock.sessionId === stored.sessionId &&
+    clock.operationId === stored.operationId &&
+    clock.challengeId === stored.challengeId
+  ) {
+    sessionStore.removeItem(`persistent-login-deadline:${service}`);
+  }
+  clocks.delete(service);
+  snapshots.delete(service);
+  clockMessages.delete(service);
+}
+
 export function armPersistentLoginTimeout(
   service: PersistentPrefillServiceId,
-  timedOutMessage: string
-): void {
+  deadline: number,
+  messages: PersistentLoginMessages
+): boolean {
+  if (suspended) return false;
   clearPersistentLoginTimeout(service);
-  const timeoutMs = loginAttemptTimeoutMs(service);
-  const deadline = Date.now() + timeoutMs;
-  const handle = setTimeout(() => {
-    loginTimeoutHandles.delete(service);
-    // Epoch bump (not the cancel flag, which would leak `true` into a later resumed challenge):
-    // the still-hanging start() recognizes its settlement as stale, discards it, and best-effort
-    // cancels a late daemon challenge itself - the same teardown the flag used to buy here. Kept
-    // explicit rather than relying on the reset inside endPersistentLogin, whose at-rest early
-    // return would skip it.
+  const current = getPersistentLoginState(service);
+  if (!clocks.has(service)) {
+    readPersistentLoginClock(service);
+    if (!sessionStore.removeItem(`persistent-login-deadline:${service}`)) {
+      updatePersistentLoginState(service, (state) => ({
+        ...state,
+        sessionId: state.sessionId ?? getPersistentLoginStartRequest(service)?.sessionId ?? null,
+        loading: false,
+        loginDeadline: null,
+        error: messages.noResult
+      }));
+      return false;
+    }
+    snapshots.delete(service);
+  }
+  if (current.loginDeadline === null && current.pendingChallenge === null)
     invalidateInFlightLogin(service);
-    // An expired attempt has to end the DAEMON's login too, not just the browser's copy of it -
-    // otherwise the container sits mid-login with a challenge nobody is watching. Safe to fire
-    // before the error write below: endPersistentLogin reads the pinned session id and resets the
-    // store synchronously, and only then awaits the round trip, so nothing lands after this.
+  const clock = clocks.get(service);
+  if (clock) deadline = Math.min(deadline, clock.deadline);
+  const sessionId = current.sessionId ?? getPersistentLoginStartRequest(service)?.sessionId ?? null;
+  const admitted: PersistentLoginClock = {
+    version: 1,
+    deadline,
+    sessionId,
+    operationId: clock?.operationId ?? current.pendingChallenge?.operationId ?? null,
+    challengeId: current.pendingChallenge?.challengeId ?? null
+  };
+  clocks.set(service, admitted);
+  clockMessages.set(service, messages);
+  updatePersistentLoginState(service, (state) => ({
+    ...state,
+    sessionId,
+    loginDeadline: deadline
+  }));
+  const epoch = getPersistentLoginEpoch(service);
+  const expire = () => {
+    if (
+      suspended ||
+      getPersistentLoginEpoch(service) !== epoch ||
+      getPersistentLoginState(service).loginDeadline !== deadline
+    )
+      return;
+    loginTimeoutHandles.delete(service);
+    invalidateInFlightLogin(service);
     void endPersistentLogin(service);
     updatePersistentLoginState(service, () => ({
       ...INITIAL_PERSISTENT_LOGIN_STATE,
-      error: timedOutMessage
+      error: messages.timedOut
     }));
-  }, timeoutMs);
-  loginTimeoutHandles.set(service, handle);
-  // Updater form, not a spread of the initial state: start() has already written `loading: true`
-  // by the time it arms the clock, and this write must not undo that.
-  updatePersistentLoginState(service, (current) => ({ ...current, loginDeadline: deadline }));
+  };
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    expire();
+    return false;
+  }
+  loginTimeoutHandles.set(service, setTimeout(expire, remaining));
+  return true;
 }
 
-/**
- * Arms the overall timeout for an attempt that is being RESUMED rather than started - a challenge
- * revealed again after the modal was hidden, or one restored from the backend's pending-challenge
- * cache after a full page reload, which `start()` never ran for and which had no ceiling at all
- * before this. One attempt keeps one clock: when a timer is already running for this service this
- * does nothing, so re-showing the modal can never buy the attempt another full window.
- *
- * The clock does not survive a page reload: the handle map is module state, so a reload empties it
- * and the restored challenge gets a fresh window here. The daemons keep their own expiry.
- */
 export function ensurePersistentLoginTimeout(
   service: PersistentPrefillServiceId,
-  timedOutMessage: string
-): void {
-  if (loginTimeoutHandles.has(service)) {
-    return;
+  messages: PersistentLoginMessages
+): boolean {
+  if (suspended) return false;
+  const current = getPersistentLoginState(service);
+  if (
+    current.loginDeadline === null &&
+    current.pendingChallenge === null &&
+    current.error === messages.timedOut
+  )
+    return false;
+  if (
+    current.loginDeadline === null ||
+    !Number.isFinite(current.loginDeadline) ||
+    clocks.get(service)?.deadline !== current.loginDeadline
+  ) {
+    clearPersistentLoginTimeout(service);
+    updatePersistentLoginState(service, (state) => ({
+      ...state,
+      loading: false,
+      loginDeadline: null,
+      error: messages.noResult
+    }));
+    return false;
   }
-  armPersistentLoginTimeout(service, timedOutMessage);
+  if (current.loginDeadline <= Date.now() || !loginTimeoutHandles.has(service)) {
+    armPersistentLoginTimeout(service, current.loginDeadline, messages);
+  }
+  return getPersistentLoginState(service).loginDeadline !== null;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    if (suspended) return;
+    suspended = true;
+    for (const [service, clock] of clocks) {
+      clearPersistentLoginTimeout(service);
+      if (sessionStore.setJSON(`persistent-login-deadline:${service}`, clock)) {
+        snapshots.set(service, clock);
+      }
+    }
+  });
+  window.addEventListener('pageshow', () => {
+    if (!suspended) return;
+    for (const [service] of clocks) {
+      if (sessionStore.removeItem(`persistent-login-deadline:${service}`)) {
+        snapshots.delete(service);
+      } else {
+        const messages = clockMessages.get(service)!;
+        clocks.delete(service);
+        updatePersistentLoginState(service, (state) => ({
+          ...state,
+          loading: false,
+          loginDeadline: null,
+          error: messages.noResult
+        }));
+      }
+    }
+    suspended = false;
+    for (const [service, clock] of clocks) {
+      armPersistentLoginTimeout(service, clock.deadline, clockMessages.get(service)!);
+    }
+  });
 }
 
 /**
@@ -450,6 +583,7 @@ export async function endPersistentLogin(
 }
 
 export function resetPersistentLoginState(service: PersistentPrefillServiceId): void {
+  clearPersistentLoginClock(service);
   clearPersistentLoginTimeout(service);
   requestedLoginStarts.delete(service);
   activeLoginEditActions.delete(service);
@@ -471,6 +605,7 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
 }
 
 export function retirePersistentLoginState(service: PersistentPrefillServiceId): void {
+  clearPersistentLoginClock(service);
   clearPersistentLoginTimeout(service);
   requestedLoginStarts.delete(service);
   integrationReuseEpochs.delete(service);
@@ -494,6 +629,7 @@ export function terminatePersistentLoginSessionUnavailable(
   service: PersistentPrefillServiceId,
   state: PersistentSessionNotFoundState = 'notStarted'
 ): void {
+  clearPersistentLoginClock(service);
   clearPersistentLoginTimeout(service);
   invalidateInFlightLogin(service);
   states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, sessionUnavailableState: state });
@@ -514,6 +650,7 @@ export function resetPersistentLoginSessionReplaced(
   service: PersistentPrefillServiceId,
   message: string
 ): void {
+  clearPersistentLoginClock(service);
   clearPersistentLoginTimeout(service);
   invalidateInFlightLogin(service);
   states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, error: message });
@@ -545,6 +682,7 @@ export function resetPersistentLoginSessionReplaced(
  * `onAuthenticated` effect, closing the modal.
  */
 export function markPersistentLoginAuthenticated(service: PersistentPrefillServiceId): void {
+  if (suspended) return;
   resetPersistentLoginState(service);
   updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
 }
@@ -552,24 +690,74 @@ export function markPersistentLoginAuthenticated(service: PersistentPrefillServi
 export function applyPersistentLoginChallenge(
   service: PersistentPrefillServiceId,
   challenge: CredentialChallenge,
+  messages: PersistentLoginMessages,
   sessionId?: string | null
-): void {
-  updatePersistentLoginState(service, (current) => {
-    const isRedelivery = current.pendingChallenge?.challengeId === challenge.challengeId;
-    return {
-      ...current,
+): boolean {
+  if (suspended) return false;
+  const current = getPersistentLoginState(service);
+  const session = sessionId !== undefined ? sessionId : current.sessionId;
+  const active = clocks.get(service);
+  const operationId = challenge.operationId ?? null;
+  if (current.sessionId && current.sessionId !== session) return false;
+  if (active?.operationId && operationId !== null && active.operationId !== operationId)
+    return false;
+
+  const expiry = Date.parse(challenge.expiresAt);
+  const stored = active ?? readPersistentLoginClock(service);
+  const consumed =
+    active !== undefined || sessionStore.removeItem(`persistent-login-deadline:${service}`);
+  if (consumed) snapshots.delete(service);
+  const matches =
+    stored !== null &&
+    (stored.sessionId === session || (active !== undefined && stored.sessionId === null)) &&
+    (active !== undefined ||
+      (operationId !== null
+        ? stored.operationId === operationId
+        : stored.challengeId === challenge.challengeId));
+  if (
+    !session ||
+    typeof challenge.challengeId !== 'string' ||
+    !challenge.challengeId ||
+    !Number.isFinite(expiry) ||
+    !consumed ||
+    (operationId !== null && (typeof operationId !== 'string' || !operationId.trim())) ||
+    !matches
+  ) {
+    clearPersistentLoginTimeout(service);
+    clocks.delete(service);
+    updatePersistentLoginState(service, (state) => ({
+      ...state,
       pendingChallenge: challenge,
-      // A genuinely NEW challenge means the network phase that produced it is over - the flow is
-      // now waiting on the USER - so the spinner state must end even when the challenge arrived
-      // via the SignalR push while the REST leg that started the login is still hanging (or was
-      // reset away entirely). Leaving `loading` stuck true here rendered the credentials form with
-      // every input disabled and the submit button spinning "Authenticating..." with no way out.
-      // A redelivery keeps whatever loading state an in-flight submit currently owns.
-      loading: isRedelivery ? current.loading : false,
-      dismissed: isRedelivery ? current.dismissed : false,
-      sessionId: sessionId !== undefined ? sessionId : current.sessionId
+      sessionId: session,
+      loading: false,
+      dismissed: false,
+      loginDeadline: null,
+      error: messages.noResult
+    }));
+    return false;
+  }
+
+  const deadline = Math.min(stored.deadline, expiry);
+  clocks.set(service, {
+    version: 1,
+    deadline,
+    sessionId: session,
+    operationId: stored.operationId ?? operationId,
+    challengeId: challenge.challengeId
+  });
+  updatePersistentLoginState(service, (state) => {
+    const isRedelivery = state.pendingChallenge?.challengeId === challenge.challengeId;
+    return {
+      ...state,
+      pendingChallenge: challenge,
+      loading: isRedelivery ? state.loading : false,
+      dismissed: isRedelivery ? state.dismissed : false,
+      sessionId: session,
+      loginDeadline: deadline
     };
   });
+  armPersistentLoginTimeout(service, deadline, messages);
+  return getPersistentLoginState(service).loginDeadline !== null;
 }
 
 function subscribePersistentLoginState(
@@ -763,14 +951,14 @@ export function setPersistentLoginStartPromise(
 
 const RESUME_PROBE_TIMEOUT_SECONDS = 1;
 
-type PersistentLoginReconcileResult = 'authenticated' | 'challenge' | 'none';
+type PersistentLoginReconcileResult = 'authenticated' | 'challenge' | 'none' | 'unavailable';
 
 /**
  * Used when the config modal reopens (or on first load): asks the backend for the CACHED pending
  * challenge without ever issuing a fresh daemon login (see the pending-challenge cache in
  * PersistentPrefillController/DaemonSession) and hydrates the store when one is found, so a login
- * survives a full page reload, not just a component remount. Any failure is treated as "no pending
- * login" - this is a best-effort probe, not a user-facing action.
+ * survives a full page reload, not just a component remount. Transport failure remains a best-effort
+ * probe miss; a cached challenge without matching clock authority exposes the admission error.
  *
  * `sessionId` (RC3 fix) is now REQUIRED by the challenge GET -
  * the caller passes the currently-known container's session id (`PersistentPrefillContainerDto.sessionId`,
@@ -780,26 +968,35 @@ type PersistentLoginReconcileResult = 'authenticated' | 'challenge' | 'none';
  */
 export async function reconcilePersistentLoginFromServer(
   service: PersistentPrefillServiceId,
-  sessionId: string
+  sessionId: string,
+  messages: PersistentLoginMessages
 ): Promise<PersistentLoginReconcileResult> {
+  if (suspended) return 'none';
+  const epoch = getPersistentLoginEpoch(service);
   try {
     const response = await ApiService.getPersistentChallenge(
       service,
       RESUME_PROBE_TIMEOUT_SECONDS,
       sessionId
     );
+    if (suspended || getPersistentLoginEpoch(service) !== epoch) return 'none';
+    const responseSession = extractPersistentSessionId(response);
+    if (responseSession !== null && responseSession !== sessionId) return 'none';
     if (isPersistentLoginAuthenticatedResponse(response)) {
+      const clock = readPersistentLoginClock(service);
+      if (!clocks.has(service) && clock?.sessionId === sessionId) snapshots.set(service, clock);
       resetPersistentLoginState(service);
       updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
       return 'authenticated';
     }
     if (isPersistentLoginCredentialChallenge(response)) {
-      applyPersistentLoginChallenge(
+      const admitted = applyPersistentLoginChallenge(
         service,
         response,
+        messages,
         extractPersistentSessionId(response) ?? sessionId
       );
-      return 'challenge';
+      return admitted ? 'challenge' : 'unavailable';
     }
     return 'none';
   } catch {

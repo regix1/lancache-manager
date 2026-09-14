@@ -77,12 +77,56 @@ const shownFor = async (body, language) => {
   return getErrorMessage(await refusal(body));
 };
 
-test('the typed error is the one being read, not its string form', async () => {
-  // Every check below would still see the sentence if `getErrorMessage` fell through to String(),
-  // because the class name and the message are both in there. This one cannot: only the ApiError
-  // branch answers `HTTP 500`.
-  const empty = new ApiError({ message: '', status: 500, kind: 'http', body: null });
-  assert.equal(getErrorMessage(empty), 'HTTP 500');
+test('the typed error rejects empty messages at construction', () => {
+  for (const message of ['', '   ']) {
+    assert.throws(
+      () => new ApiError({ message, status: 500, kind: 'http', body: null }),
+      /nonempty message/
+    );
+  }
+  const error = new ApiError({
+    message: 'Authoritative sentence',
+    status: 500,
+    kind: 'http',
+    body: { error: 'Raw detail' }
+  });
+  assert.equal(getErrorMessage(error), 'Authoritative sentence');
+});
+
+test('empty and non-JSON HTTP failures normalize once at their boundary', async () => {
+  for (const text of ['', '  ', 'Upstream failure']) {
+    const error = await buildApiError(
+      new Response(text, { status: 503, statusText: 'Service Unavailable' })
+    );
+    assert.ok(error.message.trim());
+    assert.equal(getErrorMessage(error), error.message);
+  }
+});
+
+test('unknown empty failures receive the shared unknown-error translation', async () => {
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    for (const error of [new Error(''), new Error('  '), '', ' ']) {
+      assert.equal(getErrorMessage(error), translator.t('common.unknownError'));
+    }
+  }
+});
+
+test('raw HTTP variants keep their sentence and optional structured details', async () => {
+  for (const [body, expected] of [
+    [{ message: 'Message only' }, 'Message only'],
+    [{ error: 'Error only' }, 'Error only'],
+    [{ message: 'Primary', error: 'Secondary' }, 'Primary'],
+    [
+      { message: 'Primary', details: 'Detail', suggestion: 'Action' },
+      'Primary\n\nDetail\n\nAction'
+    ],
+    [{ message: '   ', error: 'Reason' }, 'Reason']
+  ]) {
+    assert.equal(getErrorMessage(await refusal(body)), expected);
+  }
+  const error = await refusal({ message: '   ', error: '' });
+  assert.match(error.message, /^HTTP 400:/);
 });
 
 test('a refusal that names its reason is read in the reader language', async () => {

@@ -1,0 +1,1366 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { compileToUrl, moduleUrl, transpile, MemoryStorage } from './transpile-module.mjs';
+
+const reactUrl = moduleUrl(`
+let slots, cursor, effects;
+export const useRef = value => { const i=cursor++; return slots[i] ??= {current:value}; };
+export const useState = initial => {
+  const i=cursor++; const slot=slots[i] ??= {value:typeof initial==='function'?initial():initial};
+  return [slot.value, value=>{slot.value=typeof value==='function'?value(slot.value):value;}];
+};
+export const useCallback = (fn,deps) => {
+  const i=cursor++; const slot=slots[i];
+  if(!slot || deps.some((d,j)=>!Object.is(d,slot.deps[j]))) slots[i]={fn,deps};
+  return slots[i].fn;
+};
+export const useMemo = (fn,deps) => {
+  const i=cursor++; const slot=slots[i];
+  if(!slot || deps.some((d,j)=>!Object.is(d,slot.deps[j]))) slots[i]={value:fn(),deps};
+  return slots[i].value;
+};
+export const useEffect = (run,deps) => {
+  const i=cursor++; const slot=slots[i] ??= {};
+  if(!slot.deps || deps.some((d,j)=>!Object.is(d,slot.deps[j]))) {
+    slot.deps=deps; effects.push({slot,run});
+  }
+};
+export const useSyncExternalStore = (_subscribe,read) => read();
+export const createComponent = () => {
+  const saved=[];
+  return { render(body) { slots=saved;cursor=0;effects=[];const result=body();effects.forEach(({slot})=>slot.cleanup?.());effects.forEach(({slot,run})=>{slot.cleanup=run();});return result; },
+    unmount(){saved.forEach(slot=>slot.cleanup?.());} };
+};
+`);
+const { createComponent } = await import(reactUrl);
+const timeoutUrl = await compileToUrl('../src/hooks/loginAttemptTimeout.ts');
+const aliases = {
+  react: reactUrl,
+  'react-i18next': moduleUrl(
+    'export const useTranslation=()=>({t:globalThis.loginTest.translate});'
+  ),
+  '@contexts/notifications': moduleUrl(
+    'const n={addNotification:()=>"card",removeNotification(){}};export const useNotifications=()=>n;'
+  ),
+  './useErrorHandler': moduleUrl(
+    'const n={notifyError(){},notifySuccess(){}};export const useErrorHandler=()=>n;export const useNotifySuccess=()=>n;'
+  ),
+  '@utils/error': moduleUrl('export const getErrorMessage=error=>error.message;'),
+  './loginAttemptTimeout': timeoutUrl,
+  '@components/features/prefill/hooks/prefillConstants': moduleUrl(
+    'export const getEventName=name=>name;'
+  )
+};
+const compileGuest = async (source) => {
+  let output = transpile(source);
+  for (const [name, url] of Object.entries(aliases))
+    output = output.split(`from '${name}'`).join(`from '${url}'`);
+  return (await import(moduleUrl(output))).usePrefillSteamAuth;
+};
+const guestPath = '../src/hooks/usePrefillSteamAuth.ts';
+const useGuest = await compileGuest(readFileSync(new URL(guestPath, import.meta.url), 'utf8'));
+
+const messages = {
+  noResult: 'prefill.persistent.errors.noResult',
+  timedOut: 'prefill.persistent.loginTimedOut'
+};
+const storePath =
+  '../src/components/features/management/schedules/scheduled-prefill/persistentLoginStore.ts';
+let sequence = 0;
+async function persistent(storage, service = 'Steam', rearm = false) {
+  const id = ++sequence;
+  const page = new EventTarget();
+  const subscriptions = [];
+  globalThis.window = {
+    addEventListener(name, handler) {
+      subscriptions.push([name, handler]);
+      page.addEventListener(name, handler);
+    }
+  };
+  globalThis.sessionStorage = storage;
+  globalThis.localStorage = new MemoryStorage();
+  const calls = [];
+  let reply = { ...challenge('first', 'password'), sessionId: 'session' };
+  let cancel = async () => true;
+  let poll = async () => reply;
+  let start = async () => reply;
+  globalThis.loginTest = {
+    translate: (key) => key,
+    api: {
+      startPersistentLogin: async (...args) => {
+        calls.push(['start', ...args]);
+        return start();
+      },
+      getPersistentChallenge: async (...args) => {
+        calls.push(['poll', ...args]);
+        return poll();
+      },
+      providePersistentCredential: async (...args) => {
+        calls.push(['submit', ...args]);
+      },
+      cancelPersistentLogin: async (...args) => {
+        calls.push(['cancel', ...args]);
+        return cancel();
+      }
+    }
+  };
+  const apiUrl = moduleUrl(
+    'export default new Proxy({}, {get:(_target,key)=>(...args)=>globalThis.loginTest.api[key](...args)});'
+  );
+  const storageUrl = `${await compileToUrl('../src/utils/storage.ts')}#${id}`;
+  const storeAliases = {
+    react: reactUrl,
+    '@services/api.service': apiUrl,
+    '@utils/storage': storageUrl,
+    './typeGuards': await compileToUrl(
+      '../src/components/features/management/schedules/scheduled-prefill/typeGuards.ts'
+    )
+  };
+  let storeUrl = `${await compileToUrl(storePath, storeAliases)}#${id}`;
+  if (rearm) {
+    const source = readFileSync(new URL(storePath, import.meta.url), 'utf8');
+    let copy = source
+      .replace(
+        'armPersistentLoginTimeout(service, current.loginDeadline, messages);',
+        'armPersistentLoginTimeout(service, Date.now() + 600000, messages);'
+      )
+      .replace(
+        'armPersistentLoginTimeout(service, deadline, messages);',
+        'if (active !== undefined) armPersistentLoginTimeout(service, deadline, messages);'
+      )
+      .replace('if (clock) deadline = Math.min(deadline, clock.deadline);', '');
+    if (rearm === 'continuous') {
+      copy = source
+        .replaceAll('sessionStore.removeItem(`persistent-login-deadline:${service}`)', 'true')
+        .replace(
+          'clockMessages.set(service, messages);',
+          'clockMessages.set(service, messages); sessionStore.setJSON(`persistent-login-deadline:${service}`, admitted);'
+        )
+        .replace(
+          "window.addEventListener('pagehide', () => {",
+          "window.addEventListener('pagehide', () => { return;"
+        );
+    }
+    assert.notEqual(copy, source);
+    let output = transpile(copy);
+    for (const [name, url] of Object.entries(storeAliases))
+      output = output.split(`from '${name}'`).join(`from '${url}'`);
+    storeUrl = `${moduleUrl(output)}#${id}`;
+  }
+  const store = await import(storeUrl);
+  const hooks = await import(
+    await compileToUrl('../src/hooks/usePersistentPrefillAuth.ts', {
+      react: reactUrl,
+      'react-i18next': aliases['react-i18next'],
+      '@services/api.service': apiUrl,
+      '@services/apiError': moduleUrl('export class ApiError extends Error {}'),
+      '@utils/error': aliases['@utils/error'],
+      './loginAttemptTimeout': timeoutUrl,
+      '@components/features/management/schedules/scheduled-prefill/persistentLoginStore': storeUrl
+    })
+  );
+  const instance = createComponent();
+  const render = () => instance.render(() => hooks.usePersistentPrefillAuth({ service }));
+  const host = await import(
+    await compileToUrl(
+      '../src/components/features/management/schedules/scheduled-prefill/login/usePersistentLoginHost.ts',
+      {
+        react: reactUrl,
+        'react-i18next': aliases['react-i18next'],
+        '../persistentLoginStore': storeUrl
+      }
+    )
+  );
+  const hostInstance = createComponent();
+  const handlers = new Map();
+  const signalUrl = await compileToUrl(
+    '../src/components/features/management/schedules/scheduled-prefill/usePersistentLoginChallengeSignalR.ts',
+    {
+      react: reactUrl,
+      'react-i18next': aliases['react-i18next'],
+      '@contexts/SignalRContext/useSignalR': moduleUrl(
+        `export const useSignalR=()=>globalThis.loginTest.signal;`
+      ),
+      '@services/api.service': apiUrl,
+      './persistentLoginStore': storeUrl,
+      './constants': moduleUrl(
+        "export const SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS=['steam','epic','xbox'];"
+      ),
+      './scheduledPrefillPlatformUi': moduleUrl(
+        'export const getPersistentServiceId=value=>value[0].toUpperCase()+value.slice(1);'
+      ),
+      './persistentPrefillSignalREvents': moduleUrl(
+        "export const getPersistentPrefillCredentialChallengeEvent=service=>'challenge:'+service;export const getPersistentPrefillAuthStateChangedEvent=service=>'auth:'+service;"
+      )
+    }
+  );
+  const signal = await import(signalUrl);
+  globalThis.loginTest.signal = {
+    on(name, handler) {
+      handlers.set(name, handler);
+    },
+    off(name) {
+      handlers.delete(name);
+    }
+  };
+  const listener = createComponent();
+  listener.render(() =>
+    signal.usePersistentLoginChallengeSignalR({
+      enabled: true,
+      containersByService: new Map([[service, { sessionId: 'session' }]])
+    })
+  );
+  return {
+    store,
+    storage: (await import(storageUrl)).sessionStore,
+    hide: () => page.dispatchEvent(new Event('pagehide')),
+    show: () => page.dispatchEvent(new Event('pageshow')),
+    depart() {
+      subscriptions.forEach(([name, handler]) => page.removeEventListener(name, handler));
+      instance.unmount();
+      listener.unmount();
+      hostInstance.unmount();
+    },
+    render,
+    calls,
+    handlers,
+    reveal() {
+      const state = render().state;
+      return hostInstance.render(() =>
+        host.usePersistentLoginHost({
+          service,
+          state,
+          startLogin: async () => {
+            calls.push(['host-start']);
+          },
+          resumeModal: () => {
+            calls.push(['resume']);
+          },
+          isRunning: true,
+          isAuthenticated: false,
+          onAuthenticated: () => undefined,
+          autoStart: true
+        })
+      );
+    },
+    get reply() {
+      return reply;
+    },
+    set reply(value) {
+      reply = value;
+    },
+    set poll(value) {
+      poll = value;
+    },
+    set cancel(value) {
+      cancel = value;
+    },
+    set startReply(value) {
+      start = value;
+    },
+    async start() {
+      store.setPersistentLoginStartSessionId(service, 'session');
+      await render().actions.start();
+      return store.getPersistentLoginState(service);
+    },
+    async restore() {
+      return store.reconcilePersistentLoginFromServer(service, 'session', messages);
+    },
+    close() {
+      store.resetPersistentLoginState(service);
+      instance.unmount();
+      listener.unmount();
+      hostInstance.unmount();
+      subscriptions.forEach(([name, handler]) => page.removeEventListener(name, handler));
+    }
+  };
+}
+
+function clock() {
+  const original = {
+    Date: globalThis.Date,
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout
+  };
+  let now = Date.parse('2026-09-13T12:00:00Z');
+  let next = 0;
+  const timers = new Map();
+  globalThis.Date = class extends original.Date {
+    constructor(...args) {
+      super(...(args.length ? args : [now]));
+    }
+    static now() {
+      return now;
+    }
+  };
+  globalThis.setTimeout = (run, delay) => {
+    const id = ++next;
+    timers.set(id, { run, at: now + Math.max(0, delay) });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => timers.delete(id);
+  return {
+    get now() {
+      return now;
+    },
+    timers,
+    async advance(ms) {
+      const end = now + ms;
+      while (true) {
+        const entry = [...timers]
+          .filter(([, timer]) => timer.at <= end)
+          .sort((a, b) => a[1].at - b[1].at)[0];
+        if (!entry) break;
+        now = entry[1].at;
+        timers.delete(entry[0]);
+        entry[1].run();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+      now = end;
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+    restore() {
+      Object.assign(globalThis, original);
+    }
+  };
+}
+
+function challenge(id, type = 'device-confirmation', expiry = Date.now() + 86400000) {
+  return {
+    type: 'challenge',
+    challengeId: id,
+    credentialType: type,
+    serverPublicKey: 'key',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(expiry).toISOString(),
+    operationId: 'operation'
+  };
+}
+
+function guest(useHook = useGuest, serviceId = 'steam') {
+  globalThis.loginTest = { translate: (key) => key };
+  const instance = createComponent();
+  const calls = [];
+  let reply = challenge('first', serviceId === 'xbox' ? 'device-code' : 'device-confirmation');
+  let cancel = async () => undefined;
+  const makeSocket = () => {
+    const handlers = new Map();
+    return {
+      handlers,
+      on(name, fn) {
+        handlers.set(name, fn);
+      },
+      off(name) {
+        handlers.delete(name);
+      },
+      async invoke(name, ...args) {
+        calls.push([name, ...args]);
+        if (name === 'StartLoginAsync') return reply;
+        if (name === 'CancelLoginAsync') return cancel();
+        return null;
+      }
+    };
+  };
+  let socket = makeSocket();
+  const render = () =>
+    instance.render(() => useHook({ sessionId: 'session', hubConnection: socket, serviceId }));
+  return {
+    calls,
+    render,
+    get socket() {
+      return socket;
+    },
+    set reply(value) {
+      reply = value;
+    },
+    set cancel(value) {
+      cancel = value;
+    },
+    reconnect() {
+      socket = makeSocket();
+      render();
+    },
+    async start() {
+      let result = render();
+      result.actions.setUsername('user');
+      result.actions.setPassword('password');
+      result = render();
+      await result.actions.handleAuthenticate();
+      render();
+      return render();
+    },
+    unmount() {
+      instance.unmount();
+    }
+  };
+}
+
+for (const [service, duration] of [
+  ['steam', 120000],
+  ['xbox', 600000]
+]) {
+  test(`${service} duplicate, translation and socket changes retain the accepted wait`, async () => {
+    const time = clock();
+    const flow = guest(useGuest, service);
+    try {
+      const start = time.now;
+      const first = await flow.start();
+      assert.equal(first.loginDeadline, start + duration);
+      await time.advance(90000);
+      globalThis.loginTest.translate = (key) => key;
+      flow.render();
+      flow.reconnect();
+      void flow.socket.handlers.get('CredentialChallenge')({
+        sessionId: 'session',
+        challenge: challenge('first', service === 'xbox' ? 'device-code' : 'device-confirmation')
+      });
+      flow.render();
+      assert.equal(flow.render().loginDeadline, start + duration);
+      await time.advance(duration - 90000);
+      assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+      assert.equal(flow.render().loginDeadline, null);
+    } finally {
+      flow.unmount();
+      time.restore();
+    }
+  });
+}
+
+test('same-instant guest challenge replacement keeps its terminal armed', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    await flow.start();
+    void flow.socket.handlers.get('CredentialChallenge')({
+      sessionId: 'session',
+      challenge: challenge('second')
+    });
+    flow.render();
+    await time.advance(120000);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('new guest challenge owns a new wait and an earlier raw expiry narrows it', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    await flow.start();
+    await time.advance(90000);
+    void flow.socket.handlers.get('CredentialChallenge')({
+      sessionId: 'session',
+      challenge: challenge('second', 'device-confirmation', time.now + 10000)
+    });
+    flow.render();
+    assert.equal(flow.render().loginDeadline, time.now + 10000);
+    await time.advance(10000);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('late guest cancellation and confirmation cannot clear or acknowledge a retry', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    await flow.start();
+    let release;
+    flow.cancel = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    await time.advance(120000);
+    flow.render().actions.resetAuthForm();
+    flow.reply = challenge('retry');
+    const retry = await flow.start();
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(flow.render().loginDeadline, retry.loginDeadline);
+    void flow.socket.handlers.get('CredentialChallenge')({
+      sessionId: 'session',
+      challenge: challenge('retry')
+    });
+    flow.render().actions.cancelPendingRequest();
+    await time.advance(300);
+    assert.equal(flow.calls.filter(([name]) => name === 'ProvideCredentialAsync').length, 0);
+    assert.equal(flow.render().loginDeadline, null);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('invalid guest expiry is refused at admission', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('invalid'), expiresAt: 'invalid' };
+    const result = await flow.start();
+    assert.equal(result.loginDeadline, null);
+    assert.equal(result.state.error, 'prefill.auth.errors.noChallenge');
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('expired guest challenge terminates once and stale deliveries cannot reopen it', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    flow.reply = challenge('past', 'device-confirmation', time.now - 1);
+    await flow.start();
+    await time.advance(0);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+    const handler = flow.socket.handlers.get('CredentialChallenge');
+    void handler({ sessionId: 'session', challenge: challenge('past') });
+    flow.render();
+    assert.equal(flow.render().loginDeadline, null);
+    assert.equal(flow.render().state.waitingForMobileConfirmation, false);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('guest unmount cancels its timer and an unowned delivery cannot start a wait', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    await flow.start();
+    flow.unmount();
+    await time.advance(120000);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 0);
+    const remount = guest();
+    remount.render();
+    void remount.socket.handlers.get('CredentialChallenge')({
+      sessionId: 'session',
+      challenge: challenge('first')
+    });
+    assert.equal(remount.render().loginDeadline, null);
+    remount.unmount();
+  } finally {
+    time.restore();
+  }
+});
+
+test('duration-based effect rearming extends a Steam wait on translation change', async () => {
+  const source = readFileSync(new URL(guestPath, import.meta.url), 'utf8')
+    .replace(
+      'if (waitingForMobileConfirmation && sessionId && loginDeadline !== null) {',
+      'if (waitingForMobileConfirmation && sessionId) { setLoginDeadline(Date.now() + STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);'
+    )
+    .replace('Math.max(0, loginDeadline - Date.now())', 'STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS')
+    .replace(
+      '[waitingForMobileConfirmation, sessionId, loginDeadline, notifyError, endLoginCard, t]',
+      '[waitingForMobileConfirmation, sessionId, notifyError, endLoginCard, t]'
+    );
+  const oldHook = await compileGuest(source);
+  const time = clock();
+  const flow = guest(oldHook);
+  try {
+    const start = time.now;
+    await flow.start();
+    await time.advance(90000);
+    globalThis.loginTest.translate = (key) => key;
+    flow.render();
+    assert.equal(flow.render().loginDeadline, start + 210000);
+    await time.advance(30000);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 0);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+for (const [service, duration] of [
+  ['Steam', 600000],
+  ['Epic', 300000],
+  ['Xbox', 600000]
+]) {
+  test(`${service} whole attempt survives hide, duplicate delivery and module reload`, async () => {
+    const time = clock();
+    const storage = new MemoryStorage();
+    let flow;
+    try {
+      flow = await persistent(storage, service);
+      const started = time.now;
+      const first = await flow.start();
+      assert.equal(first.loginDeadline, started + duration);
+      await time.advance(90000);
+      flow.render().actions.dismissModal();
+      flow.render().actions.resumeModal();
+      flow.store.ensurePersistentLoginTimeout(service, messages);
+      flow.store.applyPersistentLoginChallenge(service, flow.reply, messages, 'session');
+      flow.handlers.get(`challenge:${service}`)({ sessionId: 'session', challenge: flow.reply });
+      assert.equal(flow.store.getPersistentLoginState(service).loginDeadline, started + duration);
+      assert.equal(storage.getItem(`persistent-login-deadline:${service}`), null);
+      flow.hide();
+      assert.equal(
+        JSON.parse(storage.getItem(`persistent-login-deadline:${service}`)).deadline,
+        started + duration
+      );
+      time.timers.clear();
+      flow.depart();
+      flow = await persistent(storage, service);
+      assert.equal(await flow.restore(), 'challenge');
+      assert.equal(flow.store.getPersistentLoginState(service).loginDeadline, started + duration);
+      assert.equal(storage.getItem(`persistent-login-deadline:${service}`), null);
+      assert.equal([...time.timers.values()][0].at, started + duration);
+      await time.advance(duration - 90000);
+      assert.equal(flow.store.getPersistentLoginState(service).error, messages.timedOut);
+      assert.equal(storage.getItem(`persistent-login-deadline:${service}`), null);
+      assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+for (const record of [
+  'missing',
+  'corrupt',
+  'invalid',
+  'different-operation',
+  'different-session',
+  'different-challenge'
+]) {
+  test(`persistent ${record} restoration exposes recovery without credential work`, async (t) => {
+    const errors = t.mock.method(console, 'error', () => undefined);
+    const time = clock();
+    const storage = new MemoryStorage();
+    let flow;
+    try {
+      const key = 'persistent-login-deadline:Steam';
+      if (record === 'corrupt') storage.setItem(key, '{');
+      else if (record !== 'missing')
+        storage.setItem(
+          key,
+          JSON.stringify({
+            version: 1,
+            deadline: record === 'invalid' ? 'invalid' : time.now + 600000,
+            sessionId: record === 'different-session' ? 'other' : 'session',
+            operationId:
+              record === 'different-operation'
+                ? 'other'
+                : record === 'different-challenge'
+                  ? null
+                  : 'operation',
+            challengeId: record === 'different-challenge' ? 'other' : 'first'
+          })
+        );
+      flow = await persistent(storage);
+      if (record === 'different-challenge') flow.reply = { ...flow.reply, operationId: undefined };
+      assert.equal(await flow.restore(), 'unavailable');
+      const state = flow.store.getPersistentLoginState('Steam');
+      assert.equal(state.error, messages.noResult);
+      assert.equal(state.loginDeadline, null);
+      assert.equal(state.sessionId, 'session');
+      assert.equal(state.pendingChallenge.challengeId, 'first');
+      const pollCount = flow.calls.filter(([name]) => name === 'poll').length;
+      assert.equal(flow.reveal(), true);
+      assert.equal(flow.calls.filter(([name]) => name === 'host-start').length, 0);
+      assert.equal(flow.calls.filter(([name]) => name === 'resume').length, 1);
+      assert.equal(await flow.render().actions.submit('credential'), false);
+      await assert.rejects(flow.render().actions.poll(), { message: messages.noResult });
+      flow.handlers.get('challenge:Steam')({
+        sessionId: 'session',
+        challenge: { ...flow.reply, credentialType: 'device-confirmation' }
+      });
+      assert.equal(flow.calls.filter(([name]) => name === 'poll').length, pollCount);
+      assert.equal(flow.calls.filter(([name]) => name === 'submit').length, 0);
+      assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 0);
+      await flow.render().actions.cancel();
+      assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
+      const first = await flow.start();
+      assert.equal(first.loginDeadline, time.now + 600000);
+      assert.equal(flow.calls.filter(([name]) => name === 'start').length, 1);
+      if (record === 'corrupt') assert.ok(errors.mock.callCount() > 0);
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+test('null-operation restoration requires the exact challenge and retains the stored instant', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    storage.setItem(
+      'persistent-login-deadline:Steam',
+      JSON.stringify({
+        version: 1,
+        deadline: time.now + 120000,
+        sessionId: 'session',
+        operationId: null,
+        challengeId: 'first'
+      })
+    );
+    flow = await persistent(storage);
+    flow.reply = { ...flow.reply, operationId: undefined };
+    assert.equal(await flow.restore(), 'challenge');
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, time.now + 120000);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('first persistent reply pins a previously unknown session without changing its deadline', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    const started = time.now;
+    await flow.render().actions.start();
+    assert.equal(flow.store.getPersistentLoginState('Steam').sessionId, 'session');
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, started + 600000);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a stale persistent operation cannot quarantine an admitted successor', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    const state = flow.store.getPersistentLoginState('Steam');
+    const saved = storage.getItem('persistent-login-deadline:Steam');
+    flow.handlers.get('challenge:Steam')({
+      sessionId: 'session',
+      challenge: { ...flow.reply, operationId: 'old', credentialType: 'device-confirmation' }
+    });
+    assert.equal(flow.store.getPersistentLoginState('Steam'), state);
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), saved);
+    assert.equal(flow.calls.filter(([name]) => name === 'submit').length, 0);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('persistent redelivery without an operation preserves its pinned identity and deadline', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    const saved = flow.store.getPersistentLoginState('Steam').loginDeadline;
+    assert.equal(
+      flow.store.applyPersistentLoginChallenge(
+        'Steam',
+        { ...flow.reply, operationId: undefined },
+        messages,
+        'session'
+      ),
+      true
+    );
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), null);
+    flow.hide();
+    assert.equal(
+      JSON.parse(storage.getItem('persistent-login-deadline:Steam')).operationId,
+      'operation'
+    );
+    time.timers.clear();
+    flow.depart();
+    flow = await persistent(storage);
+    flow.reply = { ...flow.reply, operationId: undefined };
+    assert.equal(await flow.restore(), 'challenge');
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), null);
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, saved);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('persistent approval keeps the whole-attempt deadline and acknowledges each challenge once', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    flow.reply = { ...flow.reply, credentialType: 'device-confirmation' };
+    const started = time.now;
+    await flow.start();
+    const event = { sessionId: 'session', challenge: flow.reply };
+    flow.handlers.get('challenge:Steam')(event);
+    flow.handlers.get('challenge:Steam')(event);
+    assert.equal(flow.calls.filter(([name]) => name === 'submit').length, 1);
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, started + 600000);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('duration-based restored arming extends the whole attempt after reload', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    const started = time.now;
+    await flow.start();
+    await time.advance(100000);
+    flow.hide();
+    flow.depart();
+    time.timers.clear();
+    flow = await persistent(storage, 'Steam', true);
+    assert.equal(await flow.restore(), 'challenge');
+    flow.store.ensurePersistentLoginTimeout('Steam', messages);
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, started + 700000);
+    assert.notEqual(flow.store.getPersistentLoginState('Steam').loginDeadline, started + 600000);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('matching past persistent record times out exactly once and never becomes unavailable', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    storage.setItem(
+      'persistent-login-deadline:Steam',
+      JSON.stringify({
+        version: 1,
+        deadline: time.now - 1,
+        sessionId: 'session',
+        operationId: 'operation',
+        challengeId: 'first'
+      })
+    );
+    flow = await persistent(storage);
+    assert.equal(await flow.restore(), 'unavailable');
+    assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.timedOut);
+    assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), null);
+    await time.advance(1);
+    assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('persistent challenge bounds only narrow the original whole attempt', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    const bound = time.now + 100000;
+    assert.equal(
+      flow.store.applyPersistentLoginChallenge(
+        'Steam',
+        { ...flow.reply, expiresAt: new Date(bound).toISOString() },
+        messages,
+        'session'
+      ),
+      true
+    );
+    assert.equal(
+      flow.store.applyPersistentLoginChallenge(
+        'Steam',
+        { ...flow.reply, challengeId: 'second' },
+        messages,
+        'session'
+      ),
+      true
+    );
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, bound);
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), null);
+    flow.hide();
+    assert.equal(JSON.parse(storage.getItem('persistent-login-deadline:Steam')).deadline, bound);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('persistent success after reload clears matching storage and stale reconciliation cannot replace a retry', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    flow.hide();
+    flow.depart();
+    time.timers.clear();
+    flow = await persistent(storage);
+    flow.poll = async () => ({ authenticated: true, sessionId: 'session' });
+    assert.equal(await flow.restore(), 'authenticated');
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), null);
+    flow.store.resetPersistentLoginState('Steam');
+    let resolve;
+    flow.poll = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    const restoring = flow.restore();
+    flow.store.resetPersistentLoginState('Steam');
+    await flow.start();
+    const saved = storage.getItem('persistent-login-deadline:Steam');
+    resolve({ ...flow.reply, operationId: 'old' });
+    assert.equal(await restoring, 'none');
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), saved);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('slow persistent cancellation cannot reset or delete a successor', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    let release;
+    flow.cancel = () =>
+      new Promise((done) => {
+        release = done;
+      });
+    const ending = flow.render().actions.cancel();
+    flow.reply = { ...flow.reply, operationId: 'retry', challengeId: 'retry' };
+    await flow.start();
+    flow.hide();
+    const saved = storage.getItem('persistent-login-deadline:Steam');
+    assert.equal(JSON.parse(saved).operationId, 'retry');
+    release();
+    await ending;
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), saved);
+    assert.equal(flow.store.getPersistentLoginState('Steam').pendingChallenge.challengeId, 'retry');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('initially blocked storage refuses a persistent lifetime and login request', async (t) => {
+  const warnings = t.mock.method(console, 'warn', () => undefined);
+  const time = clock();
+  let flow;
+  const storage = {
+    getItem() {
+      throw new Error('blocked');
+    },
+    setItem() {
+      throw new Error('blocked');
+    },
+    removeItem() {
+      throw new Error('blocked');
+    }
+  };
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    await time.advance(100000);
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
+    assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.noResult);
+    assert.equal(flow.calls.filter(([name]) => name === 'start').length, 0);
+    flow.depart();
+    time.timers.clear();
+    flow = await persistent(storage);
+    assert.equal(await flow.restore(), 'unavailable');
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
+    assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 0);
+    assert.ok(warnings.mock.callCount() > 0);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+for (const mode of ['recovered', 'blocked', 'continuous'])
+  test(`${mode} snapshot cannot silently lose an accepted lower bound`, async (t) => {
+    t.mock.method(console, 'error', () => undefined);
+    t.mock.method(console, 'warn', () => undefined);
+    const time = clock();
+    const backing = new MemoryStorage();
+    let blocked = false;
+    let flow;
+    const storage = {
+      getItem: (key) => backing.getItem(key),
+      removeItem(key) {
+        if (blocked && mode === 'blocked') throw new Error('blocked');
+        backing.removeItem(key);
+      },
+      setItem(key, value) {
+        if (blocked) throw new Error('blocked');
+        backing.setItem(key, value);
+      }
+    };
+    try {
+      flow = await persistent(storage, 'Steam', mode === 'continuous' ? mode : false);
+      await flow.start();
+      const original = time.now + 600000;
+      flow.hide();
+      assert.equal(
+        JSON.parse(backing.getItem('persistent-login-deadline:Steam')).deadline,
+        original
+      );
+      flow.depart();
+      time.timers.clear();
+      flow = await persistent(storage, 'Steam', mode === 'continuous' ? mode : false);
+      assert.equal(await flow.restore(), 'challenge');
+      if (mode !== 'continuous')
+        assert.equal(backing.getItem('persistent-login-deadline:Steam'), null);
+      const narrowed = time.now + 100000;
+      blocked = true;
+      flow.store.applyPersistentLoginChallenge(
+        'Steam',
+        { ...flow.reply, expiresAt: new Date(narrowed).toISOString() },
+        messages,
+        'session'
+      );
+      assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, narrowed);
+      if (mode !== 'blocked') blocked = false;
+      flow.hide();
+      flow.depart();
+      time.timers.clear();
+      flow = await persistent(storage);
+      flow.reply = { ...flow.reply, challengeId: 'second' };
+      if (mode === 'blocked') {
+        assert.equal(await flow.restore(), 'unavailable');
+        assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
+        assert.equal(backing.getItem('persistent-login-deadline:Steam'), null);
+        assert.equal(await flow.render().actions.submit('credential'), false);
+        await assert.rejects(flow.render().actions.poll());
+        flow.handlers.get('challenge:Steam')({
+          sessionId: 'session',
+          challenge: { ...flow.reply, credentialType: 'device-confirmation' }
+        });
+        assert.deepEqual(
+          flow.calls.map(([name]) => name),
+          ['poll']
+        );
+        blocked = false;
+        flow.depart();
+        flow = await persistent(storage);
+        assert.equal(await flow.restore(), 'unavailable');
+        assert.equal(backing.getItem('persistent-login-deadline:Steam'), null);
+      } else {
+        assert.equal(await flow.restore(), 'challenge');
+        assert.equal(
+          flow.store.getPersistentLoginState('Steam').loginDeadline,
+          mode === 'continuous' ? original : narrowed
+        );
+        if (mode === 'continuous')
+          assert.notEqual(flow.store.getPersistentLoginState('Steam').loginDeadline, narrowed);
+      }
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+
+test('failed removal refuses restore and fresh start until the original snapshot can be consumed', async (t) => {
+  t.mock.method(console, 'error', () => undefined);
+  const time = clock();
+  const backing = new MemoryStorage();
+  const key = 'persistent-login-deadline:Steam';
+  const saved = JSON.stringify({
+    version: 1,
+    deadline: time.now + 400000,
+    sessionId: 'session',
+    operationId: 'operation',
+    challengeId: 'first'
+  });
+  backing.setItem(key, saved);
+  let blocked = true;
+  const storage = {
+    getItem: (key) => backing.getItem(key),
+    setItem: (key, value) => backing.setItem(key, value),
+    removeItem(key) {
+      if (blocked && key !== '__storage_test__') throw new Error('blocked');
+      backing.removeItem(key);
+    }
+  };
+  let flow;
+  try {
+    flow = await persistent(storage);
+    flow.reply = { ...flow.reply, expiresAt: new Date(time.now + 100000).toISOString() };
+    assert.equal(await flow.restore(), 'unavailable');
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
+    assert.equal(backing.getItem(key), saved);
+    flow.store.resetPersistentLoginState('Steam');
+    await flow.start();
+    assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.noResult);
+    assert.equal(flow.calls.filter(([name]) => name === 'start').length, 0);
+    assert.equal(backing.getItem(key), saved);
+    blocked = false;
+    flow.reply = { ...flow.reply, expiresAt: new Date(time.now + 86400000).toISOString() };
+    assert.equal(await flow.restore(), 'challenge');
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, time.now + 400000);
+    assert.equal(backing.getItem(key), null);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+for (const mode of ['resume', 'elapsed', 'remove-failed'])
+  test(`back-forward cache ${mode} consumes before any progress`, async (t) => {
+    t.mock.method(console, 'error', () => undefined);
+    const time = clock();
+    const backing = new MemoryStorage();
+    const key = 'persistent-login-deadline:Steam';
+    let blocked = false;
+    const storage = {
+      getItem: (key) => backing.getItem(key),
+      setItem: (key, value) => backing.setItem(key, value),
+      removeItem(key) {
+        if (blocked) throw new Error('blocked');
+        backing.removeItem(key);
+      }
+    };
+    let flow;
+    try {
+      flow = await persistent(storage);
+      await flow.start();
+      const original = flow.store.getPersistentLoginState('Steam').loginDeadline;
+      let release;
+      flow.poll = () =>
+        new Promise((resolve) => {
+          release = resolve;
+        });
+      const pending = flow.render().actions.poll();
+      flow.hide();
+      const saved = backing.getItem(key);
+      assert.equal(JSON.parse(saved).deadline, original);
+      assert.equal(time.timers.size, 0);
+      flow.handlers.get('challenge:Steam')({
+        sessionId: 'session',
+        challenge: {
+          ...flow.reply,
+          credentialType: 'device-confirmation',
+          expiresAt: new Date(time.now + 100000).toISOString()
+        }
+      });
+      release({ authenticated: true, sessionId: 'session' });
+      await assert.rejects(pending);
+      assert.equal(await flow.render().actions.submit('credential'), false);
+      assert.equal(await flow.render().actions.start(), null);
+      await assert.rejects(flow.render().actions.poll());
+      assert.equal(await flow.restore(), 'none');
+      assert.deepEqual(
+        flow.calls.map(([name]) => name),
+        ['start', 'poll']
+      );
+      assert.equal(backing.getItem(key), saved);
+      assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, original);
+      if (mode === 'elapsed') await time.advance(600001);
+      if (mode === 'remove-failed') blocked = true;
+      flow.show();
+      if (mode === 'resume') {
+        assert.equal(backing.getItem(key), null);
+        assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, original);
+        const narrowed = time.now + 100000;
+        assert.equal(
+          flow.store.applyPersistentLoginChallenge(
+            'Steam',
+            { ...flow.reply, expiresAt: new Date(narrowed).toISOString() },
+            messages,
+            'session'
+          ),
+          true
+        );
+        flow.hide();
+        assert.equal(JSON.parse(backing.getItem(key)).deadline, narrowed);
+        flow.show();
+        assert.equal(backing.getItem(key), null);
+      } else if (mode === 'elapsed') {
+        assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.timedOut);
+        flow.show();
+        assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
+        assert.equal(backing.getItem(key), null);
+      } else {
+        assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.noResult);
+        assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
+        assert.equal(await flow.render().actions.submit('credential'), false);
+        await assert.rejects(flow.render().actions.poll());
+        assert.equal(backing.getItem(key), saved);
+        assert.deepEqual(
+          flow.calls.map(([name]) => name),
+          ['start', 'poll']
+        );
+      }
+    } finally {
+      blocked = false;
+      flow?.close();
+      time.restore();
+    }
+  });
+
+for (const mode of ['abrupt', 'legacy'])
+  test(`${mode} document cannot reconstruct a reload lifetime`, async () => {
+    const time = clock();
+    const storage = new MemoryStorage();
+    const key = 'persistent-login-deadline:Steam';
+    let flow;
+    try {
+      flow = await persistent(storage);
+      await flow.start();
+      flow.render().actions.dismissModal();
+      flow.depart();
+      assert.equal(storage.getItem(key), null);
+      time.timers.clear();
+      if (mode === 'legacy')
+        storage.setItem(
+          key,
+          JSON.stringify({
+            deadline: time.now + 600000,
+            sessionId: 'session',
+            operationId: 'operation',
+            challengeId: 'first'
+          })
+        );
+      flow = await persistent(storage);
+      assert.equal(await flow.restore(), 'unavailable');
+      assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.noResult);
+      assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
+      assert.deepEqual(
+        flow.calls.map(([name]) => name),
+        ['poll']
+      );
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+
+test('suspended start and authentication pushes cannot replace or remove a saved clock', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  const key = 'persistent-login-deadline:Steam';
+  let flow;
+  try {
+    flow = await persistent(storage);
+    let release;
+    flow.startReply = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const pending = flow.start();
+    const deadline = flow.store.getPersistentLoginState('Steam').loginDeadline;
+    flow.hide();
+    const saved = storage.getItem(key);
+    release({ ...flow.reply, expiresAt: new Date(time.now + 100000).toISOString() });
+    await pending;
+    flow.handlers.get('auth:Steam')({ sessionId: 'session', authState: 'Authenticated' });
+    assert.equal(storage.getItem(key), saved);
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, deadline);
+    assert.equal(flow.store.getPersistentLoginState('Steam').authenticated, false);
+    assert.deepEqual(
+      flow.calls.map(([name]) => name),
+      ['start']
+    );
+    flow.show();
+    assert.equal(storage.getItem(key), null);
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, deadline);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('terminal cleanup removes only the matching suspended service snapshot', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    flow = await persistent(storage);
+    await flow.start();
+    flow.store.setPersistentLoginStartSessionId('Epic', 'epic-session');
+    assert.equal(flow.store.armPersistentLoginTimeout('Epic', time.now + 300000, messages), true);
+    flow.hide();
+    const epic = storage.getItem('persistent-login-deadline:Epic');
+    assert.equal(JSON.parse(epic).deadline, time.now + 300000);
+    flow.store.resetPersistentLoginState('Steam');
+    assert.equal(storage.getItem('persistent-login-deadline:Steam'), null);
+    assert.equal(storage.getItem('persistent-login-deadline:Epic'), epic);
+    flow.show();
+    flow.store.resetPersistentLoginState('Epic');
+    assert.equal(storage.getItem('persistent-login-deadline:Epic'), null);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('storage receipts report backing mutations while preserving fallback contents', async (t) => {
+  const errors = t.mock.method(console, 'error', () => undefined);
+  const warnings = t.mock.method(console, 'warn', () => undefined);
+  const backing = new MemoryStorage();
+  let writes = true,
+    reads = true,
+    deletes = true;
+  const storage = {
+    getItem(key) {
+      if (!reads) throw new Error('blocked');
+      return backing.getItem(key);
+    },
+    setItem(key, value) {
+      if (!writes) throw new Error('blocked');
+      backing.setItem(key, value);
+    },
+    removeItem(key) {
+      if (!deletes) throw new Error('blocked');
+      backing.removeItem(key);
+    }
+  };
+  let flow;
+  try {
+    flow = await persistent(storage);
+    const safe = flow.storage;
+    assert.equal(safe.setItem('key', 'original'), true);
+    assert.equal(safe.setJSON('json', { a: 1 }), true);
+    assert.equal(safe.removeItem('json'), true);
+    assert.equal(safe.removeItem('absent'), true);
+    writes = false;
+    assert.equal(safe.setItem('key', 'memory'), false);
+    assert.equal(safe.getItem('key'), 'original');
+    reads = false;
+    assert.equal(safe.getItem('key'), 'memory');
+    deletes = false;
+    assert.equal(safe.removeItem('key'), false);
+    assert.equal(safe.getItem('key'), null);
+    assert.equal(safe.setJSON('bad', 1n), false);
+    assert.equal(safe.isAvailable(), true);
+    flow.depart();
+    flow = await persistent(storage);
+    assert.equal(flow.storage.isAvailable(), false);
+    assert.equal(flow.storage.setJSON('key', { a: 2 }), false);
+    assert.deepEqual(flow.storage.getJSON('key'), { a: 2 });
+    assert.equal(flow.storage.removeItem('key'), false);
+    assert.equal(flow.storage.getItem('key'), null);
+    assert.ok(errors.mock.callCount() > 0);
+    assert.ok(warnings.mock.callCount() > 0);
+  } finally {
+    flow?.close();
+  }
+});

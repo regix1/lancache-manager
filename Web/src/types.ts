@@ -899,7 +899,7 @@ export interface IntegrationAccess {
   canLogout?: boolean;
   canCancel?: boolean;
   canRecover?: boolean;
-  ownershipReason?: string | null;
+  ownershipReason?: IntegrationReason | null;
   attemptId?: string | null;
   loginExpiresAtUtc?: string | null;
 }
@@ -909,7 +909,7 @@ export interface IntegrationLoginRequest {
   recover?: boolean;
 }
 
-export const integrationReasonKeys: Readonly<Record<string, string>> = {
+export const integrationReasonKeys = {
   'account-required': 'errors.integration.accountRequired',
   'owned-by-another-account': 'errors.integration.ownedByAnotherAccount',
   'login-in-progress': 'errors.integration.loginInProgress',
@@ -920,12 +920,20 @@ export const integrationReasonKeys: Readonly<Record<string, string>> = {
   'main-owner-required': 'errors.integration.mainOwnerRequired',
   'integration-sign-in-required': 'errors.integration.signInRequired',
   'no-saved-login': 'errors.integration.noSavedLogin',
-  'not-supported': 'errors.integration.notSupported',
-  unknown: 'errors.integration.statusUnavailable'
-};
+  'not-supported': 'errors.integration.notSupported'
+} as const;
+
+export type IntegrationReason = keyof typeof integrationReasonKeys;
+
+export function isIntegrationReason(reason: unknown): reason is IntegrationReason {
+  return (
+    typeof reason === 'string' &&
+    Object.prototype.hasOwnProperty.call(integrationReasonKeys, reason)
+  );
+}
 
 export function getIntegrationReasonKey(reason: string | null | undefined): string {
-  if (!reason || !Object.prototype.hasOwnProperty.call(integrationReasonKeys, reason)) {
+  if (!isIntegrationReason(reason)) {
     throw new Error('Integration access response did not include a recognized reason');
   }
   return integrationReasonKeys[reason];

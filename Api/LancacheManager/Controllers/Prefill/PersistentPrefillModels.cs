@@ -190,9 +190,6 @@ public sealed class PersistentPrefillSessionDto
     /// </summary>
     public required DateTime CreatedAtUtc { get; init; }
 
-    /// <summary>Seconds remaining until <see cref="AuthExpiresAtUtc"/> (0 once elapsed).</summary>
-    public required long AuthTimeRemainingSeconds { get; init; }
-
     /// <summary>True when the session is past expiry and the admin must re-authenticate in place.</summary>
     public required bool NeedsRelogin { get; init; }
 

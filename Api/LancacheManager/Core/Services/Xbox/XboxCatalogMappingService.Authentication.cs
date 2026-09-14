@@ -135,8 +135,12 @@ public partial class XboxCatalogMappingService
                 deviceCode = await _authClient.RequestDeviceCodeAsync(requestCts.Token);
                 requestCts.Token.ThrowIfCancellationRequested();
             }
+            if (deviceCode.ExpiresIn <= 0)
+            {
+                throw new InvalidOperationException("Xbox device code response did not contain a positive expiry");
+            }
             login = _authStorage.SetIntegrationLoginExpiry(login,
-                DateTime.UtcNow.AddSeconds(deviceCode.ExpiresIn > 0 ? deviceCode.ExpiresIn : 900));
+                DateTime.UtcNow.AddSeconds(deviceCode.ExpiresIn));
             lifetime.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
             XblRequestSigner? signer = null;
             if (!_authStorage.RunIntegrationLogin(login, () =>
@@ -156,7 +160,6 @@ public partial class XboxCatalogMappingService
             {
                 UserCode = deviceCode.UserCode ?? string.Empty,
                 VerificationUri = deviceCode.VerificationUri ?? string.Empty,
-                ExpiresIn = deviceCode.ExpiresIn,
                 Interval = deviceCode.Interval,
                 OperationId = reporter!.IsStarted ? reporter.OperationId : null,
                 AttemptId = login.AttemptId,

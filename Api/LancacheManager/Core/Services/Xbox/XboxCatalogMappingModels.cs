@@ -45,7 +45,6 @@ public class XboxDeviceCodeChallenge
     public DateTime ExpiresAtUtc { get; set; }
     public string UserCode { get; set; } = string.Empty;
     public string VerificationUri { get; set; } = string.Empty;
-    public int ExpiresIn { get; set; }
     public int Interval { get; set; }
     public Guid? OperationId { get; set; }
 }

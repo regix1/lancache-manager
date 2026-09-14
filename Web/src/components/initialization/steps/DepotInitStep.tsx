@@ -53,13 +53,13 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   // eviction blocks these endpoints too, so the reason travels on the response as a stage key and is
   // translated here rather than assumed. (App.tsx handles its own 409s by staying silent instead,
   // which is why this does not share a helper with it.)
-  const describeError = (err: unknown, fallbackKey: string) => {
+  const describeError = (err: unknown) => {
     if (err instanceof ApiError && err.kind === 'conflict') {
       const conflict = err.cause as OperationConflictBody | undefined;
       const duplicate = t('errors.conflict.duplicate');
       return conflict?.stageKey ? t(conflict.stageKey, { defaultValue: duplicate }) : duplicate;
     }
-    return getErrorMessage(err) || t(fallbackKey);
+    return getErrorMessage(err);
   };
 
   const selectedMethodRef = useRef<'cloud' | 'generate' | 'continue' | null>(null);
@@ -167,7 +167,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
-        setError(describeError(err, 'initialization.depotInit.failedToDownload'));
+        setError(describeError(err));
       }
       setInitializing(false);
       setSelectedMethod(null);
@@ -202,7 +202,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onGenerateOwn();
     } catch (err: unknown) {
-      setError(describeError(err, 'initialization.depotInit.failedToGenerate'));
+      setError(describeError(err));
       setInitializing(false);
       setSelectedMethod(null);
     }
@@ -255,7 +255,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onContinue();
     } catch (err: unknown) {
-      setError(describeError(err, 'initialization.depotInit.failedIncremental'));
+      setError(describeError(err));
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);

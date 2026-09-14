@@ -91,7 +91,7 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
         setFailureMessage(data.error || data.message || t('app.configError.recovery.failed'));
       }
     } catch (err: unknown) {
-      setFailureMessage(getErrorMessage(err) || t('app.configError.recovery.failed'));
+      setFailureMessage(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -255,7 +255,7 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
           console.error('[ConfigProvider] Failed to load config:', err);
           // Never render the raw error message - extract via the shared helper so an ApiError's
           // parsed backend body wins over a generic Error/TypeError string.
-          const message = getErrorMessage(err) || t('app.configError.failedMessage');
+          const message = getErrorMessage(err);
           setError({ message, isTimeout: false });
         }
       } finally {

@@ -26,6 +26,7 @@ interface UseXboxMappingAuthOptions {
 export interface XboxAuthState {
   attemptId?: string | null;
   canAuthenticate?: boolean;
+  accessUnavailable?: boolean;
   ownershipReason?: string | null;
   recovering?: boolean;
   loading: boolean;
@@ -72,6 +73,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const formIdentityRef = useRef(identity);
   const formCurrent = formIdentityRef.current === identity && hasAccess;
   const authStatus = statusIdentity === identity && hasAccess ? status : null;
+  const accessUnavailable = !formCurrent || authStatus === null || statusError;
   const refreshStatus = useCallback(async () => {
     if (!hasAccess || identityRef.current !== identity) return null;
     const request = ++statusRequestRef.current;
@@ -282,9 +284,9 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       return;
     if (authStatus?.canSignIn !== true && authStatus?.canRecover !== true) {
       setError(
-        authStatus
-          ? t(getIntegrationReasonKey(authStatus.ownershipReason))
-          : t('errors.integration.statusUnavailable')
+        accessUnavailable
+          ? t('errors.integration.statusUnavailable')
+          : t(getIntegrationReasonKey(authStatus?.ownershipReason))
       );
       return;
     }
@@ -346,7 +348,17 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
         void refreshStatus();
       }
     }
-  }, [resetAuthForm, onError, pushLoginCard, t, authStatus, identity, refreshStatus, formCurrent]);
+  }, [
+    resetAuthForm,
+    onError,
+    pushLoginCard,
+    t,
+    authStatus,
+    identity,
+    refreshStatus,
+    formCurrent,
+    accessUnavailable
+  ]);
 
   // The backend polls the device code automatically, so there is no code-paste "complete" step.
   // The modal's Continue button instead RE-STARTS the login: this gives a working retry if the
@@ -384,6 +396,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
 
   const state: XboxAuthState = {
     attemptId: formCurrent ? attemptId : null,
+    accessUnavailable,
     canAuthenticate:
       formCurrent &&
       (authStatus?.canSignIn === true ||

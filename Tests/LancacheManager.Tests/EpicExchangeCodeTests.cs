@@ -29,6 +29,7 @@ public sealed class EpicExchangeCodeTests
 
         Assert.Equal("one-use-code", code);
         Assert.Equal("daemon-refresh", tokens.RefreshToken);
+        Assert.Equal(new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), tokens.ExpiresAt);
         Assert.Collection(
             requests,
             request =>
@@ -161,7 +162,7 @@ public sealed class EpicExchangeCodeTests
 
             var json = _call++ == 0
                 ? "{\"code\":\"one-use-code\"}"
-                : "{\"access_token\":\"daemon-access\",\"refresh_token\":\"daemon-refresh\",\"displayName\":\"Epic User\",\"account_id\":\"epic-id\",\"expires_in\":3600,\"refresh_expires\":28800}";
+                : "{\"access_token\":\"daemon-access\",\"refresh_token\":\"daemon-refresh\",\"displayName\":\"Epic User\",\"account_id\":\"epic-id\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"expires_in\":3600,\"refresh_expires\":28800}";
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -191,9 +192,9 @@ public sealed class EpicExchangeCodeTests
         {
             var json = _call++ switch
             {
-                0 => "{\"access_token\":\"rotated-access\",\"refresh_token\":\"rotated-inactive-refresh\",\"displayName\":\"Inactive Account\",\"account_id\":\"inactive-id\",\"expires_in\":3600,\"refresh_expires\":28800}",
+                0 => "{\"access_token\":\"rotated-access\",\"refresh_token\":\"rotated-inactive-refresh\",\"displayName\":\"Inactive Account\",\"account_id\":\"inactive-id\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"expires_in\":3600,\"refresh_expires\":28800}",
                 1 => "{\"code\":\"one-use-code\"}",
-                _ => "{\"access_token\":\"daemon-access\",\"refresh_token\":\"daemon-refresh\",\"displayName\":\"Inactive Account\",\"account_id\":\"inactive-id\",\"expires_in\":3600,\"refresh_expires\":28800}"
+                _ => "{\"access_token\":\"daemon-access\",\"refresh_token\":\"daemon-refresh\",\"displayName\":\"Inactive Account\",\"account_id\":\"inactive-id\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"expires_in\":3600,\"refresh_expires\":28800}"
             };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {

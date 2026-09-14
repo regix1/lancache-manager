@@ -212,7 +212,6 @@ public class PersistentPrefillController : ControllerBase
     [ProducesResponseType(typeof(List<PersistentPrefillSessionDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<PersistentPrefillSessionDto>>> ListAsync(CancellationToken cancellationToken)
     {
-        var nowUtc = DateTime.UtcNow;
         var results = new List<PersistentPrefillSessionDto>();
 
         foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
@@ -251,8 +250,6 @@ public class PersistentPrefillController : ControllerBase
                 // The honest re-login date is the EARLIER of the manager's validity window and the
                 // daemon's real token expiry, so the UI never promises a window longer than the token.
                 var effectiveRelogin = ComputeEffectiveRelogin(session.ExpiresAt, daemonAuthExpiresAtUtc);
-                var remaining = (effectiveRelogin - nowUtc).TotalSeconds;
-                long remainingSeconds = remaining > 0 ? (long)remaining : 0L;
                 var capabilities = session.Capabilities is { SupportsConcurrentPrefill: true } negotiated ? negotiated : null;
 
                 results.Add(new PersistentPrefillSessionDto
@@ -272,7 +269,6 @@ public class PersistentPrefillController : ControllerBase
                     // The field's contract is a UTC instant, so the kind is stated at the boundary
                     // rather than left to whatever the value happened to arrive with.
                     CreatedAtUtc = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc),
-                    AuthTimeRemainingSeconds = remainingSeconds,
                     NeedsRelogin = session.NeedsRelogin,
                     DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc,
                     IsPrefilling = session.IsPrefilling,

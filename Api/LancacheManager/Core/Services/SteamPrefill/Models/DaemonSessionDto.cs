@@ -27,12 +27,11 @@ public class DaemonSessionDto
     public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
-    public int TimeRemainingSeconds { get; set; }
 
     /// <summary>
     /// True when this is a guest/temporary container whose <see cref="ExpiresAt"/> reflects the
     /// manager-enforced, per-service guest permission duration cap. The UI can use this to render a
-    /// lifetime countdown (via <see cref="TimeRemainingSeconds"/>) distinct from the standard session timeout.
+    /// lifetime countdown from <see cref="ExpiresAt"/> distinct from the standard session timeout.
     /// </summary>
     public bool IsTemporary { get; set; }
 
@@ -149,7 +148,6 @@ public class DaemonSessionDto
             IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,
-            TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds),
             IsTemporary = session.IsTemporary,
             IsPersistent = session.IsPersistent,
             NeedsRelogin = session.NeedsRelogin,

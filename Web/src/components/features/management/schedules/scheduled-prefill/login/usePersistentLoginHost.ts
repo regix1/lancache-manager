@@ -70,13 +70,12 @@ export function usePersistentLoginHost({
     }
 
     if (state.hasChallenge) {
-      // A challenge is already pending for this service: reveal it instead of starting over.
-      // Only start() arms the overall ceiling, so a challenge that reached the store any other way
-      // has none - most importantly one restored from the backend's pending-challenge cache after
-      // a page reload, which PersistentLoginHost auto-resumes through here. Arming it on the
-      // resume keeps that attempt bounded; a challenge whose clock is already running is left on
-      // its original deadline, so re-showing the modal cannot extend it.
-      ensurePersistentLoginTimeout(service, t('prefill.persistent.loginTimedOut'));
+      // Reveal the admitted challenge, or its admission error and explicit Cancel action.
+      // Reopening never starts another attempt or reconstructs its deadline.
+      ensurePersistentLoginTimeout(service, {
+        noResult: t('prefill.persistent.errors.noResult'),
+        timedOut: t('prefill.persistent.loginTimedOut')
+      });
       resumeModal();
       return;
     }

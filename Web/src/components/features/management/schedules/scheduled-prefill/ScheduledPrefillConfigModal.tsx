@@ -255,12 +255,10 @@ const previewReloginWindow = (
     ? new Date(container.daemonAuthExpiresAtUtc).getTime()
     : null;
   const relogin = tokenExpires !== null && tokenExpires < windowEnds ? tokenExpires : windowEnds;
-  const remainingMs = relogin - Date.now();
 
   return {
     ...container,
     authExpiresAtUtc: new Date(relogin).toISOString(),
-    authTimeRemainingSeconds: remainingMs > 0 ? Math.floor(remainingMs / 1000) : 0,
     // A container already past its window is inside the new one again, and the save clears the flag
     // server-side. Leaving it set would put a re-login warning next to a future re-login date.
     needsRelogin: relogin > Date.now() ? false : container.needsRelogin
@@ -501,24 +499,19 @@ export function ScheduledPrefillConfigModal({
               if (isAbortError(error)) {
                 throw error;
               }
-              return [serviceKey, { available: false, account: null, reason: 'unknown' }] as const;
+              return null;
             }
           })
         );
         if (isCurrent()) {
-          setIntegrationLoginAvailabilityByService(new Map(availability));
+          setIntegrationLoginAvailabilityByService(
+            new Map(availability.filter((entry) => entry !== null))
+          );
           setIntegrationLoginAvailabilityIdentity(requestIdentity);
         }
       } catch (error: unknown) {
         if (!isAbortError(error) && isCurrent()) {
-          setIntegrationLoginAvailabilityByService(
-            new Map(
-              SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) => [
-                serviceKey,
-                { available: false, account: null, reason: 'unknown' }
-              ])
-            )
-          );
+          setIntegrationLoginAvailabilityByService(new Map());
           setIntegrationLoginAvailabilityIdentity(requestIdentity);
         }
       } finally {
@@ -938,12 +931,18 @@ export function ScheduledPrefillConfigModal({
           continue;
         }
 
-        const result = await reconcilePersistentLoginFromServer(serviceId, container.sessionId);
+        const result = await reconcilePersistentLoginFromServer(serviceId, container.sessionId, {
+          noResult: t('prefill.persistent.errors.noResult'),
+          timedOut: t('prefill.persistent.loginTimedOut')
+        });
         if (controller.signal.aborted) {
           return;
         }
 
-        if (result === 'challenge' && !isPersistentLoginDismissed(serviceId)) {
+        if (
+          (result === 'challenge' || result === 'unavailable') &&
+          !isPersistentLoginDismissed(serviceId)
+        ) {
           setPersistentLoginTarget(serviceKey);
           return;
         }
@@ -960,7 +959,7 @@ export function ScheduledPrefillConfigModal({
     // and config are read via refs inside, so they are intentionally not dependencies;
     // persistentEnabledSignature re-runs this only when an account service's enabled flag flips
     // (e.g. config finishing its initial load), so a just-enabled service's login can still resume.
-  }, [opened, persistentLoginTarget, persistentReconcileSignature, persistentEnabledSignature]);
+  }, [opened, persistentLoginTarget, persistentReconcileSignature, persistentEnabledSignature, t]);
 
   // Every service (account or anonymous) reuses the same addressable persistent-container session
   // (ScheduledPrefillService.RunServiceAsync dispatches identically for all five platforms), so the
@@ -1645,7 +1644,7 @@ export function ScheduledPrefillConfigModal({
         loadingIntegrationLoginAvailability
       ) {
         setPersistentError(
-          availability
+          availability?.available === false
             ? t(getIntegrationReasonKey(availability.reason))
             : t('errors.integration.statusUnavailable')
         );

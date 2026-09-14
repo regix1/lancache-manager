@@ -342,7 +342,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       const errMsg = getErrorMessage(err);
       const errorMessage = errMsg.includes('read-only')
         ? t('management.logRemoval.errors.readOnly')
-        : errMsg || t('management.logRemoval.errors.actionFailed');
+        : errMsg;
       onError?.(errorMessage);
       clearServiceRemovalPending(key);
     }
@@ -376,7 +376,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       const errMsg = getErrorMessage(err);
       const errorMessage = errMsg.includes('read-only')
         ? t('management.logRemoval.errors.readOnly')
-        : errMsg || t('management.logRemoval.errors.deleteFailed');
+        : errMsg;
       onError?.(errorMessage);
     } finally {
       setDeletingLogFile(null);

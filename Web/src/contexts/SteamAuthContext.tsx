@@ -49,6 +49,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
       const response = await fetch('/api/steam-auth/status', ApiService.getFetchOptions());
       const authState = await ApiService.handleResponse<SteamAuthenticationState>(response);
       if (!current()) return;
+      ApiService.assertIntegrationAccess(authState, 'login', response.status);
       setStatusIdentity(identity);
       if (authState) {
         setAccess(authState);

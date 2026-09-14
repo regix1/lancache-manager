@@ -135,9 +135,9 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
       setMappings(mappingsData);
       setStats(statsData);
     } catch (err) {
-      setError(getErrorMessage(err) || loadErrorMessage);
+      setError(getErrorMessage(err));
     }
-  }, [mockMode, loadMappings, loadStats, loadErrorMessage]);
+  }, [mockMode, loadMappings, loadStats]);
 
   useEffect(() => {
     loadData();

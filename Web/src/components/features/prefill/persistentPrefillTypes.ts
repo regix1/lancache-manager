@@ -1,5 +1,6 @@
 import type { ScheduledPrefillSchedule } from '../management/schedules/scheduled-prefill/types';
 import type { PrefillRun } from './hooks/prefillTypes';
+import type { IntegrationReason } from '../../../types';
 
 export type PersistentPrefillServiceId = 'Steam' | 'Epic' | 'Xbox' | 'BattleNet' | 'Riot';
 
@@ -19,7 +20,6 @@ export interface PersistentPrefillContainerDto {
   daemonAuthExpiresAtUtc: string | null;
   authExpiresAtUtc: string;
   createdAtUtc: string;
-  authTimeRemainingSeconds: number;
   needsRelogin: boolean;
   isPrefilling?: boolean;
   runId?: string | null;
@@ -27,11 +27,12 @@ export interface PersistentPrefillContainerDto {
   currentAppName?: string | null;
 }
 
-export interface PersistentIntegrationLoginAvailability {
-  available: boolean;
-  account: string | null;
-  reason: string | null;
-}
+export type PersistentIntegrationLoginAvailability = {
+  account?: string | null;
+} & (
+  | { available: true; reason?: IntegrationReason | null }
+  | { available: false; reason: IntegrationReason }
+);
 
 export interface PersistentPrefillValiditySettings {
   days: number;

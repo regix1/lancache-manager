@@ -351,7 +351,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: getErrorMessage(err) || t('initialization.logProcessing.failedToProcess')
+        message: getErrorMessage(err)
       });
       setProcessing(false);
     } finally {
@@ -383,7 +383,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: getErrorMessage(err) || t('initialization.logProcessing.failedToProcessDatasource')
+        message: getErrorMessage(err)
       });
       setProcessing(false);
     } finally {
@@ -423,7 +423,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: getErrorMessage(err) || t('initialization.logProcessing.cancelFailed')
+        message: getErrorMessage(err)
       });
     } finally {
       setIsCancelling(false);

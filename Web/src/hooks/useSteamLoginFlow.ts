@@ -92,6 +92,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   const cancelledAttemptRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  const accessUnavailable = Boolean(integration && (!formCurrent || integration.access === null));
   const canAuthenticate =
     formCurrent &&
     (!integration ||
@@ -276,9 +277,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         : integration.access?.canSignIn !== true && integration.access?.canRecover !== true)
     ) {
       setError(
-        integration.access
-          ? t(getIntegrationReasonKey(integration.access.ownershipReason))
-          : t('errors.integration.statusUnavailable')
+        accessUnavailable || (continuation && !attemptRef.current)
+          ? t('errors.integration.statusUnavailable')
+          : t(getIntegrationReasonKey(integration.access?.ownershipReason))
       );
       return false;
     }
@@ -561,6 +562,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         ? {
             attemptId: formCurrent ? attemptId : null,
             canAuthenticate,
+            accessUnavailable,
             ownershipReason: integration.access?.ownershipReason,
             recovering: integration.access?.canRecover === true
           }

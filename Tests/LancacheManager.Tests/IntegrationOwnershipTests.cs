@@ -16,6 +16,45 @@ namespace LancacheManager.Tests;
 
 public sealed class IntegrationOwnershipTests
 {
+    [Theory]
+    [InlineData("account-required", "errors.integration.accountRequired", true)]
+    [InlineData("owned-by-another-account", "errors.integration.ownedByAnotherAccount", true)]
+    [InlineData("login-in-progress", "errors.integration.loginInProgress", false)]
+    [InlineData("reauthentication-required", "errors.integration.reauthenticationRequired", false)]
+    [InlineData("release-in-progress", "errors.integration.releaseInProgress", false)]
+    [InlineData("attempt-required", "errors.integration.attemptRequired", false)]
+    [InlineData("attempt-expired", "errors.integration.attemptExpired", false)]
+    [InlineData("main-owner-required", "errors.integration.mainOwnerRequired", true)]
+    [InlineData("integration-sign-in-required", "errors.integration.signInRequired", false)]
+    [InlineData("no-saved-login", "errors.integration.noSavedLogin", false)]
+    [InlineData("not-supported", "errors.integration.notSupported", false)]
+    public void RefusalPreservesTheReasonKeyAndStatus(string reason, string stageKey, bool forbidden)
+    {
+        if (forbidden)
+        {
+            var error = Assert.Throws<ForbiddenException>(() => IntegrationLease.Refuse(reason));
+            Assert.Equal(stageKey, error.StageKey);
+            Assert.Equal(reason, error.Message);
+        }
+        else
+        {
+            var error = Assert.Throws<ConflictException>(() => IntegrationLease.Refuse(reason));
+            Assert.Equal(stageKey, error.StageKey);
+            Assert.Equal(reason, error.Message);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("unknown")]
+    [InlineData("status-unavailable")]
+    public void RefusalRejectsUnrecognizedReasons(string? reason)
+    {
+        Assert.Throws<InvalidOperationException>(() => IntegrationLease.Refuse(reason));
+    }
+
     [Fact]
     public async Task ConfiguredSharedModeOverridesTheLegacyAuthenticationDefaultAndClearsActorIdentity()
     {

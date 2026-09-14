@@ -44,7 +44,7 @@ const MemoryDiagnostics: React.FC = () => {
     } catch (err: unknown) {
       const detail = getErrorMessage(err);
       console.error('Failed to fetch memory stats:', detail);
-      setError(detail || t('memory.failedToLoad'));
+      setError(detail);
     } finally {
       setLoading(false);
     }
@@ -52,7 +52,6 @@ const MemoryDiagnostics: React.FC = () => {
 
   useEffect(() => {
     fetchMemoryStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {

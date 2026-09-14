@@ -63,6 +63,6 @@ public class MetricsAuthenticationMiddleware
             context.Connection.RemoteIpAddress);
 
         await AuthenticationHelper.WriteErrorAsync(
-            context, result.StatusCode, result.ErrorMessage ?? "API key required for metrics");
+            context, result.StatusCode, result.ErrorMessage!);
     }
 }

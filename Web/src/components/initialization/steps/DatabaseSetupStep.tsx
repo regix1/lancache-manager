@@ -153,7 +153,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         );
       }
     } catch (error: unknown) {
-      setSubmitError(getErrorMessage(error) || t('initialization.databaseSetup.errors.network'));
+      setSubmitError(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

@@ -25,9 +25,6 @@ internal class EpicTokenResponse
     [JsonPropertyName("access_token")]
     public string? AccessToken { get; set; }
 
-    [JsonPropertyName("expires_in")]
-    public int ExpiresIn { get; set; }
-
     [JsonPropertyName("expires_at")]
     public string? ExpiresAtStr { get; set; }
 

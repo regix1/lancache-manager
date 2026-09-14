@@ -877,7 +877,7 @@ function ServicePrefillPanel({
               await signalR.hubConnection.current.invoke('ClearCacheAsync', signalR.session.id);
               addLog('success', t('prefill.log.tempCacheCleared'));
             } catch (err) {
-              addLog('error', getErrorMessage(err) || t('prefill.log.failedClearCache'));
+              addLog('error', getErrorMessage(err));
             }
             break;
           }
@@ -887,7 +887,7 @@ function ServicePrefillPanel({
           }
         }
       } catch (err) {
-        addLog('error', getErrorMessage(err) || t('prefill.log.commandFailed'));
+        addLog('error', getErrorMessage(err));
         if (isPrefillCommand && supportsConcurrentPrefill(signalR.session)) {
           await signalR.refreshRuns();
         }

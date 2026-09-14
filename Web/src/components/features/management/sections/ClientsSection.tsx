@@ -194,14 +194,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         setExcludedRules(rules);
         setSavedExcludedRules(rules);
       } catch (err) {
-        onError(
-          getErrorMessage(err) || t('management.sections.clients.errors.failedToLoadExcluded')
-        );
+        onError(getErrorMessage(err));
       } finally {
         if (showLoading) setLoadingExcluded(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [isAdmin, mockMode, onError]
   );
 
@@ -290,9 +287,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       await refreshStats(true);
       await refreshDownloads();
     } catch (err) {
-      onError(
-        getErrorMessage(err) || t('management.sections.clients.errors.failedToUpdateExcluded')
-      );
+      onError(getErrorMessage(err));
     } finally {
       setSavingExcluded(false);
     }
@@ -431,7 +426,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       );
       setDeleteConfirmGroup(null);
     } catch (err) {
-      onError(getErrorMessage(err) || t('modals.clientGroup.errors.failedToDelete'));
+      onError(getErrorMessage(err));
     } finally {
       setDeletingGroupId(null);
     }

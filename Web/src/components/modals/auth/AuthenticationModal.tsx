@@ -231,7 +231,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setSignInRefused(true);
       }
     } catch (error: unknown) {
-      setAuthError(getErrorMessage(error) || t('modals.auth.errors.authenticationFailed'));
+      setAuthError(getErrorMessage(error));
     } finally {
       setAuthenticating(false);
     }
@@ -256,7 +256,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       const result = await authService.startLogin(service.id, apiKey.trim());
       window.location.assign(result.url);
     } catch (error: unknown) {
-      setAuthError(getErrorMessage(error) || t('accessSetup.oidcFailed'));
+      setAuthError(getErrorMessage(error));
       setStartingService(null);
     }
   };
@@ -294,7 +294,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));
       }
     } catch (err: unknown) {
-      const message = getErrorMessage(err) || t('modals.auth.errors.failedToStartGuest');
+      const message = getErrorMessage(err);
       setAuthError(
         message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable')
       );

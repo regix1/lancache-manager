@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import typescript from 'typescript';
-import { compileToUrl } from './transpile-module.mjs';
+import { bindLifted, collectNodes, compileToUrl, parseSource } from './transpile-module.mjs';
 
 /**
  * Steam auth refreshes on explicit requests, two broadcasts, and reconnect. The provider is run
@@ -92,9 +92,35 @@ export default { createElement };
 const reactStubUrl = toUrl(reactStubSource);
 const { createComponent } = await import(reactStubUrl);
 
-const apiStubUrl = toUrl(
-  `export default { getFetchOptions: () => ({}), handleResponse: async (response) => {if(!response.ok) throw new Error('unavailable'); return response.json();} };`
+const { isIntegrationReason } = await import(await compileToUrl('../src/types.ts'));
+const { ApiError } = await import(
+  await compileToUrl('../src/services/apiError.ts', {
+    '@utils/constants': toUrl('export const APP_EVENTS = {};')
+  })
 );
+const apiSource = parseSource('src/services/api.service.ts');
+const assertions = collectNodes(
+  apiSource,
+  (node) =>
+    typescript.isMethodDeclaration(node) &&
+    node.name.getText(apiSource) === 'assertIntegrationAccess'
+);
+assert.equal(assertions.length, 1);
+globalThis.__steamApi = bindLifted(
+  `() => {
+  class ApiService {
+    static getFetchOptions() { return {}; }
+    static async handleResponse(response) {
+      if (!response.ok) throw new Error('unavailable');
+      return response.json();
+    }
+    ${assertions[0].getText(apiSource)}
+  }
+  return ApiService;
+}`,
+  { ApiError, isIntegrationReason, i18n: { t: (key) => key } }
+)();
+const apiStubUrl = toUrl('export default globalThis.__steamApi;');
 
 /** One hub object across renders, so only the flag the provider reads changes. */
 const signalRStubUrl = toUrl(`
@@ -167,9 +193,14 @@ const startServer = (mode, username) => {
     if (server.failure) throw new Error('offline');
     return {
       ok: server.ok,
+      status: server.ok ? 200 : 503,
       json: async () => ({
         mode: server.mode,
         canManage: true,
+        canSignIn: true,
+        canLogout: server.mode === 'authenticated',
+        canCancel: false,
+        canRecover: false,
         username: server.username,
         isAuthenticated: server.isAuthenticated ?? server.mode === 'authenticated'
       })

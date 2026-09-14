@@ -36,7 +36,6 @@ export interface PrefillSessionDto {
   status: DaemonSessionStatus;
   createdAt: string;
   expiresAt: string;
-  timeRemainingSeconds: number;
   authState: DaemonAuthState;
   networkDiagnostics?: NetworkDiagnostics;
   /**

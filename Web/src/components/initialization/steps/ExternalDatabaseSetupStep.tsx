@@ -124,7 +124,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         );
       }
     } catch (err) {
-      setSubmitError(getErrorMessage(err) || t('initialization.externalDb.errors.network'));
+      setSubmitError(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }

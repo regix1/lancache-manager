@@ -16,6 +16,7 @@ import { getIntegrationReasonKey } from '../../../types';
 // hook satisfy these narrow shapes structurally, so the modal stays decoupled from either stack.
 interface XboxAuthModalState {
   canAuthenticate?: boolean;
+  accessUnavailable?: boolean;
   ownershipReason?: string | null;
   recovering?: boolean;
   loading: boolean;
@@ -155,7 +156,9 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
       <div className="space-y-6">
         {state.canAuthenticate === false && (
           <p className="text-sm text-themed-muted" role="status">
-            {t(getIntegrationReasonKey(state.ownershipReason))}
+            {state.accessUnavailable
+              ? t('errors.integration.statusUnavailable')
+              : t(getIntegrationReasonKey(state.ownershipReason))}
           </p>
         )}
         {state.recovering && (

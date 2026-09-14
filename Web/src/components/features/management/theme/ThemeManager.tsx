@@ -536,7 +536,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: getErrorMessage(error) || t('management.themes.notifications.uploadFailed'),
+        message: getErrorMessage(error),
         details: { notificationType: 'error' }
       });
     } finally {

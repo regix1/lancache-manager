@@ -558,8 +558,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // download gate is a fleet whose datasources disagree about their cache-key scheme.
         // Nothing here can tell a refusal from that configuration failure, so all of them
         // stay on the red path: a real failure shown as a soft skip is the worse mistake.
-        const errorMsg =
-          getErrorMessage(err) || t('management.gameDetection.failedToStartDetection');
+        const errorMsg = getErrorMessage(err);
         addNotification({
           type: 'generic',
           status: 'failed',

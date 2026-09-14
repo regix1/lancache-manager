@@ -618,7 +618,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       } catch (error: unknown) {
         // This route answers the same 400 for a refused scan and for a fleet with unusable
         // cache-key evidence, so neither can be softened without hiding the other.
-        notifyError(getErrorMessage(error) || t('management.corruption.errors.startScan'), error, {
+        notifyError(getErrorMessage(error), error, {
           logLabel: '[CorruptionManager] Failed to start scan'
         });
         setStartingScanAction(null);

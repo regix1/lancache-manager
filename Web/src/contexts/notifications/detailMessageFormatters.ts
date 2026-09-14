@@ -478,15 +478,11 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
  * @returns Formatted success message string
  */
 export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
-  // The backend sends NO stageKey for this terminal - only `message`, which carries the real result
-  // ("Successfully cleared 32 cache directories across 2 datasources..."). Falling straight through
-  // to the generic string would throw that away, and the directory/datasource counts appear nowhere
-  // else on the card. `message` is deprecated in favour of stageKey, so it is used only as the
-  // fallback: the day the backend sends a stageKey, the translated text wins automatically.
+  // The required message carries completion counts when no localized key was supplied.
   if (event.stageKey) {
     return i18n.t(event.stageKey, event.context ?? {});
   }
-  return event.message || i18n.t(GENERIC_COMPLETION_I18N_KEY);
+  return event.message;
 };
 
 /**
@@ -563,13 +559,11 @@ export const formatDataImportCompleteDetailMessage = (
 };
 
 export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string => {
-  // Same shape as cache clear: no stageKey on this terminal, and `message` is the only place the
-  // imported/skipped/error breakdown is visible (the counts land in details, which no renderer
-  // shows for this type). Prefer a translated stageKey the moment the backend supplies one.
+  // The required message preserves the import summary when no localized key was supplied.
   if (event.stageKey) {
     return i18n.t(event.stageKey, event.context ?? {});
   }
-  return event.message || i18n.t(GENERIC_COMPLETION_I18N_KEY);
+  return event.message;
 };
 
 /**

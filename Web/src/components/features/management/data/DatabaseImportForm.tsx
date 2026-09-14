@@ -108,7 +108,7 @@ export function DatabaseImportForm({
     } catch (error: unknown) {
       setValidationResult({
         valid: false,
-        message: getErrorMessage(error) || t('initialization.importHistorical.failedToValidate')
+        message: getErrorMessage(error)
       });
     } finally {
       setValidating(false);

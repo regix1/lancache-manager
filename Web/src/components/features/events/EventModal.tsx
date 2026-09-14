@@ -126,7 +126,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         }
         onSave();
       } catch (err) {
-        setError(getErrorMessage(err) || t('events.modal.errors.saveFailed'));
+        setError(getErrorMessage(err));
       } finally {
         setSaving(false);
       }
@@ -158,12 +158,12 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       await deleteEvent(event.id);
       onSave();
     } catch (err) {
-      setError(getErrorMessage(err) || t('events.modal.errors.deleteFailed'));
+      setError(getErrorMessage(err));
       setShowDeleteConfirm(false);
     } finally {
       setDeleting(false);
     }
-  }, [event, deleteEvent, onSave, t]);
+  }, [event, deleteEvent, onSave]);
 
   const handleViewOnDashboard = useCallback(() => {
     if (!event) return;

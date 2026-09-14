@@ -22,6 +22,8 @@ jobs:
           cache-dependency-path: Web/package-lock.json
 
       - run: npm ci
+      - name: Validate message and deadline contracts
+        run: npm run validate:contracts
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run knip

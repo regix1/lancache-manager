@@ -29,8 +29,8 @@ export function isRefusal(error: unknown): error is ApiError {
  * Extract a display message from an unknown error. For a typed {@link ApiError} the already-composed
  * `.message` wins - `pickErrorMessage` built it with the one documented precedence
  * (`message + details + suggestion` -> `message` -> `error` -> `HTTP {status}`), so returning it
- * preserves the richer details/suggestion text; the raw body fields are only a fallback for the rare
- * empty-message case. Otherwise falls back to the Error message, then String coercion.
+ * preserves the richer details/suggestion text. Unknown failures use the Error message or String
+ * coercion, with empty text classified here as an unknown error.
  *
  * When the body names the refusal with a `stageKey`, that key is what the reader sees, in their own
  * language. The English sentence is the `defaultValue`, so a key this build's locale has no words
@@ -38,13 +38,13 @@ export function isRefusal(error: unknown): error is ApiError {
  */
 export function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    const message =
-      error.message || error.body?.message || error.body?.error || `HTTP ${error.status}`;
+    const message = error.message;
     const stageKey = error.body?.stageKey;
     return stageKey ? i18n.t(stageKey, { ...error.body.context, defaultValue: message }) : message;
   }
-  if (error instanceof Error) {
-    return error.message;
+  const message = error instanceof Error ? error.message : String(error);
+  if (!message.trim()) {
+    return i18n.t('common.unknownError');
   }
-  return String(error);
+  return message;
 }

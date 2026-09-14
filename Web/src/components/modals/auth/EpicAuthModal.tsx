@@ -128,7 +128,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
         )}
         {state.canAuthenticate === false && (
           <p className="text-sm text-themed-secondary">
-            {t(getIntegrationReasonKey(state.ownershipReason))}
+            {state.accessUnavailable
+              ? t('errors.integration.statusUnavailable')
+              : t(getIntegrationReasonKey(state.ownershipReason))}
           </p>
         )}
         <LoginSteps

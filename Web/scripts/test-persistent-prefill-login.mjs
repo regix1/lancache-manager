@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import typescript from 'typescript';
-import { bindLifted, liftHookCallback, parseSource, compileToUrl } from './transpile-module.mjs';
+import {
+  bindLifted,
+  liftHookCallback,
+  parseSource,
+  compileToUrl,
+  moduleUrl
+} from './transpile-module.mjs';
 
 const { supportsConcurrentPrefill, canStartPrefill, getPrefillRunProgress } = await import(
   await compileToUrl('../src/components/features/prefill/hooks/prefillTypes.ts')
@@ -52,16 +58,20 @@ const components = Object.fromEntries(
     'ChevronDown'
   ].map((name) => [name, name])
 );
-const integrationReasonKeys = {
-  'account-required': 'errors.integration.accountRequired',
-  'no-saved-login': 'errors.integration.noSavedLogin'
-};
+const reasons = await import(await compileToUrl('../src/types.ts'));
+const integrationReasonKeys = reasons.integrationReasonKeys;
+const reactUrl = moduleUrl(`
+export const useCallback = callback => callback;
+export const useState = initial => [typeof initial === 'function' ? initial() : initial, () => undefined];
+export const useLayoutEffect = () => undefined;
+`);
+const { useCountdownTimer } = await import(
+  await compileToUrl('../src/hooks/useCountdownTimer.ts', { react: reactUrl })
+);
 const bindings = {
   integrationReasonKeys,
-  getIntegrationReasonKey: (reason) => {
-    if (!(reason in integrationReasonKeys)) throw new Error('Unrecognized integration reason');
-    return integrationReasonKeys[reason];
-  },
+  getIntegrationReasonKey: reasons.getIntegrationReasonKey,
+  useCountdownTimer,
   supportsConcurrentPrefill,
   canStartPrefill,
   getPrefillRunProgress,
@@ -111,9 +121,7 @@ const text = (nodes) =>
     .join(' ');
 for (const [reason, sentence] of [
   ['account-required', en.errors.integration.accountRequired],
-  ['no-saved-login', en.errors.integration.noSavedLogin],
-  ['unknown', 'Your saved login could not be checked'],
-  [null, 'Your saved login could not be checked']
+  ['no-saved-login', en.errors.integration.noSavedLogin]
 ]) {
   test(`saved login explains ${reason} without displaying an unavailable account`, () => {
     const nodes = card({
@@ -123,6 +131,23 @@ for (const [reason, sentence] of [
     assert.equal(text(nodes).includes('other-account'), false);
   });
 }
+
+test('absent availability explains why saved-login reuse is disabled without displaying an account', () => {
+  const nodes = card({ integrationLoginAvailability: undefined });
+  assert.ok(text(nodes).includes(en.errors.integration.statusUnavailable));
+  assert.equal(text(nodes).includes('other-account'), false);
+  const reuse = nodes.find(
+    (node) =>
+      node.type === 'Button' &&
+      node.children.includes(
+        translate(
+          'management.schedules.services.scheduledPrefill.config.persistentContainers.reuseIntegrationLogin'
+        )
+      )
+  );
+  assert.ok(reuse);
+  assert.equal(reuse.props.disabled, true);
+});
 
 test('available current-account login displays its own username', () => {
   const nodes = card({
@@ -141,6 +166,20 @@ test('loading and authentication display their own status', () => {
   });
   assert.ok(busy.some((node) => node.type === 'LoadingSpinner' && node.props.inline));
 });
+
+for (const [authExpiresAtUtc, expired] of [
+  ['2099-01-01T00:00:00Z', false],
+  ['2000-01-01T00:00:00Z', true]
+])
+  test(`the rendered countdown consumes absolute expiry ${authExpiresAtUtc}`, () => {
+    const nodes = card({
+      container: { isRunning: true, isAuthenticated: true, isPrefilling: false, authExpiresAtUtc }
+    });
+    assert.ok(text(nodes).includes(en.prefill.persistent.reloginRequiredBy));
+    assert.equal(text(nodes).includes(en.prefill.persistent.signInExpired), expired);
+    if (!expired)
+      assert.ok(text(nodes).includes(translate('prefill.persistent.timeRemaining', { time: '' })));
+  });
 
 test('REST false flags override stale activity and remove download state', () => {
   const stopped = card({

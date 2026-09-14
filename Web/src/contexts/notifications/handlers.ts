@@ -814,21 +814,24 @@ export function createCompletionHandler<
       )
         return prev;
       const message = isCancelled
-        ? (config.getCancelledMessage?.(event, existing) ??
-          event.message ??
-          (event.stageKey
-            ? i18n.t(event.stageKey, event.context ?? {})
-            : i18n.t(GENERIC_CANCELLED_I18N_KEY)))
+        ? config.getCancelledMessage
+          ? config.getCancelledMessage(event, existing)
+          : (event.message ??
+            (event.stageKey
+              ? i18n.t(event.stageKey, event.context ?? {})
+              : i18n.t(GENERIC_CANCELLED_I18N_KEY)))
         : status === 'failed'
           ? (realError ??
-            config.getFailureMessage?.(event) ??
-            (event.stageKey
+            (config.getFailureMessage
+              ? config.getFailureMessage(event)
+              : event.stageKey
+                ? i18n.t(event.stageKey, event.context ?? {})
+                : i18n.t(GENERIC_FAILURE_I18N_KEY)))
+          : config.getSuccessMessage
+            ? config.getSuccessMessage(event, existing)
+            : event.stageKey
               ? i18n.t(event.stageKey, event.context ?? {})
-              : i18n.t(GENERIC_FAILURE_I18N_KEY)))
-          : (config.getSuccessMessage?.(event, existing) ??
-            (event.stageKey
-              ? i18n.t(event.stageKey, event.context ?? {})
-              : (existing?.message ?? i18n.t(GENERIC_COMPLETION_I18N_KEY))));
+              : (existing?.message ?? i18n.t(GENERIC_COMPLETION_I18N_KEY));
       const detailMessage = config.getDetailMessage
         ? config.getDetailMessage(event)
         : existing?.detailMessage;
@@ -967,7 +970,10 @@ export function createStatusAwareProgressHandler<T>(
           storageKey: config.storageKey,
           storesCardsById: config.storesCardsById,
           shouldDisplay: () => config.shouldDisplay?.(event) !== false,
-          getSuccessMessage: () => config.getCompletedMessage?.(event) ?? config.getMessage(event),
+          getSuccessMessage: () =>
+            config.getCompletedMessage
+              ? config.getCompletedMessage(event)
+              : config.getMessage(event),
           getFailureMessage: () =>
             config.getErrorMessage?.(event) ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
           getSuccessDetails: () => config.getDetails?.(event),

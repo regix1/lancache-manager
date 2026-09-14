@@ -237,8 +237,8 @@ public sealed class EpicIntegrationOwnershipTests
             var json = request.Method == HttpMethod.Get
                 ? """{"code":"minted"}"""
                 : body.Contains("grant_type=exchange_code", StringComparison.Ordinal)
-                    ? """{"access_token":"daemon-access","refresh_token":"daemon-refresh","expires_in":3600,"displayName":"owner","account_id":"epic"}"""
-                    : """{"access_token":"access","refresh_token":"rotated-refresh","expires_in":3600,"displayName":"owner","account_id":"epic"}""";
+                    ? """{"access_token":"daemon-access","refresh_token":"daemon-refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}"""
+                    : """{"access_token":"access","refresh_token":"rotated-refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}""";
             return new HttpResponseMessage(Status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }
     }

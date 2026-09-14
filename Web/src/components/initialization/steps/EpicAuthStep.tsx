@@ -43,7 +43,9 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
     succeeded === identity || (authStatus?.canManage === true && authStatus.isAuthenticated);
   const reason =
     state.canAuthenticate === false
-      ? t(getIntegrationReasonKey(state.ownershipReason))
+      ? state.accessUnavailable
+        ? t('errors.integration.statusUnavailable')
+        : t(getIntegrationReasonKey(state.ownershipReason))
       : state.recovering
         ? t('errors.integration.recovery')
         : null;

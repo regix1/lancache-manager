@@ -28,6 +28,7 @@ interface UseEpicMappingAuthOptions {
 export interface EpicAuthState {
   attemptId?: string | null;
   canAuthenticate?: boolean;
+  accessUnavailable?: boolean;
   ownershipReason?: string | null;
   recovering?: boolean;
   loading: boolean;
@@ -73,6 +74,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const formIdentityRef = useRef(identity);
   const formCurrent = formIdentityRef.current === identity && hasAccess;
   const authStatus = statusIdentity === identity && hasAccess ? status : null;
+  const accessUnavailable = !formCurrent || authStatus === null || statusError;
   const canAuthenticate =
     formCurrent &&
     (authStatus?.canSignIn === true ||
@@ -215,9 +217,9 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       return;
     if (authStatus?.canSignIn !== true && authStatus?.canRecover !== true) {
       setError(
-        authStatus
-          ? t(getIntegrationReasonKey(authStatus.ownershipReason))
-          : t('errors.integration.statusUnavailable')
+        accessUnavailable
+          ? t('errors.integration.statusUnavailable')
+          : t(getIntegrationReasonKey(authStatus?.ownershipReason))
       );
       return;
     }
@@ -270,7 +272,17 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         void refreshStatus();
       }
     }
-  }, [resetAuthForm, onError, pushLoginCard, t, authStatus, identity, refreshStatus, formCurrent]);
+  }, [
+    resetAuthForm,
+    onError,
+    pushLoginCard,
+    t,
+    authStatus,
+    identity,
+    refreshStatus,
+    formCurrent,
+    accessUnavailable
+  ]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     if (identityRef.current !== identity || !canAuthenticate || busyRef.current) return false;
@@ -361,6 +373,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const state: EpicAuthState = {
     attemptId: formCurrent ? attemptId : null,
     canAuthenticate,
+    accessUnavailable,
     ownershipReason: authStatus?.ownershipReason,
     recovering: authStatus?.canRecover === true,
     loading: formCurrent && loading,

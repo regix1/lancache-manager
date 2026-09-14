@@ -7,11 +7,7 @@ import {
 } from 'react';
 import ApiService from '@services/api.service';
 import { NOTIFICATION_IDS } from '@contexts/notifications';
-import {
-  FAILED_TO_REMOVE_GAME_I18N_KEY,
-  FULL_PROGRESS_PERCENT,
-  REMOVING_GAME_I18N_KEY
-} from '@contexts/notifications/constants';
+import { FULL_PROGRESS_PERCENT, REMOVING_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { getErrorMessage } from '@utils/error';
 import type { TFunction } from 'i18next';
 import type { NotificationsContextType, UnifiedNotification } from '@contexts/notifications/types';
@@ -162,7 +158,7 @@ export async function runTrackedGameRemoval({
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
-    const errorMsg = getErrorMessage(err) || t(FAILED_TO_REMOVE_GAME_I18N_KEY);
+    const errorMsg = getErrorMessage(err);
 
     updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
       status: 'failed',
@@ -202,7 +198,7 @@ export async function runTrackedServiceRemoval({
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
-    const errorMsg = getErrorMessage(err) || t('management.gameDetection.failedToRemoveService');
+    const errorMsg = getErrorMessage(err);
 
     updateNotification(NOTIFICATION_IDS.SERVICE_REMOVAL, {
       status: 'failed',

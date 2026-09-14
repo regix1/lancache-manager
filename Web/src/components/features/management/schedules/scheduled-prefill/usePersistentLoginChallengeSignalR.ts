@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { EventHandler } from '@contexts/SignalRContext/types';
 import type {
@@ -71,6 +72,7 @@ export function usePersistentLoginChallengeSignalR({
   containersByService
 }: UsePersistentLoginChallengeSignalROptions): void {
   const { on, off } = useSignalR();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!enabled) {
@@ -103,7 +105,18 @@ export function usePersistentLoginChallengeSignalR({
         if (!sessionMatches(serviceId, event.sessionId)) {
           return;
         }
-        applyPersistentLoginChallenge(serviceId, event.challenge, event.sessionId);
+        if (
+          !applyPersistentLoginChallenge(
+            serviceId,
+            event.challenge,
+            {
+              noResult: t('prefill.persistent.errors.noResult'),
+              timedOut: t('prefill.persistent.loginTimedOut')
+            },
+            event.sessionId
+          )
+        )
+          return;
 
         // Auto-send the device-confirmation acknowledgement here, decoupled from the sequential
         // handleAuthenticate chain (which breaks when the manager's WaitForChallenge serves a stale
@@ -157,5 +170,5 @@ export function usePersistentLoginChallengeSignalR({
         off(eventName, handler);
       }
     };
-  }, [enabled, on, off, containersByService]);
+  }, [enabled, on, off, containersByService, t]);
 }

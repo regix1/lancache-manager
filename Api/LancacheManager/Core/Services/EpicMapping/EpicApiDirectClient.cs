@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using LancacheManager.Middleware;
@@ -92,7 +93,7 @@ public class EpicApiDirectClient
             RefreshToken = tokenResponse.RefreshToken ?? throw new InvalidOperationException("No refresh token in response"),
             DisplayName = tokenResponse.DisplayName ?? "Epic User",
             AccountId = tokenResponse.AccountId ?? "",
-            ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn),
+            ExpiresAt = ParseExpiry(tokenResponse),
             RefreshExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.RefreshExpiresIn)
         };
     }
@@ -147,7 +148,7 @@ public class EpicApiDirectClient
             RefreshToken = tokenResponse.RefreshToken ?? throw new InvalidOperationException("No refresh token"),
             DisplayName = tokenResponse.DisplayName ?? "Epic User",
             AccountId = tokenResponse.AccountId ?? "",
-            ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn),
+            ExpiresAt = ParseExpiry(tokenResponse),
             RefreshExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.RefreshExpiresIn)
         };
     }
@@ -220,9 +221,24 @@ public class EpicApiDirectClient
             RefreshToken = tokenResponse.RefreshToken ?? throw new InvalidOperationException("No refresh token"),
             DisplayName = tokenResponse.DisplayName ?? "Epic User",
             AccountId = tokenResponse.AccountId ?? string.Empty,
-            ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn),
+            ExpiresAt = ParseExpiry(tokenResponse),
             RefreshExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.RefreshExpiresIn)
         };
+    }
+
+    private static DateTime ParseExpiry(EpicTokenResponse response)
+    {
+        string[] formats = ["yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz"];
+        if (!DateTimeOffset.TryParseExact(response.ExpiresAtStr, formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal, out var expiry))
+        {
+            throw new InvalidOperationException("Epic token response did not contain a valid absolute expiry");
+        }
+        if (response.RefreshExpiresIn <= 0)
+        {
+            throw new InvalidOperationException("Epic token response did not contain a positive refresh expiry");
+        }
+        return expiry.UtcDateTime;
     }
 
     /// <summary>

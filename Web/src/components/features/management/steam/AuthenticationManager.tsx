@@ -180,7 +180,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       }
     } catch (error: unknown) {
       console.error('Authentication error:', error);
-      setAuthError(getErrorMessage(error) || t('modals.steamAuth.errors.authenticationFailed'));
+      setAuthError(getErrorMessage(error));
     } finally {
       setAuthLoading(false);
     }
@@ -204,7 +204,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       const result = await authService.startLogin(service.id, apiKey.trim());
       window.location.assign(result.url);
     } catch (error: unknown) {
-      setAuthError(getErrorMessage(error) || t('modals.steamAuth.errors.authenticationFailed'));
+      setAuthError(getErrorMessage(error));
       setStartingService(null);
     }
   };

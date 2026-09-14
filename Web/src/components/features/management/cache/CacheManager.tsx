@@ -206,7 +206,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       onSuccess?.(t('management.cache.deleteModeSet', { mode: modeDesc }));
     } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
-      onError?.(getErrorMessage(err) || t('management.cache.errors.updateDeleteMode'));
+      onError?.(getErrorMessage(err));
     } finally {
       setDeleteModeLoading(false);
       deleteModeChangeInProgressRef.current = false;
@@ -254,7 +254,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     } catch (err: unknown) {
       onError?.(
         t('management.cache.errors.startCacheClearing', {
-          error: getErrorMessage(err) || t('common.unknownError')
+          error: getErrorMessage(err)
         })
       );
       // Note: On error, NotificationsContext will handle the notification dismissal

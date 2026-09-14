@@ -369,7 +369,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         }
       }
     } catch (err: unknown) {
-      onError(getErrorMessage(err) || t('management.database.errors.failedToClear'));
+      onError(getErrorMessage(err));
     } finally {
       setLoading(false);
       clearInProgressRef.current = false;

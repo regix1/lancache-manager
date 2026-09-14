@@ -121,7 +121,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     } catch (err: unknown) {
       setCacheSizeError((prev) => ({
         ...prev,
-        [name]: getErrorMessage(err) || t('management.datasources.cacheSize.invalid')
+        [name]: getErrorMessage(err)
       }));
     } finally {
       setCacheSizeSaving(null);
@@ -231,7 +231,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err) || t('management.datasources.errors.processingFailed'));
+      onError?.(getErrorMessage(err));
     } finally {
       setActionLoading(null);
     }
@@ -255,7 +255,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err) || t('management.datasources.errors.processingFailed'));
+      onError?.(getErrorMessage(err));
     } finally {
       setActionLoading(null);
     }
@@ -281,7 +281,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       setLogPositions(positions);
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err) || t('management.datasources.errors.resetFailed'));
+      onError?.(getErrorMessage(err));
     } finally {
       setActionLoading(null);
       setResetModal(null);

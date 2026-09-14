@@ -56,7 +56,7 @@ const SignInMethodCard: React.FC = () => {
       setRemoveKey('');
       await refreshAuth();
     } catch (error: unknown) {
-      setRemoveError(getErrorMessage(error) || t('accessSetup.removeFailed'));
+      setRemoveError(getErrorMessage(error));
     } finally {
       setRemoveBusy(false);
     }

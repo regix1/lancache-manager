@@ -47,7 +47,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
   const { onSaveSuccess, statusNotifications = false } = options;
   const { t } = useTranslation();
   const { authenticationEnabled, authMode, accountId, sessionId, isLoading } = useAuth();
-  const { status, refresh } = useSteamWebApiStatus();
+  const { status, error, refresh } = useSteamWebApiStatus();
   const identity = JSON.stringify([authenticationEnabled, authMode, accountId, sessionId]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -57,10 +57,13 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
   const canManage =
     !isLoading &&
     formIdentityRef.current === identity &&
-    (authenticationEnabled === false || status?.canManage === true);
+    (authenticationEnabled === false || (error === null && status?.canManage === true));
   const ownershipReason = canManage
     ? null
-    : status
+    : !isLoading &&
+        formIdentityRef.current === identity &&
+        error === null &&
+        status?.canManage === false
       ? t(getIntegrationReasonKey(status.ownershipReason))
       : t('errors.integration.statusUnavailable');
   const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();

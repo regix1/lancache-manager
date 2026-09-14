@@ -806,7 +806,6 @@ export interface DaemonSessionCreatedEvent {
   isPrefilling: boolean;
   createdAt: string;
   expiresAt: string;
-  timeRemainingSeconds: number;
   ipAddress?: string;
   operatingSystem?: string;
   browser?: string;
@@ -827,7 +826,6 @@ export interface DaemonSessionUpdatedEvent {
   isPrefilling: boolean;
   createdAt: string;
   expiresAt: string;
-  timeRemainingSeconds: number;
   ipAddress?: string;
   operatingSystem?: string;
   browser?: string;

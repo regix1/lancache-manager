@@ -384,8 +384,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         await ApiService.removeEvictedForService(service.service_name);
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
-        const errorMsg =
-          getErrorMessage(err) || t('management.gameDetection.failedToRemoveService');
+        const errorMsg = getErrorMessage(err);
         console.error('Evicted service removal error:', errorMsg);
         onError(errorMsg);
       }
@@ -419,7 +418,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         }
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
-        const errorMsg = getErrorMessage(err) || t(FAILED_TO_REMOVE_GAME_I18N_KEY);
+        const errorMsg = getErrorMessage(err);
         console.error('Evicted game removal error:', errorMsg);
         onError(errorMsg);
       }
@@ -636,7 +635,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       );
       onDataRefresh();
     } catch (err: unknown) {
-      onError(getErrorMessage(err) || t('management.sections.data.orphanedDownloadsRemoveError'));
+      onError(getErrorMessage(err));
     } finally {
       setRemovingOrphaned(false);
     }
@@ -705,7 +704,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       onSuccess(t('management.sections.data.evictionSaveSuccess'));
       onDataRefresh();
     } catch (err: unknown) {
-      onError(getErrorMessage(err) || t('management.sections.data.evictionSaveError'));
+      onError(getErrorMessage(err));
     } finally {
       setEvictionSaving(false);
     }
@@ -779,7 +778,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       );
       onDataRefresh();
     } catch (err: unknown) {
-      onError(getErrorMessage(err) || t('management.sections.data.resetEvictionsError'));
+      onError(getErrorMessage(err));
     } finally {
       setResettingEvictions(false);
     }

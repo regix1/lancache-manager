@@ -78,6 +78,9 @@ export class ApiError extends Error {
 
   constructor(init: ApiErrorInit) {
     super(init.message);
+    if (!init.message.trim()) {
+      throw new Error('API errors require a nonempty message');
+    }
     this.name = 'ApiError';
     this.status = init.status;
     this.kind = init.kind;
@@ -94,13 +97,18 @@ export class ApiError extends Error {
  */
 function pickErrorMessage(body: ApiErrorData | null, rawText: string, response: Response): string {
   if (body) {
-    if (body.message && body.details && body.suggestion) {
+    if (
+      typeof body.message === 'string' &&
+      body.message.trim() &&
+      body.details &&
+      body.suggestion
+    ) {
       return `${body.message}\n\n${body.details}\n\n${body.suggestion}`;
     }
-    if (body.message) {
+    if (typeof body.message === 'string' && body.message.trim()) {
       return body.message;
     }
-    if (body.error) {
+    if (typeof body.error === 'string' && body.error.trim()) {
       return body.error;
     }
   }

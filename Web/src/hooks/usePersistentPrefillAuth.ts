@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService, {
   type PersistentSessionConflictInfo,
@@ -8,6 +8,7 @@ import { ApiError } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
+import { loginAttemptTimeoutMs } from './loginAttemptTimeout';
 import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentication';
 import {
   applyPersistentLoginChallenge,
@@ -16,14 +17,17 @@ import {
   consumePersistentLoginStartRequest,
   derivePersistentChallengeFlags,
   endPersistentLogin,
+  ensurePersistentLoginTimeout,
   extractPersistentSessionId,
   getPersistentLoginEpoch,
+  getPersistentLoginState,
   getPersistentLoginEditAction,
   getPersistentLoginSessionId,
   getPersistentLoginStartPromise,
   isPersistentLoginAuthenticatedResponse,
   isPersistentLoginCancelled,
   isPersistentLoginCredentialChallenge,
+  isPersistentLoginSuspended,
   resetPersistentLoginSessionReplaced,
   resetPersistentLoginState,
   setPersistentLoginCancelled,
@@ -167,6 +171,13 @@ export function usePersistentPrefillAuth(
   } = options;
 
   const { t } = useTranslation();
+  const messages = useMemo(
+    () => ({
+      noResult: t('prefill.persistent.errors.noResult'),
+      timedOut: t('prefill.persistent.loginTimedOut')
+    }),
+    [t]
+  );
   const stored = usePersistentLoginStoreState(service);
   // Single derivation point for the challenge-type UI flags - see derivePersistentChallengeFlags's
   // doc comment. Recomputed each render from `stored.pendingChallenge`, which is cheap (a switch
@@ -207,9 +218,9 @@ export function usePersistentPrefillAuth(
 
   const applyChallenge = useCallback(
     (challenge: CredentialChallenge, sessionId?: string | null) => {
-      applyPersistentLoginChallenge(service, challenge, sessionId);
+      return applyPersistentLoginChallenge(service, challenge, messages, sessionId);
     },
-    [service]
+    [service, messages]
   );
 
   // Single choke point for the RC3 409 conflict: both
@@ -228,6 +239,7 @@ export function usePersistentPrefillAuth(
   );
 
   const finishAuthenticated = useCallback(() => {
+    if (isPersistentLoginSuspended()) return;
     resetPersistentLoginState(service);
     updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
     onSuccess?.();
@@ -247,6 +259,10 @@ export function usePersistentPrefillAuth(
   );
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
+    if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
+    if (!ensurePersistentLoginTimeout(service, messages)) {
+      throw new Error(getPersistentLoginState(service).error!);
+    }
     // Captured before the long-poll opens. A 409 that arrives after the store has moved on belongs
     // to an attempt that already ended, and handleSessionConflict resets unconditionally - so
     // without this snapshot a late conflict wipes whatever attempt is live now.
@@ -268,6 +284,7 @@ export function usePersistentPrefillAuth(
 
     try {
       const response = await ApiService.getPersistentChallenge(service, timeoutSeconds, sessionId);
+      if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
       if (isPersistentLoginAuthenticatedResponse(response)) {
         return { status: 'authenticated' };
       }
@@ -280,6 +297,7 @@ export function usePersistentPrefillAuth(
     } catch (err) {
       if (
         isPersistentSessionConflictError(err) &&
+        !isPersistentLoginSuspended() &&
         getPersistentLoginEpoch(service) === attemptEpoch
       ) {
         handleSessionConflict(err);
@@ -288,10 +306,17 @@ export function usePersistentPrefillAuth(
       // attempt was the one that owned the store.
       throw err;
     }
-  }, [handleSessionConflict, service, timeoutSeconds]);
+  }, [handleSessionConflict, messages, service, timeoutSeconds]);
 
   const submitChallenge = useCallback(
     async (challenge: CredentialChallenge, credential: string): Promise<PollResult> => {
+      if (
+        !ensurePersistentLoginTimeout(service, messages) ||
+        getPersistentLoginState(service).pendingChallenge?.challengeId !== challenge.challengeId ||
+        getPersistentLoginState(service).pendingChallenge?.operationId !== challenge.operationId
+      ) {
+        return { status: 'pending' };
+      }
       setLoading(true);
       setError(null);
       // Captured before the first await and re-checked after the long-poll settles. An ending that
@@ -313,6 +338,7 @@ export function usePersistentPrefillAuth(
       } catch (err) {
         if (
           isPersistentSessionConflictError(err) &&
+          !isPersistentLoginSuspended() &&
           getPersistentLoginEpoch(service) === attemptEpoch
         ) {
           handleSessionConflict(err);
@@ -329,7 +355,7 @@ export function usePersistentPrefillAuth(
       ) {
         result = await pollForResult();
       }
-      if (getPersistentLoginEpoch(service) !== attemptEpoch) {
+      if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
         // The store no longer belongs to this attempt. Write NOTHING - not the result, not even
         // the spinner - or a challenge that arrives after the user ended the login reopens the
         // modal and puts the card back into "Authenticating..." for a daemon session that has
@@ -351,7 +377,9 @@ export function usePersistentPrefillAuth(
       }
 
       if (result.status === 'challenge') {
-        applyChallenge(result.challenge, extractPersistentSessionId(result.challenge));
+        if (!applyChallenge(result.challenge, extractPersistentSessionId(result.challenge))) {
+          return { status: 'pending' };
+        }
       }
       setLoading(false);
       return result;
@@ -360,6 +388,7 @@ export function usePersistentPrefillAuth(
       applyChallenge,
       finishAuthenticated,
       handleSessionConflict,
+      messages,
       pollForResult,
       service,
       setError,
@@ -369,6 +398,8 @@ export function usePersistentPrefillAuth(
 
   const submit = useCallback(
     async (credential: string): Promise<boolean> => {
+      if (!ensurePersistentLoginTimeout(service, messages)) return false;
+      const attemptEpoch = getPersistentLoginEpoch(service);
       if (!stored.pendingChallenge) {
         fail(t('prefill.persistent.errors.noPendingChallenge'));
         return false;
@@ -378,6 +409,12 @@ export function usePersistentPrefillAuth(
         const result = await submitChallenge(stored.pendingChallenge, credential);
         return result.status === 'authenticated';
       } catch (err) {
+        if (
+          getPersistentLoginEpoch(service) !== attemptEpoch ||
+          isPersistentLoginSuspended() ||
+          getPersistentLoginState(service).loginDeadline === null
+        )
+          return false;
         if (isNoPinnedSessionError(err) || isPersistentSessionConflictError(err)) {
           // Not real failures - see PersistentLoginNoPinnedSessionError's doc comment and the
           // session-conflict handling above; a generic fail() here would stomp whatever the
@@ -390,10 +427,14 @@ export function usePersistentPrefillAuth(
         return false;
       }
     },
-    [fail, stored.pendingChallenge, submitChallenge, t]
+    [fail, messages, service, stored.pendingChallenge, submitChallenge, t]
   );
 
   const poll = useCallback(async (): Promise<PollResult> => {
+    if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
+    if (!ensurePersistentLoginTimeout(service, messages)) {
+      throw new Error(getPersistentLoginState(service).error!);
+    }
     // See submitChallenge's matching capture: an ending that lands while this long-poll is open
     // resets the store and clears the cancel flag with it, so the epoch is the only signal left
     // that still says "this attempt is over" once the response arrives.
@@ -402,7 +443,7 @@ export function usePersistentPrefillAuth(
       setLoading(true);
       setError(null);
       const result = await pollForResult();
-      if (getPersistentLoginEpoch(service) !== attemptEpoch) {
+      if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
         // Store belongs to whatever came after the reset - discard this result rather than
         // resurrecting a login the user already ended. See start()'s stale-epoch branch.
         return result;
@@ -418,7 +459,9 @@ export function usePersistentPrefillAuth(
       }
 
       if (result.status === 'challenge') {
-        applyChallenge(result.challenge, extractPersistentSessionId(result.challenge));
+        if (!applyChallenge(result.challenge, extractPersistentSessionId(result.challenge))) {
+          return Promise.reject(new Error(messages.noResult));
+        }
       }
       setLoading(false);
       return result;
@@ -429,7 +472,7 @@ export function usePersistentPrefillAuth(
         // pollUntilAuthenticated) stops, without ever writing an error into the store.
         throw err;
       }
-      if (getPersistentLoginEpoch(service) !== attemptEpoch) {
+      if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
         // Same rule as the success path above: this attempt's failure is not the current store's
         // failure. Still rethrow so the caller's loop ends, but write nothing.
         throw err;
@@ -452,17 +495,34 @@ export function usePersistentPrefillAuth(
       fail(message);
       throw err;
     }
-  }, [applyChallenge, fail, finishAuthenticated, pollForResult, service, setError, setLoading]);
+  }, [
+    applyChallenge,
+    fail,
+    finishAuthenticated,
+    messages,
+    pollForResult,
+    service,
+    setError,
+    setLoading
+  ]);
 
   const start = useCallback(async (): Promise<CredentialChallenge | null> => {
+    if (isPersistentLoginSuspended()) return null;
     const inFlight = getPersistentLoginStartPromise(service);
     if (inFlight) {
       return inFlight;
     }
+    const current = getPersistentLoginState(service);
+    if (current.pendingChallenge || current.loginDeadline !== null) {
+      return ensurePersistentLoginTimeout(service, messages) ? current.pendingChallenge : null;
+    }
 
     const startPromise = (async (): Promise<CredentialChallenge | null> => {
+      if (
+        !armPersistentLoginTimeout(service, Date.now() + loginAttemptTimeoutMs(service), messages)
+      )
+        return null;
       setPersistentLoginCancelled(service, false);
-      armPersistentLoginTimeout(service, t('prefill.persistent.loginTimedOut'));
       setLoading(true);
       setError(null);
       // Captured AFTER the synchronous writes above: every reset path (container stop/start, the
@@ -482,6 +542,7 @@ export function usePersistentPrefillAuth(
           startRequest?.reuseIntegration
         );
         const epochStale = getPersistentLoginEpoch(service) !== startEpoch;
+        if (isPersistentLoginSuspended()) return null;
         if (epochStale || isPersistentLoginCancelled(service)) {
           if (!epochStale) {
             // Same attempt, an explicit cancel racing this response (cancel() sets the flag before
@@ -511,7 +572,7 @@ export function usePersistentPrefillAuth(
           return null;
         }
         if (isPersistentLoginCredentialChallenge(challenge)) {
-          applyChallenge(challenge, extractPersistentSessionId(challenge));
+          if (!applyChallenge(challenge, extractPersistentSessionId(challenge))) return null;
           setLoading(false);
           return challenge;
         }
@@ -522,7 +583,7 @@ export function usePersistentPrefillAuth(
         fail(t('prefill.persistent.errors.noResult'));
         return null;
       } catch (err) {
-        if (getPersistentLoginEpoch(service) !== startEpoch) {
+        if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== startEpoch) {
           // The flow this call belonged to was already reset/superseded - its failure (typically
           // the backend's "Login timeout" 400 for a container that has since been stopped) is not
           // the current attempt's failure. Discard it instead of writing a stale error over live
@@ -554,7 +615,7 @@ export function usePersistentPrefillAuth(
         setPersistentLoginStartPromise(service, null);
       }
     }
-  }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading, t]);
+  }, [applyChallenge, fail, finishAuthenticated, messages, service, setError, setLoading, t]);
 
   // The username is cleared here and kept by the two sibling hooks, which is deliberate. Those two
   // sign in the person using the app, so their account name is worth keeping across a retry. This one
@@ -581,10 +642,12 @@ export function usePersistentPrefillAuth(
     // than a silent no-op: nothing server-side has been told about this attempt yet either, and
     // the store reset inside bumps the login epoch, so a still-hanging start() recognizes its own
     // settlement as stale and discards it.
-    await endPersistentLogin(service);
+    const ending = endPersistentLogin(service);
+    const epoch = getPersistentLoginEpoch(service);
+    await ending;
     // The store half is already at rest; this clears the credentials typed into the form, which is
     // this hook's own state and not the store's.
-    resetAuthForm();
+    if (getPersistentLoginEpoch(service) === epoch) resetAuthForm();
   }, [resetAuthForm, service, setLoading]);
 
   const cancelPendingRequest = useCallback(() => {
@@ -600,6 +663,13 @@ export function usePersistentPrefillAuth(
   }, [service]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
+    if (isPersistentLoginSuspended()) return false;
+    if (
+      getPersistentLoginState(service).pendingChallenge &&
+      !ensurePersistentLoginTimeout(service, messages)
+    )
+      return false;
+    const attemptEpoch = getPersistentLoginEpoch(service);
     const flags = derivePersistentChallengeFlags(stored.pendingChallenge);
 
     if (flags.needsTwoFactor) {
@@ -671,6 +741,12 @@ export function usePersistentPrefillAuth(
         // session-conflict handling above; avoid a second, unrelated fail() write here.
         return false;
       }
+      if (
+        getPersistentLoginEpoch(service) !== attemptEpoch ||
+        isPersistentLoginSuspended() ||
+        getPersistentLoginState(service).loginDeadline === null
+      )
+        return false;
       const message = getErrorMessage(err);
       fail(message);
       return false;
@@ -679,8 +755,10 @@ export function usePersistentPrefillAuth(
     authorizationCode,
     emailCode,
     fail,
+    messages,
     password,
     start,
+    service,
     stored.authenticated,
     stored.pendingChallenge,
     submit,

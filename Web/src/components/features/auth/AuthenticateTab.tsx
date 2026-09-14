@@ -64,7 +64,7 @@ const AuthenticateTab: React.FC = () => {
         setAuthError(result.message || t('auth.errors.failed'));
       }
     } catch (err: unknown) {
-      setAuthError(getErrorMessage(err) || t('auth.errors.failed'));
+      setAuthError(getErrorMessage(err));
       notifyError(t('auth.errors.failed'), err, { logLabel: 'Authentication error' });
     } finally {
       setLoading(false);
@@ -89,7 +89,7 @@ const AuthenticateTab: React.FC = () => {
       const result = await authService.startLogin(service.id, apiKey.trim());
       window.location.assign(result.url);
     } catch (err: unknown) {
-      setAuthError(getErrorMessage(err) || t('auth.errors.failed'));
+      setAuthError(getErrorMessage(err));
       setStartingService(null);
     }
   };

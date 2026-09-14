@@ -72,7 +72,8 @@ public sealed class IntegrationLease : IDisposable, IAsyncDisposable
             "main-owner-required" => "errors.integration.mainOwnerRequired",
             "integration-sign-in-required" => "errors.integration.signInRequired",
             "no-saved-login" => "errors.integration.noSavedLogin",
-            _ => "errors.integration.notSupported"
+            "not-supported" => "errors.integration.notSupported",
+            _ => throw new InvalidOperationException("Integration access was refused with an unrecognized reason.")
         };
         if (reason is "account-required" or "owned-by-another-account" or "main-owner-required")
             throw new ForbiddenException(reason) { StageKey = stageKey };

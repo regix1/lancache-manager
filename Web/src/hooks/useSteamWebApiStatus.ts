@@ -5,8 +5,9 @@ import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
+import type { IntegrationAccess } from '../types';
 
-export interface SteamWebApiStatus {
+export interface SteamWebApiStatus extends IntegrationAccess {
   version: string;
   isV2Available: boolean;
   isV1Available: boolean;
@@ -14,8 +15,6 @@ export interface SteamWebApiStatus {
   isFullyOperational: boolean;
   message: string;
   lastChecked: string;
-  canManage?: boolean;
-  ownershipReason?: string | null;
 }
 
 export const useSteamWebApiStatusState = () => {
@@ -63,7 +62,6 @@ export const useSteamWebApiStatusState = () => {
         if (!skipLoading) {
           setLoading(true);
         }
-        setError(null);
 
         const response = await fetch(
           `/api/steam-api-keys/status?forceRefresh=${forceRefresh}`,
@@ -84,13 +82,12 @@ export const useSteamWebApiStatusState = () => {
 
         const statusResponse: SteamWebApiStatus = await response.json();
         if (!current()) return;
+        ApiService.assertIntegrationAccess(statusResponse, 'management', response.status);
+        setError(null);
         setStatus(statusResponse);
         setStatusIdentity(identity);
       } catch (err: unknown) {
         if (!current()) return;
-        setStatus((previous) =>
-          previous ? { ...previous, canManage: false, ownershipReason: 'status-unavailable' } : null
-        );
         setStatusIdentity(identity);
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);

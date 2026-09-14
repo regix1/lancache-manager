@@ -18,12 +18,14 @@ import { getIntegrationReasonKey } from '../../../../types';
 
 const SteamWebApiStatus: React.FC = () => {
   const { t } = useTranslation();
-  const { status, loading, refresh } = useSteamWebApiStatus();
+  const { status, loading, error, refresh } = useSteamWebApiStatus();
   const { authenticationEnabled, authMode, accountId, sessionId, isLoading } = useAuth();
   const identity = JSON.stringify([authenticationEnabled, authMode, accountId, sessionId]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
-  const canManage = !isLoading && (authenticationEnabled === false || status?.canManage === true);
+  const canManage =
+    !isLoading &&
+    (authenticationEnabled === false || (error === null && status?.canManage === true));
   const hasAccess =
     !isLoading &&
     (authenticationEnabled === false ||
@@ -150,7 +152,7 @@ const SteamWebApiStatus: React.FC = () => {
       <div className="steam-integration">
         {!canManage && (
           <p className="text-sm text-themed-muted" role="status">
-            {status
+            {!isLoading && error === null && status?.canManage === false
               ? t(getIntegrationReasonKey(status.ownershipReason))
               : t('errors.integration.statusUnavailable')}
           </p>

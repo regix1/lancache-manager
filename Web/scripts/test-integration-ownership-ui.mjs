@@ -42,11 +42,37 @@ export default {useState,useRef,useEffect};
 `);
 const { createComponent } = await import(reactUrl);
 const reasonUrl = await compileToUrl('../src/types.ts');
-const { getIntegrationReasonKey, integrationReasonKeys } = await import(reasonUrl);
-const apiErrorUrl = moduleUrl(
-  'export class ApiError extends Error { constructor(body){super("refused");this.body=body;} } export const assertOk=async response=>{if(!response.ok)throw new ApiError({stageKey:"errors.integration.statusUnavailable"});};'
+const { getIntegrationReasonKey, integrationReasonKeys, isIntegrationReason } = await import(
+  reasonUrl
 );
-const { ApiError } = await import(apiErrorUrl);
+const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+  '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
+});
+const { ApiError, buildApiError } = await import(apiErrorUrl);
+const apiSource = parseSource('src/services/api.service.ts');
+const apiMethods = collectNodes(
+  apiSource,
+  (node) =>
+    ts.isMethodDeclaration(node) &&
+    [
+      'assertIntegrationAccess',
+      'getEpicMappingAuthStatus',
+      'getXboxMappingAuthStatus',
+      'getPersistentIntegrationLoginAvailability',
+      'handleResponse'
+    ].includes(node.name.getText(apiSource))
+);
+assert.equal(apiMethods.length, 5);
+const ApiService = bindLifted(
+  `() => {
+  class ApiService {
+    static getFetchOptions() { return {}; }
+    ${apiMethods.map((node) => node.getText(apiSource)).join('\n')}
+  }
+  return ApiService;
+}`,
+  { ApiError, buildApiError, isIntegrationReason, i18n: { t: (key) => key }, API_BASE: '/api' }
+)();
 const aliases = {
   react: reactUrl,
   'react-i18next': moduleUrl('const t=key=>key; export const useTranslation=()=>({t});'),
@@ -72,7 +98,7 @@ const aliases = {
   './useReconnectRefetch': moduleUrl('export const useReconnectRefetch=()=>{};'),
   './loginAttemptTimeout': moduleUrl('export const STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS=60000;'),
   '@contexts/useSteamWebApiStatus': moduleUrl(
-    'const refresh=async()=>{};export const useSteamWebApiStatus=()=>({status:globalThis.integrationTest.keyStatus,refresh});'
+    'const refresh=async()=>{};export const useSteamWebApiStatus=()=>({status:globalThis.integrationTest.keyStatus,error:globalThis.integrationTest.keyError,refresh});'
   )
 };
 const { useEpicMappingAuth } = await import(
@@ -119,6 +145,7 @@ const setup = (changes = {}) => {
       attemptId: null
     },
     keyStatus: { canManage: true },
+    keyError: null,
     sequence: 0,
     calls: [],
     api: {},
@@ -152,11 +179,8 @@ const setup = (changes = {}) => {
   };
   state.api.getJsonFetchOptions = (body, options) => ({ ...options, body: JSON.stringify(body) });
   state.api.getFetchOptions = () => ({});
-  state.api.handleResponse = async (response) => {
-    const body = await response.json();
-    if (!response.ok) throw new ApiError(body);
-    return body;
-  };
+  state.api.handleResponse = ApiService.handleResponse;
+  state.api.assertIntegrationAccess = ApiService.assertIntegrationAccess;
   state.api.cancelSteamLogin = async (id) => {
     state.calls.push(['cancel', 'Steam', id]);
   };
@@ -176,6 +200,256 @@ const mount = async (hook) => {
   render();
   return { render, read: () => value, unmount: () => component.unmount() };
 };
+
+const make = (path, name, bindings) => {
+  const source = parseSource(path, ts.ScriptKind.TSX);
+  const body = source.statements
+    .filter((node) => !ts.isImportDeclaration(node) && !ts.isExportAssignment(node))
+    .map((node) => node.getText(source))
+    .join('\n')
+    .replace(/\bexport\s+/g, '');
+  const code = transpile(body, ts.ModuleKind.CommonJS, { jsx: ts.JsxEmit.React });
+  const names = Object.keys(bindings).filter((key) => key !== name);
+  return new Function(...names, `${code}\nreturn ${name};`)(...names.map((key) => bindings[key]));
+};
+
+const noop = () => undefined;
+const passthrough = ({ children }) => React.createElement(React.Fragment, null, children);
+const renderBindings = {
+  React,
+  useEffect: noop,
+  useRef: React.useRef,
+  useState: React.useState,
+  useTranslation: () => ({ t: (key) => key }),
+  getIntegrationReasonKey,
+  Button: ({ children, disabled, onClick }) =>
+    React.createElement('button', { disabled, onClick }, children),
+  Modal: ({ opened, children }) =>
+    opened ? React.createElement('div', { role: 'dialog' }, children) : null,
+  FormField: () => null,
+  LoginSteps: () => null,
+  LoginAttemptStatus: () => null,
+  Alert: passthrough,
+  StepHeader: () => null,
+  LoadingSpinner: () => null,
+  Key: () => null,
+  KeyRound: () => null,
+  Shield: () => null,
+  CheckCircle: () => null,
+  ExternalLink: () => null,
+  EpicIcon: () => null,
+  XboxIcon: () => null,
+  noAutofill: {},
+  useSignalR: () => ({ on: noop, off: noop }),
+  useCopyFeedback: () => [false, noop],
+  copyText: noop,
+  cancelAuthModalLogin: noop
+};
+
+test('status ingress distinguishes login permissions from management and rejects malformed reasons', async () => {
+  const allowed = {
+    canManage: true,
+    canSignIn: true,
+    canLogout: false,
+    canCancel: false,
+    canRecover: false
+  };
+  for (const reason of [undefined, null, ...Object.keys(integrationReasonKeys)]) {
+    ApiService.assertIntegrationAccess({ ...allowed, ownershipReason: reason }, 'login', 200);
+    ApiService.assertIntegrationAccess(
+      { canManage: true, ownershipReason: reason },
+      'management',
+      200
+    );
+  }
+  for (const value of [
+    null,
+    [],
+    'response',
+    {},
+    { ...allowed, canManage: 'true' },
+    { ...allowed, canRecover: null },
+    { ...allowed, canSignIn: undefined },
+    { ...allowed, canSignIn: false },
+    { ...allowed, canManage: false },
+    ...['', ' ', 'unknown', 'status-unavailable', 'toString', '__proto__'].map(
+      (ownershipReason) => ({ ...allowed, ownershipReason })
+    )
+  ]) {
+    assert.throws(
+      () => ApiService.assertIntegrationAccess(value, 'login', 200),
+      (error) => {
+        assert.equal(error.kind, 'parse');
+        assert.equal(error.status, 200);
+        assert.equal(error.body.stageKey, 'errors.integration.statusUnavailable');
+        assert.equal(error.cause, value);
+        return true;
+      }
+    );
+  }
+  for (const reason of Object.keys(integrationReasonKeys)) {
+    ApiService.assertIntegrationAccess(
+      { ...allowed, canSignIn: false, ownershipReason: reason },
+      'login',
+      200
+    );
+  }
+  assert.throws(() => getIntegrationReasonKey(null), /recognized reason/);
+  assert.throws(() => getIntegrationReasonKey('status-unavailable'), /recognized reason/);
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const platform of ['Epic', 'Xbox']) {
+      globalThis.fetch = async () => new Response(JSON.stringify({ ...allowed, canSignIn: false }));
+      await assert.rejects(ApiService[`get${platform}MappingAuthStatus`](), { kind: 'parse' });
+      globalThis.fetch = async () => new Response(JSON.stringify(allowed));
+      assert.deepEqual(await ApiService[`get${platform}MappingAuthStatus`](), allowed);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('saved-login ingress accepts optional account and reason only on available responses', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const value of [
+      { available: true },
+      { available: true, account: null, reason: null },
+      { available: true, account: 'saved' },
+      { available: false, reason: 'no-saved-login' }
+    ]) {
+      globalThis.fetch = async () => new Response(JSON.stringify(value));
+      assert.deepEqual(await ApiService.getPersistentIntegrationLoginAvailability('Steam'), value);
+    }
+    for (const value of [
+      null,
+      [],
+      {},
+      { available: 'true' },
+      { available: true, account: 1 },
+      { available: true, reason: 'unknown' },
+      { available: false },
+      ...[null, '', ' ', 'unknown', '__proto__'].map((reason) => ({ available: false, reason }))
+    ]) {
+      globalThis.fetch = async () => new Response(JSON.stringify(value));
+      await assert.rejects(ApiService.getPersistentIntegrationLoginAvailability('Steam'), {
+        kind: 'parse'
+      });
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+for (const [platform, hook] of [
+  ['Epic', useEpicMappingAuth],
+  ['Xbox', useXboxMappingAuth]
+]) {
+  test(`${platform} initial, malformed, loading and changed-identity states render unavailable`, async () => {
+    for (const shared of [false, true]) {
+      const f = setup();
+      if (shared)
+        f.auth = {
+          authenticationEnabled: false,
+          authMode: 'none',
+          accountId: null,
+          sessionId: null,
+          isLoading: false
+        };
+      const originalFetch = globalThis.fetch;
+      const originalWarn = console.warn;
+      console.warn = noop;
+      f.api[`get${platform}MappingAuthStatus`] = () =>
+        ApiService[`get${platform}MappingAuthStatus`]();
+      globalThis.fetch = async () => new Response(JSON.stringify({ canManage: false }));
+      const component = createComponent();
+      const Modal = make(
+        `src/components/modals/auth/${platform}AuthModal.tsx`,
+        `${platform}AuthModal`,
+        renderBindings
+      );
+      const show = (value) => {
+        assert.equal(value.state.canAuthenticate, false);
+        assert.equal(value.state.accessUnavailable, true);
+        const markup = renderToStaticMarkup(
+          React.createElement(Modal, { opened: true, onClose: noop, ...value })
+        );
+        assert.match(markup, /errors.integration.statusUnavailable/);
+        const Step = make(
+          `src/components/initialization/steps/${platform}AuthStep.tsx`,
+          `${platform}AuthStep`,
+          {
+            ...renderBindings,
+            [`use${platform}MappingAuth`]: () => value
+          }
+        );
+        assert.match(
+          renderToStaticMarkup(React.createElement(Step, { onComplete: noop, onSkip: noop })),
+          /errors.integration.statusUnavailable/
+        );
+      };
+      try {
+        show(component.render(() => hook()));
+        await settle();
+        show(component.render(() => hook()));
+        globalThis.fetch = async () =>
+          new Response(
+            JSON.stringify({
+              canManage: true,
+              canSignIn: true,
+              canCancel: false,
+              canLogout: false,
+              canRecover: false
+            })
+          );
+        await component.render(() => hook()).refreshStatus();
+        assert.equal(component.render(() => hook()).state.canAuthenticate, true);
+        f.auth = { ...f.auth, isLoading: true };
+        show(component.render(() => hook()));
+        f.auth = { ...f.auth, isLoading: false, sessionId: 'changed' };
+        const changed = component.render(() => hook());
+        show(changed);
+        await changed.startLogin();
+        assert.equal(f.calls.length, 0);
+      } finally {
+        component.unmount();
+        globalThis.fetch = originalFetch;
+        console.warn = originalWarn;
+      }
+    }
+  });
+}
+
+test('Steam integration loading and changed identity render without a refusal reason', async () => {
+  setup();
+  let integration = { identity: 'a', access: null, refresh: async () => undefined };
+  const view = await mount(() => useSteamLoginFlow({ loginUrl: '/login', integration }));
+  const Modal = make(
+    'src/components/modals/auth/SteamAuthModal.tsx',
+    'SteamAuthModal',
+    renderBindings
+  );
+  const show = () => {
+    const value = view.render();
+    assert.equal(value.state.accessUnavailable, true);
+    assert.match(
+      renderToStaticMarkup(React.createElement(Modal, { opened: true, onClose: noop, ...value })),
+      /errors.integration.statusUnavailable/
+    );
+  };
+  try {
+    show();
+    integration = {
+      ...integration,
+      access: { canManage: true, canSignIn: true, ownershipReason: null }
+    };
+    assert.equal(view.render().state.canAuthenticate, true);
+    integration = { ...integration, identity: 'b' };
+    show();
+  } finally {
+    view.unmount();
+  }
+});
 
 for (const [platform, hook] of [
   ['Epic', useEpicMappingAuth],
@@ -366,6 +640,7 @@ test('Web API save is main-owner-only in authenticated mode and shared mode rema
     accountId: null,
     sessionId: null
   };
+  f.keyError = 'errors.integration.statusUnavailable';
   view.render();
   view.render();
   view.read().setApiKey('shared-key');
@@ -455,13 +730,38 @@ test('LANCache logout never clears Steam login or the installation Web API key',
 });
 
 test('same-caller Web API refresh failure retains health but refuses mutation until recovery', async () => {
-  setup();
+  const f = setup();
   const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  console.error = noop;
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify({ version: 'V2', hasApiKey: true, isFullyOperational: true, canManage: true })
     );
   const view = await mount(() => useSteamWebApiStatusState());
+  const key = await mount(() => useSteamApiKey());
+  const Status = make(
+    'src/components/features/management/steam/SteamWebApiStatus.tsx',
+    'SteamWebApiStatus',
+    {
+      ...renderBindings,
+      useAuth: () => f.auth,
+      useSteamWebApiStatus: () => view.read(),
+      useFormattedDateTime: () => 'checked',
+      usePicsProgress: () => ({ updateProgress: noop }),
+      useNotifications: () => ({
+        addNotification: noop,
+        updateNotification: noop,
+        scheduleAutoDismiss: noop
+      }),
+      HelpPopover: () => null,
+      HelpSection: passthrough,
+      HelpDefinition: () => null,
+      HelpNote: passthrough,
+      SteamWebApiKeyModal: () => null,
+      ConfirmationModal: () => null
+    }
+  );
   try {
     assert.equal(view.read().status.canManage, true);
     globalThis.fetch = async () => new Response('{}', { status: 503 });
@@ -469,7 +769,32 @@ test('same-caller Web API refresh failure retains health but refuses mutation un
     view.render();
     assert.equal(view.read().status.version, 'V2');
     assert.equal(view.read().status.hasApiKey, true);
-    assert.equal(view.read().status.canManage, false);
+    assert.equal(view.read().status.canManage, true);
+    assert.equal(view.read().status.ownershipReason, undefined);
+    assert.ok(view.read().error);
+    assert.match(
+      renderToStaticMarkup(React.createElement(Status)),
+      /errors.integration.statusUnavailable/
+    );
+    f.keyStatus = view.read().status;
+    f.keyError = view.read().error;
+    key.read().setApiKey('candidate');
+    assert.equal(key.render().canManage, false);
+    assert.equal(key.read().ownershipReason, 'errors.integration.statusUnavailable');
+    await key.read().handleSave('empty', 'failed');
+    await key.read().handleTest('empty', 'failed');
+    assert.equal(f.calls.length, 0);
+    const retry = deferred();
+    globalThis.fetch = () => retry.promise;
+    const refreshing = view.read().refresh();
+    assert.ok(view.render().error);
+    retry.resolve(new Response(JSON.stringify({ canManage: false, ownershipReason: null })));
+    await refreshing;
+    assert.equal(view.render().error, 'errors.integration.statusUnavailable');
+    assert.match(
+      renderToStaticMarkup(React.createElement(Status)),
+      /errors.integration.statusUnavailable/
+    );
     globalThis.fetch = async () =>
       new Response(
         JSON.stringify({
@@ -481,9 +806,34 @@ test('same-caller Web API refresh failure retains health but refuses mutation un
       );
     await view.read().refresh();
     assert.equal(view.render().status.canManage, true);
+    f.keyStatus = view.read().status;
+    f.keyError = view.read().error;
+    assert.equal(key.render().canManage, true);
+    await key.read().handleSave('empty', 'failed');
+    assert.deepEqual(f.calls, [['save', 'candidate']]);
+    f.auth = { ...f.auth, isLoading: true };
+    assert.equal(key.render().canManage, false);
+    assert.equal(key.read().ownershipReason, 'errors.integration.statusUnavailable');
+    assert.match(
+      renderToStaticMarkup(React.createElement(Status)),
+      /errors.integration.statusUnavailable/
+    );
+    f.auth = {
+      authenticationEnabled: false,
+      authMode: 'none',
+      accountId: null,
+      sessionId: null,
+      isLoading: false
+    };
+    globalThis.fetch = async () => new Response('{}', { status: 503 });
+    await view.read().refresh();
+    view.render();
+    assert.doesNotThrow(() => renderToStaticMarkup(React.createElement(Status)));
   } finally {
     view.unmount();
+    key.unmount();
     globalThis.fetch = originalFetch;
+    console.error = originalError;
   }
 });
 
@@ -518,6 +868,76 @@ test('saved-login reuse refusal happens before any edit or persistent login muta
     })('steam', true);
     assert.equal(edits, 0);
     assert.equal(error, integrationReasonKeys[reason]);
+  }
+});
+
+test('saved-login available without a reason stays blocked while loading or stale', () => {
+  const source = liftConstArrow(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+    'handlePersistentLogin'
+  );
+  for (const loading of [false, true]) {
+    let edits = 0;
+    let error;
+    bindLifted(source, {
+      privateAvailabilityIdentity: 'a',
+      privateAvailabilityIdentityRef: { current: loading ? 'a' : 'b' },
+      canUseSavedLogin: true,
+      loadingIntegrationLoginAvailability: loading,
+      visibleIntegrationLoginAvailabilityByService: new Map([
+        ['steam', { available: true, reason: null }]
+      ]),
+      getIntegrationReasonKey,
+      setPersistentError: (value) => {
+        error = value;
+      },
+      t: (key) => key,
+      recordEditAction: () => edits++
+    })('steam', true);
+    assert.equal(edits, 0);
+    assert.equal(error, 'errors.integration.statusUnavailable');
+  }
+});
+
+test('persistent card renders checking, unavailable and optional available-account states', () => {
+  const Card = make(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx',
+    'ScheduledPrefillPersistentCard',
+    {
+      ...renderBindings,
+      Card: passthrough,
+      Badge: passthrough,
+      Tooltip: passthrough,
+      StatusDot: () => null,
+      useFormattedDateTime: () => 'expires',
+      useCountdownTimer: () => 30,
+      SCHEDULED_PREFILL_BUTTON_SIZE: 'sm',
+      getPersistentServiceId: () => 'Steam',
+      isScheduledPrefillAnonymousService: () => false,
+      usePersistentLoginStoreState: () => ({ error: null, sessionUnavailableState: null }),
+      useActivityStatus: () => ({ isActive: () => false }),
+      supportsConcurrentPrefill: () => false,
+      canStartPrefill: () => true
+    }
+  );
+  for (const [availability, loading, expected] of [
+    [undefined, true, 'savedLoginChecking'],
+    [undefined, false, 'errors.integration.statusUnavailable'],
+    [{ available: true }, false, 'errors.integration.loginAvailable'],
+    [{ available: true, account: 'saved' }, false, 'savedLoginAvailable'],
+    [{ available: false, reason: 'no-saved-login' }, false, 'errors.integration.noSavedLogin']
+  ]) {
+    const markup = renderToStaticMarkup(
+      React.createElement(Card, {
+        serviceKey: 'steam',
+        scheduleEnabled: true,
+        integrationLoginAvailability: availability,
+        integrationLoginAvailabilityLoading: loading,
+        container: { isRunning: true, isAuthenticated: false },
+        selectedGamesCount: 0
+      })
+    );
+    assert.ok(markup.includes(expected), expected);
   }
 });
 
@@ -649,19 +1069,6 @@ test(
         'aria-hidden': true
       });
     const passthrough = ({ children }) => h(React.Fragment, null, children);
-    const make = (path, name, bindings) => {
-      const source = parseSource(path, ts.ScriptKind.TSX);
-      const body = source.statements
-        .filter((node) => !ts.isImportDeclaration(node) && !ts.isExportAssignment(node))
-        .map((node) => node.getText(source))
-        .join('\n')
-        .replace(/\bexport\s+/g, '');
-      const code = transpile(body, ts.ModuleKind.CommonJS, { jsx: ts.JsxEmit.React });
-      const names = Object.keys(bindings).filter((key) => key !== name);
-      return new Function(...names, `${code}\nreturn ${name};`)(
-        ...names.map((key) => bindings[key])
-      );
-    };
     const LoadingSpinner = make('src/components/common/LoadingSpinner.tsx', 'LoadingSpinner', {
       React,
       Loader2: icon
@@ -892,6 +1299,7 @@ test(
                     actions: {}
                   }),
                   useSteamWebApiStatus: () => ({
+                    error: null,
                     status: {
                       hasApiKey: true,
                       isFullyOperational: true,

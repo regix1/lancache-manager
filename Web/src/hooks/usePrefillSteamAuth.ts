@@ -56,10 +56,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [pendingChallenge, setPendingChallenge] = useState<CredentialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
   const deviceConfirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  // When whichever wait is armed below gives up. Both waits share deviceConfirmationTimeoutRef
-  // because they are mutually exclusive, so one deadline covers both, and both effect cleanups
-  // clear it - the modal never counts down a timer that is no longer running.
+  // Both mutually exclusive waits keep their accepted challenge's deadline across effect reruns.
   const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
+  const waitRef = useRef<{ sessionId: string; challengeId: string; deadline: number } | null>(null);
+  const loginEpochRef = useRef(0);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
   // SignalR hands back a brand new connection object every time it rebuilds the socket, and the two
   // waits below must not read that as a fresh attempt. While the connection was a dependency of
@@ -142,6 +144,111 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // context, so drop it here or it stays on screen with nothing left to clear it.
   useEffect(() => endLoginCard, [endLoginCard]);
 
+  useEffect(() => {
+    waitRef.current = null;
+    setLoginDeadline(null);
+    hasStartedAuthRef.current = false;
+    setPendingChallenge(null);
+    setWaitingForMobileConfirmation(false);
+    setNeedsDeviceCode(false);
+    return () => {
+      loginEpochRef.current += 1;
+      waitRef.current = null;
+    };
+  }, [sessionId]);
+
+  // Helper to set state based on challenge type
+  const handleChallengeType = useCallback(
+    (challenge: CredentialChallenge) => {
+      if (!sessionId || sessionIdRef.current !== sessionId || !hasStartedAuthRef.current)
+        return false;
+      const expiry = Date.parse(challenge.expiresAt);
+      if (!Number.isFinite(expiry)) {
+        setError(t('prefill.auth.errors.noChallenge'));
+        setLoading(false);
+        return false;
+      }
+      const waiting =
+        challenge.credentialType === 'device-confirmation' ||
+        challenge.credentialType === 'device-code';
+      if (waiting) {
+        const current = waitRef.current;
+        const duration =
+          challenge.credentialType === 'device-confirmation'
+            ? STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS
+            : loginAttemptTimeoutMs(serviceId);
+        const deadline =
+          current?.sessionId === sessionId && current.challengeId === challenge.challengeId
+            ? Math.min(current.deadline, expiry)
+            : Math.min(Date.now() + duration, expiry);
+        waitRef.current = { sessionId, challengeId: challenge.challengeId, deadline };
+        setLoginDeadline(deadline);
+      } else {
+        if (expiry <= Date.now()) {
+          setError(t('prefill.auth.errors.noChallenge'));
+          setLoading(false);
+          return false;
+        }
+        waitRef.current = null;
+        setLoginDeadline(null);
+      }
+      setPendingChallenge(challenge);
+      setNeedsDeviceCode(false);
+      switch (challenge.credentialType) {
+        case 'password':
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = false;
+          break;
+        case '2fa':
+          setNeedsTwoFactor(true);
+          setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = false;
+          break;
+        case 'steamguard':
+          setNeedsEmailCode(true);
+          setNeedsTwoFactor(false);
+          setNeedsAuthorizationCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = false;
+          break;
+        case 'authorization-url':
+          setNeedsAuthorizationCode(true);
+          setAuthorizationUrl(challenge.authUrl ?? '');
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = false;
+          break;
+        case 'device-confirmation':
+          setWaitingForMobileConfirmation(true);
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
+          isWaitingForDeviceConfirmationRef.current = true;
+          break;
+        case 'device-code':
+          // Microsoft OAuth device flow (Xbox): show the user code + verification URL and
+          // wait for AuthStateChanged once the user approves in their own browser.
+          setNeedsDeviceCode(true);
+          setDeviceUserCode(challenge.userCode ?? '');
+          setDeviceVerificationUri(challenge.verificationUri ?? challenge.authUrl ?? '');
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = true;
+          break;
+      }
+      return true;
+    },
+    [sessionId, serviceId, t]
+  );
+
   // Listen for AuthStateChanged - this is the reliable way to know when login succeeds
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
@@ -156,6 +263,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       if (payloadSessionId !== sessionId) return;
 
       if (authState === 'Authenticated') {
+        loginEpochRef.current += 1;
+        waitRef.current = null;
+        setLoginDeadline(null);
+        setPendingChallenge(null);
         // Login succeeded - clear any pending timeouts and notify success
         if (deviceConfirmationTimeoutRef.current) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
@@ -173,6 +284,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         hasStartedAuthRef.current = false;
         onSuccess?.();
       } else if (authState === 'NotAuthenticated') {
+        loginEpochRef.current += 1;
+        waitRef.current = null;
+        setLoginDeadline(null);
         // Login failed - clear any pending timeouts and reset state
         if (deviceConfirmationTimeoutRef.current) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
@@ -235,94 +349,51 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     }) => {
       if (payloadSessionId !== sessionId) return;
 
-      setPendingChallenge(challenge);
+      if (!handleChallengeType(challenge)) return;
 
-      // Set the appropriate state based on credential type
-      switch (challenge.credentialType) {
-        case 'password':
-          setNeedsTwoFactor(false);
-          setNeedsEmailCode(false);
-          setNeedsAuthorizationCode(false);
-          setWaitingForMobileConfirmation(false);
-          isWaitingForDeviceConfirmationRef.current = false;
-          break;
-        case '2fa':
-          setNeedsTwoFactor(true);
-          setNeedsEmailCode(false);
-          setNeedsAuthorizationCode(false);
-          setWaitingForMobileConfirmation(false);
-          isWaitingForDeviceConfirmationRef.current = false;
-          break;
-        case 'steamguard':
-          setNeedsEmailCode(true);
-          setNeedsTwoFactor(false);
-          setNeedsAuthorizationCode(false);
-          setWaitingForMobileConfirmation(false);
-          isWaitingForDeviceConfirmationRef.current = false;
-          break;
-        case 'authorization-url':
-          // If we were waiting for the daemon to process a previously submitted code,
-          // a new authorization-url challenge means the code was rejected/expired
-          if (isWaitingForAuthCodeProcessingRef.current) {
-            isWaitingForAuthCodeProcessingRef.current = false;
-            const rejectedCode = t('prefill.auth.authorizationCodeRejected');
-            addNotification({
-              type: 'generic',
-              status: 'failed',
-              message: rejectedCode,
-              details: { notificationType: 'error' }
-            });
-            setError(rejectedCode);
-            // Clear the old code so user can paste a new one
-            setAuthorizationCode('');
-          }
-          setNeedsAuthorizationCode(true);
-          setAuthorizationUrl(challenge.authUrl ?? '');
-          setNeedsTwoFactor(false);
-          setNeedsEmailCode(false);
-          setWaitingForMobileConfirmation(false);
-          isWaitingForDeviceConfirmationRef.current = false;
-          break;
-        case 'device-confirmation':
-          setWaitingForMobileConfirmation(true);
-          setNeedsTwoFactor(false);
-          setNeedsEmailCode(false);
-          setNeedsAuthorizationCode(false);
-          isWaitingForDeviceConfirmationRef.current = true;
+      if (
+        challenge.credentialType === 'authorization-url' &&
+        isWaitingForAuthCodeProcessingRef.current
+      ) {
+        isWaitingForAuthCodeProcessingRef.current = false;
+        const rejectedCode = t('prefill.auth.authorizationCodeRejected');
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: rejectedCode,
+          details: { notificationType: 'error' }
+        });
+        setError(rejectedCode);
+        setAuthorizationCode('');
+      }
 
-          // Send acknowledgement for device confirmation exactly ONCE per challenge. The manager
-          // delivers this challenge twice (subscriber broadcast + Clients.All hub mirror), so without
-          // this guard the ack is sent twice; the second, racy ProvideCredential clears the pending
-          // challenge the sequential login flow is awaiting and collapses the "waiting for approval"
-          // modal. This unblocks the daemon to continue polling Steam for approval.
-          // Note: We delay slightly to help WaitForChallenge see the file first.
-          if (!confirmedChallengeIdsRef.current.has(challenge.challengeId)) {
-            confirmedChallengeIdsRef.current.add(challenge.challengeId);
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            try {
-              await hubConnection.invoke('ProvideCredentialAsync', sessionId, challenge, 'confirm');
-            } catch (err) {
-              // Best-effort ack: a persistent failure here still resolves through the device-
-              // confirmation timeout effect below, which surfaces its own user-facing notification.
-              notifyError('Failed to send device confirmation acknowledgement', err, {
-                silent: true,
-                logLabel: 'usePrefillSteamAuth device confirmation ack'
-              });
-            }
-          }
-          break;
-        case 'device-code':
-          // Microsoft OAuth device flow (Xbox): surface the user code + verification URL and
-          // wait for AuthStateChanged once the user approves in their own browser.
-          setNeedsDeviceCode(true);
-          setDeviceUserCode(challenge.userCode ?? '');
-          setDeviceVerificationUri(challenge.verificationUri ?? challenge.authUrl ?? '');
-          setNeedsTwoFactor(false);
-          setNeedsEmailCode(false);
-          setNeedsAuthorizationCode(false);
-          setWaitingForMobileConfirmation(false);
-          isWaitingForDeviceConfirmationRef.current = true;
-          break;
+      if (
+        challenge.credentialType === 'device-confirmation' &&
+        !confirmedChallengeIdsRef.current.has(challenge.challengeId)
+      ) {
+        confirmedChallengeIdsRef.current.add(challenge.challengeId);
+        const epoch = loginEpochRef.current;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (
+          epoch !== loginEpochRef.current ||
+          sessionIdRef.current !== sessionId ||
+          waitRef.current?.challengeId !== challenge.challengeId
+        )
+          return;
+        try {
+          await hubConnectionRef.current?.invoke(
+            'ProvideCredentialAsync',
+            sessionId,
+            challenge,
+            'confirm'
+          );
+        } catch (err) {
+          notifyError('Failed to send device confirmation acknowledgement', err, {
+            silent: true,
+            logLabel: 'usePrefillSteamAuth device confirmation ack'
+          });
+        }
+        if (epoch !== loginEpochRef.current || sessionIdRef.current !== sessionId) return;
       }
 
       setLoading(false);
@@ -334,56 +405,73 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleCredentialChallenge);
     };
-  }, [hubConnection, sessionId, serviceId, addNotification, notifyError, t]);
+  }, [hubConnection, sessionId, serviceId, addNotification, notifyError, handleChallengeType, t]);
 
   // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
-    if (waitingForMobileConfirmation && sessionId) {
-      setLoginDeadline(Date.now() + STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);
-      deviceConfirmationTimeoutRef.current = setTimeout(async () => {
-        // Cancel the login on the daemon to reset its state. Read through the ref so this reaches
-        // whichever socket is live when the wait ends, which is not always the one that armed it.
-        try {
-          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
-        } catch (err) {
-          // Best-effort: the modal below is given the reason unconditionally right after, so the
-          // user is told regardless of this outcome.
-          notifyError('Failed to cancel login on daemon', err, {
-            silent: true,
-            logLabel: 'usePrefillSteamAuth device confirmation timeout cancel'
-          });
-        }
+    if (waitingForMobileConfirmation && sessionId && loginDeadline !== null) {
+      const epoch = loginEpochRef.current;
+      const challengeId = waitRef.current?.challengeId;
+      deviceConfirmationTimeoutRef.current = setTimeout(
+        async () => {
+          if (
+            epoch !== loginEpochRef.current ||
+            sessionIdRef.current !== sessionId ||
+            waitRef.current?.challengeId !== challengeId
+          )
+            return;
+          // End the browser attempt before awaiting cancellation so retries cannot be overwritten.
+          loginEpochRef.current += 1;
+          waitRef.current = null;
+          setLoginDeadline(null);
+          // Land back on the sign-in form with the account name still typed in, so trying again is
+          // one password away.
+          setPassword('');
+          setTwoFactorCode('');
+          setEmailCode('');
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setWaitingForMobileConfirmation(false);
+          setUseManualCode(false);
+          setLoading(false);
+          setPendingChallenge(null);
+          isWaitingForDeviceConfirmationRef.current = false;
+          hasStartedAuthRef.current = false;
+          endLoginCard();
 
-        // Land back on the sign-in form with the account name still typed in, so trying again is
-        // one password away.
-        setPassword('');
-        setTwoFactorCode('');
-        setEmailCode('');
-        setNeedsTwoFactor(false);
-        setNeedsEmailCode(false);
-        setWaitingForMobileConfirmation(false);
-        setUseManualCode(false);
-        setLoading(false);
-        setPendingChallenge(null);
-        isWaitingForDeviceConfirmationRef.current = false;
-        hasStartedAuthRef.current = false;
-        endLoginCard();
-
-        // Said in the modal, not in a card behind it. The card version of this lasted five seconds
-        // (AUTO_DISMISS_DELAY_MS) under a modal that was closing in the same tick, so the wait
-        // appeared to end for no reason at all. The modal now stays open holding the reason.
-        setError(t('prefill.auth.approvalTimedOut'));
-      }, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);
+          // Said in the modal, not in a card behind it. The card version of this lasted five seconds
+          // (AUTO_DISMISS_DELAY_MS) under a modal that was closing in the same tick, so the wait
+          // appeared to end for no reason at all. The modal now stays open holding the reason.
+          setError(t('prefill.auth.approvalTimedOut'));
+          try {
+            await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
+          } catch (err) {
+            // The modal already holds the timeout reason; transport cancellation is best effort.
+            notifyError('Failed to cancel login on daemon', err, {
+              silent: true,
+              logLabel: 'usePrefillSteamAuth device confirmation timeout cancel'
+            });
+          }
+        },
+        Math.max(0, loginDeadline - Date.now())
+      );
 
       return () => {
-        setLoginDeadline(null);
         if (deviceConfirmationTimeoutRef.current) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
           deviceConfirmationTimeoutRef.current = null;
         }
       };
     }
-  }, [waitingForMobileConfirmation, sessionId, notifyError, endLoginCard, t]);
+  }, [
+    waitingForMobileConfirmation,
+    sessionId,
+    pendingChallenge?.challengeId,
+    loginDeadline,
+    notifyError,
+    endLoginCard,
+    t
+  ]);
 
   // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
   // `needsDeviceCode` (and leaves `waitingForMobileConfirmation` false), so the effect above never
@@ -396,46 +484,66 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // ref (device-code and device-confirmation are mutually exclusive), so the AuthStateChanged /
   // cancel / reset paths already clear it on success or teardown.
   useEffect(() => {
-    if (!needsDeviceCode || !sessionId) return;
+    if (!needsDeviceCode || !sessionId || loginDeadline === null) return;
+    const epoch = loginEpochRef.current;
+    const challengeId = waitRef.current?.challengeId;
+    deviceConfirmationTimeoutRef.current = setTimeout(
+      async () => {
+        if (
+          epoch !== loginEpochRef.current ||
+          sessionIdRef.current !== sessionId ||
+          waitRef.current?.challengeId !== challengeId
+        )
+          return;
+        loginEpochRef.current += 1;
+        waitRef.current = null;
+        setLoginDeadline(null);
+        setNeedsDeviceCode(false);
+        setDeviceUserCode('');
+        setDeviceVerificationUri('');
+        setLoading(false);
+        setPendingChallenge(null);
+        isWaitingForDeviceConfirmationRef.current = false;
+        hasStartedAuthRef.current = false;
+        endLoginCard();
 
-    const timeoutMs = loginAttemptTimeoutMs(serviceId);
-    setLoginDeadline(Date.now() + timeoutMs);
-    deviceConfirmationTimeoutRef.current = setTimeout(async () => {
-      try {
-        await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
-      } catch (err) {
-        // Best-effort: the modal below is given the reason unconditionally right after, so the
-        // user is told regardless of this outcome.
-        notifyError('Failed to cancel Xbox device-code login on daemon', err, {
-          silent: true,
-          logLabel: 'usePrefillSteamAuth Xbox device-code timeout cancel'
-        });
-      }
-
-      setNeedsDeviceCode(false);
-      setDeviceUserCode('');
-      setDeviceVerificationUri('');
-      setLoading(false);
-      setPendingChallenge(null);
-      isWaitingForDeviceConfirmationRef.current = false;
-      hasStartedAuthRef.current = false;
-      endLoginCard();
-
-      // Same reason as the mobile-approval wait above: the modal keeps the explanation instead of
-      // closing on a card that is gone five seconds later.
-      setError(t('prefill.auth.deviceCodeExpired'));
-    }, timeoutMs);
+        // Same reason as the mobile-approval wait above: the modal keeps the explanation instead of
+        // closing on a card that is gone five seconds later.
+        setError(t('prefill.auth.deviceCodeExpired'));
+        try {
+          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
+        } catch (err) {
+          // The modal already holds the timeout reason; transport cancellation is best effort.
+          notifyError('Failed to cancel Xbox device-code login on daemon', err, {
+            silent: true,
+            logLabel: 'usePrefillSteamAuth Xbox device-code timeout cancel'
+          });
+        }
+      },
+      Math.max(0, loginDeadline - Date.now())
+    );
 
     return () => {
-      setLoginDeadline(null);
       if (deviceConfirmationTimeoutRef.current) {
         clearTimeout(deviceConfirmationTimeoutRef.current);
         deviceConfirmationTimeoutRef.current = null;
       }
     };
-  }, [needsDeviceCode, sessionId, serviceId, notifyError, endLoginCard, t]);
+  }, [
+    needsDeviceCode,
+    sessionId,
+    pendingChallenge?.challengeId,
+    loginDeadline,
+    notifyError,
+    endLoginCard,
+    t
+  ]);
 
   const cancelPendingRequest = useCallback(() => {
+    loginEpochRef.current += 1;
+    waitRef.current = null;
+    setLoginDeadline(null);
+    hasStartedAuthRef.current = false;
     setLoading(false);
     setWaitingForMobileConfirmation(false);
     setNeedsAuthorizationCode(false);
@@ -453,6 +561,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   }, [endLoginCard]);
 
   const resetAuthForm = useCallback(() => {
+    loginEpochRef.current += 1;
+    waitRef.current = null;
+    setLoginDeadline(null);
+    hasStartedAuthRef.current = false;
     setError(null);
     // The account name survives, the same as it does on the other two login surfaces and in the
     // approval-timeout handler above. Every path that lands here, a refused password, a timeout, a
@@ -484,6 +596,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   }, [endLoginCard]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
+    const attemptEpoch = loginEpochRef.current;
     // A fresh attempt starts here, so the last one's failure stops being the current answer.
     setError(null);
     if (!sessionId || !hubConnection) {
@@ -517,6 +630,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           pendingChallenge,
           twoFactorCode
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         notifySuccess(t('prefill.auth.status.twoFactorSent'));
 
         // Wait for next challenge or success
@@ -526,9 +641,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           sessionId,
           30
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         if (nextChallenge) {
-          setPendingChallenge(nextChallenge);
-          handleChallengeType(nextChallenge);
+          if (!handleChallengeType(nextChallenge)) return false;
         } else {
           // No more challenges - login likely successful
           // AuthStateChanged should have fired, but call onSuccess as fallback
@@ -538,6 +654,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         return true;
       } catch (err) {
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
         addNotification({
@@ -573,6 +691,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           pendingChallenge,
           emailCode
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         notifySuccess(t('prefill.auth.status.emailCodeSent'));
 
         // Wait for next challenge or success
@@ -581,9 +701,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           sessionId,
           30
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         if (nextChallenge) {
-          setPendingChallenge(nextChallenge);
-          handleChallengeType(nextChallenge);
+          if (!handleChallengeType(nextChallenge)) return false;
         } else {
           resetAuthForm();
           onSuccess?.();
@@ -591,6 +712,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         return true;
       } catch (err) {
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
         addNotification({
@@ -626,6 +749,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           pendingChallenge,
           authorizationCode
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         notifySuccess(t('prefill.auth.status.authCodeSent'));
 
         // Don't call WaitForChallenge here - rely on events instead.
@@ -639,6 +764,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // Return false so the modal stays open while we wait for the event
         return false;
       } catch (err) {
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
         addNotification({
@@ -664,6 +791,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           'StartLoginAsync',
           sessionId
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
 
         showLoginCard(challenge?.operationId);
 
@@ -683,6 +812,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             sessionId,
             10
           );
+          if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+            return false;
           if (eventChallenge && eventChallenge.credentialType === 'authorization-url') {
             setPendingChallenge(eventChallenge);
             setNeedsAuthorizationCode(true);
@@ -699,11 +830,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         }
 
         // Handle other challenge types
-        setPendingChallenge(challenge);
-        handleChallengeType(challenge);
+        if (!handleChallengeType(challenge)) return false;
         setLoading(false);
         return false;
       } catch (err) {
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
         addNotification({
@@ -730,12 +862,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           'StartLoginAsync',
           sessionId
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
 
         showLoginCard(challenge?.operationId);
 
         if (challenge && challenge.credentialType === 'device-code') {
-          setPendingChallenge(challenge);
-          handleChallengeType(challenge);
+          if (!handleChallengeType(challenge)) return false;
           setLoading(false);
           return false; // Modal stays open while the user approves in their browser
         }
@@ -747,9 +880,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             sessionId,
             10
           );
+          if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+            return false;
           if (eventChallenge && eventChallenge.credentialType === 'device-code') {
-            setPendingChallenge(eventChallenge);
-            handleChallengeType(eventChallenge);
+            if (!handleChallengeType(eventChallenge)) return false;
             setLoading(false);
             return false;
           }
@@ -762,11 +896,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         }
 
         // Unexpected challenge type - surface it via the generic handler.
-        setPendingChallenge(challenge);
-        handleChallengeType(challenge);
+        if (!handleChallengeType(challenge)) return false;
         setLoading(false);
         return false;
       } catch (err) {
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
         addNotification({
@@ -802,6 +937,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         'StartLoginAsync',
         sessionId
       );
+      if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+        return false;
 
       if (!challenge) {
         throw new Error(t('prefill.auth.errors.noChallenge'));
@@ -813,6 +950,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       if (challenge.credentialType === 'username') {
         // Send username
         await hubConnection.invoke('ProvideCredentialAsync', sessionId, challenge, username);
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
 
         // Wait for password challenge
         const passChallenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -820,6 +959,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           sessionId,
           30
         );
+        if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+          return false;
         if (!passChallenge) {
           throw new Error(t('prefill.auth.errors.noPasswordChallenge'));
         }
@@ -827,6 +968,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         if (passChallenge.credentialType === 'password') {
           // Send password
           await hubConnection.invoke('ProvideCredentialAsync', sessionId, passChallenge, password);
+          if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+            return false;
 
           notifySuccess(t('prefill.auth.status.credentialsSent'));
 
@@ -836,9 +979,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             sessionId,
             60
           );
+          if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+            return false;
           if (nextChallenge) {
-            setPendingChallenge(nextChallenge);
-            handleChallengeType(nextChallenge);
+            if (!handleChallengeType(nextChallenge)) return false;
 
             // For device-confirmation, DON'T treat this as success yet
             // We wait for AuthStateChanged to trigger onSuccess
@@ -862,15 +1006,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           }
         } else {
           // Unexpected challenge type
-          setPendingChallenge(passChallenge);
-          handleChallengeType(passChallenge);
+          if (!handleChallengeType(passChallenge)) return false;
           setLoading(false);
           return false; // Need more input
         }
       } else {
         // Handle other initial challenge types
-        setPendingChallenge(challenge);
-        handleChallengeType(challenge);
+        if (!handleChallengeType(challenge)) return false;
         setLoading(false);
         return false; // Need more input
       }
@@ -887,6 +1029,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       setLoading(false);
       return false;
     } catch (err) {
+      if (attemptEpoch !== loginEpochRef.current || sessionIdRef.current !== sessionId)
+        return false;
       const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       addNotification({
@@ -920,55 +1064,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     onError,
     serviceId,
     showLoginCard,
-    endLoginCard
+    endLoginCard,
+    handleChallengeType
   ]);
-
-  // Helper to set state based on challenge type
-  const handleChallengeType = useCallback((challenge: CredentialChallenge) => {
-    switch (challenge.credentialType) {
-      case '2fa':
-        setNeedsTwoFactor(true);
-        setNeedsEmailCode(false);
-        setNeedsAuthorizationCode(false);
-        setWaitingForMobileConfirmation(false);
-        isWaitingForDeviceConfirmationRef.current = false;
-        break;
-      case 'steamguard':
-        setNeedsEmailCode(true);
-        setNeedsTwoFactor(false);
-        setNeedsAuthorizationCode(false);
-        setWaitingForMobileConfirmation(false);
-        isWaitingForDeviceConfirmationRef.current = false;
-        break;
-      case 'authorization-url':
-        setNeedsAuthorizationCode(true);
-        setAuthorizationUrl(challenge.authUrl ?? '');
-        setNeedsTwoFactor(false);
-        setNeedsEmailCode(false);
-        setWaitingForMobileConfirmation(false);
-        isWaitingForDeviceConfirmationRef.current = false;
-        break;
-      case 'device-confirmation':
-        setWaitingForMobileConfirmation(true);
-        setNeedsTwoFactor(false);
-        setNeedsEmailCode(false);
-        setNeedsAuthorizationCode(false);
-        isWaitingForDeviceConfirmationRef.current = true;
-        break;
-      case 'device-code':
-        // Microsoft OAuth device flow (Xbox): show the user code + verification URL and
-        // wait for AuthStateChanged once the user approves in their own browser.
-        setNeedsDeviceCode(true);
-        setDeviceUserCode(challenge.userCode ?? '');
-        setDeviceVerificationUri(challenge.verificationUri ?? challenge.authUrl ?? '');
-        setNeedsTwoFactor(false);
-        setNeedsEmailCode(false);
-        setNeedsAuthorizationCode(false);
-        setWaitingForMobileConfirmation(false);
-        isWaitingForDeviceConfirmationRef.current = true;
-        break;
-    }
-  }, []);
 
   /**
    * Call this when terminal output indicates 2FA is needed

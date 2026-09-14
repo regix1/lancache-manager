@@ -47,7 +47,7 @@ interface UsePrefillEventHandlersOptions {
   /** CONTRACT: invokes GetCurrentPrefillProgress(sessionId) and binds the live bar. */
   rehydratePrefillProgress: (connection: HubConnection, sessionId: string) => Promise<void>;
   /** Builds the coarse 'reconnecting' placeholder from a session DTO that is mid-prefill. */
-  seedReconnectingProgressFromSession: (sessionDto: PrefillSessionDto) => PrefillProgress;
+  seedReconnectingProgressFromSession: (session: PrefillSessionDto) => PrefillProgress;
   /** Reactive mirror of isCancelling for the Cancel button's disabled "Cancelling..." state. */
   setIsCancellingState: React.Dispatch<React.SetStateAction<boolean>>;
   /** Watchdog timer started on Cancel; terminal events clear it. */
@@ -141,11 +141,11 @@ export function registerPrefillEventHandlers(
   );
 
   // Handle session subscribed confirmation
-  connection.on(getEventName('SessionSubscribed', serviceId), (sessionDto: PrefillSessionDto) => {
-    sessionRef.current = sessionDto;
-    setSession(sessionDto);
-    setTimeRemaining(sessionDto.timeRemainingSeconds);
-    setIsLoggedIn(sessionDto.authState === 'Authenticated');
+  connection.on(getEventName('SessionSubscribed', serviceId), (session: PrefillSessionDto) => {
+    sessionRef.current = session;
+    setSession(session);
+    setTimeRemaining(Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000)));
+    setIsLoggedIn(session.authState === 'Authenticated');
 
     // Server truth: a prefill is already running for this session. Seed the bar immediately
     // (coarse 'reconnecting' placeholder). V6: do NOT invoke GetCurrentPrefillProgress here — the
@@ -153,9 +153,9 @@ export function registerPrefillEventHandlers(
     // the real bar binds from that push. Adding the invoke too is a redundant, racy double-write
     // (two snapshots + the live tick) that can flicker the bar backward. The visibilitychange /
     // onreconnected paths keep the invoke because there is no fresh subscribe replay there.
-    if (sessionDto.isPrefilling && !supportsConcurrentPrefill(sessionDto)) {
+    if (session.isPrefilling && !supportsConcurrentPrefill(session)) {
       setIsPrefillActive(true);
-      setPrefillProgress((prev) => prev ?? seedReconnectingProgressFromSession(sessionDto));
+      setPrefillProgress((prev) => prev ?? seedReconnectingProgressFromSession(session));
     }
   });
 
@@ -445,31 +445,29 @@ export function registerPrefillEventHandlers(
   );
 
   // Handle daemon session updates
-  connection.on(
-    getEventName('DaemonSessionCreated', serviceId),
-    (sessionDto: PrefillSessionDto) => {
-      setSession((currentSession) => {
-        if (currentSession && sessionDto.id === currentSession.id) {
-          setTimeRemaining(sessionDto.timeRemainingSeconds);
-          return sessionDto;
-        }
-        return currentSession;
-      });
-    }
-  );
+  connection.on(getEventName('DaemonSessionCreated', serviceId), (session: PrefillSessionDto) => {
+    setSession((currentSession) => {
+      if (currentSession && session.id === currentSession.id) {
+        setTimeRemaining(
+          Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000))
+        );
+        return session;
+      }
+      return currentSession;
+    });
+  });
 
-  connection.on(
-    getEventName('DaemonSessionUpdated', serviceId),
-    (sessionDto: PrefillSessionDto) => {
-      setSession((currentSession) => {
-        if (currentSession && sessionDto.id === currentSession.id) {
-          setTimeRemaining(sessionDto.timeRemainingSeconds);
-          return sessionDto;
-        }
-        return currentSession;
-      });
-    }
-  );
+  connection.on(getEventName('DaemonSessionUpdated', serviceId), (session: PrefillSessionDto) => {
+    setSession((currentSession) => {
+      if (currentSession && session.id === currentSession.id) {
+        setTimeRemaining(
+          Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000))
+        );
+        return session;
+      }
+      return currentSession;
+    });
+  });
 
   connection.onreconnecting(() => {
     addLog('warning', t('prefill.log.connectionLostReconnecting'));

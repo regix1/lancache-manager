@@ -218,7 +218,9 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
         )}
         {state.canAuthenticate === false && (
           <p className="text-sm text-themed-secondary" role="status">
-            {t(getIntegrationReasonKey(state.ownershipReason))}
+            {state.accessUnavailable
+              ? t('errors.integration.statusUnavailable')
+              : t(getIntegrationReasonKey(state.ownershipReason))}
           </p>
         )}
         <LoginSteps

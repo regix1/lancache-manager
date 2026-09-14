@@ -50,12 +50,13 @@ class SafeStorage {
   /**
    * Set an item in storage
    */
-  setItem(key: string, value: string): void {
+  setItem(key: string, value: string): boolean {
     if (this.available) {
       try {
         this.backing().setItem(key, value);
         // Also update memory fallback as backup
         this.memoryFallback.set(key, value);
+        return true;
       } catch (error) {
         // QuotaExceededError or SecurityError
         console.error(`Failed to set item in storage (${key}):`, error);
@@ -65,20 +66,24 @@ class SafeStorage {
     } else {
       this.memoryFallback.set(key, value);
     }
+    return false;
   }
 
   /**
    * Remove an item from storage
    */
-  removeItem(key: string): void {
+  removeItem(key: string): boolean {
+    let removed = false;
     if (this.available) {
       try {
         this.backing().removeItem(key);
+        removed = true;
       } catch (error) {
         console.error(`Failed to remove item from storage (${key}):`, error);
       }
     }
     this.memoryFallback.delete(key);
+    return removed;
   }
 
   /**
@@ -115,12 +120,13 @@ class SafeStorage {
   /**
    * Set a JSON object in storage
    */
-  setJSON<T>(key: string, value: T): void {
+  setJSON<T>(key: string, value: T): boolean {
     try {
       const json = JSON.stringify(value);
-      this.setItem(key, json);
+      return this.setItem(key, json);
     } catch (error) {
       console.error(`Failed to stringify JSON for storage (${key}):`, error);
+      return false;
     }
   }
 

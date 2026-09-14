@@ -155,7 +155,7 @@ export const AdminAccountStep: React.FC = () => {
         );
       }
     } catch (error: unknown) {
-      setSubmitError(getErrorMessage(error) || t('initialization.adminAccount.errors.network'));
+      setSubmitError(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

@@ -1,6 +1,7 @@
 export interface SteamLoginFlowState {
   attemptId?: string | null;
   canAuthenticate?: boolean;
+  accessUnavailable?: boolean;
   ownershipReason?: string | null;
   recovering?: boolean;
   loading: boolean;

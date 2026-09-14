@@ -11,59 +11,61 @@ import type {
   DaemonSessionStatus,
   DaemonAuthState
 } from '../types/operations';
-import type {
-  CacheInfo,
-  CacheSizeInfo,
-  CacheSizeScanningInfo,
-  CacheSizeUnavailableInfo,
-  CacheSizeScanStartInfo,
-  QueuedOperationResponse,
-  TriggerAllResponse,
-  ClientStat,
-  ServiceStat,
-  ProcessingStatus,
-  ClearCacheResponse,
-  MessageResponse,
-  Config,
-  DashboardStats,
-  CachedCorruptionDetectionResponse,
-  CorruptionDetectionMethod,
-  CorruptionScanHistoryResponse,
-  CorruptedChunkDetail,
-  GameCacheInfo,
-  ServiceCacheInfo,
-  UnmappedService,
-  DatasourceLogPosition,
-  DatasourceServiceCounts,
-  Event,
-  EventCompareResponse,
-  CreateEventRequest,
-  UpdateEventRequest,
-  CacheScanBlockedResponse,
-  Download,
-  DownloadSpeedSnapshot,
-  SpeedHistorySnapshot,
-  ClientGroup,
-  CreateClientGroupRequest,
-  CreateClientGroupResponse,
-  CreateClientGroupResult,
-  UpdateClientGroupRequest,
-  UpdateClientGroupResult,
-  SetMembersResponse,
-  SetMembersResult,
-  StatsExclusionsResponse,
-  ClientExclusionRule,
-  EpicGameMappingDto,
-  EpicMappingStats,
-  DaemonStatusDto,
-  EpicMappingAuthStatus,
-  EpicScheduleStatus,
-  XboxGameMappingDto,
-  XboxMappingStats,
-  XboxMappingAuthStatus,
-  IntegrationLoginRequest,
-  PicsStatus,
-  OrphanedDownloadsResponse
+import {
+  isIntegrationReason,
+  type IntegrationAccess,
+  type CacheInfo,
+  type CacheSizeInfo,
+  type CacheSizeScanningInfo,
+  type CacheSizeUnavailableInfo,
+  type CacheSizeScanStartInfo,
+  type QueuedOperationResponse,
+  type TriggerAllResponse,
+  type ClientStat,
+  type ServiceStat,
+  type ProcessingStatus,
+  type ClearCacheResponse,
+  type MessageResponse,
+  type Config,
+  type DashboardStats,
+  type CachedCorruptionDetectionResponse,
+  type CorruptionDetectionMethod,
+  type CorruptionScanHistoryResponse,
+  type CorruptedChunkDetail,
+  type GameCacheInfo,
+  type ServiceCacheInfo,
+  type UnmappedService,
+  type DatasourceLogPosition,
+  type DatasourceServiceCounts,
+  type Event,
+  type EventCompareResponse,
+  type CreateEventRequest,
+  type UpdateEventRequest,
+  type CacheScanBlockedResponse,
+  type Download,
+  type DownloadSpeedSnapshot,
+  type SpeedHistorySnapshot,
+  type ClientGroup,
+  type CreateClientGroupRequest,
+  type CreateClientGroupResponse,
+  type CreateClientGroupResult,
+  type UpdateClientGroupRequest,
+  type UpdateClientGroupResult,
+  type SetMembersResponse,
+  type SetMembersResult,
+  type StatsExclusionsResponse,
+  type ClientExclusionRule,
+  type EpicGameMappingDto,
+  type EpicMappingStats,
+  type DaemonStatusDto,
+  type EpicMappingAuthStatus,
+  type EpicScheduleStatus,
+  type XboxGameMappingDto,
+  type XboxMappingStats,
+  type XboxMappingAuthStatus,
+  type IntegrationLoginRequest,
+  type PicsStatus,
+  type OrphanedDownloadsResponse
 } from '../types';
 import type { StructuralScanMode } from '../types/corruptionScan';
 import type { ImportResult, ValidationResult } from '../types/migration';
@@ -2807,13 +2809,46 @@ class ApiService {
     return ApiService.handleResponse<XboxGameMappingDto[]>(response);
   }
 
+  static assertIntegrationAccess(
+    value: unknown,
+    purpose: 'login' | 'management',
+    status: number
+  ): asserts value is IntegrationAccess {
+    const access = value as IntegrationAccess | null;
+    const flags = ['canSignIn', 'canLogout', 'canCancel', 'canRecover'] as const;
+    if (
+      !access ||
+      typeof access !== 'object' ||
+      Array.isArray(access) ||
+      typeof access.canManage !== 'boolean' ||
+      flags.some((flag) =>
+        purpose === 'login'
+          ? typeof access[flag] !== 'boolean'
+          : access[flag] !== undefined && typeof access[flag] !== 'boolean'
+      ) ||
+      (access.ownershipReason != null && !isIntegrationReason(access.ownershipReason)) ||
+      ((!access.canManage || (purpose === 'login' && !access.canSignIn)) &&
+        !isIntegrationReason(access.ownershipReason))
+    ) {
+      throw new ApiError({
+        kind: 'parse',
+        status,
+        message: i18n.t('errors.integration.statusUnavailable'),
+        body: { stageKey: 'errors.integration.statusUnavailable' },
+        cause: value
+      });
+    }
+  }
+
   // Xbox mapping auth — mirrors Epic's auth-status/login/logout shape (daemon-free MSA device-code).
   static async getXboxMappingAuthStatus(): Promise<XboxMappingAuthStatus> {
     const response = await fetch(
       `${API_BASE}/xbox/game-mappings/auth-status`,
       this.getFetchOptions()
     );
-    return ApiService.handleResponse<XboxMappingAuthStatus>(response);
+    const status = await ApiService.handleResponse<XboxMappingAuthStatus>(response);
+    this.assertIntegrationAccess(status, 'login', response.status);
+    return status;
   }
 
   static async startXboxMappingLogin(
@@ -2822,7 +2857,6 @@ class ApiService {
   ): Promise<{
     userCode: string;
     verificationUri: string;
-    expiresIn: number;
     interval: number;
     attemptId: string;
     expiresAtUtc: string;
@@ -2835,7 +2869,6 @@ class ApiService {
     return ApiService.handleResponse<{
       userCode: string;
       verificationUri: string;
-      expiresIn: number;
       interval: number;
       attemptId: string;
       expiresAtUtc: string;
@@ -2884,7 +2917,9 @@ class ApiService {
       `${API_BASE}/epic/game-mappings/auth-status`,
       this.getFetchOptions()
     );
-    return ApiService.handleResponse<EpicMappingAuthStatus>(response);
+    const status = await ApiService.handleResponse<EpicMappingAuthStatus>(response);
+    this.assertIntegrationAccess(status, 'login', response.status);
+    return status;
   }
 
   static async getEpicScheduleStatus(): Promise<EpicScheduleStatus> {
@@ -3506,7 +3541,25 @@ class ApiService {
       `${API_BASE}/system/prefill/persistent/integration-login?service=${encodeURIComponent(service)}`,
       this.getFetchOptions({ signal })
     );
-    return await this.handleResponse<PersistentIntegrationLoginAvailability>(res);
+    const availability = await this.handleResponse<PersistentIntegrationLoginAvailability>(res);
+    if (
+      !availability ||
+      typeof availability !== 'object' ||
+      Array.isArray(availability) ||
+      typeof availability.available !== 'boolean' ||
+      (availability.account != null && typeof availability.account !== 'string') ||
+      (availability.reason != null && !isIntegrationReason(availability.reason)) ||
+      (availability.available === false && !isIntegrationReason(availability.reason))
+    ) {
+      throw new ApiError({
+        kind: 'parse',
+        status: res.status,
+        message: i18n.t('errors.integration.statusUnavailable'),
+        body: { stageKey: 'errors.integration.statusUnavailable' },
+        cause: availability
+      });
+    }
+    return availability;
   }
 
   /**
@@ -4361,7 +4414,6 @@ export interface DaemonSessionDto {
   isPrefilling: boolean;
   createdAt: string;
   expiresAt: string;
-  timeRemainingSeconds: number;
   // Client info for admin visibility
   ipAddress?: string;
   operatingSystem?: string;

@@ -238,11 +238,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   // carries no percent, so we render the indeterminate 'reconnecting' state until the real
   // GetCurrentPrefillProgress snapshot (or the next live tick) arrives. NEVER paints a bogus 0%.
   const seedReconnectingProgressFromSession = useCallback(
-    (sessionDto: PrefillSessionDto): PrefillProgress => ({
+    (session: PrefillSessionDto): PrefillProgress => ({
       state: 'reconnecting',
       message: undefined,
-      currentAppId: sessionDto.currentAppId ?? '',
-      currentAppName: sessionDto.currentAppName,
+      currentAppId: session.currentAppId ?? '',
+      currentAppName: session.currentAppName,
       percentComplete: 0,
       // Keep this placeholder internally consistent: totalBytes is 0 here (the DTO carries no
       // total), so bytesDownloaded must be 0 too — the real numbers arrive with the snapshot /
@@ -594,7 +594,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         setSession(activeSession);
         sessionRef.current = activeSession;
-        setTimeRemaining(activeSession.timeRemainingSeconds);
+        setTimeRemaining(
+          Math.max(0, Math.floor((Date.parse(activeSession.expiresAt) - Date.now()) / 1000))
+        );
         setIsLoggedIn(activeSession.authState === 'Authenticated');
 
         // Server truth: a prefill is already running on the daemon. Seed the bar immediately
@@ -621,7 +623,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         addLog(
           'info',
           t('prefill.log.sessionExpiresIn', {
-            time: formatTimeRemaining(activeSession.timeRemainingSeconds)
+            time: formatTimeRemaining(
+              Math.max(0, Math.floor((Date.parse(activeSession.expiresAt) - Date.now()) / 1000))
+            )
           })
         );
 
@@ -748,18 +752,20 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         addLog('info', t('prefill.log.creatingSession'));
 
-        const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSessionAsync');
-        setSession(sessionDto);
-        setTimeRemaining(sessionDto.timeRemainingSeconds);
+        const session = await connection.invoke<PrefillSessionDto>('CreateSessionAsync');
+        setSession(session);
+        setTimeRemaining(
+          Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000))
+        );
 
-        const isExistingSession = sessionDto.authState === 'Authenticated';
+        const isExistingSession = session.authState === 'Authenticated';
         setIsLoggedIn(isExistingSession);
 
         if (isExistingSession) {
           addLog(
             'success',
             t('prefill.log.connectedExistingSession'),
-            t('prefill.log.containerDetail', { name: sessionDto.containerName })
+            t('prefill.log.containerDetail', { name: session.containerName })
           );
           if (serviceId !== 'battlenet') {
             // Battle.net is anonymous - no "logged in" message
@@ -769,7 +775,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           addLog(
             'success',
             t('prefill.log.sessionCreated'),
-            t('prefill.log.containerDetail', { name: sessionDto.containerName })
+            t('prefill.log.containerDetail', { name: session.containerName })
           );
           if (serviceId !== 'battlenet') {
             // Battle.net is anonymous - no login required before prefill
@@ -779,14 +785,16 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         addLog(
           'info',
           t('prefill.log.sessionExpiresIn', {
-            time: formatTimeRemaining(sessionDto.timeRemainingSeconds)
+            time: formatTimeRemaining(
+              Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000))
+            )
           })
         );
 
-        await connection.invoke('SubscribeToSessionAsync', sessionDto.id);
+        await connection.invoke('SubscribeToSessionAsync', session.id);
         setIsCreating(false);
       } catch (err) {
-        const errorMessage = getErrorMessage(err) || t('prefill.errors.failedCreateSession');
+        const errorMessage = getErrorMessage(err);
         setError(errorMessage);
         addLog('error', errorMessage);
         setIsCreating(false);

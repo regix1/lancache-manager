@@ -10,6 +10,7 @@ import StatusDot from '@components/common/StatusDot';
 import { formatTimeRemaining } from '@components/features/prefill/types';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
 import {
   getPersistentServiceId,
@@ -18,7 +19,7 @@ import {
 import { usePersistentLoginStoreState } from './persistentLoginStore';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
-import { integrationReasonKeys } from '../../../../../types';
+import { getIntegrationReasonKey } from '../../../../../types';
 import {
   canStartPrefill,
   supportsConcurrentPrefill
@@ -60,6 +61,7 @@ export function ScheduledPrefillPersistentCard({
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const containersKey = `${baseKey}.persistentContainers`;
   const authExpiresAt = useFormattedDateTime(container?.authExpiresAtUtc);
+  const timeRemaining = useCountdownTimer(container?.authExpiresAtUtc ?? null, false);
 
   // Anonymous services (Battle.net/Riot) have no login step: the persistent container is
   // ready as soon as it's running, so every authenticated-gated conditional below treats
@@ -99,19 +101,10 @@ export function ScheduledPrefillPersistentCard({
       });
     }
     if (integrationLoginAvailability?.available) return t('errors.integration.loginAvailable');
-    if (
-      integrationLoginAvailability?.reason &&
-      integrationReasonKeys[integrationLoginAvailability.reason]
-    )
-      return t(integrationReasonKeys[integrationLoginAvailability.reason]);
-    switch (integrationLoginAvailability?.reason) {
-      case 'account-required':
-        return t(`${containersKey}.savedLoginAccountRequired`);
-      case 'no-saved-login':
-        return t(`${containersKey}.savedLoginMissing`);
-      default:
-        return t(`${containersKey}.savedLoginUnknown`);
+    if (integrationLoginAvailability?.available === false) {
+      return t(getIntegrationReasonKey(integrationLoginAvailability.reason));
     }
+    return t('errors.integration.statusUnavailable');
   })();
   // Every control below the schedule selector follows the schedule's enabled state. The selector
   // and its Actions menu stay outside this gate so an individual schedule can be switched back on.
@@ -277,9 +270,9 @@ export function ScheduledPrefillPersistentCard({
                         "{{time}} remaining". formatTimeRemaining answers zero with a word, not a
                         duration, so the two together read "Expiring... remaining" in English and
                         stack two expiry clauses in Chinese. */}
-                    {container.authTimeRemainingSeconds > 0
+                    {timeRemaining > 0
                       ? t('prefill.persistent.timeRemaining', {
-                          time: formatTimeRemaining(container.authTimeRemainingSeconds)
+                          time: formatTimeRemaining(timeRemaining)
                         })
                       : t('prefill.persistent.signInExpired')}
                   </span>

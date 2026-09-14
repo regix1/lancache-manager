@@ -9,6 +9,7 @@ import {
   compileToUrl,
   findSoleNode,
   moduleUrl,
+  loadNotificationModules,
   parseSource
 } from './transpile-module.mjs';
 
@@ -41,6 +42,7 @@ const CLOSED_EVENT_LIST = [
 
 const I18N_STUB = moduleUrl(`export default { t: (key) => key };`);
 const i18nStub = { t: (key) => key };
+globalThis.sessionStorage = new MemoryStorage();
 
 // ── Reading the real registry ───────────────────────────────────────────────
 
@@ -489,4 +491,201 @@ test('database reset reports progress and its terminal event never completes the
   assert.equal(cards.state.length, 1, 'the terminal event must not add a second card');
   assert.equal(cards.state[0].status, 'completed');
   assert.equal(cards.dismissals.length, 1, 'the terminal event must not re-arm the dismiss timer');
+});
+
+for (const status of ['completed', 'failed', 'cancelled']) {
+  for (const configured of [false, true]) {
+    test(`${status} completion preserves card identity with a ${configured ? 'present' : 'missing'} message callback`, async () => {
+      globalThis.localStorage = new MemoryStorage();
+      const { createCompletionHandler } = await loadHandlers();
+      const cards = newCardList();
+      cards.state = [
+        {
+          id: 'active-card',
+          type: 'database_reset',
+          status: 'running',
+          message: 'Meaningful progress',
+          detailMessage: 'Kept detail',
+          startedAt: 123,
+          details: { operationId: 'operation-1' }
+        }
+      ];
+      const callbacks = configured
+        ? {
+            getSuccessMessage: () => 'Required completion sentence',
+            getFailureMessage: () => 'Required failure sentence',
+            getCancelledMessage: () => 'Required cancellation sentence'
+          }
+        : {};
+      const handle = createCompletionHandler(
+        {
+          type: 'database_reset',
+          getId: () => 'active-card',
+          storageKey: 'contract-completion',
+          ...callbacks
+        },
+        cards.setNotifications,
+        cards.scheduleAutoDismiss
+      );
+      handle({
+        operationId: 'operation-1',
+        success: status === 'completed',
+        status,
+        ...(status === 'cancelled' ? { message: 'Cancellation detail' } : {})
+      });
+      assert.equal(cards.state.length, 1);
+      assert.equal(cards.state[0].id, 'active-card');
+      assert.equal(cards.state[0].startedAt, 123);
+      assert.equal(cards.state[0].status, status);
+      assert.equal(cards.state[0].detailMessage, 'Kept detail');
+      const sentences = configured
+        ? {
+            completed: 'Required completion sentence',
+            failed: 'Required failure sentence',
+            cancelled: 'Required cancellation sentence'
+          }
+        : {
+            completed: 'Meaningful progress',
+            failed: 'signalr.generic.failed',
+            cancelled: 'Cancellation detail'
+          };
+      assert.equal(cards.state[0].message, sentences[status]);
+      assert.equal(cards.dismissals.length, 1);
+    });
+  }
+}
+
+test('a real terminal error wins over a success-worded stage key and required callbacks', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  const { createCompletionHandler } = await loadHandlers();
+  const cards = newCardList();
+  const handle = createCompletionHandler(
+    {
+      type: 'cache_clearing',
+      getId: () => 'cache-card',
+      storageKey: 'contract-error',
+      getSuccessMessage: () => 'Success sentence',
+      getFailureMessage: () => 'Configured failure sentence'
+    },
+    cards.setNotifications,
+    cards.scheduleAutoDismiss
+  );
+  handle({
+    success: false,
+    error: 'The cache path cannot be removed',
+    stageKey: 'signalr.cacheClear.complete'
+  });
+  assert.equal(cards.state.length, 1);
+  assert.equal(cards.state[0].status, 'failed');
+  assert.equal(cards.state[0].message, 'The cache path cannot be removed');
+});
+
+test('an optional terminal detail formatter can clear a completed counter', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  const { createCompletionHandler } = await loadHandlers();
+  const cards = newCardList();
+  cards.state = [
+    {
+      id: 'active-card',
+      type: 'database_reset',
+      status: 'running',
+      message: 'Working',
+      detailMessage: '12 bytes',
+      startedAt: 123
+    }
+  ];
+  createCompletionHandler(
+    {
+      type: 'database_reset',
+      getId: () => 'active-card',
+      storageKey: 'contract-detail',
+      getDetailMessage: () => undefined,
+      getSuccessMessage: () => 'Reset complete'
+    },
+    cards.setNotifications,
+    cards.scheduleAutoDismiss
+  )({ success: true });
+  assert.equal(cards.state[0].detailMessage, undefined);
+  assert.equal(cards.state[0].message, 'Reset complete');
+});
+
+for (const configured of [false, true])
+  test(`status completion uses the ${configured ? 'completion' : 'progress'} callback`, async () => {
+    globalThis.localStorage = new MemoryStorage();
+    const { createStatusAwareProgressHandler } = await loadHandlers();
+    const cards = newCardList();
+    const handle = createStatusAwareProgressHandler(
+      {
+        type: 'database_reset',
+        getId: () => 'progress-card',
+        storageKey: 'contract-progress',
+        getMessage: () => 'Progress sentence',
+        getProgress: () => 50,
+        getStatus: (event) => event.status,
+        ...(configured ? { getCompletedMessage: () => 'Complete sentence' } : {})
+      },
+      cards.setNotifications,
+      cards.scheduleAutoDismiss,
+      cards.cancelAutoDismissTimer
+    );
+    handle({ status: 'running' });
+    handle({ status: 'completed' });
+    assert.equal(cards.state.length, 1);
+    assert.equal(cards.state[0].message, configured ? 'Complete sentence' : 'Progress sentence');
+  });
+
+test('required cache and import summaries remain intact without optional stage keys', async () => {
+  const formatters = await loadNotificationModules(I18N_STUB);
+  assert.equal(
+    formatters.formatCacheClearCompleteMessage({
+      success: true,
+      message: 'Removed 12 files (42 MiB)'
+    }),
+    'Removed 12 files (42 MiB)'
+  );
+  assert.equal(
+    formatters.formatDataImportCompleteMessage({
+      success: true,
+      message: 'Imported 37 entries in 8 seconds'
+    }),
+    'Imported 37 entries in 8 seconds'
+  );
+  assert.equal(
+    formatters.formatCacheClearCompleteMessage({
+      success: true,
+      message: 'Removed 12 files',
+      stageKey: 'signalr.cacheClear.complete'
+    }),
+    'signalr.cacheClear.complete'
+  );
+});
+
+test('incomplete localized interpolation retains the same server sentence', async () => {
+  const i18n = moduleUrl(`export default { t: (key, context = {}) => {
+    if (key !== 'signalr.scheduledPrefill.runningWithCounts') return key;
+    return 'Finished {{completed}} of {{total}}'.replace(/{{(\\w+)}}/g, (token, name) =>
+      context[name] === undefined ? token : String(context[name]));
+  } };`);
+  const helpers = await import(
+    await compileToUrl('../src/utils/stageKeyMessage.ts', { '@/i18n': i18n })
+  );
+  const source = parseSource(REGISTRY_PATH);
+  const declaration = findSoleNode(
+    source,
+    'scheduledPrefillSentence',
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'scheduledPrefillSentence'
+  );
+  const sentence = bindLifted(`(${declaration.getText(source)})`, helpers);
+  assert.equal(
+    sentence('signalr.scheduledPrefill.runningWithCounts', { completed: 2 }, 'Finished 2 of 5'),
+    'Finished 2 of 5'
+  );
+  assert.equal(
+    sentence(
+      'signalr.scheduledPrefill.runningWithCounts',
+      { completed: 2, total: 5 },
+      'Finished 2 of 5'
+    ),
+    'Finished 2 of 5'
+  );
 });

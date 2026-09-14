@@ -288,7 +288,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
       await refreshSetupStatus();
       onClose?.();
     } catch (failure: unknown) {
-      setError(getErrorMessage(failure) || t('accessSetup.saveFailed'));
+      setError(getErrorMessage(failure));
     } finally {
       setBusy(false);
     }
@@ -306,7 +306,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     try {
       await startTest(pendingLoginKind);
     } catch (failure: unknown) {
-      setError(getErrorMessage(failure) || t('accessSetup.oidcFailed'));
+      setError(getErrorMessage(failure));
       setBusy(false);
     }
   };

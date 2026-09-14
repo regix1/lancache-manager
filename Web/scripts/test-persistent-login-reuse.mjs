@@ -1,29 +1,65 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bindLifted, compileToUrl, liftHookCallback, moduleUrl } from './transpile-module.mjs';
+import {
+  bindLifted,
+  compileToUrl,
+  liftHookCallback,
+  MemoryStorage,
+  moduleUrl
+} from './transpile-module.mjs';
 
 const storeUrls = new Map();
 
-const loadStore = async (nonce) => {
+const loadStore = async (nonce, context) => {
+  const originals = new Map(
+    ['window', 'sessionStorage', 'localStorage'].map((name) => [
+      name,
+      Object.getOwnPropertyDescriptor(globalThis, name)
+    ])
+  );
+  const page = new EventTarget();
+  const subscriptions = [];
+  let store;
+  context.after(() => {
+    for (const [name, handler] of subscriptions) page.removeEventListener(name, handler);
+    for (const service of ['Steam', 'Epic', 'Xbox']) store?.resetPersistentLoginState(service);
+    storeUrls.delete(nonce);
+    for (const [name, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  });
+  const globals = {
+    window: {
+      addEventListener(name, handler) {
+        subscriptions.push([name, handler]);
+        page.addEventListener(name, handler);
+      }
+    },
+    sessionStorage: new MemoryStorage(),
+    localStorage: new MemoryStorage()
+  };
+  for (const [name, value] of Object.entries(globals))
+    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
   const reactUrl = moduleUrl(
     `// ${nonce}\nexport const useSyncExternalStore = (_subscribe, snapshot) => snapshot();`
   );
   const apiUrl = moduleUrl(`// ${nonce}\nexport default {};`);
-  const timeoutUrl = moduleUrl(`// ${nonce}\nexport const loginAttemptTimeoutMs = () => 60000;`);
-  const guardsUrl = moduleUrl(
-    `// ${nonce}\nexport const isRecord = (value) => value !== null && typeof value === 'object';`
+  const guardsUrl = await compileToUrl(
+    '../src/components/features/management/schedules/scheduled-prefill/typeGuards.ts'
   );
-  const storeUrl = await compileToUrl(
+  const storeUrl = `${await compileToUrl(
     '../src/components/features/management/schedules/scheduled-prefill/persistentLoginStore.ts',
     {
       react: reactUrl,
       '@services/api.service': apiUrl,
-      '@hooks/loginAttemptTimeout': timeoutUrl,
+      '@utils/storage': `${await compileToUrl('../src/utils/storage.ts')}#${nonce}`,
       './typeGuards': guardsUrl
     }
-  );
+  )}#${nonce}`;
   storeUrls.set(nonce, storeUrl);
-  return await import(storeUrl);
+  store = await import(storeUrl);
+  return store;
 };
 
 const loadHost = async (storeUrl, nonce) => {
@@ -47,17 +83,21 @@ const loadHost = async (storeUrl, nonce) => {
 const loadApi = async (nonce) => {
   const i18nUrl = moduleUrl(`// ${nonce}\nexport default { t: (key) => key };`);
   const antiforgeryUrl = moduleUrl(`// ${nonce}\nexport const antiforgeryHeaders = () => ({});`);
-  const constantsUrl = moduleUrl(`// ${nonce}\nexport const API_BASE = '/api';`);
+  const constantsUrl = moduleUrl(
+    `// ${nonce}\nexport const API_BASE = '/api'; export const APP_EVENTS = {};`
+  );
   const errorUrl = moduleUrl(`// ${nonce}\nexport const isAbortError = () => false;`);
   const timezoneUrl = moduleUrl(`// ${nonce}\nexport const getEffectiveTimezone = () => 'UTC';`);
   const interactionUrl = moduleUrl(
     `// ${nonce}\nexport const hasRecentUserInteraction = () => false;`
   );
-  const apiErrorUrl = moduleUrl(
-    `// ${nonce}\nexport class ApiError extends Error {}; export const assertOk = async () => {}; export const buildApiError = async () => new Error('request failed');`
-  );
+  const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+    '@utils/constants': constantsUrl
+  });
+  const reasonUrl = await compileToUrl('../src/types.ts');
   const apiUrl = await compileToUrl('../src/services/api.service.ts', {
     '@/i18n': i18nUrl,
+    '../types': reasonUrl,
     '../utils/antiforgery': antiforgeryUrl,
     '../utils/constants': constantsUrl,
     '../utils/error': errorUrl,
@@ -68,8 +108,8 @@ const loadApi = async (nonce) => {
   return (await import(apiUrl)).default;
 };
 
-test('a pending reuse hides manual prompting, then rejection permits a manual retry', async () => {
-  const store = await loadStore('pending-rejection');
+test('a pending reuse hides manual prompting, then rejection permits a manual retry', async (context) => {
+  const store = await loadStore('pending-rejection', context);
   const host = await loadHost(storeUrls.get('pending-rejection'), 'pending-host');
 
   store.setPersistentLoginStartSessionId('Steam', 'reuse-session', 'edit-1', 'action-1', true);
@@ -110,8 +150,8 @@ test('a pending reuse hides manual prompting, then rejection permits a manual re
   });
 });
 
-test('a reset invalidates stale reuse before a new manual attempt owns the service', async () => {
-  const store = await loadStore('stale-completion');
+test('a reset invalidates stale reuse before a new manual attempt owns the service', async (context) => {
+  const store = await loadStore('stale-completion', context);
 
   store.setPersistentLoginStartSessionId('Epic', 'reuse-session', undefined, undefined, true);
   store.updatePersistentLoginState('Epic', (current) => ({ ...current, loading: true }));
@@ -130,8 +170,8 @@ test('a reset invalidates stale reuse before a new manual attempt owns the servi
   });
 });
 
-test('an account change clears a pending saved-login reuse without changing shared containers', async () => {
-  const store = await loadStore('identity-transition');
+test('an account change clears a pending saved-login reuse without changing shared containers', async (context) => {
+  const store = await loadStore('identity-transition', context);
   const sharedContainers = new Map([
     ['Steam', { isRunning: true, isAuthenticated: false, sessionId: 'shared-session' }]
   ]);
@@ -384,14 +424,14 @@ test('account changes and ownerless transitions reject all late private writes',
   assert.equal(f.state.loading, false);
 });
 
-test('one service failure preserves Steam success and a retry replaces the unknown hint', async () => {
+test('one service failure preserves Steam success and a retry restores the missing availability', async () => {
   const f = availabilitySession();
   const request = f.load();
   f.pending[0].resolve({ available: true, account: 'saved-account', reason: null });
   f.pending[1].reject(new Error('unreachable'));
   await request;
   assert.equal(f.state.values.get('steam').available, true);
-  assert.equal(f.state.values.get('epic').reason, 'unknown');
+  assert.equal(f.state.values.has('epic'), false);
   const retry = f.load();
   f.finish(2, true);
   await retry;
@@ -419,7 +459,11 @@ test('the shared API sends only availability fields and the reuse mode with sess
   globalThis.fetch = async (input, init) => {
     requests.push({ input: String(input), init });
     return new Response(
-      JSON.stringify({ available: true, account: 'masked-account', reason: null }),
+      JSON.stringify(
+        init?.method === 'POST'
+          ? { authenticated: true, sessionId: 'session-1' }
+          : { available: true, account: 'masked-account', reason: null }
+      ),
       {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -429,9 +473,10 @@ test('the shared API sends only availability fields and the reuse mode with sess
 
   try {
     const availability = await api.getPersistentIntegrationLoginAvailability('Xbox');
-    await api.startPersistentLogin('Xbox', 'session-1', 'edit-1', 'action-1', true);
+    const login = await api.startPersistentLogin('Xbox', 'session-1', 'edit-1', 'action-1', true);
 
     assert.deepEqual(availability, { available: true, account: 'masked-account', reason: null });
+    assert.deepEqual(login, { authenticated: true, sessionId: 'session-1' });
     assert.match(requests[0].input, /integration-login\?service=Xbox$/);
     assert.equal(requests[0].init.body, undefined);
     assert.deepEqual(JSON.parse(requests[1].init.body), {
@@ -447,3 +492,24 @@ test('the shared API sends only availability fields and the reuse mode with sess
     globalThis.fetch = originalFetch;
   }
 });
+
+for (const reason of ['unknown', null])
+  test(`the availability API rejects unavailable reason ${reason}`, async (context) => {
+    const api = await loadApi(`invalid-${reason}`);
+    const originalFetch = globalThis.fetch;
+    context.after(() => {
+      globalThis.fetch = originalFetch;
+    });
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ available: false, account: null, reason }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    await assert.rejects(
+      api.getPersistentIntegrationLoginAvailability('Steam'),
+      (error) =>
+        error.name === 'ApiError' &&
+        error.kind === 'parse' &&
+        error.message === 'errors.integration.statusUnavailable'
+    );
+  });

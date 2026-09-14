@@ -247,7 +247,7 @@ const GrafanaEndpoints: React.FC = () => {
     } catch (error: unknown) {
       // Revert optimistic update
       setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: !newValue } : prev));
-      const message = getErrorMessage(error) || 'network';
+      const message = getErrorMessage(error);
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -266,7 +266,7 @@ const GrafanaEndpoints: React.FC = () => {
       const data = await ApiService.setMetricsSecurity(null);
       setMetricsSecurity(data);
     } catch (error: unknown) {
-      const message = getErrorMessage(error) || 'network';
+      const message = getErrorMessage(error);
       addNotification({
         type: 'generic',
         status: 'failed',

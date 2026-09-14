@@ -1778,7 +1778,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: getErrorMessage(err) || t('management.schedules.runAllFailed'),
+        message: getErrorMessage(err),
         details: { notificationType: 'error' }
       });
     } finally {
@@ -1863,9 +1863,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         addNotification({
           type: 'generic',
           status: 'failed',
-          message:
-            getErrorMessage(err) ||
-            t('management.schedules.runNowFailed', { service: displayName }),
+          message: getErrorMessage(err),
           details: { notificationType: 'error', serviceKey: key }
         });
       }
@@ -1910,9 +1908,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         addNotification({
           type: 'generic',
           status: 'failed',
-          message:
-            getErrorMessage(err) ||
-            t('management.schedules.runNowFailed', { service: displayName }),
+          message: getErrorMessage(err),
           details: { notificationType: 'error' }
         });
       }
