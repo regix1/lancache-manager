@@ -73,11 +73,16 @@ public sealed class DaemonClientConnectionLifecycleTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task SavedLogin_UsesPlatformChallengeAndCredentialCommandsAsync(bool useTcp, bool epic)
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task SavedLogin_UsesPlatformChallengeAndCredentialCommandsAsync(
+        bool useTcp,
+        bool epic,
+        bool challengeAfterResponse)
     {
         using var endpoint = LoopbackEndpoint.Create(useTcp);
         using var client = endpoint.CreateClient();
@@ -99,11 +104,15 @@ public sealed class DaemonClientConnectionLifecycleTests
             using var stream = new NetworkStream(connection, ownsSocket: false);
             var start = await ReadRequestAsync(stream, timeout.Token);
             Assert.Equal("provide-auto-login", start.Type);
-            if (epic)
+            if (epic && !challengeAfterResponse)
             {
                 await WriteFrameAsync(stream, JsonSerializer.Serialize(new { type = "credential-challenge", data = challenge }), timeout.Token);
             }
             await WriteResponseAsync(stream, start.Id, true, null, null, timeout.Token, result: epic ? null : challenge);
+            if (epic && challengeAfterResponse)
+            {
+                await WriteFrameAsync(stream, JsonSerializer.Serialize(new { type = "credential-challenge", data = challenge }), timeout.Token);
+            }
             var credential = await ReadRequestAsync(stream, timeout.Token);
             Assert.Equal(epic ? "provide-credential" : "provide-auto-login", credential.Type);
             await WriteResponseAsync(stream, credential.Id, true, null, null, timeout.Token);

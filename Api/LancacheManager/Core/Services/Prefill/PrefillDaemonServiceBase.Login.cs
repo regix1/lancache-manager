@@ -497,8 +497,44 @@ public abstract partial class PrefillDaemonServiceBase
             };
         }
 
-        session.AuthState = DaemonAuthState.LoggingIn;
-        await NotifyAuthStateChangeAsync(session);
+        var challengePublicationWasSuppressed = session.SuppressLoginChallengePublication;
+        session.SuppressLoginChallengePublication = true;
+        try
+        {
+            lease.Validate();
+            if (!await session.Client.CancelLoginWithOutcomeAsync(cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new ConflictException("A login attempt is already in progress for this session.")
+                {
+                    StageKey = "errors.prefill.loginInProgress"
+                };
+            }
+            EnsureCurrentSession(session);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+        finally
+        {
+            session.SuppressLoginChallengePublication = challengePublicationWasSuppressed;
+        }
+
+        challengePublicationWasSuppressed = session.SuppressLoginChallengePublication;
+        session.SuppressLoginChallengePublication = true;
+        try
+        {
+            session.AuthState = DaemonAuthState.LoggingIn;
+            await NotifyAuthStateChangeAsync(session);
+        }
+        catch
+        {
+            session.SuppressLoginChallengePublication = challengePublicationWasSuppressed;
+            lease.Dispose();
+            throw;
+        }
 
         var completion = new TaskCompletionSource<DaemonStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
         var dispatched = false;
@@ -541,7 +577,10 @@ public abstract partial class PrefillDaemonServiceBase
                     cancellationToken,
                     lease);
             }
-            finally { lease.Dispose(); }
+            finally
+            {
+                lease.Dispose();
+            }
             if (!accepted)
             {
                 await FailLoginFastAsync(session, session.Id, "Integration login was rejected by the daemon.");
@@ -604,6 +643,7 @@ public abstract partial class PrefillDaemonServiceBase
                     _logger.LogWarning(ex, "Could not cancel unfinished saved login for session {SessionId}", session.Id);
                 }
             }
+            session.SuppressLoginChallengePublication = challengePublicationWasSuppressed;
         }
     }
 
