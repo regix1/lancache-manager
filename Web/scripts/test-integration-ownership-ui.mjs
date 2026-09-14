@@ -1071,6 +1071,10 @@ test('every ownership reason has matching copy and Steam actions retain one-line
     css,
     /steam-integration__single[^}]*width: calc\(50% - 0\.125rem\)[^}]*height: 2\.75rem/
   );
+  assert.match(
+    css,
+    /steam-integration__segments[^}]*height: calc\(2\.75rem \+ 8px\)[^}]*}[\s\S]*steam-integration__segments button[^}]*height: 2\.75rem/
+  );
   assert.doesNotMatch(css, /white-space: normal/);
   assert.doesNotMatch(css, /color-mix\(/);
 
@@ -1417,7 +1421,14 @@ test(
                 const result = await page.evaluate(() => {
                   const rect = (element) => {
                     const r = element.getBoundingClientRect();
-                    return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right };
+                    return {
+                      x: r.x,
+                      y: r.y,
+                      width: r.width,
+                      height: r.height,
+                      right: r.right,
+                      bottom: r.bottom
+                    };
                   };
                   const pairs = [
                     ...globalThis.document.querySelectorAll('.steam-integration__pair')
@@ -1452,6 +1463,13 @@ test(
                     );
                     assert.ok(Math.abs(pair.buttons[0].height - pair.buttons[1].height) <= 1);
                   }
+                for (const button of result.segments.buttons) {
+                  assert.ok(
+                    button.y >= result.segments.track.y - 1 &&
+                      button.bottom <= result.segments.track.bottom + 1,
+                    JSON.stringify({ viewport, locale, theme, zoom, state, result })
+                  );
+                }
                 assert.ok(
                   Math.abs(result.pairs[0].track.width - result.segments.track.width) <= 1,
                   JSON.stringify({ viewport, locale, zoom, state, result })
