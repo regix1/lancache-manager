@@ -898,12 +898,10 @@ public abstract class DaemonClientBase : IDaemonClient
                 return fromResponse;
             }
 
-            // Fallback: some daemon builds may still push the challenge as an async event.
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
-
-            return await challengeTcs.Task;
+            // Some daemon builds deliver the challenge as an async event. The login attempt owns
+            // this wait's lifetime through the supplied cancellation token; a second, shorter timer
+            // can cancel a valid challenge before a busy daemon has published it.
+            return await challengeTcs.Task.WaitAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

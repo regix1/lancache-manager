@@ -112,23 +112,32 @@ test('a pending reuse hides manual prompting, then rejection permits a manual re
   const store = await loadStore('pending-rejection', context);
   const host = await loadHost(storeUrls.get('pending-rejection'), 'pending-host');
 
-  store.setPersistentLoginStartSessionId('Steam', 'reuse-session', 'edit-1', 'action-1', true);
-  store.updatePersistentLoginState('Steam', (current) => ({ ...current, loading: true }));
+  for (const service of ['Steam', 'Epic', 'Xbox']) {
+    store.setPersistentLoginStartSessionId(service, 'reuse-session', 'edit-1', 'action-1', true);
+    assert.equal(
+      store.armPersistentLoginTimeout(service, Date.now() + 60_000, {
+        noResult: 'no result',
+        timedOut: 'timed out'
+      }),
+      true
+    );
+    store.updatePersistentLoginState(service, (current) => ({ ...current, loading: true }));
 
-  assert.equal(store.isPersistentLoginIntegrationReuse('Steam'), true);
-  assert.equal(store.hasActivePersistentLogin('Steam'), true);
-  assert.equal(
-    host.usePersistentLoginHost({
-      service: 'Steam',
-      state: { authenticated: false, dismissed: false, hasChallenge: false, loading: true },
-      startLogin: () => undefined,
-      resumeModal: () => undefined,
-      isRunning: true,
-      isAuthenticated: false
-    }),
-    false,
-    'reuse waits on the card instead of opening the shared credential form'
-  );
+    assert.equal(store.isPersistentLoginIntegrationReuse(service), true);
+    assert.equal(store.hasActivePersistentLogin(service), true);
+    assert.equal(
+      host.usePersistentLoginHost({
+        service,
+        state: { authenticated: false, dismissed: false, hasChallenge: false, loading: true },
+        startLogin: () => undefined,
+        resumeModal: () => undefined,
+        isRunning: true,
+        isAuthenticated: false
+      }),
+      false,
+      `${service} reuse waits on the card instead of opening the shared credential form`
+    );
+  }
 
   store.clearPersistentLoginIntegrationReuse('Steam');
   store.updatePersistentLoginState('Steam', (current) => ({

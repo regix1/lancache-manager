@@ -73,20 +73,22 @@ public sealed class DaemonClientConnectionLifecycleTests
     }
 
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(false, true, true)]
-    [InlineData(true, false, false)]
-    [InlineData(true, true, false)]
-    [InlineData(true, true, true)]
+    [InlineData(false, false, false, 0)]
+    [InlineData(false, true, false, 0)]
+    [InlineData(false, true, true, 0)]
+    [InlineData(true, false, false, 0)]
+    [InlineData(true, true, false, 0)]
+    [InlineData(true, true, true, 0)]
+    [InlineData(true, true, true, 5250)]
     public async Task SavedLogin_UsesPlatformChallengeAndCredentialCommandsAsync(
         bool useTcp,
         bool epic,
-        bool challengeAfterResponse)
+        bool challengeAfterResponse,
+        int challengeDelayMilliseconds)
     {
         using var endpoint = LoopbackEndpoint.Create(useTcp);
         using var client = endpoint.CreateClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
         using var key = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         var parameters = key.ExportParameters(false);
         byte[] publicKey = [4, .. parameters.Q.X!, .. parameters.Q.Y!];
@@ -111,6 +113,7 @@ public sealed class DaemonClientConnectionLifecycleTests
             await WriteResponseAsync(stream, start.Id, true, null, null, timeout.Token, result: epic ? null : challenge);
             if (epic && challengeAfterResponse)
             {
+                await Task.Delay(challengeDelayMilliseconds, timeout.Token);
                 await WriteFrameAsync(stream, JsonSerializer.Serialize(new { type = "credential-challenge", data = challenge }), timeout.Token);
             }
             var credential = await ReadRequestAsync(stream, timeout.Token);

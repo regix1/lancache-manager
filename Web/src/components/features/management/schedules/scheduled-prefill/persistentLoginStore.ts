@@ -434,8 +434,13 @@ export function armPersistentLoginTimeout(
     }
     snapshots.delete(service);
   }
-  if (current.loginDeadline === null && current.pendingChallenge === null)
+  if (current.loginDeadline === null && current.pendingChallenge === null) {
+    const reuseIntegration = getPersistentLoginStartRequest(service)?.reuseIntegration === true;
     invalidateInFlightLogin(service);
+    if (reuseIntegration) {
+      integrationReuseEpochs.set(service, getPersistentLoginEpoch(service));
+    }
+  }
   const clock = clocks.get(service);
   if (clock) deadline = Math.min(deadline, clock.deadline);
   const sessionId = current.sessionId ?? getPersistentLoginStartRequest(service)?.sessionId ?? null;
