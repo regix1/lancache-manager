@@ -48,7 +48,7 @@ public partial class EpicMappingService
             {
                 tokens = await _epicApiClient.RefreshTokenAsync(savedAuth.RefreshToken!, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                var updated = _authStorage.UpdateAuthData(version, auth =>
+                var updated = _authStorage.TryUpdateAuth(version, auth =>
                 {
                     auth.RefreshToken = tokens.RefreshToken;
                     auth.DisplayName = tokens.DisplayName;
@@ -63,7 +63,7 @@ public partial class EpicMappingService
             }
             catch (ValidationException)
             {
-                _authStorage.InvalidateAuthData(version, () =>
+                _authStorage.TryInvalidateAuth(version, () =>
                 {
                     SetIsAuthenticated(false);
                     _displayName = null;
@@ -357,7 +357,7 @@ public partial class EpicMappingService
             {
                 var tokens = await _epicApiClient.RefreshTokenAsync(snapshot.Auth.RefreshToken, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                _authStorage.UpdateAuthData(snapshot.Version, auth =>
+                _authStorage.TryUpdateAuth(snapshot.Version, auth =>
                 {
                     auth.RefreshToken = tokens.RefreshToken;
                     auth.DisplayName = tokens.DisplayName;
@@ -376,7 +376,7 @@ public partial class EpicMappingService
             catch (ValidationException ex)
             {
                 _logger.LogWarning(ex, "Epic refresh token was rejected");
-                _authStorage.InvalidateAuthData(snapshot.Version, () =>
+                _authStorage.TryInvalidateAuth(snapshot.Version, () =>
                 {
                     SetIsAuthenticated(false);
                     _displayName = null;

@@ -11,7 +11,7 @@ import type {
 import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
-import { integrationReasonKeys } from '../../../../types';
+import { getIntegrationReasonKey } from '../../../../types';
 import XboxGameMappings from './XboxGameMappings';
 import XboxMappingLoginModal from './XboxMappingLoginModal';
 import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
@@ -137,7 +137,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
 
   const isAuthenticated = authStatus?.canManage === true && authStatus.isAuthenticated;
   const reason = authStatus?.ownershipReason
-    ? t(integrationReasonKeys[authStatus.ownershipReason] ?? 'errors.integration.statusUnavailable')
+    ? t(getIntegrationReasonKey(authStatus.ownershipReason))
     : authStatus
       ? null
       : t('errors.integration.statusUnavailable');

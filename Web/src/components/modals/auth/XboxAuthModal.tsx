@@ -9,7 +9,7 @@ import { cancelAuthModalLogin } from './authModalCancel';
 import { useCopyFeedback } from '@hooks/useCopyFeedback';
 import { copyText } from '@utils/clipboard';
 import { useTranslation } from 'react-i18next';
-import { integrationReasonKeys } from '../../../types';
+import { getIntegrationReasonKey } from '../../../types';
 
 // The Xbox modal only consumes the device-code slice of an auth flow. Both the prefill-daemon
 // flow (SteamLoginFlowState/SteamAuthActions, a superset) and the manager-side useXboxMappingAuth
@@ -155,10 +155,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
       <div className="space-y-6">
         {state.canAuthenticate === false && (
           <p className="text-sm text-themed-muted" role="status">
-            {t(
-              integrationReasonKeys[state.ownershipReason ?? ''] ??
-                'errors.integration.statusUnavailable'
-            )}
+            {t(getIntegrationReasonKey(state.ownershipReason))}
           </p>
         )}
         {state.recovering && (

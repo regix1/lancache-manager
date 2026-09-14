@@ -84,6 +84,11 @@ public abstract partial class PrefillDaemonServiceBase
                 _ => session.AuthState
             };
 
+            if (challenge.ExpiresAt != default)
+            {
+                session.LoginExpiresAtUtc = challenge.ExpiresAt;
+            }
+
             // Cache this as the session's current resumable challenge BEFORE the hub push below.
             // This is the ONLY place a follow-on challenge (password after username, 2FA after
             // password, etc.) reaches the cache - StartLoginCoreAsync only sets it for the FIRST

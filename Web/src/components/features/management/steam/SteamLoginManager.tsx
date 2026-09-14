@@ -14,7 +14,7 @@ import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
 import { ApiError } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
-import { integrationReasonKeys } from '../../../../types';
+import { getIntegrationReasonKey } from '../../../../types';
 
 interface SteamLoginManagerProps {
   authMode: AuthMode;
@@ -115,7 +115,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError
   const reason = !access
     ? t('errors.integration.statusUnavailable')
     : access.ownershipReason
-      ? t(integrationReasonKeys[access.ownershipReason] ?? 'errors.integration.statusUnavailable')
+      ? t(getIntegrationReasonKey(access.ownershipReason))
       : null;
   const isAuthenticated = steamAuthMode === 'authenticated';
 

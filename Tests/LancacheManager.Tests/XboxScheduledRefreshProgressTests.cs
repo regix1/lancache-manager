@@ -156,7 +156,7 @@ public partial class XboxScheduledRefreshProgressTests
             "await _refreshGate.WaitAsync(reporter.Token)",
             StringComparison.Ordinal);
         var pollIndex = source.IndexOf(
-            "await _authClient.PollForTokenAsync(deviceCode, reporter.Token, login.ExpiresAtUtc)",
+            "await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, reporter.Token)",
             StringComparison.Ordinal);
         var releaseIndex = source.IndexOf(
             "_refreshGate.Release();",

@@ -47,7 +47,7 @@ public sealed class XboxAuthClientTests
         var client = new XboxAuthClient(http, NullLogger<XboxAuthClient>.Instance);
         await Assert.ThrowsAsync<TimeoutException>(() => client.PollForTokenAsync(
             new XboxDeviceCodeResponse { DeviceCode = "expired", ExpiresIn = 900 },
-            expiresAtUtc: DateTime.UtcNow.AddSeconds(-1)));
+            DateTime.UtcNow.AddSeconds(-1)));
         Assert.Equal(0, calls);
     }
 
@@ -108,7 +108,7 @@ public sealed class XboxAuthClientTests
         };
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => client.PollForTokenAsync(deviceCode));
+            () => client.PollForTokenAsync(deviceCode, DateTime.UtcNow.AddSeconds(5)));
 
         Assert.Contains("refresh token", error.Message, StringComparison.OrdinalIgnoreCase);
     }

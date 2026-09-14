@@ -334,7 +334,7 @@ public abstract partial class PrefillDaemonServiceBase
             OperationType.PrefillLogin,
             $"{ServiceName} Prefill Sign-In",
             loginCancellation);
-        session.LoginStartedAtUtc = DateTime.UtcNow;
+        session.LoginExpiresAtUtc = DateTime.UtcNow.AddSeconds(GetAbandonedLoginTimeoutSeconds());
 
         // Cancelling the operation only cancels a token; ending the login is real work, and it has one
         // tested implementation whose clear-before-round-trip ordering must not be bypassed by a second
@@ -361,7 +361,7 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         session.LoginOperationId = null;
-        session.LoginStartedAtUtc = null;
+        session.LoginExpiresAtUtc = null;
 
         var authenticated = session.AuthState == DaemonAuthState.Authenticated;
         _operationTracker.CompleteOperation(
@@ -470,7 +470,7 @@ public abstract partial class PrefillDaemonServiceBase
     {
         lease.Validate();
         var availability = GetIntegrationLoginAvailability(accountId, lease.Caller);
-        if (!availability.Available) IntegrationLease.Refuse(availability.Reason ?? "no-saved-login");
+        if (!availability.Available) IntegrationLease.Refuse(availability.Reason);
         session.LastLoginFailureMessage = null;
         session.LastConsumedLoginChallengeId = null;
         ClearPendingLoginChallenge(session);

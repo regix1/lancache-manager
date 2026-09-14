@@ -36,6 +36,11 @@ public static class SteamLoginResponseMapper
             return null;
         }
 
+        if (string.IsNullOrWhiteSpace(result.Message))
+        {
+            throw new InvalidOperationException("Steam authentication returned an outcome without a message.");
+        }
+
         // Prefer the service's own wording, the way the SessionExpired branch below already does: it
         // knows whether this is the first prompt or a code Steam just rejected, and those two need to
         // read differently or the user retypes the same failing code.
@@ -44,7 +49,7 @@ public static class SteamLoginResponseMapper
             return new OkObjectResult(new SteamLoginResponse
             {
                 RequiresTwoFactor = true,
-                Message = result.Message ?? "Two-factor authentication required",
+                Message = result.Message,
                 OperationId = result.OperationId,
                 AttemptId = result.AttemptId,
                 ExpiresAtUtc = result.ExpiresAtUtc
@@ -56,7 +61,7 @@ public static class SteamLoginResponseMapper
             return new OkObjectResult(new SteamLoginResponse
             {
                 RequiresEmailCode = true,
-                Message = result.Message ?? "Email verification code required",
+                Message = result.Message,
                 OperationId = result.OperationId,
                 AttemptId = result.AttemptId,
                 ExpiresAtUtc = result.ExpiresAtUtc
@@ -69,7 +74,7 @@ public static class SteamLoginResponseMapper
             {
                 SessionExpired = true,
                 RequiresTwoFactor = true,
-                Message = result.Message ?? "Session expired. Please enter your 2FA code instead.",
+                Message = result.Message,
                 OperationId = result.OperationId,
                 AttemptId = result.AttemptId,
                 ExpiresAtUtc = result.ExpiresAtUtc
@@ -80,14 +85,14 @@ public static class SteamLoginResponseMapper
         {
             return new BadRequestObjectResult(new SteamAuthChallengeResponse
             {
-                Error = result.Message ?? "Mobile confirmation required",
+                Error = result.Message,
                 StageKey = result.StageKey,
                 AttemptId = result.AttemptId,
                 ExpiresAtUtc = result.ExpiresAtUtc
             });
         }
 
-        var failure = ApiResponse.Error(result.Message ?? "Authentication failed");
+        var failure = ApiResponse.Error(result.Message);
         failure.StageKey = result.StageKey;
         return new BadRequestObjectResult(failure);
     }

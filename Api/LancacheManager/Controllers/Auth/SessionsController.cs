@@ -76,8 +76,8 @@ public class SessionsController : ControllerBase
         if (accountIds.Count > 0)
         {
             using var scope = _scopeFactory.CreateScope();
-            var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-            await using var context = await factory.CreateDbContextAsync();
+            var contexts = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            await using var context = await contexts.CreateDbContextAsync();
             usernames = await context.UserAccounts
                 .AsNoTracking()
                 .Where(account => accountIds.Contains(account.Id))
@@ -85,8 +85,8 @@ public class SessionsController : ControllerBase
                 .ToDictionaryAsync(account => account.Id, account => account.Username);
         }
 
-        var activeDtos = activeSessions
-            .Select(session => ToDto(
+        var activeRecords = activeSessions
+            .Select(session => ToRecord(
                 session,
                 currentSessionId,
                 now,
@@ -94,8 +94,8 @@ public class SessionsController : ControllerBase
                     ? username
                     : null))
             .ToList();
-        var historyDtos = historySessions
-            .Select(session => ToDto(
+        var historyRecords = historySessions
+            .Select(session => ToRecord(
                 session,
                 currentSessionId,
                 now,
@@ -106,11 +106,11 @@ public class SessionsController : ControllerBase
 
         return Ok(new SessionListResponse
         {
-            Sessions = activeDtos,
-            Count = activeDtos.Count,
-            AdminCount = activeDtos.Count(s => s.SessionType == SessionType.Admin),
-            UserCount = activeDtos.Count(s => s.SessionType == SessionType.User),
-            GuestCount = activeDtos.Count(s => s.SessionType == SessionType.Guest),
+            Sessions = activeRecords,
+            Count = activeRecords.Count,
+            AdminCount = activeRecords.Count(s => s.SessionType == SessionType.Admin),
+            UserCount = activeRecords.Count(s => s.SessionType == SessionType.User),
+            GuestCount = activeRecords.Count(s => s.SessionType == SessionType.Guest),
             Pagination = new SessionListPage
             {
                 Page = page,
@@ -118,11 +118,11 @@ public class SessionsController : ControllerBase
                 TotalCount = activeCount,
                 TotalPages = totalPages
             },
-            HistorySessions = historyDtos
+            HistorySessions = historyRecords
         });
     }
 
-    private static SessionDto ToDto(UserSession s, Guid? currentSessionId, DateTime now, string? username)
+    private static SessionRecord ToRecord(UserSession s, Guid? currentSessionId, DateTime now, string? username)
     {
         var isAccountHolder = s.SessionType.IsAccountHolder();
         var steamPrefillEnabled = isAccountHolder || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
@@ -131,7 +131,7 @@ public class SessionsController : ControllerBase
         var riotPrefillEnabled = isAccountHolder || (s.RiotPrefillExpiresAtUtc != null && s.RiotPrefillExpiresAtUtc > now);
         var xboxPrefillEnabled = isAccountHolder || (s.XboxPrefillExpiresAtUtc != null && s.XboxPrefillExpiresAtUtc > now);
 
-        return new SessionDto
+        return new SessionRecord
         {
             Id = s.Id,
             Username = username,

@@ -9,7 +9,7 @@ import FormField from '@components/ui/FormField';
 import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
-import { integrationReasonKeys } from '../../../types';
+import { getIntegrationReasonKey } from '../../../types';
 
 interface EpicAuthStepProps {
   onComplete: () => void;
@@ -43,10 +43,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
     succeeded === identity || (authStatus?.canManage === true && authStatus.isAuthenticated);
   const reason =
     state.canAuthenticate === false
-      ? t(
-          integrationReasonKeys[state.ownershipReason ?? ''] ??
-            'errors.integration.statusUnavailable'
-        )
+      ? t(getIntegrationReasonKey(state.ownershipReason))
       : state.recovering
         ? t('errors.integration.recovery')
         : null;

@@ -4,7 +4,7 @@ import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
-import { integrationReasonKeys } from '../types';
+import { getIntegrationReasonKey } from '../types';
 import { useNotifications } from '@contexts/notifications';
 import type { NotificationVariant } from '../types/operations';
 
@@ -60,10 +60,9 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     (authenticationEnabled === false || status?.canManage === true);
   const ownershipReason = canManage
     ? null
-    : t(
-        integrationReasonKeys[status?.ownershipReason ?? ''] ??
-          'errors.integration.statusUnavailable'
-      );
+    : status
+      ? t(getIntegrationReasonKey(status.ownershipReason))
+      : t('errors.integration.statusUnavailable');
   const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
 
   const [apiKey, setApiKey] = useState('');

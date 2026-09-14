@@ -436,7 +436,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             };
             if (invalidateSavedLogin)
             {
-                if (_steamAuthRepository.UpdateAuthData(_sessionAuthVersion, update) is null) return false;
+                if (_steamAuthRepository.TryUpdateAuth(_sessionAuthVersion, update) is null) return false;
             }
             else _steamAuthRepository.UpdateAuthData(update);
             if (cleared && invalidateSavedLogin && credential!.Value.Owner is Guid owner

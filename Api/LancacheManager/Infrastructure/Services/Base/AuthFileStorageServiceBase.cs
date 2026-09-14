@@ -118,7 +118,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         if (!caller.AuthenticationEnabled) caller = new(null, null, false);
         lock (_lock)
         {
-            var auth = GetAuthData(repair: false);
+            var auth = ReadAuth(repair: false);
             var owner = GetOwnerAccountId(auth);
             if (caller.AuthenticationEnabled && (caller.AccountId is null || caller.SessionId is null))
                 return new(false, false, false, false, false, "account-required");
@@ -151,7 +151,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             {
                 var access = GetIntegrationAccess(caller);
                 if (!access.CanSignIn && !(recover && access.CanRecover))
-                    IntegrationLease.Refuse(access.OwnershipReason ?? "login-in-progress");
+                    IntegrationLease.Refuse(access.OwnershipReason);
                 if (attemptId == Guid.Empty) IntegrationLease.Refuse("attempt-required");
                 var id = attemptId ?? Guid.NewGuid();
                 if (!_usedAttempts.Add(id)) IntegrationLease.Refuse("attempt-expired");
@@ -203,7 +203,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             {
                 var access = GetIntegrationAccess(caller);
                 if (!access.CanManage || access.OwnershipReason is not null)
-                    IntegrationLease.Refuse(access.OwnershipReason ?? "integration-sign-in-required");
+                    IntegrationLease.Refuse(access.OwnershipReason);
                 action();
             }
         }
@@ -270,7 +270,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         lock (_lock) return !_releasing && (_pendingLogin is null || _pendingLogin.ExpiresAtUtc <= DateTime.UtcNow) && _version == version;
     }
 
-    public long? UpdateAuthData(long expectedVersion, Action<TAuthData> updater, Action? committed = null, IntegrationLease? lease = null)
+    public long? TryUpdateAuth(long expectedVersion, Action<TAuthData> updater, Action? committed = null, IntegrationLease? lease = null)
     {
         lock (_lock)
         {
@@ -293,7 +293,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         }
     }
 
-    public bool InvalidateAuthData(long expectedVersion, Action? invalidated = null, IntegrationLease? lease = null)
+    public bool TryInvalidateAuth(long expectedVersion, Action? invalidated = null, IntegrationLease? lease = null)
     {
         lock (_lock)
         {
@@ -314,7 +314,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             {
                 var shared = GetIntegrationAccess(caller);
                 if (!shared.CanManage || shared.OwnershipReason is not null) return shared.OwnershipReason;
-                return HasCredentials(GetAuthData(repair: false)) ? null : "integration-sign-in-required";
+                return HasCredentials(ReadAuth(repair: false)) ? null : "integration-sign-in-required";
             }
             if (caller.AccountId is null) return "account-required";
             var access = GetIntegrationAccess(caller);
@@ -397,7 +397,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                 if (caller is not null)
                 {
                     var access = GetIntegrationAccess(caller);
-                    if (!access.CanLogout) IntegrationLease.Refuse(access.OwnershipReason ?? "integration-sign-in-required");
+                    if (!access.CanLogout) IntegrationLease.Refuse(access.OwnershipReason);
                 }
                 _releasing = true;
                 _releaseVersion++;
@@ -482,9 +482,9 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         }
     }
 
-    public TAuthData GetAuthData() => GetAuthData(repair: true);
+    public TAuthData GetAuthData() => ReadAuth(repair: true);
 
-    private TAuthData GetAuthData(bool repair)
+    private TAuthData ReadAuth(bool repair)
     {
         lock (_lock)
         {

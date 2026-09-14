@@ -10,7 +10,7 @@ import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
-import { integrationReasonKeys } from '../../../../types';
+import { getIntegrationReasonKey } from '../../../../types';
 
 interface EpicDaemonStatusProps {
   authMode: AuthMode;
@@ -114,7 +114,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
 
   const isAuthenticated = authStatus?.canManage === true && authStatus.isAuthenticated;
   const reason = authStatus?.ownershipReason
-    ? t(integrationReasonKeys[authStatus.ownershipReason] ?? 'errors.integration.statusUnavailable')
+    ? t(getIntegrationReasonKey(authStatus.ownershipReason))
     : authStatus
       ? null
       : t('errors.integration.statusUnavailable');

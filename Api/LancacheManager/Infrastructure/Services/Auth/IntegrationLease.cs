@@ -55,8 +55,11 @@ public sealed class IntegrationLease : IDisposable, IAsyncDisposable
         return new(authenticationEnabled ? session?.AccountId : null, authenticationEnabled ? session?.Id : null, authenticationEnabled, ownsInstallation);
     }
 
-    public static void Refuse(string reason)
+    public static void Refuse(string? reason)
     {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new InvalidOperationException("Integration access was refused without a reason.");
+
         var stageKey = reason switch
         {
             "account-required" => "errors.integration.accountRequired",

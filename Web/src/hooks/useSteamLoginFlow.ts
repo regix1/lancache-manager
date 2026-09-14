@@ -5,7 +5,7 @@ import { NOTIFICATION_IDS, useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
-import { integrationReasonKeys, type IntegrationAccess } from '../types';
+import { getIntegrationReasonKey, type IntegrationAccess } from '../types';
 import { STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
@@ -276,10 +276,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         : integration.access?.canSignIn !== true && integration.access?.canRecover !== true)
     ) {
       setError(
-        t(
-          integrationReasonKeys[integration.access?.ownershipReason ?? ''] ??
-            'errors.integration.statusUnavailable'
-        )
+        integration.access
+          ? t(getIntegrationReasonKey(integration.access.ownershipReason))
+          : t('errors.integration.statusUnavailable')
       );
       return false;
     }

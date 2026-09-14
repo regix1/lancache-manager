@@ -8,7 +8,7 @@ import { useReconnectRefetch } from './useReconnectRefetch';
 import { useAuth } from '@contexts/useAuth';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
-import { integrationReasonKeys, type XboxMappingAuthStatus } from '../types';
+import { getIntegrationReasonKey, type XboxMappingAuthStatus } from '../types';
 import type { XboxMappingAuthStateChangedEvent } from '../contexts/SignalRContext/types';
 
 interface UseXboxMappingAuthOptions {
@@ -282,10 +282,9 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       return;
     if (authStatus?.canSignIn !== true && authStatus?.canRecover !== true) {
       setError(
-        t(
-          integrationReasonKeys[authStatus?.ownershipReason ?? ''] ??
-            'errors.integration.statusUnavailable'
-        )
+        authStatus
+          ? t(getIntegrationReasonKey(authStatus.ownershipReason))
+          : t('errors.integration.statusUnavailable')
       );
       return;
     }

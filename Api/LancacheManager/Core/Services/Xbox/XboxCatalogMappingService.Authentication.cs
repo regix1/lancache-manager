@@ -142,11 +142,11 @@ public partial class XboxCatalogMappingService
             if (!_authStorage.RunIntegrationLogin(login, () =>
             {
                 _loginAttempt = login;
-                var authData = login.AccountId is { } accountId
+                var credentials = login.AccountId is { } accountId
                     ? _authStorage.GetSavedLogin(accountId)
                     : new XboxAuthData();
-                signer = !string.IsNullOrEmpty(authData.DeviceKeyPkcs8)
-                    ? XblRequestSigner.FromPkcs8Base64(authData.DeviceKeyPkcs8)
+                signer = !string.IsNullOrEmpty(credentials.DeviceKeyPkcs8)
+                    ? XblRequestSigner.FromPkcs8Base64(credentials.DeviceKeyPkcs8)
                     : XblRequestSigner.CreateNew();
             })) throw new OperationCanceledException();
 
@@ -222,7 +222,7 @@ public partial class XboxCatalogMappingService
                     XboxAwaitingSignInStageKey,
                     "Waiting for Microsoft sign-in...");
 
-                msaToken = await _authClient.PollForTokenAsync(deviceCode, reporter.Token, login.ExpiresAtUtc);
+                msaToken = await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, reporter.Token);
             }
             finally
             {
@@ -458,7 +458,7 @@ public partial class XboxCatalogMappingService
             {
                 var msaToken = await _authClient.RefreshAccessTokenAsync(snapshot.Auth.RefreshToken, ct);
                 ct.ThrowIfCancellationRequested();
-                _authStorage.UpdateAuthData(snapshot.Version, auth =>
+                _authStorage.TryUpdateAuth(snapshot.Version, auth =>
                 {
                     if (!string.IsNullOrEmpty(msaToken.RefreshToken)) auth.RefreshToken = msaToken.RefreshToken;
                     auth.LastAuthenticated = DateTime.UtcNow;
@@ -475,7 +475,7 @@ public partial class XboxCatalogMappingService
             catch (ValidationException ex)
             {
                 _logger.LogWarning(ex, "Xbox refresh token was rejected");
-                _authStorage.InvalidateAuthData(snapshot.Version, () =>
+                _authStorage.TryInvalidateAuth(snapshot.Version, () =>
                 {
                     SetIsAuthenticated(false);
                     _displayName = null;
@@ -496,21 +496,21 @@ public partial class XboxCatalogMappingService
     {
         var snapshot = _authStorage.GetIntegrationSnapshot();
         var version = snapshot.Version;
-        var authData = snapshot.Auth;
-        if (string.IsNullOrEmpty(authData.RefreshToken) || string.IsNullOrEmpty(authData.DeviceKeyPkcs8)
+        var credentials = snapshot.Auth;
+        if (string.IsNullOrEmpty(credentials.RefreshToken) || string.IsNullOrEmpty(credentials.DeviceKeyPkcs8)
             || !_authStorage.IsIntegrationCurrent(version)) return 0;
         XblRequestSigner? signer = null;
         try
         {
-            var msaToken = await _authClient.RefreshAccessTokenAsync(authData.RefreshToken, ct);
+            var msaToken = await _authClient.RefreshAccessTokenAsync(credentials.RefreshToken, ct);
             ct.ThrowIfCancellationRequested();
-            var updated = _authStorage.UpdateAuthData(version, auth =>
+            var updated = _authStorage.TryUpdateAuth(version, auth =>
             {
                 if (!string.IsNullOrEmpty(msaToken.RefreshToken)) auth.RefreshToken = msaToken.RefreshToken;
             });
             if (updated is null) return 0;
             version = updated.Value;
-            signer = XblRequestSigner.FromPkcs8Base64(authData.DeviceKeyPkcs8);
+            signer = XblRequestSigner.FromPkcs8Base64(credentials.DeviceKeyPkcs8);
             var harvest = await _authClient.HarvestCatalogAsync(msaToken.AccessToken!, signer, ct);
             ct.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationCurrent(version)) return 0;
@@ -520,7 +520,7 @@ public partial class XboxCatalogMappingService
             await _authSessionLock.WaitAsync(ct);
             try
             {
-                _authStorage.UpdateAuthData(version, auth =>
+                _authStorage.TryUpdateAuth(version, auth =>
                 {
                     auth.LastAuthenticated = DateTime.UtcNow;
                     auth.GamesDiscovered = harvest.CdnInfos.Count;
@@ -542,7 +542,7 @@ public partial class XboxCatalogMappingService
         catch (ValidationException ex)
         {
             _logger.LogWarning(ex, "Xbox refresh token was rejected");
-            _authStorage.InvalidateAuthData(version, () => SetIsAuthenticated(false));
+            _authStorage.TryInvalidateAuth(version, () => SetIsAuthenticated(false));
             return 0;
         }
         catch (Exception ex)

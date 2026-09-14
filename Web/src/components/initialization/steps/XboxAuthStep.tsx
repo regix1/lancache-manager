@@ -7,7 +7,7 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
-import { integrationReasonKeys } from '../../../types';
+import { getIntegrationReasonKey } from '../../../types';
 
 interface XboxAuthStepProps {
   onComplete: () => void;
@@ -41,10 +41,7 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
     succeeded === identity || (authStatus?.canManage === true && authStatus.isAuthenticated);
   const reason =
     state.canAuthenticate === false
-      ? t(
-          integrationReasonKeys[state.ownershipReason ?? ''] ??
-            'errors.integration.statusUnavailable'
-        )
+      ? t(getIntegrationReasonKey(state.ownershipReason))
       : state.recovering
         ? t('errors.integration.recovery')
         : null;

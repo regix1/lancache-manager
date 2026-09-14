@@ -94,7 +94,7 @@ import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useSteamAuth } from '@contexts/useSteamAuth';
-import { integrationReasonKeys } from '../../../../../types';
+import { getIntegrationReasonKey } from '../../../../../types';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
@@ -1645,10 +1645,9 @@ export function ScheduledPrefillConfigModal({
         loadingIntegrationLoginAvailability
       ) {
         setPersistentError(
-          t(
-            integrationReasonKeys[availability?.reason ?? ''] ??
-              'errors.integration.statusUnavailable'
-          )
+          availability
+            ? t(getIntegrationReasonKey(availability.reason))
+            : t('errors.integration.statusUnavailable')
         );
         return;
       }

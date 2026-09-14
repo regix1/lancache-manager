@@ -284,7 +284,7 @@ public partial class EpicMappingService
                     snapshot.Auth.RefreshToken!,
                     cancellationToken);
                 EnsureCurrent();
-                var updated = _authStorage.UpdateAuthData(version, auth =>
+                var updated = _authStorage.TryUpdateAuth(version, auth =>
                 {
                     auth.RefreshToken = tokens.RefreshToken;
                     auth.DisplayName = tokens.DisplayName;
@@ -305,7 +305,7 @@ public partial class EpicMappingService
             }
             catch (ValidationException ex)
             {
-                _authStorage.InvalidateAuthData(version, () =>
+                _authStorage.TryInvalidateAuth(version, () =>
                 {
                     SetIsAuthenticated(false);
                     _displayName = null;
@@ -409,7 +409,7 @@ public partial class EpicMappingService
         }
 
         EnsureCurrent();
-        if (_authStorage.UpdateAuthData(version, auth => auth.LastAuthenticated = DateTime.UtcNow,
+        if (_authStorage.TryUpdateAuth(version, auth => auth.LastAuthenticated = DateTime.UtcNow,
             () => _lastRefreshTime = DateTime.UtcNow) is null) throw new OperationCanceledException();
         _currentProgressPercent = 99;
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new

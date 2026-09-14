@@ -73,15 +73,13 @@ public class DaemonSession
     public Guid? LoginOperationId { get; set; }
 
     /// <summary>
-    /// UTC time the tracked login attempt started, or null when no login is being tracked. The
-    /// abandoned-login sweep needs a deadline it can trust: the challenge's own
-    /// <see cref="CredentialChallenge.ExpiresAt"/> is preferred when the daemon sent one, but a daemon
-    /// that never challenged (or sent no expiry) leaves nothing to compare against, so the sweep falls
-    /// back to this plus the configured cap. Written and cleared alongside
+    /// Absolute UTC deadline for the tracked login attempt, or null when no login is being tracked.
+    /// A daemon challenge replaces it with the provider's deadline when one is supplied. Written and
+    /// cleared alongside
     /// <see cref="LoginOperationId"/>. Transient - not persisted, not part of
     /// <see cref="DaemonSessionDto"/>.
     /// </summary>
-    public DateTime? LoginStartedAtUtc { get; set; }
+    public DateTime? LoginExpiresAtUtc { get; set; }
 
     /// <summary>
     /// The <see cref="CredentialChallenge.ChallengeId"/> of the login challenge most recently answered via

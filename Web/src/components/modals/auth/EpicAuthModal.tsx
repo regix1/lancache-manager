@@ -10,7 +10,7 @@ import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
-import { integrationReasonKeys } from '../../../types';
+import { getIntegrationReasonKey } from '../../../types';
 
 interface EpicAuthModalProps {
   opened: boolean;
@@ -128,10 +128,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
         )}
         {state.canAuthenticate === false && (
           <p className="text-sm text-themed-secondary">
-            {t(
-              integrationReasonKeys[state.ownershipReason ?? ''] ??
-                'errors.integration.statusUnavailable'
-            )}
+            {t(getIntegrationReasonKey(state.ownershipReason))}
           </p>
         )}
         <LoginSteps

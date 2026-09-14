@@ -90,7 +90,7 @@ public class LoginResponse
     public DateTime ExpiresAt { get; set; }
 }
 
-public class SessionDto
+public class SessionRecord
 {
     public Guid Id { get; set; }
 

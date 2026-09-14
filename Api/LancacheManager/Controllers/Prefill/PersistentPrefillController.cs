@@ -709,7 +709,7 @@ public class PersistentPrefillController : ControllerBase
         if (caller is not null)
         {
             var availability = daemon!.GetIntegrationLoginAvailability(caller.AccountId, caller);
-            if (!availability.Available) IntegrationLease.Refuse(availability.Reason ?? "no-saved-login");
+            if (!availability.Available) IntegrationLease.Refuse(availability.Reason);
         }
         var editActionError = BeginEditAction(
             daemon!,

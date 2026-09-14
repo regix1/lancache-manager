@@ -42,7 +42,7 @@ export default {useState,useRef,useEffect};
 `);
 const { createComponent } = await import(reactUrl);
 const reasonUrl = await compileToUrl('../src/types.ts');
-const { integrationReasonKeys } = await import(reasonUrl);
+const { getIntegrationReasonKey, integrationReasonKeys } = await import(reasonUrl);
 const apiErrorUrl = moduleUrl(
   'export class ApiError extends Error { constructor(body){super("refused");this.body=body;} } export const assertOk=async response=>{if(!response.ok)throw new ApiError({stageKey:"errors.integration.statusUnavailable"});};'
 );
@@ -508,6 +508,7 @@ test('saved-login reuse refusal happens before any edit or persistent login muta
       visibleIntegrationLoginAvailabilityByService: new Map([
         ['steam', { available: false, reason }]
       ]),
+      getIntegrationReasonKey,
       integrationReasonKeys,
       setPersistentError: (value) => {
         error = value;
@@ -592,7 +593,7 @@ test('all integration modal submissions and provider links refuse disabled actio
     assert.match(source, /disabled=\{[^}]*state\.canAuthenticate === false/);
     assert.match(source, /const handleSoftClose = onClose/);
     assert.match(source, /onClose=\{isKeepPending \? handleSoftClose : handleCloseModal\}/);
-    assert.match(source, /errors\.integration\.statusUnavailable/);
+    assert.match(source, /getIntegrationReasonKey\(state\.ownershipReason\)/);
   }
   let opens = 0;
   for (const [platform, name] of [
@@ -748,6 +749,7 @@ test(
       Button,
       SegmentedControl,
       LoadingSpinner,
+      getIntegrationReasonKey,
       integrationReasonKeys,
       useEffect: noop,
       useRef: (value) => ({ current: value }),

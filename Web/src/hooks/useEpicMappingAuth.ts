@@ -10,7 +10,7 @@ import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
-import { integrationReasonKeys, type EpicMappingAuthStatus } from '../types';
+import { getIntegrationReasonKey, type EpicMappingAuthStatus } from '../types';
 
 interface UseEpicMappingAuthOptions {
   onSuccess?: () => void;
@@ -215,10 +215,9 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       return;
     if (authStatus?.canSignIn !== true && authStatus?.canRecover !== true) {
       setError(
-        t(
-          integrationReasonKeys[authStatus?.ownershipReason ?? ''] ??
-            'errors.integration.statusUnavailable'
-        )
+        authStatus
+          ? t(getIntegrationReasonKey(authStatus.ownershipReason))
+          : t('errors.integration.statusUnavailable')
       );
       return;
     }

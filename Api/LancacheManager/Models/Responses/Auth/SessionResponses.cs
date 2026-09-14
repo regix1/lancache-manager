@@ -6,13 +6,13 @@ namespace LancacheManager.Models;
 /// </summary>
 public class SessionListResponse
 {
-    public List<SessionDto> Sessions { get; set; } = new();
+    public List<SessionRecord> Sessions { get; set; } = new();
     public int Count { get; set; }
     public int AdminCount { get; set; }
     public int UserCount { get; set; }
     public int GuestCount { get; set; }
     public required SessionListPage Pagination { get; set; }
-    public List<SessionDto> HistorySessions { get; set; } = new();
+    public List<SessionRecord> HistorySessions { get; set; } = new();
 }
 
 /// <summary>Pagination block nested inside <see cref="SessionListResponse"/>.</summary>

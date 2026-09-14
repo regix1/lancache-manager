@@ -729,19 +729,19 @@ public sealed class EndpointAuthorizationContractTests
             .Value
             .JsonSerializerOptions;
 
-        var absent = JsonSerializer.Serialize(new SessionDto { Id = Guid.NewGuid() }, serializerOptions);
+        var absent = JsonSerializer.Serialize(new SessionRecord { Id = Guid.NewGuid() }, serializerOptions);
         Assert.DoesNotContain("accountId", absent, StringComparison.Ordinal);
         Assert.DoesNotContain("username", absent, StringComparison.Ordinal);
         Assert.Contains("\"accountDeleted\":false", absent, StringComparison.Ordinal);
 
         var present = JsonSerializer.Serialize(
-            new SessionDto { Id = Guid.NewGuid(), Username = "visible-account" },
+            new SessionRecord { Id = Guid.NewGuid(), Username = "visible-account" },
             serializerOptions);
         Assert.DoesNotContain("accountId", present, StringComparison.Ordinal);
         Assert.Contains("\"username\":\"visible-account\"", present, StringComparison.Ordinal);
 
         var deleted = JsonSerializer.Serialize(
-            new SessionDto { Id = Guid.NewGuid(), AccountDeleted = true },
+            new SessionRecord { Id = Guid.NewGuid(), AccountDeleted = true },
             serializerOptions);
         Assert.DoesNotContain("accountId", deleted, StringComparison.Ordinal);
         Assert.DoesNotContain("username", deleted, StringComparison.Ordinal);
@@ -1530,8 +1530,8 @@ internal sealed class EndpointAuthorizationHost : IDisposable
             const string password = "Endpoint-Contract-9";
             string username;
 
-            var dbContextFactory = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-            await using (var context = await dbContextFactory.CreateDbContextAsync())
+            var contexts = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            await using (var context = await contexts.CreateDbContextAsync())
             {
                 var owner = await context.UserAccounts.SingleOrDefaultAsync(account => account.IsMainAdmin);
                 if (owner == null)
@@ -1615,8 +1615,8 @@ internal sealed class EndpointAuthorizationHost : IDisposable
     {
         const string password = "Endpoint-Contract-9";
 
-        var dbContextFactory = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-        await using var context = await dbContextFactory.CreateDbContextAsync();
+        var contexts = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var context = await contexts.CreateDbContextAsync();
         var mainAdmin = !await context.UserAccounts.AnyAsync(candidate => candidate.IsMainAdmin);
         var account = new UserAccount
         {

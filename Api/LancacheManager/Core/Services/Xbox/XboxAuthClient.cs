@@ -81,7 +81,10 @@ public class XboxAuthClient
     /// <c>authorization_pending</c> (keep polling) and <c>slow_down</c> (increase interval); any other
     /// error is fatal. Times out at the device code's <c>expires_in</c> deadline.
     /// </summary>
-    internal async Task<XboxMsaTokenResponse> PollForTokenAsync(XboxDeviceCodeResponse deviceCode, CancellationToken ct = default, DateTime? expiresAtUtc = null)
+    internal async Task<XboxMsaTokenResponse> PollForTokenAsync(
+        XboxDeviceCodeResponse deviceCode,
+        DateTime expiresAtUtc,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(deviceCode.DeviceCode))
         {
@@ -89,7 +92,7 @@ public class XboxAuthClient
         }
 
         var interval = TimeSpan.FromSeconds(Math.Max(deviceCode.Interval, 1));
-        var deadline = expiresAtUtc is { } expiry ? new DateTimeOffset(expiry) : DateTimeOffset.UtcNow.AddSeconds(deviceCode.ExpiresIn > 0 ? deviceCode.ExpiresIn : 900);
+        var deadline = new DateTimeOffset(expiresAtUtc);
 
         while (DateTimeOffset.UtcNow < deadline)
         {

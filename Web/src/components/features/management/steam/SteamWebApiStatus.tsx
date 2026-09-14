@@ -14,7 +14,7 @@ import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ApiError } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
-import { integrationReasonKeys } from '../../../../types';
+import { getIntegrationReasonKey } from '../../../../types';
 
 const SteamWebApiStatus: React.FC = () => {
   const { t } = useTranslation();
@@ -150,10 +150,9 @@ const SteamWebApiStatus: React.FC = () => {
       <div className="steam-integration">
         {!canManage && (
           <p className="text-sm text-themed-muted" role="status">
-            {t(
-              integrationReasonKeys[status?.ownershipReason ?? ''] ??
-                'errors.integration.statusUnavailable'
-            )}
+            {status
+              ? t(getIntegrationReasonKey(status.ownershipReason))
+              : t('errors.integration.statusUnavailable')}
           </p>
         )}
         <div className="steam-integration__subhead">

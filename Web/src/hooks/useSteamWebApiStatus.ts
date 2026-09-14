@@ -82,9 +82,9 @@ export const useSteamWebApiStatusState = () => {
 
         await assertOk(response);
 
-        const data: SteamWebApiStatus = await response.json();
+        const statusResponse: SteamWebApiStatus = await response.json();
         if (!current()) return;
-        setStatus(data);
+        setStatus(statusResponse);
         setStatusIdentity(identity);
       } catch (err: unknown) {
         if (!current()) return;

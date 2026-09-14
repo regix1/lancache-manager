@@ -52,10 +52,15 @@ const components = Object.fromEntries(
     'ChevronDown'
   ].map((name) => [name, name])
 );
+const integrationReasonKeys = {
+  'account-required': 'errors.integration.accountRequired',
+  'no-saved-login': 'errors.integration.noSavedLogin'
+};
 const bindings = {
-  integrationReasonKeys: {
-    'account-required': 'errors.integration.accountRequired',
-    'no-saved-login': 'errors.integration.noSavedLogin'
+  integrationReasonKeys,
+  getIntegrationReasonKey: (reason) => {
+    if (!(reason in integrationReasonKeys)) throw new Error('Unrecognized integration reason');
+    return integrationReasonKeys[reason];
   },
   supportsConcurrentPrefill,
   canStartPrefill,

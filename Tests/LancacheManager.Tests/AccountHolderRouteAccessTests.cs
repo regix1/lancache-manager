@@ -180,8 +180,8 @@ public sealed class AccountHolderRouteAccessTests
         var adminSessionId = adminStatus.GetProperty("sessionId").GetGuid();
         var userSessionId = await SessionIdAsync(userClient);
 
-        var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-        await using var context = await factory.CreateDbContextAsync();
+        var contexts = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var context = await contexts.CreateDbContextAsync();
         var usernames = await context.UserAccounts
             .Where(account => account.Id == adminAccountId || account.Id == userAccountId)
             .ToDictionaryAsync(account => account.Id, account => account.Username);
@@ -464,10 +464,10 @@ public sealed class AccountHolderRouteAccessTests
     {
         using var scope = host.Application.Services.CreateScope();
         var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
-        var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        var contexts = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
         UserAccount adminAccount;
         var userAccount = NewAccount();
-        await using (var context = await factory.CreateDbContextAsync())
+        await using (var context = await contexts.CreateDbContextAsync())
         {
             adminAccount = await context.UserAccounts.SingleOrDefaultAsync(account => account.IsMainAdmin)
                 ?? NewAccount(mainAdmin: true);

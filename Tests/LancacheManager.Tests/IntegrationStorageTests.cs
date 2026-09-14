@@ -370,7 +370,7 @@ public sealed class IntegrationStorageTests
         dispatch.Dispose();
         await using var release = await releasing.WaitAsync(TimeSpan.FromSeconds(2));
         fixture.Storage.CompleteIntegrationRelease(release);
-        Assert.Null(fixture.Storage.UpdateAuthData(snapshot.Version, auth => auth.RefreshToken = "late"));
+        Assert.Null(fixture.Storage.TryUpdateAuth(snapshot.Version, auth => auth.RefreshToken = "late"));
         Assert.Null(fixture.Storage.GetAuthData().OwnerAccountId);
         Assert.Equal("token", fixture.Storage.GetSavedLogin(fixture.Owner.AccountId!.Value).RefreshToken);
     }

@@ -11,7 +11,7 @@ import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { useAuth } from '@contexts/useAuth';
-import { integrationReasonKeys } from '../../../types';
+import { getIntegrationReasonKey } from '../../../types';
 
 interface SteamPicsAuthStepProps {
   onComplete: (usingSteamAuth: boolean) => void;
@@ -102,10 +102,9 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
       <div className="space-y-5">
         {(!access || access.ownershipReason) && (
           <p className="text-sm text-themed-muted" role="status">
-            {t(
-              integrationReasonKeys[access?.ownershipReason ?? ''] ??
-                'errors.integration.statusUnavailable'
-            )}
+            {access
+              ? t(getIntegrationReasonKey(access.ownershipReason))
+              : t('errors.integration.statusUnavailable')}
           </p>
         )}
         <StepHeader

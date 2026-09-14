@@ -920,8 +920,16 @@ export const integrationReasonKeys: Readonly<Record<string, string>> = {
   'main-owner-required': 'errors.integration.mainOwnerRequired',
   'integration-sign-in-required': 'errors.integration.signInRequired',
   'no-saved-login': 'errors.integration.noSavedLogin',
-  'not-supported': 'errors.integration.notSupported'
+  'not-supported': 'errors.integration.notSupported',
+  unknown: 'errors.integration.statusUnavailable'
 };
+
+export function getIntegrationReasonKey(reason: string | null | undefined): string {
+  if (!reason || !Object.prototype.hasOwnProperty.call(integrationReasonKeys, reason)) {
+    throw new Error('Integration access response did not include a recognized reason');
+  }
+  return integrationReasonKeys[reason];
+}
 
 export interface EpicMappingAuthStatus extends IntegrationAccess {
   isAuthenticated: boolean;

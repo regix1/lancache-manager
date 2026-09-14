@@ -41,7 +41,7 @@ public sealed class EpicIntegrationOwnershipTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task DurableOwnerRefusesAnotherAccountBeforeAnyProviderRequest(bool usable)
+    public async Task DurableOwnerRefusesAnotherAccountBeforeAnyRemoteRequest(bool usable)
     {
         using var fixture = new Fixture();
         fixture.Storage.SaveAuthData(new EpicAuthData

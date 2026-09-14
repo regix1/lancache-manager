@@ -10,7 +10,7 @@ import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
-import { integrationReasonKeys } from '../../../types';
+import { getIntegrationReasonKey } from '../../../types';
 
 interface SteamAuthModalProps {
   opened: boolean;
@@ -218,10 +218,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
         )}
         {state.canAuthenticate === false && (
           <p className="text-sm text-themed-secondary" role="status">
-            {t(
-              integrationReasonKeys[state.ownershipReason ?? ''] ??
-                'errors.integration.statusUnavailable'
-            )}
+            {t(getIntegrationReasonKey(state.ownershipReason))}
           </p>
         )}
         <LoginSteps

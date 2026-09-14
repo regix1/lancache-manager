@@ -178,7 +178,9 @@ const { useXboxMappingAuth } = await import(
     ),
     '@services/apiError': toUrl('export class ApiError extends Error {}'),
     '@utils/uuid': toUrl("export const createUuid = () => 'attempt-a';"),
-    '../types': toUrl('export const integrationReasonKeys = {};'),
+    '../types': toUrl(
+      "export const integrationReasonKeys = {}; export const getIntegrationReasonKey = reason => { throw new Error('Unrecognized integration reason: ' + reason); };"
+    ),
     '@utils/error': errorUtilStubUrl
   })
 );

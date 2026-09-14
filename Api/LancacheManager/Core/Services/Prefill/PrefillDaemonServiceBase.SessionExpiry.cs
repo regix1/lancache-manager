@@ -144,9 +144,8 @@ public abstract partial class PrefillDaemonServiceBase
         // who opens the sign-in and closes the tab leaves the session sitting in LoggingIn with a card on
         // the bar that nothing ever clears. Re-reads _sessions fresh for the same reason the stall phase
         // above does: the phases before this one can remove entries mid-tick.
-        var abandonedLoginTimeout = TimeSpan.FromSeconds(GetAbandonedLoginTimeoutSeconds());
         var abandonedLogins = _sessions.Values
-            .Where(s => PrefillSessionExpiryGates.ShouldCancelAbandonedLogin(s, nowUtc, abandonedLoginTimeout))
+            .Where(s => PrefillSessionExpiryGates.ShouldCancelAbandonedLogin(s, nowUtc))
             .ToList();
 
         async Task ProcessAbandonedLoginAsync(DaemonSession session)
