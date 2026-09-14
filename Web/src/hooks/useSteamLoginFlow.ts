@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
-import { NOTIFICATION_IDS, useNotifications } from '@contexts/notifications';
+import { useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
 import { getIntegrationReasonKey, type IntegrationAccess } from '../types';
 import { STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
-import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
 interface SteamLoginFlowOptions {
@@ -20,14 +19,6 @@ interface SteamLoginFlowOptions {
   onSuccess?: (message: string) => void;
   onError?: (message: string) => void;
   getExtraRequestBody?: () => Record<string, unknown>;
-  /**
-   * Surfaces the login lifecycle (waiting for sign-in / Steam Guard step / signed in / cancelled /
-   * failed) as one universal-notification card, mirroring the Xbox and Epic mapping logins on the
-   * Integrations page. Opt-in because this hook is also used by the setup wizard, where the
-   * notification bar is not part of the flow. When enabled, submit failures settle this card
-   * instead of raising the separate generic error toast.
-   */
-  loginStatusNotifications?: boolean;
 }
 
 interface SteamLoginApiResult {
@@ -74,14 +65,7 @@ function buildSteamOnlyState(
 }
 
 export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
-  const {
-    loginUrl,
-    onSuccess,
-    onError,
-    getExtraRequestBody,
-    integration,
-    loginStatusNotifications = false
-  } = options;
+  const { loginUrl, onSuccess, onError, getExtraRequestBody, integration } = options;
   const { t } = useTranslation();
   const identityRef = useRef(integration?.identity);
   identityRef.current = integration?.identity;
@@ -99,65 +83,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       integration.access?.canSignIn === true ||
       integration.access?.canRecover === true ||
       (integration.access?.canCancel === true && integration.access.attemptId === attemptId));
-  const { addNotification, updateNotification, removeNotification, scheduleAutoDismiss } =
-    useNotifications();
+  const { addNotification } = useNotifications();
 
-  // Id of the login-status card while a login this hook started is still live. The card is the
-  // depot_mapping singleton, the same one the PICS rebuild drives after a successful sign-in, so
-  // one card covers the whole flow; null once the card settled (signed in/cancelled/failed).
-  const loginCardIdRef = useRef<string | null>(null);
-
-  const upsertLoginCard = (message: string): void => {
-    if (!loginStatusNotifications) {
-      return;
-    }
-    if (loginCardIdRef.current) {
-      updateNotification(loginCardIdRef.current, { status: 'running', message });
-    } else {
-      // A terminal card on this singleton id - the previous attempt this hook settled, or a depot
-      // mapping run that just finished - makes addNotification refuse to seed a running card over
-      // it for a few seconds. Signing in again straight after cancelling is ordinary, so drop the
-      // old card first; otherwise the new sign-in, which can wait minutes for a mobile
-      // confirmation, shows nothing at all.
-      removeNotification(NOTIFICATION_IDS.DEPOT_MAPPING);
-      loginCardIdRef.current = addNotification({
-        type: 'depot_mapping',
-        status: 'running',
-        message,
-        details: { serviceKey: 'depotMapping' }
-      });
-    }
-  };
-
-  const settleLoginCard = (
-    status: 'completed' | 'failed',
-    message: string,
-    variant: NotificationVariant,
-    cancelled = false
-  ): void => {
-    const id = loginCardIdRef.current;
-    if (!id) {
-      return;
-    }
-    loginCardIdRef.current = null;
-    updateNotification(id, {
-      status,
-      message,
-      details: { notificationType: variant, cancelled, serviceKey: 'depotMapping' }
-    });
-    scheduleAutoDismiss(id);
-  };
-
-  /** Failure surface: settles the login card when one is live, else the plain error toast. */
   const notifyLoginFailure = (message: string): void => {
-    if (loginCardIdRef.current) {
-      settleLoginCard(
-        'failed',
-        t('signalr.steamLogin.signInFailed', { errorDetail: message }),
-        'error'
-      );
-      return;
-    }
     addNotification({
       type: 'generic',
       status: 'failed',
@@ -191,17 +119,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     };
   }, [abortController]);
 
-  // Unmount with a login still live (tab switched away mid-flow): the abort effect above kills the
-  // request silently, which would leave the status card spinning forever - settle it as cancelled.
-  // cancelled:true renders the card red + XCircle (same contract as Xbox's terminal cancel) while
-  // status stays 'completed' so scheduleAutoDismiss still fires.
-  useEffect(() => {
-    return () => {
-      settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning', true);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const cancelPendingRequest = () => {
     requestRef.current += 1;
     busyRef.current = false;
@@ -216,10 +133,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     if (attemptRef.current) cancelledAttemptRef.current = attemptRef.current;
     attemptRef.current = null;
     setAttemptId(null);
-    // A card still live here means the user backed out mid-flow (closed the modal during the
-    // Steam Guard step or the mobile-confirmation wait) - success/failure settle the card
-    // themselves BEFORE calling this, so this can only be a cancel.
-    settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning', true);
     cancelPendingRequest();
     setError(null);
     // The account name survives, because it was almost never the thing that was wrong. Every path
@@ -332,14 +245,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     if (willWaitForMobileConfirmation) {
       setWaitingForMobileConfirmation(true);
     }
-    upsertLoginCard(
-      t(
-        willWaitForMobileConfirmation
-          ? 'signalr.steamLogin.waitingSignIn'
-          : 'signalr.steamLogin.signingIn'
-      )
-    );
-
     let requestTimeout: ReturnType<typeof setTimeout> | null = null;
     let timedOut = false;
     try {
@@ -413,7 +318,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
           setUseManualCode(true);
-          upsertLoginCard(t('signalr.steamLogin.waitingGuardCode'));
           addNotification({
             type: 'generic',
             status: 'failed',
@@ -426,22 +330,18 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         if (result.requiresTwoFactor) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
-          upsertLoginCard(t('signalr.steamLogin.waitingGuardCode'));
           return false;
         }
 
         if (result.requiresEmailCode) {
           setWaitingForMobileConfirmation(false);
           setNeedsEmailCode(true);
-          upsertLoginCard(t('signalr.steamLogin.waitingGuardCode'));
           return false;
         }
 
         if (result.success) {
           attemptRef.current = null;
           cancelledAttemptRef.current = null;
-          // Settled BEFORE resetAuthForm below, which treats a still-live card as a cancel.
-          settleLoginCard('completed', t('signalr.steamLogin.signedIn', { username }), 'success');
           onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username }));
           resetAuthForm();
           return true;
@@ -490,21 +390,12 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         setError(errorMessage);
         onError?.(errorMessage);
       } else if (timedOut) {
-        // The request outlived the attempt window and aborted itself, so nothing else will ever
-        // settle the card and it would spin forever. The other two aborts deliberately leave the
-        // card alone: closing the modal settles it as cancelled first, and switching to manual
-        // Steam Guard entry keeps the same card for the next submit. settleLoginCard returns on
-        // its own when no card is live, which is every setup-wizard login.
         // Leave the phone-approval screen the same way a refusal does, or the panel keeps saying
         // it is waiting for an approval that can no longer arrive, with the reason underneath it.
         setWaitingForMobileConfirmation(false);
         const timedOutMessage = t('modals.steamAuth.errors.attemptTimedOut');
         setError(timedOutMessage);
-        settleLoginCard(
-          'failed',
-          t('signalr.steamLogin.signInFailed', { errorDetail: timedOutMessage }),
-          'error'
-        );
+        notifyLoginFailure(timedOutMessage);
       }
       return false;
     } finally {

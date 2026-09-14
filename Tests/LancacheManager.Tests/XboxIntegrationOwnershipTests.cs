@@ -79,9 +79,8 @@ public partial class XboxScheduledRefreshProgressTests
             Assert.Equal("replacement", harness.AuthStorage.GetAuthData().RefreshToken);
             Assert.Equal(owner.AccountId, harness.AuthStorage.GetAuthData().OwnerAccountId);
             var terminals = harness.Notifications.XboxLifecycleEvents().Where(e => e.IsTerminal).ToList();
-            Assert.Equal(2, terminals.Count);
-            Assert.Single(terminals, e => e.Status == OperationStatus.Cancelled);
-            Assert.Single(terminals, e => e.Status == OperationStatus.Completed);
+            var terminal = Assert.Single(terminals);
+            Assert.Equal(OperationStatus.Completed, terminal.Status);
         }
 
         [Fact]

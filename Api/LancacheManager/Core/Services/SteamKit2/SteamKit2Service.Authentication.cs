@@ -13,9 +13,8 @@ public partial class SteamKit2Service
     private IntegrationLogin? _loginAttempt;
 
     /// <summary>
-    /// Authenticate with Steam using username and password. The sign-in owns a tracked depot mapping
-    /// operation for its whole life, so its notification card carries a real operation id and the
-    /// cancel on the bar reaches the credentials poll.
+    /// Authenticate with Steam using username and password. Authentication remains separate from
+    /// depot mapping; a successful result may start the mapper at the controller boundary.
     ///
     /// The poll no longer takes the login request's abort signal. A mobile confirmation can wait
     /// minutes for a phone tap, and killing it because the browser went away meant the sign-in the
@@ -78,9 +77,6 @@ public partial class SteamKit2Service
                 lock (_loginOwnerLock)
                     if (_loginAttempt == login) CancelLogin();
             });
-            await reporter.StartAsync(
-                CreateDepotContext(message: "Waiting for Steam sign-in..."),
-                stageKey: "signalr.steamLogin.waitingSignIn", login: login);
             lifetime.Token.ThrowIfCancellationRequested();
             if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             var pollResult = await PollCredentialsWithRetryAsync(
@@ -94,7 +90,7 @@ public partial class SteamKit2Service
                 keepPendingLoginOwner = pollResult.Result.RequiresTwoFactor
                     || pollResult.Result.RequiresEmailCode
                     || pollResult.Result.RequiresMobileConfirmation;
-                return await CompleteLoginAsync(login, reporter, false, pollResult.Result);
+                return await CompleteLoginAsync(login, pollResult.Result);
             }
 
             await _sessionGate.WaitAsync(lifetime.Token);
@@ -139,13 +135,13 @@ public partial class SteamKit2Service
             }
             finally { _sessionGate.Release(); }
 
-            return await CompleteLoginAsync(login, reporter, false,
+            return await CompleteLoginAsync(login,
                 new AuthenticationResult { Success = true, Message = "Authentication successful" });
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Steam sign-in cancelled");
-            return await CompleteLoginAsync(login, reporter, true, new AuthenticationResult
+            return await CompleteLoginAsync(login, new AuthenticationResult
             {
                 Success = false, Message = "Sign-in was cancelled.", StageKey = "errors.steam.signInCancelled"
             });
@@ -157,7 +153,7 @@ public partial class SteamKit2Service
         catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
         {
             _logger.LogWarning(ex, "Steam authentication could not reach a usable connection");
-            return await CompleteLoginAsync(login, reporter, false, new AuthenticationResult
+            return await CompleteLoginAsync(login, new AuthenticationResult
             {
                 Success = false, Message = "Steam's servers are busy right now. Please try again.",
                 StageKey = "errors.steam.serversBusy"
@@ -166,7 +162,7 @@ public partial class SteamKit2Service
         catch (SteamLogonException ex)
         {
             if (_steamAuthRepository.IsIntegrationLoginCurrent(login)) NotifySessionError(ex);
-            return await CompleteLoginAsync(login, reporter, false, new AuthenticationResult
+            return await CompleteLoginAsync(login, new AuthenticationResult
             {
                 Success = false, Message = ex.Message, StageKey = ex.StageKey
             });
@@ -174,7 +170,7 @@ public partial class SteamKit2Service
         catch (Exception ex)
         {
             _logger.LogError(ex, "Steam authentication failed");
-            return await CompleteLoginAsync(login, reporter, false, new AuthenticationResult
+            return await CompleteLoginAsync(login, new AuthenticationResult
             {
                 Success = false, Message = "Steam sign-in could not be completed. Please try again."
             });
@@ -225,31 +221,16 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Ends the sign-in's tracked operation and stamps its id onto the outcome the caller returns.
-    /// A reporter that never started (the service was disposed mid-request) completes to nothing and
-    /// leaves the id empty, which is the honest answer: no operation was ever registered.
+    /// Stamps the owned attempt lifetime onto the outcome the caller returns. Mapping operation ids
+    /// are deliberately absent because authentication has not started a mapping run.
     /// </summary>
-    private async Task<AuthenticationResult> CompleteLoginAsync(
+    private static Task<AuthenticationResult> CompleteLoginAsync(
         IntegrationLogin login,
-        MappingOperationReporter? reporter,
-        bool cancelled,
         AuthenticationResult result)
     {
         result.AttemptId = login.AttemptId;
         result.ExpiresAtUtc = login.ExpiresAtUtc;
-        if (reporter is null)
-        {
-            return result;
-        }
-
-        var errorDetail = result.Success || cancelled ? null : result.Message;
-        await reporter.CompleteAsync(
-            success: result.Success,
-            error: errorDetail,
-            cancelled: cancelled,
-            context: CreateDepotContext(message: result.Message, errorDetail: errorDetail));
-        result.OperationId = reporter.IsStarted ? reporter.OperationId : null;
-        return result;
+        return Task.FromResult(result);
     }
 
     /// <summary>

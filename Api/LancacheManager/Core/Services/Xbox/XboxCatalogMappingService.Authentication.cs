@@ -30,7 +30,7 @@ public partial class XboxCatalogMappingService
     // auth surfaces reuse the SAME validity window as the Integrations card (single source of truth).
     public static readonly TimeSpan XboxLoginValidity = TimeSpan.FromDays(90);
 
-    /// <summary>Stage key the sign-in card and the auth-state event both carry during the approval wait.</summary>
+    /// <summary>Stage key the auth-state event carries during the approval wait.</summary>
     private const string XboxAwaitingSignInStageKey = "signalr.xbox.mapping.authenticating";
 
     // Serializes auth-state mutations so a completing login and a logout cannot interleave.
@@ -38,7 +38,7 @@ public partial class XboxCatalogMappingService
     // Serializes device requests after admission; an incumbent attempt must be cancelled explicitly.
     private readonly SemaphoreSlim _loginStartLock = new(1, 1);
 
-    // The in-flight sign-in's tracked operation, so a logout and the modal's cancel can stop it. Held
+    // The in-flight sign-in's cancellation owner, so a logout and the modal's cancel can stop it. Held
     // apart from _currentMappingReporter because a scheduled refresh writes that field too
     // (Scheduling.cs:50), and cancelling a sign-in must never stop a catalog refresh. Non-null for the
     // WHOLE attempt (approval wait plus the catalog stretch after it), which is what GetAuthStatus
@@ -98,7 +98,8 @@ public partial class XboxCatalogMappingService
     /// Starts the device-code login: requests a device code from MSA, kicks a background poll loop, and
     /// returns the <c>userCode</c>/<c>verificationUri</c> for the user to approve in their own browser.
     /// No Docker container and no prefill daemon are involved. Authentication state is emitted over
-    /// <see cref="SignalREvents.XboxMappingAuthStateChanged"/>; catalog mapping starts only after approval.
+    /// <see cref="SignalREvents.XboxMappingAuthStateChanged"/>; catalog mapping starts only after the
+    /// Xbox authentication chain and catalog fetch succeed.
     /// </summary>
     public Task<XboxDeviceCodeChallenge> StartLoginAsync(CancellationToken ct = default)
         => StartLoginAsync(null, ct);
@@ -161,7 +162,7 @@ public partial class XboxCatalogMappingService
                 UserCode = deviceCode.UserCode ?? string.Empty,
                 VerificationUri = deviceCode.VerificationUri ?? string.Empty,
                 Interval = deviceCode.Interval,
-                OperationId = reporter!.IsStarted ? reporter.OperationId : null,
+                OperationId = reporter!.OperationId,
                 AttemptId = login.AttemptId,
                 ExpiresAtUtc = login.ExpiresAtUtc
             };
@@ -185,9 +186,9 @@ public partial class XboxCatalogMappingService
     }
 
     /// <summary>
-    /// Background poll loop for a started device-code login. It holds the catalog-mapping gate and the
-    /// login's tracked operation for the whole wait; on approval it runs the full token chain + catalog
-    /// harvest, merges into the shared catalog, resolves downloads, persists credentials, and emits a
+    /// Background poll loop for a started device-code login. It holds the catalog-mapping gate for the
+    /// whole wait; on approval it runs the full token chain and catalog harvest. Only after those succeed
+    /// does it start mapping, merge the catalog, resolve downloads, persist credentials, and emit a
     /// terminal auth-state event.
     /// </summary>
     private async Task RunLoginPollAsync(
@@ -200,20 +201,11 @@ public partial class XboxCatalogMappingService
         var refreshGateHeld = false;
         try
         {
-            // The sign-in holds the gate for the whole approval wait, because it registers its XboxMapping
-            // operation before the wait and a scheduled tick registering a second one beside it would break
-            // the one-card/one-operation contract the gate exists to hold. The wait is bounded: the device
+            // The sign-in holds the gate for the whole approval wait so a scheduled refresh cannot enter
+            // while authentication is preparing the catalog it will merge. The wait is bounded: the device
             // code carries its own expiry and PollForTokenAsync stops at that deadline.
             await _refreshGate.WaitAsync(reporter.Token);
             refreshGateHeld = true;
-
-            if (!_authStorage.RunIntegrationLogin(login, () => _currentMappingReporter = reporter))
-                throw new OperationCanceledException();
-
-            // The card the user watches while approving is the one this started event creates, and it
-            // shows the started stage key, so that key is the waiting one rather than the generic
-            // starting one. The reporter's own progress events take the message over after approval.
-            await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey, login);
 
             XboxMsaTokenResponse msaToken;
             _awaitingSignIn = true;
@@ -234,11 +226,6 @@ public partial class XboxCatalogMappingService
 
             reporter.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
-            await reporter.ReportAsync(
-                25,
-                "signalr.xboxMapping.collecting",
-                CreateXboxMappingContext());
-
             var harvest = await _authClient.HarvestCatalogAsync(
                 msaToken.AccessToken!,
                 signer,
@@ -246,6 +233,9 @@ public partial class XboxCatalogMappingService
 
             reporter.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
+            if (!_authStorage.RunIntegrationLogin(login, () => _currentMappingReporter = reporter))
+                throw new OperationCanceledException();
+            await reporter.StartAsync(CreateXboxMappingContext(), login: login);
             if (harvest.CdnInfos.Count > 0)
             {
                 await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, reporter.Token);
@@ -322,10 +312,13 @@ public partial class XboxCatalogMappingService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Xbox mapping login cancelled");
-            await reporter.CompleteAsync(
-                success: false,
-                cancelled: true,
-                context: CreateXboxMappingContext());
+            if (reporter.IsStarted)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    cancelled: true,
+                    context: CreateXboxMappingContext());
+            }
 
             await EmitAuthStateAsync(
                 reporter.OperationId,
@@ -345,10 +338,13 @@ public partial class XboxCatalogMappingService
                 }
             }
 
-            await reporter.CompleteAsync(
-                success: false,
-                stageKey: ex.StageKey,
-                context: mappingContext);
+            if (reporter.IsStarted)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    stageKey: ex.StageKey,
+                    context: mappingContext);
+            }
 
             await EmitAuthStateAsync(
                 reporter.OperationId,
@@ -359,10 +355,13 @@ public partial class XboxCatalogMappingService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Xbox mapping login failed");
-            await reporter.CompleteAsync(
-                success: false,
-                error: ex.Message,
-                context: CreateXboxMappingContext(errorDetail: ex.Message));
+            if (reporter.IsStarted)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    context: CreateXboxMappingContext(errorDetail: ex.Message));
+            }
 
             await EmitAuthStateAsync(
                 reporter.OperationId,

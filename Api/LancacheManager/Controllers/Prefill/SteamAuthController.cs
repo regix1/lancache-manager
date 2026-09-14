@@ -105,9 +105,8 @@ public class SteamAuthController : ControllerBase
             {
                 _logger.LogInformation("Steam authentication successful for user: {Username}", request.Username);
 
-                // The sign-in's own operation is already finished by the time AuthenticateAsync
-                // returns, so the rebuild below is the only live depotMapping operation and the card
-                // moves straight from the sign-in to the crawl.
+                // Authentication publishes no mapping lifecycle. A successful result is the only
+                // path allowed to start the depot crawl below.
                 if (request.AutoStartPicsRebuild)
                 {
                     _logger.LogInformation("Auto-starting PICS depot mapping rebuild after login");

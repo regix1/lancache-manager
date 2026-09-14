@@ -49,7 +49,6 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
     loginDeadline,
     identity
   } = useXboxMappingAuth({
-    loginStatusNotifications: true,
     onSuccess: () => {
       setShowAuthModal(false);
       loadStatus();

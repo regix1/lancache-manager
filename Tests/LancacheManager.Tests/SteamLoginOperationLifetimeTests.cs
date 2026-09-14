@@ -16,10 +16,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// The Steam sign-in outlives the request that started it, so nothing on the request path ends its
-/// tracked operation any more. These tests pin the property that replaces that: however the sign-in
-/// ends, the operation it registered is finished before the call returns. An operation left running
-/// would leave a notification card that never clears.
+/// The Steam sign-in outlives the request that started it, but authentication is not a depot-mapping
+/// run. These tests pin that failed and cancelled sign-ins leave the login guard clear without ever
+/// registering a mapping operation.
 /// </summary>
 public sealed class SteamLoginOperationLifetimeTests : IDisposable
 {
@@ -33,17 +32,11 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         var service = CreateService(tracker);
 
         // No Steam client is wired up, so the credentials poll throws before it can reach Steam.
-        // That is the shape of every unsuccessful sign-in: the operation is registered first and
-        // something after it fails.
         var result = await service.AuthenticateAsync("account", "password");
 
         Assert.False(result.Success);
-        Assert.NotNull(result.OperationId);
+        Assert.Null(result.OperationId);
         Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
-
-        var operation = tracker.GetOperation(result.OperationId!.Value);
-        Assert.NotNull(operation);
-        Assert.Equal(OperationStatus.Failed, operation!.Status);
     }
 
     [Fact]
@@ -55,11 +48,13 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         var first = await service.AuthenticateAsync("account", "password");
         var second = await service.AuthenticateAsync("account", "password");
 
-        // A guard left set would refuse every later sign-in with the in-progress message instead of
-        // registering a second operation of its own.
-        Assert.NotEqual(first.OperationId, second.OperationId);
-        Assert.NotNull(second.OperationId);
+        // A guard left set would refuse every later sign-in with the in-progress message.
+        Assert.False(first.Success);
+        Assert.False(second.Success);
+        Assert.Null(first.OperationId);
+        Assert.Null(second.OperationId);
         Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
+        Assert.Equal(0, GetPrivateField<int>(service, "_loginActive"));
     }
 
     /// <summary>
@@ -71,22 +66,19 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
     public async Task CancelLogin_EndsASignInThatIsStillWaitingAsync()
     {
         var tracker = CreateTracker();
-        // Held, so the sign-in parks on the session gate the way it parks on a phone confirmation:
-        // registered, started, and going nowhere until something cancels it.
+        // Held, so the sign-in parks on the session gate the way it parks on a phone confirmation.
         var service = CreateService(tracker, new SemaphoreSlim(0, 1));
 
         var signIn = service.AuthenticateAsync("account", "password");
-        await WaitForActiveSignInAsync(tracker);
+        await WaitForActiveSignInAsync(service);
 
         service.CancelLogin();
 
         var result = await signIn.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(result.Success);
         Assert.Equal("Sign-in was cancelled.", result.Message);
-        Assert.NotNull(result.OperationId);
-        Assert.Equal(
-            OperationStatus.Cancelled,
-            tracker.GetOperation(result.OperationId!.Value)?.Status);
+        Assert.Null(result.OperationId);
+        Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
     }
 
     /// <summary>
@@ -102,9 +94,8 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         var result = await service.AuthenticateAsync("account", "password");
         service.CancelLogin();
 
-        Assert.Equal(
-            OperationStatus.Failed,
-            tracker.GetOperation(result.OperationId!.Value)?.Status);
+        Assert.Null(result.OperationId);
+        Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
     }
 
     [Fact]
@@ -148,13 +139,13 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.Equal(bytes, File.ReadAllBytes(storage.GetCredentialsFilePath()));
     }
 
-    /// <summary>Polls until the sign-in has registered its operation, so the cancel lands mid-flight.</summary>
-    private static async Task WaitForActiveSignInAsync(UnifiedOperationTracker tracker)
+    /// <summary>Polls until the sign-in owns its guard, so the cancel lands mid-flight.</summary>
+    private static async Task WaitForActiveSignInAsync(SteamKit2Service service)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!tracker.GetActiveOperations(OperationType.DepotMapping).Any())
+        while (GetPrivateField<int>(service, "_loginActive") == 0)
         {
-            Assert.True(DateTime.UtcNow < deadline, "the sign-in never registered an operation");
+            Assert.True(DateTime.UtcNow < deadline, "the sign-in never acquired its guard");
             await Task.Delay(10);
         }
     }

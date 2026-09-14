@@ -47,7 +47,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError
 
   const { state, actions, loginDeadline } = useSteamAuthentication({
     autoStartPics,
-    loginStatusNotifications: true,
     onSuccess: (message) => {
       setShowAuthModal(false);
       refreshSteamAuth();

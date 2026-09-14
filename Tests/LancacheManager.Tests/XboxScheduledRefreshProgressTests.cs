@@ -158,6 +158,12 @@ public partial class XboxScheduledRefreshProgressTests
         var pollIndex = source.IndexOf(
             "await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, reporter.Token)",
             StringComparison.Ordinal);
+        var harvestIndex = source.IndexOf(
+            "var harvest = await _authClient.HarvestCatalogAsync(",
+            StringComparison.Ordinal);
+        var startIndex = source.IndexOf(
+            "await reporter.StartAsync(CreateXboxMappingContext(), login: login)",
+            StringComparison.Ordinal);
         var releaseIndex = source.IndexOf(
             "_refreshGate.Release();",
             StringComparison.Ordinal);
@@ -170,21 +176,23 @@ public partial class XboxScheduledRefreshProgressTests
             "the reporter must be built in StartLoginAsync, so one operation id covers the whole sign-in");
         Assert.True(waitIndex > pollMethodIndex, "the sign-in must acquire the shared refresh gate");
         Assert.True(pollIndex > waitIndex,
-            "the wait for approval must happen under the shared refresh gate, or a scheduled tick registers a second XboxMapping operation beside the sign-in");
-        Assert.True(releaseIndex > pollIndex && releaseIndex < logoutIndex,
+            "the wait for approval must happen under the shared refresh gate");
+        Assert.True(harvestIndex > pollIndex,
+            "the Xbox authentication chain and catalog fetch must follow device approval");
+        Assert.True(startIndex > harvestIndex,
+            "mapping must not start until the Xbox authentication chain and catalog fetch succeed");
+        Assert.True(releaseIndex > startIndex && releaseIndex < logoutIndex,
             "the shared refresh gate must be acquired and released inside RunLoginPollAsync, or an early exit leaks it");
     }
 
     [Fact]
     public void SignInCardCarriesTheWaitingStageKey()
     {
-        // The started event now fires before the approval wait, so the card it creates is what the
-        // user reads while approving. It shows the started stage key, so that key has to be the
-        // waiting one and not the generic starting one.
+        // Waiting for device approval is authentication state, not a mapping lifecycle stage.
         var source = ReadLoginSource();
 
-        Assert.Contains(
-            "await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey, login);",
+        Assert.DoesNotContain(
+            "reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -240,6 +248,9 @@ public partial class XboxScheduledRefreshProgressTests
         var ended = harness.Service.GetAuthStatus();
         Assert.False(ended.LoginInProgress);
         Assert.False(ended.IsAuthenticated);
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingStarted));
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingProgress));
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingComplete));
     }
 
     [Fact]
@@ -271,6 +282,9 @@ public partial class XboxScheduledRefreshProgressTests
         var failed = harness.Service.GetAuthStatus();
         Assert.False(failed.LoginInProgress);
         Assert.False(failed.IsAuthenticated);
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingStarted));
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingProgress));
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingComplete));
     }
 
     [Fact]
@@ -326,6 +340,8 @@ public partial class XboxScheduledRefreshProgressTests
         Assert.Equal("shared-refresh", active.RefreshToken);
         Assert.Null(saved.RefreshToken);
         Assert.Null(saved.DeviceKeyPkcs8);
+        Assert.Single(harness.Notifications.EventsFor(SignalREvents.XboxMappingStarted));
+        Assert.Single(harness.Notifications.EventsFor(SignalREvents.XboxMappingComplete));
     }
 
     [Fact]
@@ -342,15 +358,11 @@ public partial class XboxScheduledRefreshProgressTests
         await harness.Service.StartLoginAsync();
         await auth.ChainReached.WaitAsync(TimeSpan.FromSeconds(20));
         auth.ReleaseChain();
-        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
 
-        // Both card readers take the error string ahead of the stage key, so putting the exception's
-        // English message in Error here would silently replace every translated refusal reason with a
-        // raw server sentence and look exactly like a broken lookup.
-        var complete = Assert.IsType<ScheduledRunCompleteEvent>(
-            Assert.Single(harness.Notifications.EventsFor(SignalREvents.XboxMappingComplete)));
-        Assert.Equal("signalr.xbox.mapping.errors.childAccount", complete.StageKey);
-        Assert.Null(complete.Error);
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingStarted));
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingProgress));
+        Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingComplete));
 
         var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
             harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());

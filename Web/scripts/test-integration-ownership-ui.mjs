@@ -1048,6 +1048,68 @@ test('primary recovery keeps every integration modal submission enabled', async 
   }
 });
 
+test('integration authentication starts mapping only after acceptance', () => {
+  for (const path of [
+    'src/hooks/useSteamLoginFlow.ts',
+    'src/hooks/useSteamAuthentication.ts',
+    'src/hooks/useEpicMappingAuth.ts',
+    'src/hooks/useXboxMappingAuth.ts',
+    'src/components/features/management/steam/SteamLoginManager.tsx',
+    'src/components/features/management/epic/EpicDaemonStatus.tsx',
+    'src/components/features/management/xbox/XboxDaemonStatus.tsx'
+  ]) {
+    const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /loginStatusNotifications/);
+    assert.doesNotMatch(
+      source,
+      /type:\s*['"](?:depot_mapping|epic_game_mapping|xbox_game_mapping)['"]/
+    );
+  }
+
+  const steamSource = readFileSync(
+    new URL(
+      '../../Api/LancacheManager/Core/Services/SteamKit2/SteamKit2Service.Authentication.cs',
+      import.meta.url
+    ),
+    'utf8'
+  );
+  assert.doesNotMatch(steamSource, /reporter\.StartAsync\(/);
+
+  const steamControllerSource = readFileSync(
+    new URL(
+      '../../Api/LancacheManager/Controllers/Prefill/SteamAuthController.cs',
+      import.meta.url
+    ),
+    'utf8'
+  );
+  assert.match(
+    steamControllerSource,
+    /if \(result\.Success\)[\s\S]*?if \(request\.AutoStartPicsRebuild\)[\s\S]*?_steamKit2Service\.TryStartRebuild\(\)/
+  );
+
+  const epicSource = readFileSync(
+    new URL(
+      '../../Api/LancacheManager/Core/Services/EpicMapping/EpicMappingService.Authentication.cs',
+      import.meta.url
+    ),
+    'utf8'
+  );
+  assert.ok(
+    epicSource.indexOf('ExchangeAuthCodeAsync(') < epicSource.indexOf('reporter.StartAsync(')
+  );
+
+  const xboxSource = readFileSync(
+    new URL(
+      '../../Api/LancacheManager/Core/Services/Xbox/XboxCatalogMappingService.Authentication.cs',
+      import.meta.url
+    ),
+    'utf8'
+  );
+  assert.ok(
+    xboxSource.indexOf('HarvestCatalogAsync(') < xboxSource.indexOf('reporter.StartAsync(')
+  );
+});
+
 test('every ownership reason has matching copy and Steam actions retain one-line tracks', () => {
   for (const locale of ['en', 'zh']) {
     const messages = JSON.parse(

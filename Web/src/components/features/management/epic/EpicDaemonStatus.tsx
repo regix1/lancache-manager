@@ -36,7 +36,6 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
     loginDeadline,
     identity
   } = useEpicMappingAuth({
-    loginStatusNotifications: true,
     onSuccess: () => {
       setShowAuthModal(false);
       loadStatus();

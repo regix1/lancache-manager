@@ -7355,19 +7355,7 @@
       "skippedNotSignedIn": "Epic 目录刷新已跳过 - 未登录 Epic 账户",
       "cancelled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}",
-      "waitingSignIn": "正在等待 Epic 登录...",
-      "signingIn": "正在登录 Epic Games...",
-      "signInCancelled": "Epic 登录已取消",
-      "signInFailed": "Epic 登录失败: {{errorDetail}}",
       "stale": "Epic 游戏映射完成"
-    },
-    "steamLogin": {
-      "waitingSignIn": "正在等待 Steam 登录...",
-      "waitingGuardCode": "正在等待 Steam 令牌验证码...",
-      "signingIn": "正在登录 Steam...",
-      "signedIn": "已以 {{username}} 登录 Steam",
-      "signInCancelled": "Steam 登录已取消",
-      "signInFailed": "Steam 登录失败: {{errorDetail}}"
     },
     "steamWebApi": {
       "validating": "正在验证 Steam Web API 密钥...",
