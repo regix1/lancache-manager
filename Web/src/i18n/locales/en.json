@@ -3305,8 +3305,8 @@
         "valid": "Steam Web API key is valid and working",
         "invalid": "Steam Web API key is invalid or Steam Web API V1 is unavailable"
       },
-      "updateApiKey": "Update API Key",
-      "configureApiKey": "Configure API Key",
+      "updateApiKey": "Edit Key",
+      "configureApiKey": "Add Key",
       "remove": "Remove",
       "lastChecked": "Last checked",
       "bothUnavailable": {
@@ -3356,7 +3356,7 @@
         "canAccessRestricted": "Steam account login configured for game mapping",
         "publicOnly": "Public game mapping is available without an account login"
       },
-      "accountLogin": "Login with Steam",
+      "accountLogin": "Sign In",
       "anonymous": "Anonymous",
       "depotMappingAfterLogin": "Depot Mapping After Login",
       "autoRebuild": "Automatically rebuild depot mappings after login",
@@ -3364,8 +3364,8 @@
       "automatic": "Automatic",
       "manual": "Manual",
       "steamUser": "Steam User",
-      "signInAgain": "Sign in again",
-      "logout": "Logout",
+      "signInAgain": "Sign In",
+      "logout": "Log Out",
       "help": {
         "authModes": {
           "title": "Login Modes",

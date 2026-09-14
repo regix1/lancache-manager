@@ -222,6 +222,7 @@ const SteamWebApiStatus: React.FC = () => {
                 color="secondary"
                 size="sm"
                 stableWidth
+                className="steam-integration__single"
                 onClick={async () => {
                   if (!hasAccess || loading || refreshing) return;
                   const caller = identity;

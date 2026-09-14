@@ -1255,8 +1255,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           >
             <Button
               variant="default"
-              size="xs"
-              className="session-row__direct-action sm:!min-h-7 max-sm:!text-sm"
+              size="sm"
+              className="session-row__direct-action"
               onClick={() => handleEditSession(session)}
             >
               {t('actions.edit')}
@@ -1264,8 +1264,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             {session.isCurrentSession && (
               <Button
                 variant="default"
-                size="xs"
-                className="session-row__direct-action sm:!min-h-7 max-sm:!text-sm"
+                size="sm"
+                className="session-row__direct-action"
                 onClick={handleLogout}
                 disabled={loggingOut}
                 loading={loggingOut}

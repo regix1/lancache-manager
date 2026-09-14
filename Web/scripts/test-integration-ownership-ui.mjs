@@ -1030,7 +1030,7 @@ test('all integration modal submissions and provider links refuse disabled actio
   assert.equal(opens, 0);
 });
 
-test('every ownership reason has matching English and Chinese copy and paired controls retain their track', () => {
+test('every ownership reason has matching copy and Steam actions retain one-line tracks', () => {
   for (const locale of ['en', 'zh']) {
     const messages = JSON.parse(
       readFileSync(new URL(`../src/i18n/locales/${locale}.json`, import.meta.url), 'utf8')
@@ -1047,8 +1047,23 @@ test('every ownership reason has matching English and Chinese copy and paired co
   );
   assert.match(css, /steam-integration__segments[^}]*width: 13rem/);
   assert.match(css, /steam-integration__pair[^}]*repeat\(2, minmax\(0, 1fr\)\)[^}]*width: 13rem/);
-  assert.match(css, /white-space: normal/);
+  assert.match(css, /steam-integration__pair > button[^}]*height: 2rem[^}]*white-space: nowrap/);
+  assert.match(css, /steam-integration__single[^}]*width: 6\.375rem[^}]*height: 2rem/);
+  assert.match(
+    css,
+    /steam-integration__single[^}]*width: calc\(50% - 0\.125rem\)[^}]*height: 2\.75rem/
+  );
+  assert.doesNotMatch(css, /white-space: normal/);
   assert.doesNotMatch(css, /color-mix\(/);
+
+  const english = JSON.parse(
+    readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')
+  );
+  assert.equal(english.management.steamAuth.accountLogin, 'Sign In');
+  assert.equal(english.management.steamAuth.signInAgain, 'Sign In');
+  assert.equal(english.management.steamAuth.logout, 'Log Out');
+  assert.equal(english.management.steamWebApi.updateApiKey, 'Edit Key');
+  assert.equal(english.management.steamWebApi.configureApiKey, 'Add Key');
 });
 
 test(
@@ -1395,8 +1410,10 @@ test(
                   const segments = globalThis.document.querySelector(
                     '.steam-integration__segments'
                   );
+                  const single = globalThis.document.querySelector('.steam-integration__single');
                   return {
                     pairs,
+                    single: rect(single),
                     segments: {
                       track: rect(segments),
                       buttons: [...segments.querySelectorAll('button')].map(rect)
@@ -1425,6 +1442,10 @@ test(
                   Math.abs(result.pairs[0].track.right - result.segments.track.right) <= 1,
                   JSON.stringify({ viewport, locale, zoom, state, result })
                 );
+                assert.ok(
+                  Math.abs(result.single.width - result.pairs[1].buttons[1].width) <= 1,
+                  JSON.stringify({ viewport, locale, zoom, state, result })
+                );
                 assert.equal(
                   result.overflow,
                   false,
@@ -1435,6 +1456,7 @@ test(
                 if (viewport.width <= 390) {
                   for (const pair of [...result.pairs, result.segments])
                     for (const button of pair.buttons) assert.ok(button.height >= 44 * zoom);
+                  assert.ok(result.single.height >= 44 * zoom);
                 }
                 if (state === 'other' && zoom === 1)
                   await page.screenshot({

@@ -263,7 +263,7 @@ test('availability responses from a previous LANCache account are discarded', as
   assert.equal(visible.size, 0);
 });
 
-test('sign in again opens the existing modal and successful login refreshes server state', () => {
+test('sign in opens the existing modal and successful login refreshes server state', () => {
   const managerSource = parseSource(
     'src/components/features/management/steam/SteamLoginManager.tsx',
     typescript.ScriptKind.TSX
@@ -335,9 +335,7 @@ test('sign in again opens the existing modal and successful login refreshes serv
     `${managerCompiled}\nreturn SteamLoginManager;`
   )(...Object.values(managerBindings));
   const nodes = flatten(manager({ authMode: 'authenticated', mockMode: false }));
-  const button = nodes.find(
-    (node) => node.type === 'Button' && node.children.includes('Sign in again')
-  );
+  const button = nodes.find((node) => node.type === 'Button' && node.children.includes('Sign In'));
   assert.ok(button);
   button.props.onClick();
   assert.equal(states[0].value, true);

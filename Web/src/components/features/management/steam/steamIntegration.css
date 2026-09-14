@@ -56,21 +56,23 @@
 .steam-integration .steam-integration__segments {
   min-width: 0;
   width: 13rem;
-  height: auto;
+  height: 2rem;
   min-height: 2rem;
 }
 
 .steam-integration__segments button {
   min-width: 0;
   flex-basis: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .steam-integration__segments .segmented-control-label {
   min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .steam-integration .steam-integration__pair {
@@ -83,13 +85,21 @@
 
 .steam-integration__pair > button {
   width: 100%;
+  height: 2rem;
   min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .steam-integration__pair > button:only-child {
   grid-column: 1 / -1;
+}
+
+.steam-integration__single {
+  width: 6.375rem;
+  height: 2rem;
+  min-width: 6.375rem;
 }
 
 @media (max-width: 639.98px) {
@@ -100,14 +110,20 @@
   .steam-integration .steam-integration__segments {
     width: 100%;
     min-width: 0;
-    height: auto;
+    height: 2.75rem;
   }
 
   .steam-integration__segments button {
-    min-height: 2.75rem;
+    height: 2.75rem;
   }
 
   .steam-integration__pair > button {
-    min-height: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .steam-integration__single {
+    width: calc(50% - 0.125rem);
+    height: 2.75rem;
+    min-width: 0;
   }
 }

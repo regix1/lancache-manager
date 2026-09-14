@@ -6,6 +6,7 @@ const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
 
 const activeSource = readWebSource('src/components/features/user/ActiveSessions.tsx');
+const rowActionsSource = readWebSource('src/components/ui/RowActionsMenu.tsx');
 const typeSource = readWebSource('src/components/features/user/types.ts');
 const userCss = readWebSource('src/styles/features/user.css');
 
@@ -74,6 +75,13 @@ test('initial and refresh failures remain visibly distinct', () => {
 
 test('destructive row actions use visible menus and nested controls keep disclosure separate', () => {
   assert.equal((activeSource.match(/<RowActionsMenu/g) ?? []).length, 2);
+  assert.equal(
+    (activeSource.match(/size="sm"\s+className="session-row__direct-action"/g) ?? []).length,
+    2,
+    'direct session actions must use the same size as the row menu trigger'
+  );
+  assert.match(rowActionsSource, /variant="menu"\s+size="sm"/);
+  assert.doesNotMatch(activeSource, /session-row__direct-action[^\n]*min-h/);
   assert.equal(activeSource.includes('revealOnHover'), false);
   assert.match(activeSource, /rowToggleHandlers\(\(\) => toggleSessionExpanded\(session\.id\)\)/);
   assert.match(activeSource, /activeSessions\.sessionActions/);
