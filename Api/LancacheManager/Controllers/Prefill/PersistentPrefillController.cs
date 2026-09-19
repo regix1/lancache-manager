@@ -325,7 +325,8 @@ public class PersistentPrefillController : ControllerBase
                 var status = await daemon!.GetCacheStatusAsync(session.Id, cachedAppIds, cancellationToken);
                 (_, outdatedAppIds, unknownAppIds) = status.ResolveAppIds(cachedAppIds);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException
+                and not DaemonCommandException { RequiresLogin: true })
             {
                 _logger.LogWarning(ex, "Could not verify cached games for {Service}", service);
                 unknownAppIds = cachedAppIds.ToList();

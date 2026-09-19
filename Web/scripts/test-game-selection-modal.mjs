@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React from 'react';
 import ts from 'typescript';
 import {
   bindLifted,
@@ -49,6 +50,18 @@ const library = [
 ];
 
 const appIdsOf = (games) => games.map((game) => game.appId);
+
+const renderGameRowDeclaration = findSoleNode(
+  modalFile,
+  'renderGameRow declaration',
+  (node) =>
+    ts.isVariableDeclaration(node) &&
+    node.name.getText(modalFile) === 'renderGameRow' &&
+    node.initializer !== undefined &&
+    ts.isArrowFunction(node.initializer)
+);
+
+const renderGameRowSource = renderGameRowDeclaration.initializer.getText(modalFile);
 
 test('selected, cached, and available games form three exclusive groups', () => {
   const localSelected = new Set(['1']);
@@ -351,7 +364,7 @@ test('the wider three-pane layout keeps focus tied to a moved game row', () => {
   assert.equal(modalFile.text.includes('data-game-app-id={game.appId}'), true);
 });
 
-test('clear, reopen, and cache removal keep their existing ownership paths', () => {
+test('clear and reopen keep their existing ownership paths', () => {
   let selection = new Set(['1', '2']);
   const selectNone = bindLifted(
     liftHookCallback(modalPath, 'useCallback', 'setLocalSelected(new Set())'),
@@ -384,16 +397,113 @@ test('clear, reopen, and cache removal keep their existing ownership paths', () 
   resetSelection();
 
   assert.deepEqual([...selection], ['2', '3']);
-  assert.equal(modalFile.text.includes('onRemoveFromCache(game.appId)'), true);
 });
 
-/**
- * The per-game cache removal is drawn only when the parent hands down `onRemoveFromCache`, so a
- * parent that renders this picker without it silently loses the control - which is exactly what
- * happened to the scheduled-prefill picker. Both parents are pinned here, along with the
- * clear-everything button beside it, because neither is reachable from the component's own tests.
- */
-test('both pickers keep the per-game and clear-all cache controls wired', () => {
+test('the shared game row keeps selection and status without a delete action', () => {
+  const Button = () => null;
+  const Tooltip = () => null;
+  const Badge = () => null;
+  const Check = () => null;
+  const Trash2 = () => null;
+  const cases = [
+    {
+      game: { appId: 'Opaque/Game-ID', name: 'Cached verified game' },
+      selected: false,
+      cached: ['opaque/game-id'],
+      outdated: [],
+      unknown: [],
+      badges: ['prefill.gameSelection.cachedBadge']
+    },
+    {
+      game: { appId: 'Opaque/Game-ID', name: 'Selected cached game' },
+      selected: true,
+      cached: ['OPAQUE/GAME-id'],
+      outdated: [],
+      unknown: [],
+      badges: ['prefill.gameSelection.cachedBadge']
+    },
+    {
+      game: { appId: 'MixedCase-ID', name: 'Cached outdated game' },
+      selected: false,
+      cached: ['mixedcase-id'],
+      outdated: ['MIXEDCASE-ID'],
+      unknown: [],
+      badges: ['prefill.gameSelection.cachedBadge', 'prefill.gameSelection.updateAvailable']
+    },
+    {
+      game: {
+        appId: '9NBLGGH4R315',
+        name: 'A long Xbox game name that keeps its unresolved cache status visible'
+      },
+      selected: false,
+      cached: ['9nblggh4r315'],
+      outdated: [],
+      unknown: ['9NBLGGH4R315'],
+      badges: ['prefill.gameSelection.cachedBadge', 'prefill.gameSelection.statusUnknown']
+    },
+    {
+      game: { appId: 'ordinary/id', name: 'Ordinary available game' },
+      selected: false,
+      cached: [],
+      outdated: [],
+      unknown: [],
+      badges: []
+    }
+  ];
+
+  for (const fixture of cases) {
+    const toggled = [];
+    const renderGameRow = bindLifted(
+      renderGameRowSource,
+      {
+        React,
+        Button,
+        Tooltip,
+        Badge,
+        Check,
+        Trash2,
+        cachedAppIdsSet: new Set(fixture.cached.map((id) => id.toLowerCase())),
+        outdatedAppIdsSet: new Set(fixture.outdated.map((id) => id.toLowerCase())),
+        unknownAppIdsSet: new Set(fixture.unknown.map((id) => id.toLowerCase())),
+        toggleGame: (appId) => toggled.push(appId),
+        t: (key) => key,
+        onRemoveFromCache: () => assert.fail('the picker must not expose row deletion'),
+        removingAppId: null
+      },
+      { jsx: ts.JsxEmit.React }
+    );
+    const row = renderGameRow(fixture.game, fixture.selected);
+    const elements = [];
+    const visit = (node) => {
+      if (Array.isArray(node)) {
+        node.forEach(visit);
+        return;
+      }
+      if (!React.isValidElement(node)) return;
+      elements.push(node);
+      visit(node.props.children);
+    };
+    visit(row);
+
+    const rowActions = elements.filter((element) => element.type === Button);
+    assert.equal(rowActions.length, 1, `${fixture.game.appId} must have one row selector`);
+    assert.equal(rowActions[0].props['data-game-app-id'], fixture.game.appId);
+    assert.equal(rowActions[0].props['aria-pressed'], fixture.selected);
+    assert.equal(
+      elements.some((element) => element.type === Trash2),
+      false
+    );
+    assert.deepEqual(
+      elements.filter((element) => element.type === Badge).map((element) => element.props.children),
+      fixture.badges
+    );
+
+    rowActions[0].props.onClick();
+    assert.deepEqual(toggled, [fixture.game.appId]);
+  }
+});
+
+test('both picker parents omit row deletion and keep clear-all wired', () => {
   const panel = parseSource('src/components/features/prefill/PrefillPanel.tsx', ts.ScriptKind.TSX);
   const scheduled = parseSource(
     'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
@@ -404,20 +514,39 @@ test('both pickers keep the per-game and clear-all cache controls wired', () => 
     ['PrefillPanel', panel],
     ['ScheduledPrefillConfigModal', scheduled]
   ]) {
-    assert.equal(
-      source.text.includes('onRemoveFromCache='),
-      true,
-      `${name} must pass onRemoveFromCache or the per-game remove button disappears`
+    const picker = findSoleNode(
+      source,
+      `${name} GameSelectionModal`,
+      (node) =>
+        ts.isJsxSelfClosingElement(node) && node.tagName.getText(source) === 'GameSelectionModal'
     );
-    assert.equal(
-      source.text.includes('onClearAllCache='),
-      true,
-      `${name} must pass onClearAllCache or the clear-all button disappears`
+    const attributeNames = picker.attributes.properties
+      .filter(ts.isJsxAttribute)
+      .map((attribute) => attribute.name.getText(source));
+    assert.equal(attributeNames.includes('onRemoveFromCache'), false);
+    assert.equal(attributeNames.includes('removingAppId'), false);
+    assert.equal(attributeNames.includes('onClearAllCache'), true);
+
+    const removedDeclarations = collectNodes(
+      source,
+      (node) =>
+        ts.isVariableDeclaration(node) &&
+        [
+          'handleRemoveFromCache',
+          'handleRemoveGameFromCache',
+          'removingAppId',
+          'removingCachedAppId'
+        ].includes(node.name.getText(source))
     );
+    assert.deepEqual(removedDeclarations, []);
   }
 
-  // Both controls are admin-only server-side, so offering either to a guest could only ever 403.
+  // Clear-all remains admin-only in the ordinary picker because its route is AccountHolder-only.
   assert.equal(panel.text.includes('isAdmin ? handleClearAllFromCache : undefined'), true);
+  assert.equal(modalFile.text.includes('onRemoveFromCache'), false);
+  assert.equal(modalFile.text.includes('removingAppId'), false);
+  assert.equal(modalFile.text.includes('Trash2'), false);
+  assert.equal(modalFile.text.includes('prefill.gameSelection.removeFromCache'), false);
 });
 
 /**
@@ -432,9 +561,9 @@ test('the clear-all button asks before wiping the cached tags', () => {
 });
 
 /**
- * A clear or a removal re-reads the library itself so the badges are right with the socket down,
- * and the PrefillCacheChanged broadcast re-reads it too. Both go through reloadGamesOnce so one
- * click costs one pass; a direct loadGames(true) anywhere else brings the double fetch back.
+ * A clear re-reads the library itself so the badges are right with the socket down, and the
+ * PrefillCacheChanged broadcast re-reads it too. Both go through reloadGamesOnce so one click
+ * costs one pass; a direct loadGames(true) anywhere else brings the double fetch back.
  */
 test('every library reload in the prefill panel goes through the shared pass', () => {
   const panel = parseSource('src/components/features/prefill/PrefillPanel.tsx', ts.ScriptKind.TSX);
@@ -444,13 +573,8 @@ test('every library reload in the prefill panel goes through the shared pass', (
     1,
     'loadGames(true) belongs only inside reloadGamesOnce; every other caller awaits that'
   );
-  for (const caller of ['handleClearAllFromCache', 'handleRemoveFromCache']) {
-    assert.equal(
-      panel.text.includes(caller),
-      true,
-      `${caller} must stay in the panel for the shared reload to have a caller`
-    );
-  }
+  assert.equal(panel.text.includes('handleClearAllFromCache'), true);
+  assert.equal(panel.text.includes('handleRemoveFromCache'), false);
   assert.equal(panel.text.includes('void reloadGamesOnce();'), true);
 });
 

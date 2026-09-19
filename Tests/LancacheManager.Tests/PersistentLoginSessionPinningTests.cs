@@ -82,17 +82,43 @@ public class PersistentLoginSessionPinningTests
     {
         var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
         client.Games = () => Task.FromResult(new List<OwnedGame> { new() { AppId = "10", Name = "Game" } });
-        daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(
-            new InvalidOperationException("The game picker must not query container-local cache state."));
         var cache = (PrefillCacheService)typeof(PersistentPrefillController)
             .GetField("_cacheService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)!;
         await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
 
-        var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
-        var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
-        Assert.Equal(["10"], body.CachedAppIds);
-        Assert.Equal(["10"], body.UnknownAppIds);
-        Assert.Single(body.Games);
+        foreach (var failure in new Exception[]
+        {
+            new InvalidOperationException("Cache status is unavailable."),
+            new DaemonCommandException("game-details-unavailable")
+        })
+        {
+            daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(failure);
+            var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+            var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+            Assert.Equal(["10"], body.CachedAppIds);
+            Assert.Equal(["10"], body.UnknownAppIds);
+            Assert.Empty(body.OutdatedAppIds);
+            Assert.Single(body.Games);
+        }
+
+        foreach (var failure in new[]
+        {
+            new DaemonCommandException("auth-lost"),
+            new DaemonCommandException(requiresLogin: true)
+        })
+        {
+            daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(failure);
+            var thrown = await Assert.ThrowsAsync<DaemonCommandException>(() =>
+                controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A"));
+            Assert.Same(failure, thrown);
+            Assert.True(thrown.RequiresLogin);
+            Assert.Equal("errors.steam.signInLost", thrown.StageKey);
+        }
+
+        var cancellation = new OperationCanceledException();
+        daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(cancellation);
+        Assert.Same(cancellation, await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A")));
     }
 
     // ---- RC3: controller pinning ---------------------------------------------------------------

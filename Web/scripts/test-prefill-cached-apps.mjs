@@ -179,34 +179,36 @@ test('ordinary picker reload bursts run one active pass and one catch-up pass', 
   assert.equal(passes, 2);
 });
 
-test('ordinary picker controls pass service and abort stale badge requests', async () => {
+test('ordinary picker clear-all aborts stale requests, clears status, and reloads', async () => {
   const picker = panel(['A', 'B']);
   const calls = [];
+  let reloads = 0;
   picker.bindings.gamesRequestRef.current = new AbortController();
   const controller = picker.bindings.gamesRequestRef.current;
+  picker.bindings.setOutdatedAppIds(['A']);
+  picker.bindings.setUnknownAppIds(['B']);
   Object.assign(picker.bindings, {
     ownedGames: [],
-    setRemovingAppId: () => undefined,
     setIsClearingAllCache: () => undefined,
     notifyError: assert.fail,
-    reloadGamesOnce: async () => undefined,
+    reloadGamesOnce: async () => {
+      reloads += 1;
+    },
     ApiService: {
-      deletePrefillCachedApp: async (...args) => calls.push(args),
       clearAllPrefillCache: async (...args) => calls.push(args)
     }
   });
-  await bindLifted(
-    liftHookCallback(panelPath, 'useCallback', 'await ApiService.deletePrefillCachedApp'),
-    picker.bindings
-  )('A');
-  assert.deepEqual(picker.badges(), ['B']);
-  assert.equal(controller.signal.aborted, true);
   await bindLifted(
     liftHookCallback(panelPath, 'useCallback', 'await ApiService.clearAllPrefillCache'),
     picker.bindings
   )();
   assert.deepEqual(picker.badges(), []);
-  assert.deepEqual(calls, [['A', 'epic'], ['epic']]);
+  assert.deepEqual(picker.outdated(), []);
+  assert.deepEqual(picker.unknown(), []);
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(picker.bindings.gamesCacheRef.current, null);
+  assert.equal(reloads, 1);
+  assert.deepEqual(calls, [['epic']]);
 });
 
 test('scheduled picker merges unknowns, coalesces bursts and rejects old-session replies', async () => {
@@ -270,7 +272,7 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
   assert.deepEqual(selection.cachedAppIds, []);
 });
 
-test('scheduled picker controls scope deletion and clear, and re-read without a socket', async () => {
+test('scheduled picker clear-all aborts stale requests, clears status, and reloads its session', async () => {
   let selection = {
     serviceKey: 'xbox',
     sessionId: 's2',
@@ -279,12 +281,12 @@ test('scheduled picker controls scope deletion and clear, and re-read without a 
     unknownAppIds: ['B']
   };
   const calls = [];
+  const controller = new AbortController();
   const bindings = {
     gameSelection: selection,
     gameSelectionRef: { current: selection },
     gameEpochRef: { current: 0 },
-    gameRequestRef: { current: { controller: new AbortController() } },
-    setRemovingCachedAppId: () => undefined,
+    gameRequestRef: { current: { controller } },
     setIsClearingCachedGames: () => undefined,
     setGameSelectionError: (error) => assert.equal(error, null),
     t: (key) => key,
@@ -295,17 +297,9 @@ test('scheduled picker controls scope deletion and clear, and re-read without a 
     },
     loadGameSelection: async (...args) => calls.push(args),
     ApiService: {
-      deletePrefillCachedApp: async (...args) => calls.push(args),
       clearAllPrefillCache: async (...args) => calls.push(args)
     }
   };
-  await bindLifted(
-    liftHookCallback(modalPath, 'useCallback', 'await ApiService.deletePrefillCachedApp'),
-    bindings
-  )('opaque/id');
-  assert.deepEqual(selection.cachedAppIds, ['B']);
-  assert.deepEqual(selection.outdatedAppIds, []);
-  assert.deepEqual(selection.unknownAppIds, ['B']);
   await bindLifted(
     liftHookCallback(modalPath, 'useCallback', 'await ApiService.clearAllPrefillCache'),
     bindings
@@ -313,7 +307,8 @@ test('scheduled picker controls scope deletion and clear, and re-read without a 
   assert.deepEqual(selection.cachedAppIds, []);
   assert.deepEqual(selection.outdatedAppIds, []);
   assert.deepEqual(selection.unknownAppIds, []);
-  assert.deepEqual(calls, [['opaque/id', 'xbox'], ['xbox', 's2'], ['xbox'], ['xbox', 's2']]);
+  assert.equal(controller.signal.aborted, true);
+  assert.deepEqual(calls, [['xbox'], ['xbox', 's2']]);
 });
 
 const scheduled = (fetchGames) => {
@@ -573,7 +568,7 @@ test('persistent games request pins the session and retains the unpinned client 
   assert.equal(urls[1], '/api/system/prefill/persistent/games?service=steam');
 });
 
-test('scheduled cache action failure survives a concurrent successful library refresh', async () => {
+test('scheduled clear-all failure survives a concurrent successful library refresh', async () => {
   const picker = scheduled(async () => ({
     games: [],
     cachedAppIds: [],
@@ -586,27 +581,27 @@ test('scheduled cache action failure survives a concurrent successful library re
     ...picker.bindings,
     gameSelection: picker.bindings.gameSelectionRef.current,
     gameEpochRef: { current: 1 },
-    setRemovingCachedAppId: () => undefined,
+    setIsClearingCachedGames: () => undefined,
     setGameSelectionError: (value) => {
       actionError = value;
     },
     t: (key) => key,
     ApiService: {
-      deletePrefillCachedApp: () =>
+      clearAllPrefillCache: () =>
         new Promise((_resolve, fail) => {
           reject = fail;
         })
     },
     loadGameSelection: picker.load
   };
-  const remove = bindLifted(
-    liftHookCallback(modalPath, 'useCallback', 'await ApiService.deletePrefillCachedApp'),
+  const clear = bindLifted(
+    liftHookCallback(modalPath, 'useCallback', 'await ApiService.clearAllPrefillCache'),
     bindings
   );
-  const pending = remove('A');
+  const pending = clear();
   await picker.load('steam', 's1');
   reject(new Error('private failure details'));
   await pending;
-  assert.equal(actionError, 'prefill.errors.removeFromCacheFailed');
+  assert.equal(actionError, 'prefill.errors.clearAllFromCacheFailed');
   assert.equal(picker.state().loadError, null);
 });

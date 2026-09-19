@@ -9,11 +9,38 @@ using Microsoft.Extensions.Logging.Abstractions;
 using LancacheManager.Controllers;
 using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
+using System.Text.Json;
 
 namespace LancacheManager.Tests;
 
 public class PrefillCachedAppTests
 {
+    [Fact]
+    public void CachedApp_RunOptionsRetainStoredNames()
+    {
+        const string stored = """
+            {"CachedApps":[{"AppId":"Case/opaque-id","Revision":"revision-1"},{"AppId":"Legacy/id","Revision":null}]}
+            """;
+        var restored = JsonSerializer.Deserialize<DaemonRunOptions>(stored)!;
+        Assert.Equal("revision-1", Assert.Single(restored.CachedApps, app => app.AppId == "Case/opaque-id").Revision);
+        Assert.Null(Assert.Single(restored.CachedApps, app => app.AppId == "Legacy/id").Revision);
+
+        var options = new DaemonRunOptions
+        {
+            CachedApps = [new CachedAppInput { AppId = "Case/opaque-id", Revision = "revision-1" },
+                new CachedAppInput { AppId = "Legacy/id" }]
+        };
+        var json = JsonSerializer.Serialize(options);
+        using var document = JsonDocument.Parse(json);
+        Assert.False(document.RootElement.TryGetProperty("cachedApps", out _));
+        var apps = document.RootElement.GetProperty("CachedApps");
+        Assert.Equal(2, apps.GetArrayLength());
+        foreach (var app in apps.EnumerateArray())
+            Assert.Equal(["AppId", "Revision"], app.EnumerateObject().Select(property => property.Name).ToArray());
+        var roundTrip = JsonSerializer.Deserialize<DaemonRunOptions>(json)!;
+        Assert.Equal(options.CachedApps, roundTrip.CachedApps);
+    }
+
     [Fact]
     public async Task ScopedController_RoundTripsOpaqueIdsAndRejectsMissingService()
     {

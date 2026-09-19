@@ -166,7 +166,6 @@ function ServicePrefillPanel({
   const [unknownAppIds, setUnknownAppIds] = useState<string[]>([]);
   const [gameLoadError, setGameLoadError] = useState<string | null>(null);
   const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
-  const [removingAppId, setRemovingAppId] = useState<string | null>(null);
   const [isClearingAllCache, setIsClearingAllCache] = useState(false);
 
   // Prefill settings state
@@ -756,10 +755,9 @@ function ServicePrefillPanel({
       setOutdatedAppIds([]);
       setUnknownAppIds([]);
       addLog('info', t('prefill.log.clearedAllFromCache'));
-      // Same reasoning as the per-game removal below: re-read rather than waiting for the
-      // broadcast, so the badges are right even with the socket down. The forced reload is also
-      // what rewrites gamesCacheRef - blanking only the React state leaves the ref holding the
-      // pre-clear snapshot, and the next unforced loadGames restores every badge from it.
+      // Re-read rather than waiting for the broadcast so the badges are right even with the socket
+      // down. The forced reload also rewrites gamesCacheRef; blanking only the React state leaves
+      // the ref holding the pre-clear snapshot, and the next unforced loadGames restores each badge.
       await reloadGamesOnce();
     } catch (err) {
       if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
@@ -771,38 +769,6 @@ function ServicePrefillPanel({
         setIsClearingAllCache(false);
     }
   }, [reloadGamesOnce, notifyError, t, addLog, serviceId]);
-
-  const handleRemoveFromCache = useCallback(
-    async (appId: string) => {
-      const epoch = gamesEpochRef.current;
-      const key = gamesKeyRef.current;
-      setRemovingAppId(appId);
-      const gameName = ownedGames.find((g) => g.appId === appId)?.name ?? `#${appId}`;
-      try {
-        await ApiService.deletePrefillCachedApp(appId, serviceId);
-        if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
-        gamesRequestRef.current?.abort();
-        gamesCacheRef.current = null;
-        const removedKey = appId.toLowerCase();
-        setCachedAppIds((previous) => previous.filter((id) => id.toLowerCase() !== removedKey));
-        setOutdatedAppIds((previous) => previous.filter((id) => id.toLowerCase() !== removedKey));
-        setUnknownAppIds((previous) => previous.filter((id) => id.toLowerCase() !== removedKey));
-        addLog('info', t('prefill.log.removedFromCache', { game: gameName }));
-        // Re-read rather than trusting the broadcast to come back to this browser: with the
-        // socket down, the row the user just acted on would otherwise keep its Cached badge.
-        await reloadGamesOnce();
-      } catch (err) {
-        if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
-        addLog('error', t('prefill.log.removeFromCacheFailed', { game: gameName }));
-        notifyError(t('prefill.errors.removeFromCacheFailed'), err, {
-          logLabel: 'Failed to remove app from prefill cache'
-        });
-      } finally {
-        if (gamesEpochRef.current === epoch && gamesKeyRef.current === key) setRemovingAppId(null);
-      }
-    },
-    [reloadGamesOnce, notifyError, t, ownedGames, addLog, serviceId]
-  );
 
   const executeCommand = useCallback(
     async (commandType: CommandType) => {
@@ -1424,12 +1390,6 @@ function ServicePrefillPanel({
         error={gameLoadError}
         isUsingCache={isUsingGamesCache}
         onRescan={reloadGamesOnce}
-        onRemoveFromCache={
-          // The delete route is AccountHolder-only while the read that fills this list is not, so a
-          // guest offered this control could only ever be answered with a 403.
-          isAdmin ? handleRemoveFromCache : undefined
-        }
-        removingAppId={removingAppId}
         onClearAllCache={isAdmin ? handleClearAllFromCache : undefined}
         isClearingAllCache={isClearingAllCache}
       />

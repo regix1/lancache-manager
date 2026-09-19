@@ -346,7 +346,6 @@ export function ScheduledPrefillConfigModal({
     again: boolean;
     promise: Promise<void>;
   } | null>(null);
-  const [removingCachedAppId, setRemovingCachedAppId] = useState<string | null>(null);
   const [isClearingCachedGames, setIsClearingCachedGames] = useState(false);
   const [persistentLoginTarget, setPersistentLoginTarget] =
     useState<ScheduledPrefillServiceKey | null>(null);
@@ -1780,7 +1779,6 @@ export function ScheduledPrefillConfigModal({
       setLoadingGameSelectionService(null);
       setGameLoadError(null);
       setGameSelectionError(null);
-      setRemovingCachedAppId(null);
       setIsClearingCachedGames(false);
     }
   }, [gameSelection?.serviceKey, gameSelection?.sessionId, opened]);
@@ -1792,51 +1790,6 @@ export function ScheduledPrefillConfigModal({
       gameSelectionRef.current = null;
     },
     []
-  );
-
-  // Clearing a cached tag only drops the row that says the game is already on disk, so the next run
-  // downloads it again. Both handlers lean on the server's PrefillCacheChanged broadcast, which the
-  // effect below turns into a reload of this picker's badges, so neither re-reads by hand.
-  const handleRemoveGameFromCache = useCallback(
-    async (appId: string) => {
-      if (!gameSelection) return;
-      const epoch = gameEpochRef.current;
-      setRemovingCachedAppId(appId);
-      setGameSelectionError(null);
-      try {
-        await ApiService.deletePrefillCachedApp(
-          appId,
-          getPersistentServiceId(gameSelection.serviceKey)
-        );
-        if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
-        gameRequestRef.current?.controller.abort();
-        gameRequestRef.current = null;
-        setGameSelection((current) =>
-          current
-            ? {
-                ...current,
-                cachedAppIds: current.cachedAppIds.filter(
-                  (id) => id.toLowerCase() !== appId.toLowerCase()
-                ),
-                outdatedAppIds: current.outdatedAppIds.filter(
-                  (id) => id.toLowerCase() !== appId.toLowerCase()
-                ),
-                unknownAppIds: current.unknownAppIds.filter(
-                  (id) => id.toLowerCase() !== appId.toLowerCase()
-                )
-              }
-            : current
-        );
-        await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
-      } catch {
-        if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
-        setGameSelectionError(t('prefill.errors.removeFromCacheFailed'));
-      } finally {
-        if (gameSelectionRef.current && gameEpochRef.current === epoch)
-          setRemovingCachedAppId(null);
-      }
-    },
-    [gameSelection, loadGameSelection, t]
   );
 
   const handleClearAllCachedGames = useCallback(async () => {
@@ -2636,8 +2589,6 @@ export function ScheduledPrefillConfigModal({
         outdatedAppIds={gameSelection?.outdatedAppIds ?? []}
         unknownAppIds={gameSelection?.unknownAppIds ?? []}
         error={gameSelectionError ?? gameLoadError}
-        onRemoveFromCache={handleRemoveGameFromCache}
-        removingAppId={removingCachedAppId}
         onClearAllCache={handleClearAllCachedGames}
         isClearingAllCache={isClearingCachedGames}
       />

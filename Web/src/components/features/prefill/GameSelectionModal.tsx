@@ -9,7 +9,7 @@ import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { SearchInput } from '../../ui/SearchInput';
-import { Check, Gamepad2, Import, Database, Trash2 } from 'lucide-react';
+import { Check, Gamepad2, Import, Database } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -37,8 +37,6 @@ interface GameSelectionModalProps {
   error?: string | null;
   isUsingCache?: boolean;
   onRescan?: () => Promise<void>;
-  onRemoveFromCache?: (appId: string) => Promise<void>;
-  removingAppId?: string | null;
   /** Drops every cached tag at once, for when the cache was emptied outside the app. */
   onClearAllCache?: () => Promise<void>;
   isClearingAllCache?: boolean;
@@ -58,8 +56,6 @@ export function GameSelectionModal({
   error = null,
   isUsingCache = false,
   onRescan,
-  onRemoveFromCache,
-  removingAppId = null,
   onClearAllCache,
   isClearingAllCache = false
 }: GameSelectionModalProps) {
@@ -417,21 +413,6 @@ export function GameSelectionModal({
             </div>
           </div>
         </Button>
-        {isCached && onRemoveFromCache && (
-          <Button
-            type="button"
-            variant="filled"
-            color="secondary"
-            size="sm"
-            onClick={() => onRemoveFromCache(game.appId)}
-            disabled={removingAppId === game.appId}
-            loading={removingAppId === game.appId}
-            aria-label={t('prefill.gameSelection.removeFromCache', { name: game.name })}
-            className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-1 mr-3 flex-shrink-0"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        )}
       </div>
     );
   };

@@ -127,7 +127,7 @@ public abstract partial class PrefillDaemonServiceBase
 
         var parameters = new Dictionary<string, string>
         {
-            ["cachedApps"] = JsonSerializer.Serialize(cachedApps)
+            ["cachedApps"] = JsonSerializer.Serialize(cachedApps, JsonSerializerOptions.Web)
         };
 
         var response = await session.Client.SendCommandAsync(
