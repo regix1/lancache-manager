@@ -55,7 +55,7 @@ const run = (id, state) => ({
   runId: id,
   sessionId: 'session',
   daemonInstanceId: 'daemon',
-  scheduleId: id,
+  scheduleId: `00000000-0000-4000-8000-${id.padStart(12, '0')}`,
   options: { selection: 'selected', appIds: [id], operatingSystems: ['windows'] },
   snapshot: {
     state,

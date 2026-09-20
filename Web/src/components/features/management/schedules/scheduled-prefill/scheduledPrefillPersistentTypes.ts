@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto
@@ -9,6 +8,7 @@ export type ScheduledPrefillPersistentAction =
   | 'start'
   | 'stop'
   | 'logout'
+  | 'login'
   | 'download'
   | 'cancel'
   | null;
@@ -19,18 +19,11 @@ export interface ScheduledPrefillPersistentActionState {
 }
 
 export interface ScheduledPrefillPersistentCardProps {
-  scheduleControls?: ReactNode;
-  gameSelectionLoading?: boolean;
-  onSelectGames: () => void;
-  onClearGames: () => void;
   onStop: () => void;
   onLogout: () => void;
   serviceKey: ScheduledPrefillServiceKey;
   container?: PersistentPrefillContainerDto;
-  selectedGamesCount: number;
   disabled?: boolean;
-  /** The schedule whose game selection this card manages is switched on. */
-  scheduleEnabled: boolean;
   statusLoading?: boolean;
   authenticating?: boolean;
   integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
@@ -38,6 +31,4 @@ export interface ScheduledPrefillPersistentCardProps {
   action?: ScheduledPrefillPersistentAction;
   onStart: () => void;
   onLogin: (reuseIntegration: boolean) => void;
-  onDownload: () => void;
-  onCancelDownload: (runId?: string) => void;
 }

@@ -233,6 +233,7 @@ test('an app id the library no longer lists is not counted and is not saved', as
         localSelected: new Set(['9', '1']),
         gameIdSet
       }),
+      setDiscardConfirmOpen: () => undefined,
       onClose: () => undefined,
       notifyError: () => undefined,
       t: (key) => key
@@ -260,6 +261,7 @@ test('a library that came back empty does not turn the whole selection into orph
       games: [],
       localSelected,
       selectedInLibrary: runMemo('selectedInLibrary', { localSelected, gameIdSet: new Set() }),
+      setDiscardConfirmOpen: () => undefined,
       onClose: () => undefined,
       notifyError: () => undefined,
       t: (key) => key
@@ -319,11 +321,6 @@ test('all three pane headers carry their own count', () => {
     '{availableGames.length}',
     '{selectedInLibrary.length}'
   ]);
-  assert.equal(
-    modalFile.text.includes('localSelected.size'),
-    false,
-    'the raw selection size is no longer a displayed number anywhere in the modal'
-  );
 });
 
 test('the wider three-pane layout keeps focus tied to a moved game row', () => {
@@ -378,11 +375,12 @@ test('clear and reopen keep their existing ownership paths', () => {
   assert.deepEqual([...selection], []);
 
   const resetSelection = bindLifted(
-    liftHookCallback(modalPath, 'useEffect', 'setLocalSelected(new Set(selectedAppIds))'),
+    liftHookCallback(modalPath, 'useEffect', 'const selection = new Set(selectedAppIds)'),
     {
       opened: true,
       openedRef: { current: false },
       openEpochRef: { current: 0 },
+      openingSelectionRef: { current: new Set() },
       setIsSaving: () => undefined,
       selectedAppIds: ['2', '3'],
       setLocalSelected: (next) => {
@@ -391,7 +389,8 @@ test('clear and reopen keep their existing ownership paths', () => {
       setSearch: () => undefined,
       setImportText: () => undefined,
       setImportResult: () => undefined,
-      setClearCacheConfirmOpen: () => undefined
+      setClearCacheConfirmOpen: () => undefined,
+      setDiscardConfirmOpen: () => undefined
     }
   );
   resetSelection();
@@ -503,16 +502,16 @@ test('the shared game row keeps selection and status without a delete action', (
   }
 });
 
-test('both picker parents omit row deletion and keep clear-all wired', () => {
+test('both picker parents omit row deletion and keep caller-specific clear-all ownership', () => {
   const panel = parseSource('src/components/features/prefill/PrefillPanel.tsx', ts.ScriptKind.TSX);
   const scheduled = parseSource(
     'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
     ts.ScriptKind.TSX
   );
 
-  for (const [name, source] of [
-    ['PrefillPanel', panel],
-    ['ScheduledPrefillConfigModal', scheduled]
+  for (const [name, source, clearAll] of [
+    ['PrefillPanel', panel, true],
+    ['ScheduledPrefillConfigModal', scheduled, false]
   ]) {
     const picker = findSoleNode(
       source,
@@ -525,7 +524,8 @@ test('both picker parents omit row deletion and keep clear-all wired', () => {
       .map((attribute) => attribute.name.getText(source));
     assert.equal(attributeNames.includes('onRemoveFromCache'), false);
     assert.equal(attributeNames.includes('removingAppId'), false);
-    assert.equal(attributeNames.includes('onClearAllCache'), true);
+    assert.equal(attributeNames.includes('onClearAllCache'), clearAll);
+    assert.equal(attributeNames.includes('confirmDiscard'), name === 'ScheduledPrefillConfigModal');
 
     const removedDeclarations = collectNodes(
       source,
@@ -543,6 +543,7 @@ test('both picker parents omit row deletion and keep clear-all wired', () => {
 
   // Clear-all remains admin-only in the ordinary picker because its route is AccountHolder-only.
   assert.equal(panel.text.includes('isAdmin ? handleClearAllFromCache : undefined'), true);
+  assert.equal(scheduled.text.includes('clearAllPrefillCache'), false);
   assert.equal(modalFile.text.includes('onRemoveFromCache'), false);
   assert.equal(modalFile.text.includes('removingAppId'), false);
   assert.equal(modalFile.text.includes('Trash2'), false);
@@ -583,11 +584,12 @@ test('populated refresh keeps local selection and active filters when parent arr
   let search = 'Alpha';
   const openedRef = { current: true };
   const reset = bindLifted(
-    liftHookCallback(modalPath, 'useEffect', 'setLocalSelected(new Set(selectedAppIds))'),
+    liftHookCallback(modalPath, 'useEffect', 'const selection = new Set(selectedAppIds)'),
     {
       opened: true,
       openedRef,
       openEpochRef: { current: 1 },
+      openingSelectionRef: { current: new Set(['1']) },
       selectedAppIds: ['2'],
       setLocalSelected: (value) => {
         selection = value;
@@ -597,7 +599,8 @@ test('populated refresh keeps local selection and active filters when parent arr
       },
       setImportText: assert.fail,
       setImportResult: assert.fail,
-      setClearCacheConfirmOpen: assert.fail
+      setClearCacheConfirmOpen: assert.fail,
+      setDiscardConfirmOpen: assert.fail
     }
   );
   reset();
@@ -616,6 +619,7 @@ test('a save completing after close and reopen cannot close the replacement pick
     games: library,
     selectedInLibrary: ['1'],
     localSelected: new Set(['1']),
+    setDiscardConfirmOpen: () => undefined,
     onSave: () =>
       new Promise((resolve) => {
         release = resolve;

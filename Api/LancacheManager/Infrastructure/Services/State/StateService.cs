@@ -215,18 +215,7 @@ public class StateService : IStateService
 
                 var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
 
-                // Write to temp file first then move (atomic operation)
-                var tempFile = _stateFilePath + ".tmp";
-                File.WriteAllText(tempFile, json);
-
-                // Force flush to disk
-                using (var fs = File.OpenWrite(tempFile))
-                {
-                    fs.Flush(true);
-                }
-
-                // Atomically replace the old file
-                File.Move(tempFile, _stateFilePath, true);
+                WriteState(json);
 
                 _cachedState = state;
                 _consecutiveFailures = 0; // Reset on success
@@ -250,6 +239,17 @@ public class StateService : IStateService
                 throw new ServiceUnavailableException(SaveFailedMessage) { StageKey = SaveFailedStageKey };
             }
         }
+    }
+
+    protected virtual void WriteState(string contents)
+    {
+        var tempFile = _stateFilePath + ".tmp";
+        File.WriteAllText(tempFile, contents);
+        using (var stream = File.OpenWrite(tempFile))
+        {
+            stream.Flush(true);
+        }
+        File.Move(tempFile, _stateFilePath, true);
     }
 
     /// <summary>
@@ -1243,35 +1243,55 @@ public class StateService : IStateService
         // AppState.ScheduledPrefill is a non-nullable property defaulted to CreateDefault() (StateModels.cs),
         // and every load path resolves it via ResolveScheduledPrefillConfig, so it is never null here.
         // Revalidate so callers always receive a known-good object.
-        return ScheduledPrefillConfigFactory.Validate(GetState().ScheduledPrefill);
+        lock (_lock)
+        {
+            return CopyConfig(ScheduledPrefillConfigFactory.Validate(GetState().ScheduledPrefill));
+        }
     }
 
     public void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config)
     {
-        var validated = ScheduledPrefillConfigFactory.Validate(config);
-        UpdateState(state =>
+        UpdateScheduledPrefillConfig(_ => config);
+    }
+
+    private static ScheduledPrefillConfigDto CopyConfig(ScheduledPrefillConfigDto config)
+        => JsonSerializer.Deserialize<ScheduledPrefillConfigDto>(JsonSerializer.Serialize(config))!;
+
+    public ScheduledPrefillConfigDto UpdateScheduledPrefillConfig(
+        Func<ScheduledPrefillConfigDto, ScheduledPrefillConfigDto> update,
+        Action<IReadOnlySet<Guid>>? guard = null)
+    {
+        lock (_lock)
         {
-            var previousEnabled = state.ScheduledPrefill?
+            var current = GetState();
+            var state = current.ShallowClone();
+            state.ScheduledPrefillServiceLastRunUtc = new(current.ScheduledPrefillServiceLastRunUtc,
+                current.ScheduledPrefillServiceLastRunUtc.Comparer);
+            state.ScheduledPrefillServiceLastActualRunUtc = new(current.ScheduledPrefillServiceLastActualRunUtc,
+                current.ScheduledPrefillServiceLastActualRunUtc.Comparer);
+            var previousEnabled = current.ScheduledPrefill
                 .GetSchedulesInRunOrder()
                 .ToDictionary(
                     schedule => schedule.ScheduleId.ToString("N"),
-                    schedule => schedule.Enabled)
-                ?? new Dictionary<string, bool>(StringComparer.Ordinal);
-
+                    schedule => schedule.Enabled);
+            var validated = CopyConfig(ScheduledPrefillConfigFactory.Validate(update(CopyConfig(current.ScheduledPrefill))));
             var retainedIds = validated.GetSchedulesInRunOrder()
-                .Select(schedule => schedule.ScheduleId.ToString("N"))
-                .ToHashSet(StringComparer.Ordinal);
+                .Select(schedule => schedule.ScheduleId)
+                .ToHashSet();
+            var removedIds = current.ScheduledPrefill.GetSchedulesInRunOrder()
+                .Select(schedule => schedule.ScheduleId).Where(id => !retainedIds.Contains(id)).ToHashSet();
+            guard?.Invoke(removedIds);
 
             state.ScheduledPrefill = validated;
             foreach (var removedKey in state.ScheduledPrefillServiceLastRunUtc.Keys
-                         .Where(key => !retainedIds.Contains(key))
+                         .Where(key => Guid.TryParse(key, out var id) && removedIds.Contains(id))
                          .ToList())
             {
                 state.ScheduledPrefillServiceLastRunUtc.Remove(removedKey);
             }
 
             foreach (var removedKey in state.ScheduledPrefillServiceLastActualRunUtc.Keys
-                         .Where(key => !retainedIds.Contains(key))
+                         .Where(key => Guid.TryParse(key, out var id) && removedIds.Contains(id))
                          .ToList())
             {
                 state.ScheduledPrefillServiceLastActualRunUtc.Remove(removedKey);
@@ -1294,7 +1314,9 @@ public class StateService : IStateService
                     state.ScheduledPrefillServiceLastRunUtc[key] = anchoredAt;
                 }
             }
-        });
+            SaveState(state);
+            return CopyConfig(validated);
+        }
     }
 
     // Scheduled Prefill Per-Service Last-Run Methods (durable, keyed by PrefillPlatform name)
@@ -1315,6 +1337,11 @@ public class StateService : IStateService
     {
         UpdateState(state =>
         {
+            if (Guid.TryParse(platform, out var id)
+                && !state.ScheduledPrefill.GetSchedulesInRunOrder().Any(schedule => schedule.ScheduleId == id))
+                return;
+            state.ScheduledPrefillServiceLastRunUtc = new(state.ScheduledPrefillServiceLastRunUtc,
+                state.ScheduledPrefillServiceLastRunUtc.Comparer);
             state.ScheduledPrefillServiceLastRunUtc[platform] = lastRunUtc;
         });
     }
@@ -1336,6 +1363,11 @@ public class StateService : IStateService
     {
         UpdateState(state =>
         {
+            if (Guid.TryParse(platform, out var id)
+                && !state.ScheduledPrefill.GetSchedulesInRunOrder().Any(schedule => schedule.ScheduleId == id))
+                return;
+            state.ScheduledPrefillServiceLastActualRunUtc = new(state.ScheduledPrefillServiceLastActualRunUtc,
+                state.ScheduledPrefillServiceLastActualRunUtc.Comparer);
             if (!state.ScheduledPrefillServiceLastActualRunUtc.TryGetValue(platform, out var previous)
                 || lastRunUtc > previous)
                 state.ScheduledPrefillServiceLastActualRunUtc[platform] = lastRunUtc;

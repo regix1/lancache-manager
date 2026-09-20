@@ -65,14 +65,16 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         }
       }}
       title={
-        <div className="flex items-center space-x-3">
-          {icon ?? <AlertTriangle className="w-6 h-6 text-themed-warning" />}
-          <span>{title}</span>
+        <div className="confirmation-modal__title">
+          <span className="confirmation-modal__title-icon">
+            {icon ?? <AlertTriangle className="w-6 h-6 text-themed-warning" />}
+          </span>
+          <span className="confirmation-modal__title-text">{title}</span>
         </div>
       }
       size={size}
     >
-      <div className="space-y-4">
+      <div className="confirmation-modal__content">
         {children}
 
         <div className="confirmation-modal__actions">

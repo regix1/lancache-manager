@@ -1,22 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bindLifted, liftHookCallback, liftConstArrow, compileToUrl } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback, compileToUrl } from './transpile-module.mjs';
 
-const { canStartPrefill, mergePrefillRuns } = await import(
+const { mergePrefillRuns } = await import(
   await compileToUrl('../src/components/features/prefill/hooks/prefillTypes.ts')
 );
 
 const path =
-  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx';
+  'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts';
 const arrow = liftHookCallback(path, 'useCallback', 'const nextContainers');
+const runServiceSource = liftHookCallback(
+  'src/components/features/management/schedules/SchedulesSection.tsx',
+  'useCallback',
+  'runScheduledPrefillService'
+);
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const create = () => {
   const calls = [];
   const state = { loading: false, containers: null, error: null };
-  const ref = { current: null };
+  const requestRef = { current: null };
+  const containersRef = { current: null };
+  const revisionRef = { current: 0 };
   const load = bindLifted(arrow, {
     mergePrefillRuns,
-    persistentContainersRequestRef: ref,
+    persistentContainersRequestRef: requestRef,
+    persistentContainersRef: containersRef,
+    persistentContainersRevisionRef: revisionRef,
     ApiService: {
       getPersistentPrefillContainers: (signal) =>
         new Promise((resolve, reject) => {
@@ -28,6 +37,7 @@ const create = () => {
     },
     setPersistentContainers: (value) => {
       state.containers = typeof value === 'function' ? value(state.containers) : value;
+      containersRef.current = state.containers;
     },
     setPersistentError: (value) => {
       state.error = value;
@@ -35,7 +45,7 @@ const create = () => {
     isAbortError: (error) => error.name === 'AbortError',
     getErrorMessage: (error) => error.message
   });
-  return { calls, state, ref, load };
+  return { calls, state, ref: requestRef, containersRef, revisionRef, load };
 };
 
 test('terminal triggers drain after an older downloading snapshot', async () => {
@@ -47,6 +57,7 @@ test('terminal triggers drain after an older downloading snapshot', async () => 
   run.calls[0].resolve([{ isPrefilling: true }]);
   await settle();
   assert.equal(run.calls.length, 2);
+  assert.equal(run.state.containers, null);
   assert.equal(run.state.loading, true);
   run.calls[1].resolve([{ isPrefilling: false }]);
   await Promise.all([first, joined]);
@@ -104,41 +115,84 @@ test('aborted callers start nothing and failed requests allow a later reconnect 
   assert.equal(run.state.containers[0].isPrefilling, false);
 });
 
-test('download rejection refreshes before restoring the action error', async () => {
-  let error = null;
-  let action = null;
-  const order = [];
-  const download = bindLifted(liftConstArrow(path, 'handlePersistentDownload'), {
-    config: { steam: { schedules: [{ id: 'schedule', enabled: true }] } },
-    canStartPrefill,
-    getPersistentServiceId: () => 'Steam',
-    persistentContainerByService: new Map([
-      ['Steam', { isRunning: true, isAuthenticated: true, sessionId: 'session' }]
-    ]),
-    isScheduledPrefillAnonymousService: () => false,
-    setPersistentAction: (value) => {
-      action = value;
+test('a successful empty snapshot stays loaded through refresh failure without a loading pulse', async () => {
+  const run = create();
+  const initial = run.load();
+  assert.equal(run.state.loading, true);
+  run.calls[0].resolve([]);
+  await initial;
+  assert.deepEqual(run.state.containers, []);
+  assert.deepEqual(run.containersRef.current, []);
+  assert.equal(run.state.loading, false);
+
+  const refresh = run.load();
+  assert.equal(run.state.loading, false);
+  assert.deepEqual(run.state.containers, []);
+  run.calls[1].reject(new Error('offline'));
+  await refresh;
+
+  assert.deepEqual(run.state.containers, []);
+  assert.equal(run.state.error, 'offline');
+  assert.equal(run.state.loading, false);
+});
+
+test('a queued refresh runs after the superseded request fails', async () => {
+  const run = create();
+  const first = run.load();
+  const joined = run.load();
+  run.calls[0].reject(new Error('superseded failure'));
+  await settle();
+
+  assert.equal(run.calls.length, 2);
+  assert.equal(run.state.error, null);
+  run.calls[1].resolve([{ isPrefilling: false }]);
+  await Promise.all([first, joined]);
+
+  assert.equal(run.state.containers[0].isPrefilling, false);
+  assert.equal(run.state.error, null);
+  assert.equal(run.ref.current, null);
+});
+
+const runSavedService = ({ request, notifications, pending, order }) =>
+  bindLifted(runServiceSource, {
+    sessionStore: {},
+    recoverScheduledPrefillEditSession: async (_store, cleanup) => {
+      order.push('recover');
+      await cleanup({ editSessionId: 'old-edit' });
     },
-    setPersistentError: (value) => {
-      error = value;
-    },
-    recordEditAction: () => ({ editSession: { editSessionId: 'edit' }, editActionId: 'action' }),
-    getPersistentPrefillRunOptions: () => ({}),
+    SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY: { Steam: 'steam' },
     ApiService: {
-      startPersistentPrefill: async () => {
-        throw new Error('Log in first');
-      }
+      cleanupPersistentPrefillEditSession: async () => order.push('cleanup'),
+      runScheduledPrefillService: async (...args) => {
+        order.push(['request', ...args]);
+        return request();
+      },
+      startPersistentPrefill: assert.fail
     },
-    loadPersistentContainers: async () => {
-      order.push('refresh');
-      error = 'refresh failed';
-    },
-    getErrorMessage: (value) => value.message
+    markStarting: (key) => pending.add(key),
+    clearPending: (key) => pending.delete(key),
+    addNotification: (notice) => notifications.push(notice),
+    getPersistentPrefillRunOptions: assert.fail,
+    recordEditAction: assert.fail,
+    getErrorMessage: (error) => error.message,
+    t: (key) => key
   });
-  await download('steam', 'schedule');
-  assert.deepEqual(order, ['refresh']);
-  assert.equal(error, 'Log in first');
-  assert.equal(action, null);
+
+test('saved-row run dispatches its exact service and schedule only after cleanup', async () => {
+  const order = [];
+  const notifications = [];
+  const pending = new Set();
+  const run = runSavedService({
+    request: async () => ({ alreadyRunning: false }),
+    notifications,
+    pending,
+    order
+  });
+  await run('Steam', 'schedule-7');
+  assert.deepEqual(order, ['recover', 'cleanup', ['request', 'Steam', 'schedule-7']]);
+  assert.deepEqual([...pending], ['Steam:schedule-7']);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].status, 'completed');
 });
 
 test('successful list retry clears the previous transport error', async () => {
@@ -154,35 +208,22 @@ test('successful list retry clears the previous transport error', async () => {
   assert.equal(run.state.containers[0].isAuthenticated, false);
 });
 
-test('download rejection joins a successful refresh before restoring its error', async () => {
+test('saved-row refusal clears only its pending row and survives successful trailing refresh', async () => {
   const run = create();
-  let action = null;
+  const notifications = [];
+  const pendingRows = new Set(['Steam:sibling']);
+  const order = [];
   const request = run.load();
-  const download = bindLifted(liftConstArrow(path, 'handlePersistentDownload'), {
-    config: { steam: { schedules: [{ id: 'schedule', enabled: true }] } },
-    canStartPrefill,
-    getPersistentServiceId: () => 'Steam',
-    persistentContainerByService: new Map([
-      ['Steam', { isRunning: true, isAuthenticated: true, sessionId: 'session' }]
-    ]),
-    isScheduledPrefillAnonymousService: () => false,
-    setPersistentAction: (value) => {
-      action = value;
+  const dispatch = runSavedService({
+    request: async () => {
+      throw new Error('Log in first');
     },
-    setPersistentError: (value) => {
-      run.state.error = value;
-    },
-    recordEditAction: () => ({ editSession: { editSessionId: 'edit' }, editActionId: 'action' }),
-    getPersistentPrefillRunOptions: () => ({}),
-    ApiService: {
-      startPersistentPrefill: async () => {
-        throw new Error('Log in first');
-      }
-    },
-    loadPersistentContainers: run.load,
-    getErrorMessage: (value) => value.message
+    notifications,
+    pending: pendingRows,
+    order
   });
-  const pending = download('steam', 'schedule');
+  const refused = dispatch('Steam', 'schedule-7');
+  void run.load();
   await settle();
   assert.equal(run.calls.length, 1);
   assert.equal(run.ref.current.again, true);
@@ -190,10 +231,12 @@ test('download rejection joins a successful refresh before restoring its error',
   await settle();
   assert.equal(run.calls.length, 2);
   assert.equal(run.state.error, null);
-  assert.notEqual(action, null);
   run.calls[1].resolve([{ isAuthenticated: false }]);
-  await Promise.all([request, pending]);
+  await Promise.all([request, refused]);
   assert.equal(run.state.containers[0].isAuthenticated, false);
-  assert.equal(run.state.error, 'Log in first');
-  assert.equal(action, null);
+  assert.deepEqual([...pendingRows], ['Steam:sibling']);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].status, 'failed');
+  assert.equal(notifications[0].message, 'Log in first');
+  assert.deepEqual(order, ['recover', 'cleanup', ['request', 'Steam', 'schedule-7']]);
 });

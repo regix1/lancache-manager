@@ -4,6 +4,8 @@ import type { PersistentPrefillServiceId } from '@components/features/prefill/pe
 import {
   consumeLoginAttemptNonce,
   ensurePersistentLoginTimeout,
+  getPersistentLoginStartPromise,
+  getPersistentLoginState,
   isPersistentLoginIntegrationReuse,
   usePersistentLoginRequestNonce
 } from '../persistentLoginStore';
@@ -13,7 +15,7 @@ export interface PersistentLoginHostProps {
   isAuthenticated: boolean;
   onAuthenticated: () => void;
   autoStart?: boolean;
-  onDismiss?: () => void;
+  onDismiss: () => void;
 }
 
 interface PersistentLoginHostState {
@@ -23,7 +25,7 @@ interface PersistentLoginHostState {
   loading: boolean;
 }
 
-interface PersistentLoginHostOptions extends PersistentLoginHostProps {
+interface PersistentLoginHostOptions extends Omit<PersistentLoginHostProps, 'onDismiss'> {
   service: PersistentPrefillServiceId;
   state: PersistentLoginHostState;
   startLogin: () => void | Promise<unknown>;
@@ -69,13 +71,24 @@ export function usePersistentLoginHost({
       return;
     }
 
-    if (state.hasChallenge) {
+    const current = getPersistentLoginState(service);
+    if (current.dismissed) {
+      return;
+    }
+
+    if (
+      current.pendingChallenge !== null ||
+      current.loading ||
+      getPersistentLoginStartPromise(service)
+    ) {
       // Reveal the admitted challenge, or its admission error and explicit Cancel action.
       // Reopening never starts another attempt or reconstructs its deadline.
-      ensurePersistentLoginTimeout(service, {
-        noResult: t('prefill.persistent.errors.noResult'),
-        timedOut: t('prefill.persistent.loginTimedOut')
-      });
+      if (current.pendingChallenge !== null) {
+        ensurePersistentLoginTimeout(service, {
+          noResult: t('prefill.persistent.errors.noResult'),
+          timedOut: t('prefill.persistent.loginTimedOut')
+        });
+      }
       resumeModal();
       return;
     }
@@ -87,7 +100,7 @@ export function usePersistentLoginHost({
     } finally {
       startInFlightRef.current = false;
     }
-  }, [resumeModal, service, startLogin, state.hasChallenge, t]);
+  }, [resumeModal, service, startLogin, t]);
 
   // Nonce consumption lives in the store, so remounting cannot restart an attempt already handled.
   useEffect(() => {

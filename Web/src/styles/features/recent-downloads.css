@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  column-gap: 0.75rem;
+  column-gap: var(--control-gap-compact);
   row-gap: 0.75rem;
   margin-bottom: 1rem;
 }
@@ -45,7 +45,7 @@
 .rdl-view-switch {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--control-gap-compact);
   flex: 0 0 auto;
 }
 
@@ -103,7 +103,7 @@
    straight up against "Active" with the rest of the row empty after it. */
 .rdl-filters {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--control-gap-compact);
   flex-wrap: wrap;
   flex: 0 1 auto;
   min-width: 0;

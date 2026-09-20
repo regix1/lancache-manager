@@ -1,33 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
-import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
+import {
+  ActionMenu,
+  ActionMenuDangerItem,
+  ActionMenuDivider,
+  ActionMenuGroup,
+  ActionMenuItem
+} from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ChevronDown } from 'lucide-react';
 import StatusDot from '@components/common/StatusDot';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useNotifications } from '@contexts/notifications';
 import ApiService from '@services/api.service';
-import type {
-  PersistentPrefillContainerDto,
-  PersistentPrefillServiceId
-} from '@components/features/prefill/persistentPrefillTypes';
 import {
-  SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
 import { formatLastRun } from '../scheduleFormatting';
 import type { CustomSchedule } from '../custom-schedule/types';
-import type { ServiceScheduleInfo } from '../types';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
 import {
   getPersistentServiceId,
   isScheduledPrefillAccountService,
-  needsPersistentLogin,
   SCHEDULED_PREFILL_PLATFORM_UI
 } from './scheduledPrefillPlatformUi';
 import type {
@@ -35,64 +33,68 @@ import type {
   ScheduledPrefillRowLoginState,
   ScheduledPrefillServiceId,
   ScheduledPrefillServiceKey,
-  ScheduledPrefillServiceScheduleDto
+  ScheduledPrefillServiceScheduleDto,
+  ScheduledPrefillSchedule,
+  ScheduledPrefillEditTarget
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
-import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
-import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import { ScheduledPrefillContainerModal } from './ScheduledPrefillContainerModal';
+import { ScheduledPrefillActivityModal } from './ScheduledPrefillActivityModal';
+import { ScheduledPrefillSharedSettingsModal } from './ScheduledPrefillSharedSettingsModal';
+import { PersistentLoginHost } from './PersistentLoginHost';
+import { useScheduledPrefillContainers } from './useScheduledPrefillContainers';
+import { uniqueScheduleName } from './scheduleNames';
+import { createUuid } from '@utils/uuid';
 
 interface ScheduledPrefillScheduleDetailProps {
   disabled?: boolean;
-  /** True when the card is showing the "no services enabled" disabled tint. Only the
-   * summary content dims in that state - the zero-enabled warning and Configure button
-   * stay at full opacity since they're the way out of that state. */
+
   dimmed?: boolean;
-  /** Card-level Run Now. It lives here (next to Configure, above the per-service table)
-   * rather than in the card header because both actions operate on the service list this
-   * component renders; the trigger + running state stay owned by SchedulesSection. */
+
   onRunNow: () => void;
   runNowLoading: boolean;
   runNowDisabled: boolean;
-  /** Starts one platform now, from that platform's own table row. */
+
   onRunService: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
   isRunServicePending: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => boolean;
-  /** True while the whole prefill schedule is running server-side, or the reader is not an admin. */
+
   runServiceDisabled: boolean;
 }
 
 interface ScheduledPrefillServiceScheduleRowProps {
   serviceKey: ScheduledPrefillServiceKey;
-  /** Backend platform name, which is what the per-service run route is addressed by. */
+
   serviceId: ScheduledPrefillServiceId;
   scheduleId: string;
   label: string;
   enabled: boolean;
   containerRunning: boolean;
-  /**
-   * Account readiness for Steam/Epic/Xbox (null for anonymous Battle.net/Riot). A running
-   * container can still be logged out (e.g. after a cancelled interactive login), and the
-   * scheduler gates on the daemon's live login state - so the row must surface it too instead
-   * of presenting "Container: Running" as the only prerequisite.
-   */
+
   loginState: ScheduledPrefillRowLoginState | null;
   intervalHours: number;
-  /** The saved cron schedule, which runs in preference to the interval, or null. */
+
   customSchedule: CustomSchedule | null;
-  /** Relative next-run hint ("in 2d", "soon", "paused", "on startup") from formatTiming. */
+
   nextTiming: string;
-  /** Raw next-run timestamp; non-null only for a real upcoming run (drives the absolute date). */
+
   nextRunUtc: string | null;
   lastRunUtc: string | null;
   disabled: boolean;
   runPending: boolean;
   runDisabled: boolean;
-  /** True while this service's own run is in flight. */
+
   isRunning: boolean;
-  /** True while this row's Enable or Disable save is in flight, which holds the Actions cluster disabled until it lands. */
+
   enablePending: boolean;
   onRun: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
+  onContainer: (serviceKey: ScheduledPrefillServiceKey) => void;
+  onAdd: (serviceKey: ScheduledPrefillServiceKey) => void;
+  onDuplicate: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
+  onDelete: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
+  triggerRef: (node: HTMLButtonElement | null) => void;
   onOpen: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
-  /** Flips the schedule between on and off and saves it. */
+
   onToggleEnabled: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   onIntervalChange: (
     serviceKey: ScheduledPrefillServiceKey,
@@ -106,14 +108,6 @@ interface ScheduledPrefillServiceScheduleRowProps {
   ) => void;
 }
 
-/**
- * One row of the per-service schedule table: service identity (brand icon tile, name,
- * enablement + container dots), the Next/Last run readout, and the interval picker. On
- * desktop the cells sit on the table's shared column grid under a single header row; below
- * that width each row folds into its own tile and the per-cell labels take over. Extracted
- * into its own component because it calls hooks (useTranslation, useFormattedDateTime)
- * that cannot run inside a .map() loop in the parent.
- */
 function ScheduledPrefillServiceScheduleRow({
   serviceKey,
   serviceId,
@@ -134,6 +128,11 @@ function ScheduledPrefillServiceScheduleRow({
   enablePending,
   onRun,
   onOpen,
+  onContainer,
+  onAdd,
+  onDuplicate,
+  onDelete,
+  triggerRef,
   onToggleEnabled,
   onIntervalChange,
   onCustomScheduleChange
@@ -144,12 +143,15 @@ function ScheduledPrefillServiceScheduleRow({
   const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const ServiceIcon = platformUi.icon;
   const [actionsOpen, setActionsOpen] = useState(false);
-  // One rule for the whole Actions cluster, read by the trigger and by every item. The trigger
-  // alone is not enough: the menu is portalled, so one left open when the card turns disabled (a
-  // config reload that drops the version gate, or the page-level disable) keeps its items mounted
-  // and clickable. An Enable save in flight disables them for the same reason, so a second click
-  // cannot race the first one's whole-config round-trip. A schedule that is merely switched off
-  // is NOT disabled here, because the Enable item is what brings it back.
+  const actionsId = useId();
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const invoke = (action: () => void) => {
+    if (actionsDisabled) return;
+    setActionsOpen(false);
+    buttonRef.current?.focus();
+    action();
+  };
+
   const actionsDisabled = disabled || enablePending;
 
   return (
@@ -245,7 +247,7 @@ function ScheduledPrefillServiceScheduleRow({
         </span>
         <ScheduleIntervalPicker
           intervalHours={intervalHours}
-          isDisabled={disabled || !enabled}
+          isDisabled={disabled || enablePending || !enabled}
           onChange={(hours) => onIntervalChange(serviceKey, scheduleId, hours)}
           customSchedule={customSchedule}
           onCustomScheduleChange={(schedule) =>
@@ -261,9 +263,16 @@ function ScheduledPrefillServiceScheduleRow({
           isOpen={actionsOpen}
           onClose={() => setActionsOpen(false)}
           align="right"
-          width="w-44"
+          width="w-72"
+          className="scheduled-prefill-action-menu"
+          id={actionsId}
+          aria-label={t('management.actions.menuLabel')}
           trigger={
             <Button
+              ref={(node) => {
+                buttonRef.current = node;
+                triggerRef(node);
+              }}
               type="button"
               variant="menu"
               size="md"
@@ -272,44 +281,64 @@ function ScheduledPrefillServiceScheduleRow({
               disabled={actionsDisabled}
               onClick={() => setActionsOpen((open) => !open)}
               aria-expanded={actionsOpen}
-              aria-haspopup="menu"
+              aria-controls={actionsId}
               rightSection={<ChevronDown size={16} aria-hidden="true" />}
             >
               {t('management.actions.menuLabel')}
             </Button>
           }
         >
-          {/* Run only belongs to an enabled schedule without a run in flight. */}
-          {!isRunning && enabled && (
+          <ActionMenuGroup label={t(`${baseKey}.records.label`)}>
             <ActionMenuItem
-              onClick={() => {
-                setActionsOpen(false);
-                onRun(serviceId, scheduleId);
-              }}
-              disabled={actionsDisabled || runDisabled || runPending}
+              onClick={() => invoke(() => onOpen(serviceKey, scheduleId))}
+              disabled={actionsDisabled}
+            >
+              {t(`${baseKey}.records.edit`)}
+            </ActionMenuItem>
+            <ActionMenuItem
+              onClick={() => invoke(() => onRun(serviceId, scheduleId))}
+              disabled={actionsDisabled || runDisabled || runPending || isRunning || !enabled}
             >
               {runPending && <LoadingSpinner inline size="xs" />}
-              {t('management.schedules.services.scheduledPrefill.runService')}
+              {t(`${baseKey}.records.run`)}
             </ActionMenuItem>
-          )}
-          <ActionMenuItem
-            onClick={() => {
-              setActionsOpen(false);
-              onOpen(serviceKey, scheduleId);
-            }}
+            <ActionMenuItem
+              onClick={() => invoke(() => onToggleEnabled(serviceKey, scheduleId))}
+              disabled={actionsDisabled}
+            >
+              {t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}
+            </ActionMenuItem>
+            <ActionMenuItem
+              onClick={() => invoke(() => onDuplicate(serviceKey, scheduleId))}
+              disabled={actionsDisabled}
+            >
+              {t(`${baseKey}.records.duplicate`)}
+            </ActionMenuItem>
+          </ActionMenuGroup>
+          <ActionMenuDivider semantic />
+          <ActionMenuGroup label={t(`${baseKey}.services.${serviceKey}`)}>
+            <ActionMenuItem
+              onClick={() => invoke(() => onAdd(serviceKey))}
+              disabled={actionsDisabled}
+            >
+              {t(`${baseKey}.records.menuAdd`, {
+                service: t(`${baseKey}.services.${serviceKey}`)
+              })}
+            </ActionMenuItem>
+            <ActionMenuItem
+              onClick={() => invoke(() => onContainer(serviceKey))}
+              disabled={actionsDisabled}
+            >
+              {t(`${baseKey}.records.manageContainer`)}
+            </ActionMenuItem>
+          </ActionMenuGroup>
+          <ActionMenuDivider semantic />
+          <ActionMenuDangerItem
+            onClick={() => invoke(() => onDelete(serviceKey, scheduleId))}
             disabled={actionsDisabled}
           >
-            {t(`${baseKey}.records.open`)}
-          </ActionMenuItem>
-          <ActionMenuItem
-            onClick={() => {
-              setActionsOpen(false);
-              onToggleEnabled(serviceKey, scheduleId);
-            }}
-            disabled={actionsDisabled}
-          >
-            {t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}
-          </ActionMenuItem>
+            {t(`${baseKey}.records.delete`)}
+          </ActionMenuDangerItem>
         </ActionMenu>
       </div>
     </div>
@@ -327,299 +356,394 @@ export function ScheduledPrefillScheduleDetail({
   runServiceDisabled
 }: ScheduledPrefillScheduleDetailProps) {
   const { t } = useTranslation();
+  const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const { on, off, isConnected } = useSignalR();
-  const { addNotification } = useNotifications();
-  // Persistent-container run/login state now flows through the unified activity registry; the
-  // fetched container list stays the pre-seed fallback (activity.isActive(...) || existing).
-  const activity = useActivityStatus();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
-  const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
-    []
-  );
+  const records = useRef(new Map<string, ScheduledPrefillSchedule>());
   const [schedule, setSchedule] = useState<ScheduledPrefillServiceScheduleDto[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  /** Schedules whose Enable save is in flight, so the row's Actions button shows the wait. */
-  const [enablingSchedules, setEnablingSchedules] = useState<string[]>([]);
-  const [modalOpened, setModalOpened] = useState(false);
-  const [modalRecord, setModalRecord] = useState<{
+  const [patches, setPatches] = useState<Record<string, Partial<ScheduledPrefillSchedule>>>({});
+  const pending = useRef(new Set<string>());
+  const [pendingKeys, setPendingKeys] = useState<string[]>([]);
+  const [modalRecord, setModalRecord] = useState<ScheduledPrefillEditTarget | null>(null);
+  const [containerService, setContainerService] = useState<ScheduledPrefillServiceKey | null>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsId = useId();
+  const [deleteTarget, setDeleteTarget] = useState<{
     serviceKey: ScheduledPrefillServiceKey;
     scheduleId: string;
+    name: string;
   } | null>(null);
-  // Relative labels ("in 2h", "Just now") are computed at render time, so without a clock they
-  // freeze at whatever the last fetch produced. A minute tick matches their coarsest granularity
-  // and re-derives every timing cell without refetching anything.
-  const [now, setNow] = useState(() => Date.now());
-  const baseKey = 'management.schedules.services.scheduledPrefill.config';
-
-  // Aborts the in-flight refreshSchedule() fetch so an unmounted or superseded refresh never
-  // setStates (last writer wins).
-  const refreshScheduleControllerRef = useRef<AbortController | null>(null);
-  const refreshContainersControllerRef = useRef<AbortController | null>(null);
-
-  // Last-seen prefill entry from the SchedulesUpdated broadcast. That event fires on every
-  // tracked service's work-tick, so we only refetch when the prefill aggregate actually
-  // changed (a real run or a config save), never on idle ticks. null until the first payload,
-  // which only seeds the snapshot since mount's loadSummary already fetched.
-  const lastPrefillAggregateRef = useRef<{
-    lastRunUtc: string | null;
-    nextRunUtc: string | null;
-    intervalHours: number;
+  const opening = useRef(0);
+  const actionsRef = useRef<HTMLButtonElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const emptyRefs = useRef(new Map<ScheduledPrefillServiceKey, HTMLButtonElement>());
+  const containers = useScheduledPrefillContainers(containerService);
+  const revision = useRef(0);
+  const request = useRef<{
+    again: boolean;
+    controller: AbortController;
+    promise: Promise<void>;
   } | null>(null);
-
-  const loadSummary = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    try {
-      const [nextConfig, nextContainers, nextSchedule] = await Promise.all([
-        ApiService.getScheduledPrefillConfig(signal),
-        ApiService.getPersistentPrefillContainers(signal),
-        ApiService.getScheduledPrefillSchedule(signal)
-      ]);
-      setConfig(nextConfig);
-      setPersistentContainers(nextContainers);
-      setSchedule(nextSchedule);
-      setError(null);
-    } catch (loadError: unknown) {
-      if (!isAbortError(loadError)) {
-        setError(getErrorMessage(loadError));
-      }
-    } finally {
-      setLoading(false);
+  const [now, setNow] = useState(Date.now);
+  const refreshSchedule = useCallback(() => {
+    if (request.current) {
+      request.current.again = true;
+      return request.current.promise;
     }
+    const read = { again: false, controller: new AbortController(), promise: Promise.resolve() };
+    request.current = read;
+    read.promise = (async () => {
+      try {
+        do {
+          read.again = false;
+          const version = revision.current;
+          try {
+            const result = await ApiService.getScheduledPrefillSchedule(read.controller.signal);
+            if (request.current !== read || read.controller.signal.aborted) return;
+            if (version !== revision.current) {
+              read.again = true;
+              continue;
+            }
+            setSchedule(result);
+            setLoading(false);
+            setError(null);
+          } catch (failure: unknown) {
+            if (request.current !== read || read.controller.signal.aborted) return;
+            if (!isAbortError(failure)) setError(getErrorMessage(failure));
+          }
+        } while (read.again);
+      } finally {
+        if (request.current === read) request.current = null;
+      }
+    })();
+    return read.promise;
   }, []);
-
-  // Best-effort refresh of just the per-service schedule (no spinner) after a run
-  // completes, so the next-run summary reflects the freshly stamped last-run times.
-  const refreshSchedule = useCallback(async () => {
-    // Supersede any in-flight refresh so only the newest one wins, and give this fetch its
-    // own signal so an unmount (see the load effect cleanup) cancels it.
-    refreshScheduleControllerRef.current?.abort();
+  useEffect(() => {
     const controller = new AbortController();
-    refreshScheduleControllerRef.current = controller;
-    try {
-      const nextSchedule = await ApiService.getScheduledPrefillSchedule(controller.signal);
-      if (!controller.signal.aborted) {
-        setSchedule(nextSchedule);
-      }
-    } catch {
-      // Aborted (unmount/superseded) or failed: keep the prior schedule; SchedulesUpdated /
-      // a later load will correct it.
-    }
-  }, []);
-
-  // Keep the at-a-glance container badges current while this card remains mounted. Container
-  // start/stop actions happen inside Configure, but their state is useful on the schedule page
-  // even after that modal closes. Refresh only the lightweight container list for these events;
-  // the config and per-service schedule do not need to be fetched again.
-  const refreshPersistentContainers = useCallback(async () => {
-    refreshContainersControllerRef.current?.abort();
-    const controller = new AbortController();
-    refreshContainersControllerRef.current = controller;
-    try {
-      const nextContainers = await ApiService.getPersistentPrefillContainers(controller.signal);
-      if (!controller.signal.aborted) {
-        setPersistentContainers(nextContainers);
-      }
-    } catch {
-      // Preserve the last known status when a refresh is aborted or temporarily unavailable.
-    }
-  }, []);
-
-  usePersistentPrefillContainerSignalR({
-    enabled: true,
-    onRefresh: () => {
-      void refreshPersistentContainers();
-    }
-  });
-
-  // Refresh the schedule when SignalR reconnects (catches events missed during disconnect). The
-  // container list is already covered by the reconnect refresh above.
+    const version = revision.current;
+    void ApiService.getScheduledPrefillConfig(controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted && version === revision.current) {
+          setConfig(result);
+          for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+            for (const record of result[serviceKey].schedules)
+              records.current.set(`${serviceKey}:${record.id}`, record);
+          }
+        }
+      })
+      .catch((failure: unknown) => {
+        if (!controller.signal.aborted && !isAbortError(failure))
+          setError(getErrorMessage(failure));
+      });
+    void refreshSchedule();
+    return () => {
+      controller.abort();
+      request.current?.controller.abort();
+      request.current = null;
+    };
+  }, [refreshSchedule]);
+  useEffect(() => {
+    const refresh = () => {
+      void refreshSchedule();
+    };
+    on('SchedulesUpdated', refresh);
+    on('ScheduledPrefillStarted', refresh);
+    on('ScheduledPrefillCompleted', refresh);
+    return () => {
+      off('SchedulesUpdated', refresh);
+      off('ScheduledPrefillStarted', refresh);
+      off('ScheduledPrefillCompleted', refresh);
+    };
+  }, [on, off, refreshSchedule]);
   useReconnectRefetch(isConnected, () => {
     void refreshSchedule();
   });
-
-  // Card-level per-service save. Goes through the same whole-config round-trip the Configure
-  // modal uses; optimistic so the control never flashes back to the old value. Returns whether
-  // the server took it, because a failure only reverts and surfaces the message here - a caller
-  // that announces its own outcome has no other way to tell the two apart.
-  const saveServiceConfig = useCallback(
-    async (
-      serviceKey: ScheduledPrefillServiceKey,
-      scheduleId: string,
-      patch: { enabled?: boolean; intervalHours?: number; customSchedule?: CustomSchedule | null }
-    ): Promise<boolean> => {
-      if (!config) {
-        return false;
-      }
-
-      const previous = config;
-      const updated: ScheduledPrefillConfigDto = {
-        ...config,
-        [serviceKey]: {
-          ...config[serviceKey],
-          schedules: config[serviceKey].schedules.map((schedule) =>
-            schedule.id === scheduleId ? { ...schedule, ...patch } : schedule
-          )
-        }
-      };
-      setConfig(updated);
-
-      try {
-        await ApiService.updateScheduledPrefillConfig(updated);
-        await refreshSchedule();
-        return true;
-      } catch (saveError: unknown) {
-        setConfig(previous);
-        setError(getErrorMessage(saveError));
-        return false;
-      }
-    },
-    [config, refreshSchedule]
-  );
-
-  const handleServiceIntervalChange = useCallback(
-    async (serviceKey: ScheduledPrefillServiceKey, scheduleId: string, hours: number) => {
-      // The schedule clears in the same round-trip. A saved schedule runs in preference to the
-      // interval, so one left behind would swallow the interval the user just picked.
-      await saveServiceConfig(serviceKey, scheduleId, {
-        intervalHours: hours,
-        customSchedule: null
-      });
-    },
-    [saveServiceConfig]
-  );
-
-  const handleServiceCustomScheduleChange = useCallback(
-    async (
-      serviceKey: ScheduledPrefillServiceKey,
-      scheduleId: string,
-      schedule: CustomSchedule
-    ) => {
-      await saveServiceConfig(serviceKey, scheduleId, { customSchedule: schedule });
-    },
-    [saveServiceConfig]
-  );
-
   useEffect(() => {
-    const controller = new AbortController();
-    void loadSummary(controller.signal);
-
-    return () => {
-      controller.abort();
-      refreshScheduleControllerRef.current?.abort();
-      refreshContainersControllerRef.current?.abort();
-    };
-  }, [loadSummary]);
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(interval);
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    // Run lifecycle/progress lines are deliberately NOT rendered on this card - the universal
-    // notification already shows them. The completion event only matters here because it stamps
-    // fresh last/next-run times that the table should pick up promptly.
-    const handleCompleted = () => {
-      void refreshSchedule();
-    };
-
-    // A start moves no timing, so the broadcast gate below cannot see it, yet each row's Run button
-    // reads a per-service running flag that only the schedule fetch carries. Without this a service
-    // started from its own row or by the cadence would keep an enabled button until the run ended.
-    // Still no progress lines on this card; this refetches the row state, nothing else. [48]
-    const handleStarted = () => {
-      void refreshSchedule();
-    };
-
-    // The generic schedule broadcast carries the full ServiceScheduleInfo[] and fires on every
-    // tracked service's work-tick (roughly once a minute) plus schedule mutations. Refetching
-    // the per-service block on every one of those would hammer a constrained server, so gate
-    // on the pushed prefill entry: only refresh when its last/next-run or interval actually
-    // moved, which happens only on a real run or a config save (from any surface). The first
-    // payload just seeds the snapshot - mount's loadSummary already fetched the schedule.
-    const handleSchedulesUpdated = (schedules: ServiceScheduleInfo[]) => {
-      const prefill = schedules.find((entry) => entry.key === 'scheduledPrefill');
-      if (!prefill) {
-        return;
-      }
-
-      const previous = lastPrefillAggregateRef.current;
-      const next = {
-        lastRunUtc: prefill.lastRunUtc,
-        nextRunUtc: prefill.nextRunUtc,
-        intervalHours: prefill.intervalHours
-      };
-      lastPrefillAggregateRef.current = next;
-
-      if (!previous) {
-        return;
-      }
-
-      if (
-        previous.lastRunUtc !== next.lastRunUtc ||
-        previous.nextRunUtc !== next.nextRunUtc ||
-        previous.intervalHours !== next.intervalHours
-      ) {
+  const confirmRecord = useCallback(
+    (
+      serviceKey: ScheduledPrefillServiceKey,
+      record: ScheduledPrefillSchedule,
+      committed = false
+    ) => {
+      records.current.set(`${serviceKey}:${record.id}`, record);
+      setConfig((current) =>
+        current
+          ? {
+              ...current,
+              [serviceKey]: {
+                ...current[serviceKey],
+                schedules: current[serviceKey].schedules.some((item) => item.id === record.id)
+                  ? current[serviceKey].schedules.map((item) =>
+                      item.id === record.id ? record : item
+                    )
+                  : [...current[serviceKey].schedules, record]
+              }
+            }
+          : current
+      );
+      if (committed) {
+        revision.current += 1;
+        setSchedule((current) => {
+          const found = current.some(
+            (item) =>
+              item.serviceId === getPersistentServiceId(serviceKey) && item.scheduleId === record.id
+          );
+          const patch = {
+            name: record.name,
+            enabled: record.enabled,
+            intervalHours: record.intervalHours,
+            customSchedule: record.customSchedule
+          };
+          return found
+            ? current.map((item) =>
+                item.serviceId === getPersistentServiceId(serviceKey) &&
+                item.scheduleId === record.id
+                  ? { ...item, ...patch }
+                  : item
+              )
+            : [
+                ...current,
+                {
+                  ...patch,
+                  serviceId: getPersistentServiceId(serviceKey),
+                  scheduleId: record.id,
+                  isRunning: false,
+                  operationId: null,
+                  lastRunUtc: null,
+                  nextRunUtc: null
+                }
+              ];
+        });
         void refreshSchedule();
       }
-    };
-
-    on('ScheduledPrefillStarted', handleStarted);
-    on('ScheduledPrefillCompleted', handleCompleted);
-    on('SchedulesUpdated', handleSchedulesUpdated);
-
-    return () => {
-      off('ScheduledPrefillStarted', handleStarted);
-      off('ScheduledPrefillCompleted', handleCompleted);
-      off('SchedulesUpdated', handleSchedulesUpdated);
-    };
-  }, [off, on, refreshSchedule]);
-
-  const enabledCount = useMemo(
-    () =>
-      config
-        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.flatMap(
-            (serviceKey) => config[serviceKey].schedules
-          ).filter((schedule) => schedule.enabled).length
-        : 0,
-    [config]
+    },
+    [refreshSchedule]
   );
-
-  const totalCount = config
-    ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.reduce(
-        (count, serviceKey) => count + config[serviceKey].schedules.length,
-        0
-      )
-    : 0;
-
-  // Names of the enabled account services whose persistent container needs login. Named
-  // explicitly in the warning so a user whose Steam row reads "Logged in" doesn't misread the
-  // generic "one or more services" phrasing as Steam not being detected.
-  const servicesNeedingLogin = useMemo(() => {
-    if (!config) {
-      return [];
-    }
-
-    const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
-      persistentContainers.map((container) => [container.service, container])
+  const saveServiceConfig = async (
+    serviceKey: ScheduledPrefillServiceKey,
+    scheduleId: string,
+    patch: Partial<Pick<ScheduledPrefillSchedule, 'enabled' | 'intervalHours' | 'customSchedule'>>
+  ) => {
+    const key = `${serviceKey}:${scheduleId}`;
+    if (pending.current.has(key) || pending.current.has('all') || disabled) return;
+    const row = schedule.find(
+      (item) =>
+        item.scheduleId === scheduleId && item.serviceId === getPersistentServiceId(serviceKey)
     );
-
-    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceId) => {
-      if (!config[serviceId].schedules.some((schedule) => schedule.enabled)) {
-        return false;
+    if (!row) return;
+    pending.current.add(key);
+    setPendingKeys([...pending.current]);
+    setPatches((current) => ({ ...current, [key]: patch }));
+    setError(null);
+    try {
+      const result =
+        patch.enabled !== undefined
+          ? await ApiService.setScheduledPrefillScheduleEnabled(
+              row.serviceId,
+              scheduleId,
+              patch.enabled
+            )
+          : await ApiService.setScheduledPrefillScheduleTiming(
+              row.serviceId,
+              scheduleId,
+              patch.intervalHours ?? row.intervalHours,
+              patch.customSchedule === undefined
+                ? (row.customSchedule ?? null)
+                : patch.customSchedule
+            );
+      const record = result[serviceKey].schedules.find((item) => item.id === scheduleId);
+      if (record) confirmRecord(serviceKey, record, true);
+    } catch (failure: unknown) {
+      setError(getErrorMessage(failure));
+    } finally {
+      setPatches((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      pending.current.delete(key);
+      setPendingKeys([...pending.current]);
+    }
+  };
+  const handleOpenSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
+    const row = schedule.find(
+      (item) =>
+        item.serviceId === getPersistentServiceId(serviceKey) && item.scheduleId === scheduleId
+    );
+    if (!row) {
+      setError(t(`${baseKey}.records.missing`));
+      return;
+    }
+    opening.current += 1;
+    setModalRecord({
+      opening: opening.current,
+      serviceKey,
+      scheduleId,
+      create: false,
+      name: row.name,
+      schedule: records.current.get(`${serviceKey}:${scheduleId}`) ?? null
+    });
+  };
+  const createDraft = async (serviceKey: ScheduledPrefillServiceKey, scheduleId?: string) => {
+    const attempt = ++opening.current;
+    try {
+      const result = await ApiService.getScheduledPrefillConfig();
+      if (opening.current !== attempt) return;
+      const records = result[serviceKey].schedules;
+      const source = scheduleId ? records.find((item) => item.id === scheduleId) : records[0];
+      if (scheduleId && !source) {
+        setError(t(`${baseKey}.records.missing`));
+        return;
       }
-
-      const container = containerByService.get(getPersistentServiceId(serviceId));
-      return needsPersistentLogin(container);
-    }).map((serviceId) => t(`${baseKey}.services.${serviceId}`));
-  }, [config, persistentContainers, baseKey, t]);
-
+      const id = createUuid();
+      const draft: ScheduledPrefillSchedule = {
+        intervalHours: 24,
+        customSchedule: null,
+        preset: 'All',
+        selectedAppIds: [],
+        topCount: null,
+        operatingSystems: serviceKey === 'steam' ? ['Windows'] : [],
+        force: false,
+        maxConcurrency: { mode: 'Auto' },
+        notificationMode: 'all',
+        notificationDisplayMode: 'full',
+        ...source,
+        id,
+        name: uniqueScheduleName(
+          scheduleId && source
+            ? `${source.name} ${t(`${baseKey}.records.copySuffix`)}`
+            : t(`${baseKey}.records.newName`),
+          records.map((item) => item.name)
+        ),
+        enabled: scheduleId ? source!.enabled : false
+      };
+      setModalRecord({
+        opening: attempt,
+        serviceKey,
+        scheduleId: id,
+        create: true,
+        name: draft.name,
+        schedule: draft
+      });
+    } catch (failure: unknown) {
+      if (opening.current === attempt) setError(getErrorMessage(failure));
+    }
+  };
+  const bulk = async (enabled: boolean) => {
+    if (pending.current.size > 0 || disabled) return;
+    pending.current.add('all');
+    setPendingKeys([...pending.current]);
+    try {
+      const result = await ApiService.setScheduledPrefillSchedulesEnabled(enabled);
+      revision.current += 1;
+      for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+        for (const saved of result[serviceKey].schedules) {
+          const key = `${serviceKey}:${saved.id}`;
+          const record = records.current.get(key);
+          records.current.set(key, record ? { ...record, enabled: saved.enabled } : saved);
+        }
+      }
+      setSchedule((current) =>
+        current.map((row) => {
+          const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[row.serviceId];
+          const saved = result[serviceKey].schedules.find((item) => item.id === row.scheduleId);
+          return saved ? { ...row, enabled: saved.enabled } : row;
+        })
+      );
+      setConfig((current) =>
+        current
+          ? {
+              ...current,
+              ...Object.fromEntries(
+                SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((key) => [
+                  key,
+                  {
+                    ...current[key],
+                    schedules: current[key].schedules.map((record) => {
+                      const saved = result[key].schedules.find((item) => item.id === record.id);
+                      return saved ? { ...record, enabled: saved.enabled } : record;
+                    })
+                  }
+                ])
+              )
+            }
+          : current
+      );
+      void refreshSchedule();
+    } catch (failure: unknown) {
+      setError(getErrorMessage(failure));
+    } finally {
+      pending.current.delete('all');
+      setPendingKeys([...pending.current]);
+    }
+  };
+  const remove = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    const key = `${target.serviceKey}:${target.scheduleId}`;
+    if (pending.current.has(key)) return;
+    pending.current.add(key);
+    setPendingKeys([...pending.current]);
+    try {
+      await ApiService.deleteScheduledPrefillSchedule(
+        getPersistentServiceId(target.serviceKey),
+        target.scheduleId
+      );
+      records.current.delete(key);
+      revision.current += 1;
+      setConfig((current) =>
+        current
+          ? {
+              ...current,
+              [target.serviceKey]: {
+                ...current[target.serviceKey],
+                schedules: current[target.serviceKey].schedules.filter(
+                  (item) => item.id !== target.scheduleId
+                )
+              }
+            }
+          : current
+      );
+      setSchedule((current) =>
+        current.filter(
+          (item) =>
+            !(
+              item.serviceId === getPersistentServiceId(target.serviceKey) &&
+              item.scheduleId === target.scheduleId
+            )
+        )
+      );
+      setDeleteTarget(null);
+      void refreshSchedule();
+      const keys = [...rowRefs.current.keys()];
+      const index = keys.indexOf(key);
+      const next = keys[index + 1] ?? keys[index - 1];
+      setTimeout(
+        () =>
+          (
+            rowRefs.current.get(next) ??
+            emptyRefs.current.get(target.serviceKey) ??
+            actionsRef.current
+          )?.focus(),
+        250
+      );
+    } catch (failure: unknown) {
+      setError(getErrorMessage(failure));
+      setDeleteTarget(null);
+    } finally {
+      pending.current.delete(key);
+      setPendingKeys([...pending.current]);
+    }
+  };
   const formatTiming = useCallback(
     (item: ScheduledPrefillServiceScheduleDto): string => {
-      // A saved schedule runs in preference to the interval, so it is decided first. The two
-      // interval sentinels below would otherwise claim the row and word it as paused or
-      // startup-only while the schedule is what actually drives it.
       const hasCustomSchedule = !!item.customSchedule;
       if (!hasCustomSchedule) {
         if (item.intervalHours === 0) {
@@ -654,279 +778,285 @@ export function ScheduledPrefillScheduleDetail({
     [baseKey, now, t]
   );
 
-  const scheduleRows = useMemo(() => {
-    const rows: {
-      key: ScheduledPrefillServiceKey;
-      rowId: string;
-      serviceId: ScheduledPrefillServiceId;
-      scheduleId: string;
-      label: string;
-      enabled: boolean;
-      containerRunning: boolean;
-      loginState: ScheduledPrefillRowLoginState | null;
-      intervalHours: number;
-      customSchedule: CustomSchedule | null;
-      nextTiming: string;
-      nextRunUtc: string | null;
-      lastRunUtc: string | null;
-      isRunning: boolean;
-      operationId: string | null;
-    }[] = [];
-    const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
-      persistentContainers.map((container) => [container.service, container])
-    );
-    for (const item of schedule) {
-      const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[item.serviceId];
-      const serviceConfig = serviceKey ? config?.[serviceKey] : undefined;
-      const savedSchedule = serviceConfig?.schedules.find(
-        (candidate) => candidate.id === item.scheduleId
-      );
-      if (!serviceKey || !savedSchedule) {
-        continue;
-      }
-      const enabled = savedSchedule.enabled;
-      const container = containerByService.get(getPersistentServiceId(serviceKey));
-      // Prefer the (optimistically updated) config value so the picker reflects a change
-      // immediately; the schedule DTO catches up on the post-save refresh.
-      const intervalHours = savedSchedule.intervalHours;
-      const customSchedule = savedSchedule.customSchedule ?? null;
-      // The absolute date is only meaningful for a real upcoming run. An overdue (past)
-      // nextRunUtc that has not been re-stamped yet still reads as "soon" via formatTiming, so
-      // suppress the stale elapsed timestamp here rather than render a confusing past date.
-      // A custom schedule keeps its next run whatever the interval reads, since it is what the
-      // server computes the run from.
-      const upcomingNextRunUtc =
-        enabled &&
-        (intervalHours > 0 || customSchedule !== null) &&
-        item.nextRunUtc !== null &&
-        new Date(item.nextRunUtc).getTime() > now
-          ? item.nextRunUtc
-          : null;
-      // The activity registry keys the persistent container by the lowercase platform token
-      // (battleNet -> battlenet); the fetched container list is the pre-seed fallback.
-      const activityPlatformKey = serviceKey.toLowerCase();
-      rows.push({
-        key: serviceKey,
-        rowId: `${serviceKey}:${item.scheduleId}`,
-        serviceId: item.serviceId,
-        scheduleId: item.scheduleId,
-        label: `${t(`${baseKey}.services.${serviceKey}`)} · ${item.name}`,
-        enabled,
-        containerRunning:
-          activity.isActive('persistentContainer', activityPlatformKey, 'running') ||
-          (container?.isRunning ?? false),
-        // Account services gate on the daemon's live login, so mirror that readiness here;
-        // anonymous services (Battle.net/Riot) have no login dimension to show.
-        loginState: isScheduledPrefillAccountService(serviceKey)
-          ? activity.isActive('persistentContainer', activityPlatformKey, 'authenticated') ||
-            !needsPersistentLogin(container)
-            ? 'loggedIn'
-            : 'loginRequired'
-          : null,
-        intervalHours,
-        customSchedule,
-        // Disabled records retain their setup for reopening but do not claim a next run.
-        nextTiming: enabled
-          ? formatTiming({
-              ...item,
-              intervalHours,
-              customSchedule
-            })
-          : '',
-        nextRunUtc: upcomingNextRunUtc,
-        lastRunUtc: item.lastRunUtc,
-        isRunning: item.isRunning,
-        operationId: item.operationId
-      });
-    }
-    return rows;
-  }, [schedule, config, persistentContainers, baseKey, formatTiming, now, t, activity]);
-
-  const handleModalSaved = async () => {
-    await loadSummary();
-  };
-
-  const handleOpenSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
-    setModalRecord({ serviceKey, scheduleId });
-    setModalOpened(true);
-  };
-
-  // Enable and Disable are the row actions whose whole effect is a saved config change, so
-  // without an announcement they read as nothing happening: the row flips a dot and the menu
-  // has already closed. The pending list holds the trigger disabled for the round-trip (no
-  // spinner: it flashed for a split second on every click), then the page's own notification
-  // convention carries the outcome. A failure needs nothing extra here - saveServiceConfig
-  // reverts the row and writes the reason into the summary error line.
-  const handleToggleSchedule = async (
-    serviceKey: ScheduledPrefillServiceKey,
-    scheduleId: string
-  ) => {
-    const schedule = config?.[serviceKey].schedules.find((item) => item.id === scheduleId);
-    const enabled = !schedule?.enabled;
-    setEnablingSchedules((pending) => [...pending, scheduleId]);
-    const saved = await saveServiceConfig(serviceKey, scheduleId, { enabled });
-    setEnablingSchedules((pending) => pending.filter((id) => id !== scheduleId));
-    if (!saved) {
-      return;
-    }
-    addNotification({
-      type: 'generic',
-      status: 'completed',
-      message: t(`${baseKey}.records.${enabled ? 'enabled' : 'disabled'}`, {
-        service: t(`${baseKey}.services.${serviceKey}`),
-        name: schedule?.name
-      }),
-      // The Schedules-page key this card owns, so the toast picks up the card's notification
-      // style. The per-platform key names no service on that page.
-      details: { notificationType: 'success', serviceKey: 'scheduledPrefill' }
-    });
-  };
-
-  const isInitialLoading = loading && !config;
+  const rows = schedule.map((item) => {
+    const key = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[item.serviceId];
+    return { ...item, ...patches[`${key}:${item.scheduleId}`], key };
+  });
   const backendUpdateRequired = config !== null && config.version < 6;
-  const tableDisabled = disabled || backendUpdateRequired;
-
+  const tableDisabled = disabled || backendUpdateRequired || pendingKeys.includes('all');
+  const globalAction = (action: () => void) => {
+    if (tableDisabled) return;
+    opening.current += 1;
+    setActionsOpen(false);
+    actionsRef.current?.focus();
+    action();
+  };
+  const loginTarget = containers.persistentLoginTarget;
   return (
     <>
       <div className="scheduled-prefill-card-summary">
-        {/* Command strip: enabled-count summary on the left, Run Now + Configure on the
-            right. Both buttons stay at full opacity while the summary below dims - the
-            Configure button is the way out of the zero-enabled state, and Run Now
-            communicates its state through its own disabled styling. */}
         <div className="scheduled-prefill-card-summary__toolbar">
-          {isInitialLoading ? (
-            <div className="scheduled-prefill-card-summary__loading">
-              <LoadingSpinner inline size="sm" />
-              <span>{t(`${baseKey}.loading`)}</span>
-            </div>
+          {loading ? (
+            <LoadingSpinner inline size="sm" />
           ) : (
-            <p
-              className={`scheduled-prefill-card-summary__count${dimmed ? ' schedule-card-disabled' : ''}`}
-            >
-              {t(`${baseKey}.summary`, { enabled: enabledCount, total: totalCount })}
+            <p className={dimmed ? 'schedule-card-disabled' : ''}>
+              {t(`${baseKey}.summary`, {
+                enabled: rows.filter((row) => row.enabled).length,
+                total: rows.length
+              })}
             </p>
           )}
           <div className="scheduled-prefill-card-summary__actions">
             <Button
-              type="button"
               variant="filled"
               color="run"
-              size="sm"
-              className="control-h-md"
+              size="md"
               onClick={onRunNow}
               disabled={runNowDisabled || backendUpdateRequired}
               loading={runNowLoading}
-              stableWidth
             >
               {t('management.schedules.runNow')}
             </Button>
-            <Button
-              type="button"
-              variant="filled"
-              color="secondary"
-              size="sm"
-              className="control-h-md"
-              onClick={() => setModalOpened(true)}
-              disabled={tableDisabled}
+            <ActionMenu
+              isOpen={actionsOpen}
+              onClose={() => setActionsOpen(false)}
+              align="right"
+              width="w-64"
+              className="scheduled-prefill-action-menu"
+              id={actionsId}
+              aria-label={t('management.actions.menuLabel')}
+              trigger={
+                <Button
+                  ref={actionsRef}
+                  variant="menu"
+                  open={actionsOpen}
+                  disabled={tableDisabled}
+                  onClick={() => setActionsOpen((value) => !value)}
+                  rightSection={<ChevronDown size={16} />}
+                  aria-expanded={actionsOpen}
+                  aria-controls={actionsId}
+                >
+                  {t('management.actions.menuLabel')}
+                </Button>
+              }
             >
-              {t(`${baseKey}.actions.configure`)}
-            </Button>
+              <ActionMenuGroup>
+                <ActionMenuItem
+                  disabled={tableDisabled}
+                  onClick={() => globalAction(() => setActivityOpen(true))}
+                >
+                  {t(`${baseKey}.actions.viewActivity`)}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  disabled={tableDisabled}
+                  onClick={() => globalAction(() => setSettingsOpen(true))}
+                >
+                  {t(`${baseKey}.actions.sharedSettings`)}
+                </ActionMenuItem>
+              </ActionMenuGroup>
+              <ActionMenuDivider semantic />
+              <ActionMenuGroup label={t(`${baseKey}.bulkToggle.label`)}>
+                <ActionMenuItem
+                  disabled={tableDisabled || pendingKeys.length > 0}
+                  onClick={() => globalAction(() => void bulk(true))}
+                >
+                  {t(`${baseKey}.bulkToggle.enableAll`)}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  disabled={tableDisabled || pendingKeys.length > 0}
+                  onClick={() => globalAction(() => void bulk(false))}
+                >
+                  {t(`${baseKey}.bulkToggle.disableAll`)}
+                </ActionMenuItem>
+              </ActionMenuGroup>
+            </ActionMenu>
           </div>
         </div>
-
-        {!isInitialLoading && (
-          <>
-            <div
-              className={`scheduled-prefill-card-summary__dimmable${dimmed ? ' schedule-card-disabled' : ''}`}
-            >
-              {scheduleRows.length > 0 && (
-                <div
-                  role="table"
-                  aria-label={t(`${baseKey}.servicesTitle`)}
-                  className="scheduled-prefill-schedule-table"
-                >
-                  <div role="row" className="scheduled-prefill-schedule-table__head caps-label">
-                    <span role="columnheader">{t(`${baseKey}.service`)}</span>
-                    <span role="columnheader">{t('management.schedules.nextRun')}</span>
-                    <span role="columnheader">{t('management.schedules.lastRun')}</span>
-                    <span role="columnheader">{t('management.schedules.runEvery')}</span>
-                    <span role="columnheader">{t('management.actions.menuLabel')}</span>
-                  </div>
-                  {scheduleRows.map((row) => (
-                    <ScheduledPrefillServiceScheduleRow
-                      key={row.rowId}
-                      serviceKey={row.key}
-                      serviceId={row.serviceId}
-                      scheduleId={row.scheduleId}
-                      label={row.label}
-                      enabled={row.enabled}
-                      containerRunning={row.containerRunning}
-                      loginState={row.loginState}
-                      intervalHours={row.intervalHours}
-                      customSchedule={row.customSchedule}
-                      nextTiming={row.nextTiming}
-                      nextRunUtc={row.nextRunUtc}
-                      lastRunUtc={row.lastRunUtc}
-                      disabled={tableDisabled}
-                      runPending={isRunServicePending(row.serviceId, row.scheduleId)}
-                      runDisabled={runServiceDisabled || backendUpdateRequired || row.isRunning}
-                      isRunning={row.isRunning && row.operationId !== null}
-                      enablePending={enablingSchedules.includes(row.scheduleId)}
-                      onRun={onRunService}
-                      onOpen={handleOpenSchedule}
-                      onToggleEnabled={(serviceKey, scheduleId) =>
-                        void handleToggleSchedule(serviceKey, scheduleId)
-                      }
-                      onIntervalChange={(serviceKey, scheduleId, hours) =>
-                        void handleServiceIntervalChange(serviceKey, scheduleId, hours)
-                      }
-                      onCustomScheduleChange={(serviceKey, scheduleId, schedule) =>
-                        void handleServiceCustomScheduleChange(serviceKey, scheduleId, schedule)
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-              {servicesNeedingLogin.length > 0 && (
-                <p className="scheduled-prefill-card-summary__warning">
-                  {t(`${baseKey}.authWarning`, {
-                    services: servicesNeedingLogin.join(', '),
-                    count: servicesNeedingLogin.length
-                  })}
-                </p>
-              )}{' '}
-              {backendUpdateRequired && (
-                <p className="scheduled-prefill-card-summary__error">
-                  {t(`${baseKey}.backendUpdateRequired`)}
-                </p>
-              )}
-              {error && (
-                <p className="scheduled-prefill-card-summary__error">
-                  {t(`${baseKey}.summaryError`, { error })}
-                </p>
-              )}
+        {error && (
+          <p role="alert" className="scheduled-prefill-card-summary__error">
+            {t(`${baseKey}.summaryError`, { error })}
+          </p>
+        )}
+        {backendUpdateRequired && (
+          <p className="scheduled-prefill-card-summary__error">
+            {t(`${baseKey}.backendUpdateRequired`)}
+          </p>
+        )}
+        {!loading && (
+          <div
+            role="table"
+            aria-label={t(`${baseKey}.servicesTitle`)}
+            className="scheduled-prefill-schedule-table"
+          >
+            <div role="row" className="scheduled-prefill-schedule-table__head caps-label">
+              <span role="columnheader">{t(`${baseKey}.service`)}</span>
+              <span role="columnheader">{t('management.schedules.nextRun')}</span>
+              <span role="columnheader">{t('management.schedules.lastRun')}</span>
+              <span role="columnheader">{t('management.schedules.runEvery')}</span>
+              <span role="columnheader">{t('management.actions.menuLabel')}</span>
             </div>
-            {/* Deliberately outside the dimmable wrapper: this warning is the way out of
-                the zero-enabled state, so it stays at full opacity while the rest dims. */}
-            {config && enabledCount === 0 && (
-              <p className="scheduled-prefill-card-summary__warning">
-                {t(`${baseKey}.zeroEnabledWarning`)}
-              </p>
-            )}
-          </>
+            {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => {
+              const serviceRows = rows.filter((row) => row.key === serviceKey);
+              const container = containers.containersByServiceKey.get(serviceKey);
+              if (serviceRows.length === 0)
+                return (
+                  <div
+                    role="row"
+                    className="scheduled-prefill-schedule-table__empty"
+                    key={serviceKey}
+                  >
+                    <span role="cell">
+                      {t(`${baseKey}.records.empty`, {
+                        service: t(`${baseKey}.services.${serviceKey}`)
+                      })}
+                    </span>
+                    <Button
+                      ref={(node) => {
+                        if (node) emptyRefs.current.set(serviceKey, node);
+                        else emptyRefs.current.delete(serviceKey);
+                      }}
+                      disabled={tableDisabled}
+                      onClick={() => void createDraft(serviceKey)}
+                    >
+                      {t(`${baseKey}.records.addForService`, {
+                        service: t(`${baseKey}.services.${serviceKey}`)
+                      })}
+                    </Button>
+                  </div>
+                );
+              return serviceRows.map((row) => {
+                const rowId = `${serviceKey}:${row.scheduleId}`;
+                return (
+                  <ScheduledPrefillServiceScheduleRow
+                    key={rowId}
+                    serviceKey={serviceKey}
+                    serviceId={row.serviceId}
+                    scheduleId={row.scheduleId}
+                    label={`${t(`${baseKey}.services.${serviceKey}`)} · ${row.name}`}
+                    enabled={row.enabled}
+                    containerRunning={container?.isRunning === true}
+                    loginState={
+                      isScheduledPrefillAccountService(serviceKey)
+                        ? container?.isRunning &&
+                          container.isAuthenticated &&
+                          !container.needsRelogin
+                          ? 'loggedIn'
+                          : 'loginRequired'
+                        : null
+                    }
+                    intervalHours={row.intervalHours}
+                    customSchedule={row.customSchedule ?? null}
+                    nextTiming={row.enabled ? formatTiming(row) : ''}
+                    nextRunUtc={
+                      row.enabled && row.nextRunUtc && new Date(row.nextRunUtc).getTime() > now
+                        ? row.nextRunUtc
+                        : null
+                    }
+                    lastRunUtc={row.lastRunUtc}
+                    disabled={tableDisabled}
+                    runPending={isRunServicePending(row.serviceId, row.scheduleId)}
+                    runDisabled={runServiceDisabled || row.isRunning}
+                    isRunning={row.isRunning}
+                    enablePending={pendingKeys.includes(rowId)}
+                    onRun={onRunService}
+                    onOpen={handleOpenSchedule}
+                    onContainer={(key) => {
+                      opening.current += 1;
+                      setContainerService(key);
+                    }}
+                    onAdd={(key) => void createDraft(key)}
+                    onDuplicate={(key, id) => void createDraft(key, id)}
+                    onDelete={(key, id) =>
+                      setDeleteTarget({ serviceKey: key, scheduleId: id, name: row.name })
+                    }
+                    triggerRef={(node) => {
+                      if (node) rowRefs.current.set(rowId, node);
+                      else rowRefs.current.delete(rowId);
+                    }}
+                    onToggleEnabled={(key, id) =>
+                      void saveServiceConfig(key, id, { enabled: !row.enabled })
+                    }
+                    onIntervalChange={(key, id, hours) =>
+                      void saveServiceConfig(key, id, {
+                        intervalHours: hours,
+                        customSchedule: null
+                      })
+                    }
+                    onCustomScheduleChange={(key, id, customSchedule) =>
+                      void saveServiceConfig(key, id, { customSchedule })
+                    }
+                  />
+                );
+              });
+            })}
+          </div>
+        )}
+        {!loading && !rows.some((row) => row.enabled) && (
+          <p className="scheduled-prefill-card-summary__warning">
+            {t(`${baseKey}.zeroEnabledWarning`)}
+          </p>
         )}
       </div>
-
       <ScheduledPrefillConfigModal
-        opened={modalOpened}
-        initialServiceKey={modalRecord?.serviceKey}
-        initialScheduleId={modalRecord?.scheduleId}
+        target={modalRecord}
+        identity={containers.privateAvailabilityIdentity}
+        container={
+          modalRecord ? containers.containersByServiceKey.get(modalRecord.serviceKey) : undefined
+        }
         onClose={() => {
-          setModalOpened(false);
+          opening.current += 1;
           setModalRecord(null);
         }}
-        onSaved={handleModalSaved}
+        onLoaded={confirmRecord}
+        onSaved={(serviceKey, record) => confirmRecord(serviceKey, record, true)}
       />
+      <ScheduledPrefillContainerModal
+        serviceKey={containerService}
+        containers={containers}
+        disabled={disabled}
+        onClose={() => setContainerService(null)}
+      />
+      <ScheduledPrefillActivityModal
+        opened={activityOpen}
+        containers={containers}
+        disabled={disabled}
+        onClose={() => setActivityOpen(false)}
+      />
+      <ScheduledPrefillSharedSettingsModal
+        opened={settingsOpen}
+        containers={containers}
+        onClose={() => setSettingsOpen(false)}
+      />
+      {loginTarget && (
+        <PersistentLoginHost
+          serviceKey={loginTarget}
+          isRunning={containers.containersByServiceKey.get(loginTarget)?.isRunning === true}
+          isAuthenticated={
+            containers.containersByServiceKey.get(loginTarget)?.isAuthenticated === true
+          }
+          onAuthenticated={() => {
+            void containers.loadPersistentContainers();
+          }}
+          onDismiss={containers.handleDismissPersistentLogin}
+        />
+      )}
+      <ConfirmationModal
+        opened={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void remove()}
+        title={t(`${baseKey}.records.deleteTitle`, {
+          service: deleteTarget && t(`${baseKey}.services.${deleteTarget.serviceKey}`),
+          name: deleteTarget?.name
+        })}
+        confirmLabel={t(`${baseKey}.records.delete`)}
+        confirmColor="red"
+        loading={
+          deleteTarget !== null &&
+          pendingKeys.includes(`${deleteTarget.serviceKey}:${deleteTarget.scheduleId}`)
+        }
+      >
+        <p>{t(`${baseKey}.records.deleteBody`)}</p>
+      </ConfirmationModal>
     </>
   );
 }

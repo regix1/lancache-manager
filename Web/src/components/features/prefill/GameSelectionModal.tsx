@@ -30,6 +30,7 @@ interface GameSelectionModalProps {
   games: OwnedGame[];
   selectedAppIds: string[];
   onSave: (selectedIds: string[]) => Promise<void>;
+  confirmDiscard?: boolean;
   isLoading?: boolean;
   cachedAppIds?: string[];
   outdatedAppIds?: string[];
@@ -49,6 +50,7 @@ export function GameSelectionModal({
   games,
   selectedAppIds,
   onSave,
+  confirmDiscard = false,
   isLoading = false,
   cachedAppIds = [],
   outdatedAppIds = [],
@@ -66,11 +68,13 @@ export function GameSelectionModal({
   const [isSaving, setIsSaving] = useState(false);
   const [hideCached, setHideCached] = useState(false);
   const [clearCacheConfirmOpen, setClearCacheConfirmOpen] = useState(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const gameListRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingFocusAppId = useRef<string | null>(null);
   const openedRef = useRef(false);
   const openEpochRef = useRef(0);
+  const openingSelectionRef = useRef<Set<string>>(new Set());
 
   // Create a Set for O(1) lookup
   const cachedAppIdsSet = useMemo(
@@ -102,15 +106,19 @@ export function GameSelectionModal({
   useEffect(() => {
     if (opened !== openedRef.current) openEpochRef.current += 1;
     if (opened && !openedRef.current) {
-      // Start with current selection from parent, not cached
-      setLocalSelected(new Set(selectedAppIds));
+      const selection = new Set(selectedAppIds);
+      // The draft and its discard baseline belong to this opening, not later parent refreshes.
+      openingSelectionRef.current = selection;
+      setLocalSelected(selection);
       setSearch('');
       setImportText('');
       setImportResult(null);
-      // Escape closes both dialogs at once, which leaves this flag set with nothing on screen.
-      // Without the reset the next open would greet the user with the wipe confirmation.
       setClearCacheConfirmOpen(false);
+      setDiscardConfirmOpen(false);
       setIsSaving(false);
+    } else if (!opened && openedRef.current) {
+      openingSelectionRef.current = new Set();
+      setDiscardConfirmOpen(false);
     }
     openedRef.current = opened;
   }, [opened, selectedAppIds]);
@@ -224,6 +232,14 @@ export function GameSelectionModal({
     () => [...localSelected].filter((id) => gameIdSet.has(id)),
     [localSelected, gameIdSet]
   );
+
+  const selectionChanged = useMemo(() => {
+    const openingSelection = openingSelectionRef.current;
+    return (
+      localSelected.size !== openingSelection.size ||
+      [...localSelected].some((appId) => !openingSelection.has(appId))
+    );
+  }, [localSelected]);
 
   const cachedSelectedCount = useMemo(
     () =>
@@ -348,6 +364,7 @@ export function GameSelectionModal({
       // orphan. Filtering against it would post an empty list and erase the whole selection.
       await onSave(games.length > 0 ? selectedInLibrary : Array.from(localSelected));
       if (!openedRef.current || openEpochRef.current !== epoch) return;
+      setDiscardConfirmOpen(false);
       onClose();
     } catch (err) {
       if (!openedRef.current || openEpochRef.current !== epoch) return;
@@ -358,6 +375,15 @@ export function GameSelectionModal({
       if (openedRef.current && openEpochRef.current === epoch) setIsSaving(false);
     }
   }, [games.length, selectedInLibrary, localSelected, onSave, onClose, notifyError, t]);
+
+  const handleDismiss = useCallback(() => {
+    if (confirmDiscard && (isSaving || discardConfirmOpen)) return;
+    if (confirmDiscard && selectionChanged) {
+      setDiscardConfirmOpen(true);
+      return;
+    }
+    onClose();
+  }, [confirmDiscard, discardConfirmOpen, isSaving, onClose, selectionChanged]);
 
   const renderGameRow = (game: OwnedGame, selected: boolean) => {
     const appKey = game.appId.toLowerCase();
@@ -420,7 +446,7 @@ export function GameSelectionModal({
   return (
     <Modal
       opened={opened}
-      onClose={onClose}
+      onClose={handleDismiss}
       title={t('prefill.gameSelection.title')}
       size="2xl"
       bodyFlexLayout
@@ -757,7 +783,8 @@ export function GameSelectionModal({
           <Button
             variant="filled"
             color="secondary"
-            onClick={onClose}
+            onClick={handleDismiss}
+            disabled={confirmDiscard && isSaving}
             className="flex-1 sm:flex-none sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {t('common.cancel')}
@@ -774,6 +801,22 @@ export function GameSelectionModal({
           </Button>
         </div>
       </div>
+
+      {confirmDiscard && (
+        <ConfirmationModal
+          opened={opened && discardConfirmOpen}
+          onClose={() => setDiscardConfirmOpen(false)}
+          onConfirm={() => {
+            setDiscardConfirmOpen(false);
+            onClose();
+          }}
+          title={t('prefill.gameSelection.discardChanges.confirmTitle')}
+          confirmLabel={t('prefill.gameSelection.discardChanges.confirmButton')}
+          confirmColor="red"
+        >
+          <p>{t('prefill.gameSelection.discardChanges.confirmBody')}</p>
+        </ConfirmationModal>
+      )}
 
       {/* Modal portals to the body, so this confirmation paints over the picker rather than
           inside it. Both hosts of this picker get the same prompt from here, and it matches the

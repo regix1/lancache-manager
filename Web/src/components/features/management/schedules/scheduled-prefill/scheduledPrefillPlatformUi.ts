@@ -5,10 +5,7 @@ import { RiotIcon } from '@components/ui/RiotIcon';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { PERSISTENT_PREFILL_SERVICES } from '@components/features/prefill/persistentPrefillConstants';
-import type {
-  PersistentPrefillContainerDto,
-  PersistentPrefillServiceId
-} from '@components/features/prefill/persistentPrefillTypes';
+import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS
@@ -51,8 +48,3 @@ export const getPersistentServiceId = (
 
   return service.service;
 };
-
-export const needsPersistentLogin = (
-  container: PersistentPrefillContainerDto | undefined
-): boolean =>
-  !container || !container.isRunning || !container.isAuthenticated || container.needsRelogin;

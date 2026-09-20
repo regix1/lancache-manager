@@ -3,13 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 
-import {
-  bindLifted,
-  compileToUrl,
-  findSoleNode,
-  liftHookCallback,
-  parseSource
-} from './transpile-module.mjs';
+import { bindLifted, compileToUrl, findSoleNode, parseSource } from './transpile-module.mjs';
 
 const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
@@ -40,155 +34,117 @@ const translate = (key, values = {}) => {
   );
 };
 
-const steamName = translate(`${baseKey}.services.steam`);
-
-// The handlers are plain consts inside the component, so they are lifted out of the TSX rather
-// than imported. liftConstArrow parses as TS and chokes on the JSX around them.
-const liftModalConstArrow = (constName) =>
-  findSoleNode(
-    modalSource,
-    `${constName} declaration`,
-    (node) =>
-      ts.isVariableDeclaration(node) &&
-      node.name.getText(modalSource) === constName &&
-      node.initializer !== undefined &&
-      ts.isArrowFunction(node.initializer)
-  ).initializer.getText(modalSource);
-
-let createdIds = 0;
-
-const runScheduleHandler = (constName, config, args) => {
-  let nextConfig = config;
-  const handler = bindLifted(liftModalConstArrow(constName), {
-    createUuid: () => `created-${(createdIds += 1)}`,
-    uniqueScheduleName,
-    setConfig: (updater) => {
-      nextConfig = updater(nextConfig);
-    },
-    t: translate,
-    baseKey,
-    setValidationError: () => undefined,
-    setSaveError: () => undefined
-  });
-  const createdScheduleId = handler(...args);
-  return { createdScheduleId, config: nextConfig };
+const detailSource = parseSource(
+  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillScheduleDetail.tsx',
+  ts.ScriptKind.TSX
+);
+const liftConstArrow = (source, name, bindings) => {
+  assert.ok(source.statements.length);
+  assert.equal(source.parseDiagnostics.length, 0);
+  const declaration = findSoleNode(
+    source,
+    name,
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === name
+  );
+  return bindLifted(declaration.initializer.getText(source), bindings);
 };
-
-const scheduleNamesOf = (config) => config.steam.schedules.map((schedule) => schedule.name);
-
-const withSchedules = (schedules) => ({ steam: { schedules } });
-
-const runValidationMessage = (config) =>
-  bindLifted(liftHookCallback(MODAL_PATH, 'useMemo', 'validateServiceConfig'), {
-    config,
+const schedule = (patch = {}) => ({
+  id: '00000000-0000-4000-8000-000000000001',
+  name: 'Evening',
+  enabled: true,
+  intervalHours: 24,
+  customSchedule: null,
+  preset: 'All',
+  selectedAppIds: ['10'],
+  topCount: null,
+  operatingSystems: ['Windows'],
+  force: false,
+  maxConcurrency: { mode: 'Auto' },
+  notificationMode: 'all',
+  notificationDisplayMode: 'full',
+  ...patch
+});
+test('a schedule name is unique regardless of case and surrounding spaces', () => {
+  assert.equal(uniqueScheduleName('Evening', [' EVENING ']), 'Evening 2');
+  assert.equal(uniqueScheduleName('Evening', ['Evening', 'Evening 2']), 'Evening 3');
+  assert.equal(uniqueScheduleName('Evening', []), 'Evening');
+});
+for (const copy of [false, true]) {
+  test(
+    copy
+      ? 'Duplicate preserves enablement and uses a unique name without writing'
+      : 'Add copies the first record, starts disabled and creates nothing before Save',
+    async () => {
+      let target;
+      const source = schedule();
+      const records = [
+        source,
+        schedule({
+          id: '00000000-0000-4000-8000-000000000002',
+          name: copy ? 'Evening copy' : 'New schedule'
+        })
+      ];
+      await liftConstArrow(detailSource, 'createDraft', {
+        opening: { current: 0 },
+        ApiService: { getScheduledPrefillConfig: async () => ({ steam: { schedules: records } }) },
+        createUuid: () => '00000000-0000-4000-8000-000000000003',
+        t: translate,
+        baseKey,
+        uniqueScheduleName,
+        setModalRecord: (value) => {
+          target = value;
+        },
+        setError: assert.fail,
+        getErrorMessage: (error) => error.message
+      })('steam', copy ? source.id : undefined);
+      assert.equal(target.create, true);
+      assert.equal(target.schedule.enabled, copy);
+      assert.equal(target.schedule.name, copy ? 'Evening copy 2' : 'New schedule 2');
+      assert.deepEqual(target.schedule.selectedAppIds, ['10']);
+      assert.notEqual(target.schedule.id, source.id);
+      assert.equal(records.length, 2);
+    }
+  );
+}
+test('an empty service Add draft uses documented defaults', async () => {
+  let target;
+  await liftConstArrow(detailSource, 'createDraft', {
+    opening: { current: 0 },
+    ApiService: { getScheduledPrefillConfig: async () => ({ riot: { schedules: [] } }) },
+    createUuid: () => '00000000-0000-4000-8000-000000000003',
     t: translate,
     baseKey,
-    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: ['steam'],
-    validateServiceConfig: () => null
+    uniqueScheduleName,
+    setModalRecord: (value) => {
+      target = value;
+    },
+    setError: assert.fail,
+    getErrorMessage: (error) => error.message
+  })('riot');
+  assert.deepEqual(
+    target.schedule,
+    schedule({
+      id: '00000000-0000-4000-8000-000000000003',
+      name: 'New schedule',
+      enabled: false,
+      selectedAppIds: [],
+      operatingSystems: []
+    })
+  );
+});
+test('blank names stop Save before the request', () => {
+  let message;
+  liftConstArrow(modalSource, 'handleSave', {
+    config: schedule({ name: ' ' }),
+    target: { serviceKey: 'steam' },
+    t: translate,
+    baseKey,
+    validateServiceConfig: () => null,
+    setError: (value) => {
+      message = value;
+    },
+    setOverwriteEnabledConfirmOpen: assert.fail,
+    commitSave: assert.fail
   })();
-
-test('a free schedule name is taken as it is and a taken one counts up', () => {
-  assert.equal(uniqueScheduleName('Default copy', ['Default']), 'Default copy');
-  assert.equal(uniqueScheduleName('Default copy', ['Default', 'Default copy']), 'Default copy 2');
-  assert.equal(
-    uniqueScheduleName('Default copy', ['Default', 'Default copy', 'Default copy 2']),
-    'Default copy 3'
-  );
-});
-
-test('a schedule name is taken regardless of case and surrounding spaces', () => {
-  assert.equal(uniqueScheduleName('Default copy', [' default COPY ']), 'Default copy 2');
-  assert.equal(
-    uniqueScheduleName('Default copy', [' default COPY ', 'DEFAULT COPY 2']),
-    'Default copy 3'
-  );
-});
-
-test('Save as twice on one schedule produces two differently named copies', () => {
-  const first = runScheduleHandler(
-    'handleDuplicateSchedule',
-    withSchedules([{ id: 'source', name: 'Default', enabled: true }]),
-    ['steam', 'source']
-  );
-  const second = runScheduleHandler('handleDuplicateSchedule', first.config, ['steam', 'source']);
-
-  const names = scheduleNamesOf(second.config);
-  assert.deepEqual(names, ['Default', 'Default copy', 'Default copy 2']);
-  assert.equal(
-    new Set(names.map((name) => name.trim().toLowerCase())).size,
-    names.length,
-    'the server rejects the whole config when two names collide'
-  );
-});
-
-test('Save as returns the id of the copy it created so the panel can show it', () => {
-  const { createdScheduleId, config } = runScheduleHandler(
-    'handleDuplicateSchedule',
-    withSchedules([{ id: 'source', name: 'Default', enabled: true }]),
-    ['steam', 'source']
-  );
-
-  assert.equal(config.steam.schedules[1].id, createdScheduleId);
-  assert.equal(config.steam.schedules[1].name, 'Default copy');
-  assert.equal(config.steam.schedules[1].enabled, true, 'a copy keeps the source On/Off state');
-});
-
-test('Add names the new schedule around the one that already holds the default name', () => {
-  const { createdScheduleId, config } = runScheduleHandler(
-    'handleAddSchedule',
-    withSchedules([{ id: 'source', name: 'New schedule', enabled: true }]),
-    ['steam']
-  );
-
-  assert.deepEqual(scheduleNamesOf(config), ['New schedule', 'New schedule 2']);
-  assert.equal(config.steam.schedules[1].id, createdScheduleId);
-});
-
-test('saving is blocked while two schedules under one platform share a name', () => {
-  const message = runValidationMessage(
-    withSchedules([
-      { id: 'a', name: 'Default', enabled: true },
-      { id: 'b', name: 'default ', enabled: false }
-    ])
-  );
-
-  assert.equal(
-    message,
-    translate(`${baseKey}.records.nameTaken`, { name: 'default', service: steamName })
-  );
-});
-
-test('saving is blocked while a schedule name is blank', () => {
-  const message = runValidationMessage(withSchedules([{ id: 'a', name: '   ', enabled: false }]));
-
-  assert.equal(message, translate(`${baseKey}.records.nameRequired`));
-});
-
-test('unique non-blank schedule names raise nothing', () => {
-  const message = runValidationMessage(
-    withSchedules([
-      { id: 'a', name: 'Default', enabled: true },
-      { id: 'b', name: 'Default copy', enabled: false }
-    ])
-  );
-
-  assert.equal(message, null);
-});
-
-test('Save stops before the request while validation has something to say', () => {
-  const commits = [];
-  const validationErrors = [];
-  const handleSave = bindLifted(liftModalConstArrow('handleSave'), {
-    config: withSchedules([{ id: 'a', name: 'Default', enabled: true }]),
-    validationMessage: 'two schedules share a name',
-    setValidationError: (message) => validationErrors.push(message),
-    overwritesEnabledSchedule: () => false,
-    setOverwriteEnabledConfirmOpen: () => undefined,
-    commitSave: () => commits.push(true)
-  });
-
-  handleSave();
-
-  assert.deepEqual(validationErrors, ['two schedules share a name']);
-  assert.deepEqual(commits, [], 'no request goes out while a name is duplicated or blank');
+  assert.equal(message, translate(baseKey + '.records.nameRequired'));
 });

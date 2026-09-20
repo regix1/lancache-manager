@@ -39,6 +39,14 @@ const schedule = (id, name, overrides = {}) => ({
   enabled: true,
   intervalHours: 24,
   customSchedule: null,
+  preset: 'All',
+  selectedAppIds: [],
+  topCount: null,
+  operatingSystems: [],
+  force: false,
+  maxConcurrency: { mode: 'Auto' },
+  notificationMode: 'all',
+  notificationDisplayMode: 'full',
   ...overrides
 });
 

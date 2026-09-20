@@ -138,7 +138,7 @@
 .service-analytics-controls {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--control-gap-compact);
   flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -206,7 +206,7 @@
 .service-analytics-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--control-gap-compact);
   margin-left: auto;
   flex-shrink: 0;
 }

@@ -5,38 +5,38 @@ import test from 'node:test';
 import { compileToUrl, MemoryStorage } from './transpile-module.mjs';
 
 const uuidUrl = await compileToUrl('../src/utils/uuid.ts');
+
 const ledger = await import(
   await compileToUrl(
     '../src/components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger.ts',
     { '@utils/uuid': uuidUrl }
   )
 );
-const {
-  beginEditSessionCleanup,
-  buildEditSessionCleanupRequest,
-  clearConfirmedEditSession,
-  createScheduledPrefillEditSession,
-  discardCommittedEditSession,
-  loadScheduledPrefillEditSession,
-  recordEditActionIntent,
-  recordEditSessionStartResult
-} = ledger;
+const { recoverScheduledPrefillEditSession } = ledger;
+const storageKey = 'scheduled-prefill:edit-session:v1';
+const services = ['Steam', 'Epic', 'Xbox', 'BattleNet', 'Riot'];
 
-const baseline = {
-  selectedAppIdsByService: {
-    Steam: ['10', '20'],
-    Epic: [],
-    Xbox: [],
-    BattleNet: [],
-    Riot: []
-  },
-  sessionIdByService: {
-    Steam: 'baseline-steam',
-    Epic: null,
-    Xbox: null,
-    BattleNet: null,
-    Riot: null
-  }
+const createStoredLedger = (editSessionId, service, action) => ({
+  version: 1,
+  editSessionId,
+  phase: 'active',
+  cleanupId: null,
+  services: Object.fromEntries(
+    services.map((entry) => [
+      entry,
+      {
+        baselineSessionId: entry === 'Steam' ? 'baseline-steam' : null,
+        baselineSelectedAppIds: entry === 'Steam' ? ['10', '20'] : [],
+        ...(entry === service ? action : {})
+      }
+    ])
+  )
+});
+
+const writeLedger = (storage, value) => storage.setItem(storageKey, JSON.stringify(value));
+const readLedger = (storage) => {
+  const value = storage.getItem(storageKey);
+  return value ? JSON.parse(value) : null;
 };
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -55,17 +55,11 @@ const challengeSignalRSource = readFileSync(
   'utf8'
 );
 
-test('an untouched edit session never becomes durable cleanup work', () => {
-  const storage = new MemoryStorage();
-  createScheduledPrefillEditSession(baseline, () => 'edit-session-a');
-  assert.equal(loadScheduledPrefillEditSession(storage), null);
-});
-
 test('edit-session cleanup recovery is app-global and retries until confirmation', () => {
   assert.match(appSource, /<ScheduledPrefillEditSessionCleanupRecovery \/>/);
-  assert.match(recoverySource, /loadScheduledPrefillEditSession\(sessionStore\)/);
+  assert.match(recoverySource, /recoverScheduledPrefillEditSession\(sessionStore/);
   assert.match(recoverySource, /cleanupPersistentPrefillEditSession/);
-  assert.match(recoverySource, /clearConfirmedEditSession/);
+  assert.match(recoverySource, /request\) =>/);
   assert.match(recoverySource, /setTimeout\(\(\) =>/);
 });
 
@@ -81,137 +75,85 @@ test('late login pushes are intent-fenced and auto-confirm remains edit-session-
   );
 });
 
-test('intent is durable before a start result and cleanup keeps exact ownership', () => {
+test('recovery sends the exact persisted ownership and clears it after confirmation', async () => {
   const storage = new MemoryStorage();
-  const editSession = createScheduledPrefillEditSession(baseline, () => 'edit-session-a');
-  const intent = recordEditActionIntent(
+  writeLedger(
     storage,
-    editSession,
-    'Epic',
-    'start',
-    null,
-    () => 'start-a'
+    createStoredLedger('edit-session-a', 'Steam', {
+      selection: { editActionId: 'selection-a', sessionId: 'baseline-steam' },
+      download: { editActionId: 'download-a', sessionId: 'baseline-steam' }
+    })
   );
+  let sent;
+  await recoverScheduledPrefillEditSession(storage, async (request) => {
+    sent = request;
+  });
+  const steam = sent.services.find((service) => service.service === 'Steam');
 
-  assert.equal(
-    loadScheduledPrefillEditSession(storage)?.services.Epic.start?.editActionId,
-    'start-a'
-  );
-  recordEditSessionStartResult(storage, intent.editSession, 'Epic', 'start-a', 'session-epic');
-
-  const pending = beginEditSessionCleanup(
-    storage,
-    loadScheduledPrefillEditSession(storage),
-    () => 'cleanup-a'
-  );
-  const request = buildEditSessionCleanupRequest(pending);
-  const epic = request.services.find((service) => service.service === 'Epic');
-
-  assert.equal(request.editSessionId, 'edit-session-a');
-  assert.equal(request.cleanupId, 'cleanup-a');
-  assert.equal(epic?.startSessionId, 'session-epic');
-  assert.equal(epic?.baselineSessionId, null);
-});
-
-test('baseline work is compensated without claiming its container', () => {
-  const storage = new MemoryStorage();
-  let editSession = createScheduledPrefillEditSession(baseline, () => 'edit-session-a');
-  editSession = recordEditActionIntent(
-    storage,
-    editSession,
-    'Steam',
-    'selection',
-    'baseline-steam',
-    () => 'selection-a'
-  ).editSession;
-  editSession = recordEditActionIntent(
-    storage,
-    editSession,
-    'Steam',
-    'download',
-    'baseline-steam',
-    () => 'download-a'
-  ).editSession;
-
-  const steam = buildEditSessionCleanupRequest(
-    beginEditSessionCleanup(storage, editSession, () => 'cleanup-a')
-  ).services.find((service) => service.service === 'Steam');
-
-  assert.equal(steam?.baselineSessionId, 'baseline-steam');
-  assert.deepEqual(steam?.baselineSelectedAppIds, ['10', '20']);
-  assert.equal(steam?.selectionSessionId, 'baseline-steam');
-  assert.equal(steam?.prefillSessionId, 'baseline-steam');
-  assert.equal(steam?.startSessionId, null);
-});
-
-test('download intent also restores the app selection changed by prefill start', () => {
-  const storage = new MemoryStorage();
-  const editSession = recordEditActionIntent(
-    storage,
-    createScheduledPrefillEditSession(baseline, () => 'edit-session-a'),
-    'Steam',
-    'download',
-    'baseline-steam',
-    () => 'download-a'
-  ).editSession;
-
-  const steam = buildEditSessionCleanupRequest(
-    beginEditSessionCleanup(storage, editSession, () => 'cleanup-a')
-  ).services.find((service) => service.service === 'Steam');
-
+  assert.equal(sent.editSessionId, 'edit-session-a');
   assert.equal(steam?.prefillSessionId, 'baseline-steam');
   assert.equal(steam?.selectionSessionId, 'baseline-steam');
   assert.deepEqual(steam?.baselineSelectedAppIds, ['10', '20']);
+  assert.equal(readLedger(storage), null);
 });
 
-test('confirmation clears only the matching edit session and cleanup id', () => {
+test('recovery coalesces callers and completes a replacement ledger before resolving', async () => {
   const storage = new MemoryStorage();
-  const editSession = recordEditActionIntent(
+  writeLedger(
     storage,
-    createScheduledPrefillEditSession(baseline, () => 'edit-session-a'),
-    'Steam',
-    'login',
-    'baseline-steam',
-    () => 'login-a'
-  ).editSession;
-  beginEditSessionCleanup(storage, editSession, () => 'cleanup-a');
-
-  assert.equal(clearConfirmedEditSession(storage, 'edit-session-a', 'other-cleanup'), false);
-  assert.notEqual(loadScheduledPrefillEditSession(storage), null);
-  assert.equal(clearConfirmedEditSession(storage, 'edit-session-a', 'cleanup-a'), true);
-  assert.equal(loadScheduledPrefillEditSession(storage), null);
-});
-
-test('cleanup suppresses a late start result from recreating active ownership', () => {
-  const storage = new MemoryStorage();
-  const intent = recordEditActionIntent(
-    storage,
-    createScheduledPrefillEditSession(baseline, () => 'edit-session-a'),
-    'Epic',
-    'start',
-    null,
-    () => 'start-a'
+    createStoredLedger('first', 'Steam', {
+      login: { editActionId: 'first-action', sessionId: 'session-a' }
+    })
   );
-  beginEditSessionCleanup(storage, intent.editSession, () => 'cleanup-a');
-
-  recordEditSessionStartResult(storage, intent.editSession, 'Epic', 'start-a', 'late-session');
-
-  const stored = loadScheduledPrefillEditSession(storage);
-  assert.equal(stored?.phase, 'cleanup-pending');
-  assert.equal(stored?.services.Epic.start?.returnedSessionId, null);
-});
-
-test('committing an edit session clears ownership without creating cleanup work', () => {
-  const storage = new MemoryStorage();
-  const editSession = recordEditActionIntent(
+  const sent = [];
+  let release;
+  const cleanup = (request) => {
+    sent.push(request);
+    return sent.length === 1
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve();
+  };
+  const firstWait = recoverScheduledPrefillEditSession(storage, cleanup);
+  const secondWait = recoverScheduledPrefillEditSession(storage, cleanup);
+  assert.equal(firstWait, secondWait);
+  await Promise.resolve();
+  assert.equal(sent.length, 1);
+  writeLedger(
     storage,
-    createScheduledPrefillEditSession(baseline, () => 'edit-session-a'),
-    'Steam',
-    'selection',
-    'baseline-steam',
-    () => 'selection-a'
-  ).editSession;
-
-  assert.equal(discardCommittedEditSession(storage, editSession.editSessionId), true);
-  assert.equal(loadScheduledPrefillEditSession(storage), null);
+    createStoredLedger('replacement', 'Epic', {
+      login: { editActionId: 'replacement-action', sessionId: 'session-b' }
+    })
+  );
+  release();
+  await firstWait;
+  assert.deepEqual(
+    sent.map((request) => request.editSessionId),
+    ['first', 'replacement']
+  );
+  assert.equal(readLedger(storage), null);
+});
+test('failed recovery retains pending work and rejects the durable action', async () => {
+  const storage = new MemoryStorage();
+  writeLedger(
+    storage,
+    createStoredLedger('failed', 'Steam', {
+      start: { editActionId: 'start', sessionId: null, returnedSessionId: null }
+    })
+  );
+  await assert.rejects(
+    recoverScheduledPrefillEditSession(storage, async () => {
+      throw new Error('offline');
+    }),
+    /offline/
+  );
+  assert.equal(readLedger(storage).phase, 'cleanup-pending');
+  await recoverScheduledPrefillEditSession(storage, async () => undefined);
+  assert.equal(readLedger(storage), null);
+});
+test('no ledger makes recovery a resolved no-op', async () => {
+  await recoverScheduledPrefillEditSession(new MemoryStorage(), () =>
+    assert.fail('unexpected cleanup')
+  );
 });

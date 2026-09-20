@@ -7,6 +7,121 @@ import { bindLifted, findSoleNode, parseSource } from './transpile-module.mjs';
 const SERVICE_PATH = 'src/services/api.service.ts';
 const source = parseSource(SERVICE_PATH);
 
+test('narrow writes send only their own scope and return the committed configuration', async () => {
+  assert.ok(source.statements.length > 0);
+  assert.equal(source.parseDiagnostics.length, 0);
+  const apiService = findSoleNode(
+    source,
+    'ApiService',
+    (node) => ts.isClassDeclaration(node) && node.name?.text === 'ApiService'
+  );
+  const saved = {
+    version: 6,
+    steam: {
+      serviceId: 'Steam',
+      schedules: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          name: 'Evening',
+          enabled: true,
+          intervalHours: 24,
+          customSchedule: null,
+          preset: 'All',
+          selectedAppIds: [],
+          operatingSystems: ['Windows'],
+          force: false,
+          maxConcurrency: { mode: 'Auto' }
+        }
+      ]
+    }
+  };
+  const schedule = saved.steam.schedules[0];
+  const cases = [
+    [
+      'createScheduledPrefillSchedule',
+      ['Steam', schedule],
+      'services/Steam/schedules',
+      'POST',
+      schedule
+    ],
+    [
+      'updateScheduledPrefillSchedule',
+      ['Steam', schedule],
+      'services/Steam/schedules/' + schedule.id,
+      'PUT',
+      schedule
+    ],
+    [
+      'setScheduledPrefillScheduleEnabled',
+      ['Steam', schedule.id, false],
+      'services/Steam/schedules/' + schedule.id + '/enabled',
+      'PUT',
+      { enabled: false }
+    ],
+    [
+      'setScheduledPrefillScheduleTiming',
+      ['Steam', schedule.id, 6, null],
+      'services/Steam/schedules/' + schedule.id + '/timing',
+      'PUT',
+      { intervalHours: 6, customSchedule: null }
+    ],
+    [
+      'deleteScheduledPrefillSchedule',
+      ['Steam', schedule.id],
+      'services/Steam/schedules/' + schedule.id,
+      'DELETE',
+      undefined
+    ],
+    [
+      'setScheduledPrefillSchedulesEnabled',
+      [false],
+      'schedules/enabled',
+      'PUT',
+      { enabled: false }
+    ],
+    [
+      'setScheduledPrefillPersistence',
+      ['fullPersistence'],
+      'settings',
+      'PUT',
+      { mode: 'fullPersistence' }
+    ]
+  ];
+  for (const [name, args, route, verb, body] of cases) {
+    const method = apiService.members.find(
+      (node) => ts.isMethodDeclaration(node) && node.name.getText(source) === name
+    );
+    assert.ok(method, name);
+    const calls = [];
+    const callable = bindLifted(
+      '(' + method.getText(source).replace(/^static\s+async\s+\w+\(/, 'async function(') + ')',
+      {
+        API_BASE: '/api',
+        fetch: async (...args) => {
+          calls.push(args);
+          return saved;
+        }
+      }
+    );
+    const result = await callable.call(
+      {
+        getFetchOptions: (value) => value,
+        getJsonFetchOptions: (value, options) => ({ ...options, body: JSON.stringify(value) }),
+        handleResponse: async (value) => value
+      },
+      ...args
+    );
+    assert.equal(result, saved);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], '/api/system/schedules/scheduledPrefill/' + route);
+    assert.equal(calls[0][1].method, verb);
+    assert.deepEqual(
+      calls[0][1].body === undefined ? undefined : JSON.parse(calls[0][1].body),
+      body
+    );
+  }
+});
+
 function liftFunction(name, bindings = {}) {
   const declaration = findSoleNode(
     source,
@@ -52,17 +167,6 @@ const normalizeScheduledPrefillSummary = liftFunction('normalizeScheduledPrefill
   getLegacyScheduleId
 });
 
-const persistentTypes = parseSource('src/components/features/prefill/persistentPrefillTypes.ts');
-const getPersistentPrefillRunOptions = bindLifted(
-  findSoleNode(
-    persistentTypes,
-    'getPersistentPrefillRunOptions declaration',
-    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'getPersistentPrefillRunOptions'
-  )
-    .getText(persistentTypes)
-    .replace(/^export\s+/, ''),
-  {}
-);
 const legacyService = (serviceId, selectedAppIds = []) => ({
   serviceId,
   enabled: true,
@@ -147,66 +251,49 @@ test('v5 records cannot issue a named-record update request', async () => {
   );
 });
 
-test('opened records keep selected, all, recent, and top download semantics for immediate runs', () => {
-  const baseSchedule = {
-    id: 'schedule-a',
-    name: 'Schedule A',
-    enabled: false,
-    intervalHours: 24,
-    customSchedule: null,
-    notificationMode: 'all',
-    notificationDisplayMode: 'full',
-    selectedAppIds: [],
-    topCount: null,
-    operatingSystems: ['Windows', 'Linux'],
-    force: true,
-    maxConcurrency: { mode: 'Fixed', value: 4 }
+test('immediate runs send the saved schedule identity to the server-owned run contract', async () => {
+  const apiService = findSoleNode(
+    source,
+    'ApiService',
+    (node) => ts.isClassDeclaration(node) && node.name?.text === 'ApiService'
+  );
+  const method = apiService.members.find(
+    (node) =>
+      ts.isMethodDeclaration(node) && node.name.getText(source) === 'runScheduledPrefillService'
+  );
+  assert.ok(method, 'runScheduledPrefillService');
+  const calls = [];
+  const callable = bindLifted(
+    '(' +
+      method
+        .getText(source)
+        .replace(/^static\s+async\s+runScheduledPrefillService\(/, 'async function(') +
+      ')',
+    {
+      API_BASE: '/api',
+      fetch: async (...args) => {
+        calls.push(args);
+        return { status: calls.length === 1 ? 202 : 409 };
+      }
+    }
+  );
+  const target = {
+    getFetchOptions: (value) => value,
+    handleResponse: async (value) => value
   };
 
-  assert.deepEqual(getPersistentPrefillRunOptions({ ...baseSchedule, preset: 'All' }), {
-    appIds: [],
-    all: true,
-    recent: false,
-    recentlyPurchased: false,
-    top: null,
-    force: true,
-    operatingSystems: ['windows', 'linux'],
-    maxConcurrency: 4
+  assert.deepEqual(await callable.call(target, 'Steam', 'schedule-a'), {
+    alreadyRunning: false
   });
-  assert.deepEqual(getPersistentPrefillRunOptions({ ...baseSchedule, preset: 'Recent' }), {
-    appIds: [],
-    all: false,
-    recent: true,
-    recentlyPurchased: false,
-    top: null,
-    force: true,
-    operatingSystems: ['windows', 'linux'],
-    maxConcurrency: 4
+  assert.deepEqual(await callable.call(target, 'Steam', 'schedule-a'), {
+    alreadyRunning: true
   });
-  assert.deepEqual(
-    getPersistentPrefillRunOptions({ ...baseSchedule, preset: 'Top', topCount: 12 }),
-    {
-      appIds: [],
-      all: false,
-      recent: false,
-      recentlyPurchased: false,
-      top: 12,
-      force: true,
-      operatingSystems: ['windows', 'linux'],
-      maxConcurrency: 4
-    }
-  );
-  assert.deepEqual(
-    getPersistentPrefillRunOptions({ ...baseSchedule, preset: 'All', selectedAppIds: ['20'] }),
-    {
-      appIds: ['20'],
-      all: false,
-      recent: false,
-      recentlyPurchased: false,
-      top: null,
-      force: true,
-      operatingSystems: ['windows', 'linux'],
-      maxConcurrency: 4
-    }
-  );
+  assert.equal(calls.length, 2);
+  for (const [url, options] of calls) {
+    assert.equal(
+      url,
+      '/api/system/schedules/scheduledPrefill/services/Steam/schedules/schedule-a/run'
+    );
+    assert.deepEqual(options, { method: 'POST' });
+  }
 });

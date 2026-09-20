@@ -27,6 +27,14 @@
   .alert-content {
     flex: 1;
     min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .alert-content pre {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .alert-close {

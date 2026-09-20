@@ -155,3 +155,22 @@ export interface ScheduledPrefillConfigDto {
  * (Battle.net/Riot), where a running container is all the readiness there is.
  */
 export type ScheduledPrefillRowLoginState = 'loggedIn' | 'loginRequired';
+
+export interface ScheduledPrefillEditTarget {
+  opening: number;
+  serviceKey: ScheduledPrefillServiceKey;
+  scheduleId: string;
+  create: boolean;
+  name: string;
+  schedule: ScheduledPrefillSchedule | null;
+}
+
+export interface ScheduledPrefillGameSelectionState {
+  serviceKey: ScheduledPrefillServiceKey;
+  scheduleId: string;
+  sessionId: string;
+  games: { appId: string; name: string }[];
+  cachedAppIds: string[];
+  outdatedAppIds: string[];
+  unknownAppIds: string[];
+}

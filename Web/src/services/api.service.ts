@@ -83,6 +83,8 @@ import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceId,
+  ScheduledPrefillSchedule,
+  ScheduledPrefillPersistenceMode,
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
@@ -3466,6 +3468,84 @@ class ApiService {
       console.error('updateScheduledPrefillConfig error:', error);
       throw error;
     }
+  }
+
+  static async createScheduledPrefillSchedule(
+    platform: ScheduledPrefillServiceId,
+    schedule: ScheduledPrefillSchedule
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/schedules`,
+      this.getJsonFetchOptions(schedule, { method: 'POST' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
+  }
+
+  static async updateScheduledPrefillSchedule(
+    platform: ScheduledPrefillServiceId,
+    schedule: ScheduledPrefillSchedule
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/schedules/${encodeURIComponent(schedule.id)}`,
+      this.getJsonFetchOptions(schedule, { method: 'PUT' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
+  }
+
+  static async setScheduledPrefillScheduleEnabled(
+    platform: ScheduledPrefillServiceId,
+    scheduleId: string,
+    enabled: boolean
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/schedules/${encodeURIComponent(scheduleId)}/enabled`,
+      this.getJsonFetchOptions({ enabled }, { method: 'PUT' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
+  }
+
+  static async setScheduledPrefillScheduleTiming(
+    platform: ScheduledPrefillServiceId,
+    scheduleId: string,
+    intervalHours: number,
+    customSchedule: CustomSchedule | null
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/schedules/${encodeURIComponent(scheduleId)}/timing`,
+      this.getJsonFetchOptions({ intervalHours, customSchedule }, { method: 'PUT' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
+  }
+
+  static async deleteScheduledPrefillSchedule(
+    platform: ScheduledPrefillServiceId,
+    scheduleId: string
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/schedules/${encodeURIComponent(scheduleId)}`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
+  }
+
+  static async setScheduledPrefillSchedulesEnabled(
+    enabled: boolean
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/schedules/enabled`,
+      this.getJsonFetchOptions({ enabled }, { method: 'PUT' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
+  }
+
+  static async setScheduledPrefillPersistence(
+    mode: ScheduledPrefillPersistenceMode
+  ): Promise<ScheduledPrefillConfigDto> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/scheduledPrefill/settings`,
+      this.getJsonFetchOptions({ mode }, { method: 'PUT' })
+    );
+    return this.handleResponse<ScheduledPrefillConfigDto>(res);
   }
 
   static async getScheduledPrefillSchedule(

@@ -143,6 +143,14 @@
   flex-shrink: 0;
 }
 
+.session-row > span.session-row__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+}
+
 /* Users sessions still use a bare SVG; Prefill uses a filled icon-square Button
    with this class only for row order. */
 svg.session-row__chevron {
@@ -306,33 +314,39 @@ svg.session-row__chevron.is-open {
  * RESPONSIVE + REDUCED MOTION
  * ============================================== */
 
-/* Phones: the compact direct action, menu and chevron wrap as one trailing cluster. */
+/* Phones: interactive session rows keep identity and disclosure on the first line,
+   with any row actions using the full second line. */
 @media (max-width: 639.98px) {
-  .session-row {
-    align-items: flex-start;
+  .mgmt-row--interactive.session-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 2.75rem;
+    align-items: center;
+    column-gap: var(--control-gap-compact);
+    row-gap: 0.75rem;
   }
 
-  .session-row > .mgmt-row__body {
-    flex-basis: calc(100% - 2.25rem);
+  .mgmt-row--interactive.session-row > .status-dot {
+    grid-column: 1;
+    grid-row: 1;
   }
 
-  .session-row__actions {
-    opacity: 1;
-    order: 2;
-    flex: 0 0 auto;
-    margin-inline-start: auto;
+  .mgmt-row--interactive.session-row > .mgmt-row__body {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
   }
 
-  .session-row__chevron {
-    order: 2;
+  .mgmt-row--interactive.session-row > .session-row__actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    justify-content: flex-end;
+    gap: var(--control-gap-compact);
+    margin-inline-start: 0;
   }
 
-  /* 8px between the two row buttons, matching the toolbar clusters. The shared 4px
-     put two 44px targets close enough to mis-tap. .mgmt-row__actions sets the 4px at
-     the same 0,1,0 weight, so both classes are named here to win by specificity
-     rather than by which chunk the bundler emits last. */
-  .mgmt-row__actions.session-row__actions {
-    gap: 0.5rem;
+  .mgmt-row--interactive.session-row > .session-row__actions:empty {
+    display: none;
   }
 
   .session-row__actions button,
@@ -341,8 +355,33 @@ svg.session-row__chevron.is-open {
     min-width: 2.75rem;
   }
 
-  .session-row__direct-action {
-    min-width: 4.5rem !important;
+  .mgmt-row--interactive.session-row > .session-row__chevron {
+    grid-column: 3;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: end;
+    width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  .session-row__actions > .session-row__direct-action {
+    flex: 1 1 0;
+    width: auto;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    min-width: 0;
+  }
+
+  .session-row__actions .btn-icon-square--sm {
+    flex: 0 0 2.75rem;
+    width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
   }
 
   .session-filter-types,

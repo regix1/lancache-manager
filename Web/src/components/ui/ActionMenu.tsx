@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
 import { type AnchorRect } from '@hooks/useAnchorFollow';
@@ -13,6 +13,18 @@ interface ActionMenuProps {
   children: ReactNode;
   align?: 'left' | 'right';
   width?: string;
+  id?: string;
+  className?: string;
+  'aria-label'?: string;
+}
+
+interface ActionMenuGroupProps {
+  label?: string;
+  children: ReactNode;
+}
+
+interface ActionMenuDividerProps {
+  semantic?: boolean;
 }
 
 interface ActionMenuItemProps {
@@ -35,7 +47,10 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   trigger,
   children,
   align = 'right',
-  width = 'w-40'
+  width = 'w-40',
+  className = '',
+  id,
+  'aria-label': ariaLabel
 }) => {
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -180,7 +195,10 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`am-dropdown absolute ${width} bg-themed-secondary themed-border-radius-sm shadow-xl overflow-hidden border border-themed-primary z-[85] ${
+            id={id}
+            role={ariaLabel ? 'group' : undefined}
+            aria-label={ariaLabel}
+            className={`am-dropdown absolute ${width} ${className} bg-themed-secondary themed-border-radius-sm shadow-xl overflow-hidden border border-themed-primary z-[85] ${
               closing
                 ? 'animate-[dropdownSlideOut_0.14s_ease-in_forwards]'
                 : 'animate-[dropdownSlide_0.15s_ease-out]'
@@ -204,6 +222,20 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   );
 };
 
+export const ActionMenuGroup: React.FC<ActionMenuGroupProps> = ({ label, children }) => {
+  const labelId = useId();
+  return (
+    <div className="action-menu-group" role="group" aria-labelledby={label ? labelId : undefined}>
+      {label && (
+        <div id={labelId} className="action-menu-group__label">
+          {label}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+};
+
 export const ActionMenuItem: React.FC<ActionMenuItemProps> = ({
   onClick,
   icon,
@@ -223,8 +255,14 @@ export const ActionMenuItem: React.FC<ActionMenuItemProps> = ({
   );
 };
 
-export const ActionMenuDivider: React.FC = () => {
-  return <div className="border-t border-themed-primary my-1" />;
+export const ActionMenuDivider: React.FC<ActionMenuDividerProps> = ({ semantic = false }) => {
+  return (
+    <div
+      className="border-t border-themed-primary my-1"
+      role={semantic ? 'separator' : undefined}
+      aria-orientation={semantic ? 'horizontal' : undefined}
+    />
+  );
 };
 
 export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({

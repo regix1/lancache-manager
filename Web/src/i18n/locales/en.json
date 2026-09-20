@@ -3929,8 +3929,8 @@
               "customSchedule": "custom schedule"
             },
             "configure": "Configure",
-            "modalTitle": "Configure Scheduled Prefill",
-            "modalDescription": "Configure login, persistent containers, and saved schedules. Each platform runs one schedule at a time; overlapping attempts are skipped, not queued.",
+            "modalTitle": "{{service}} · {{name}}",
+            "modalDescription": "Edit this schedule, then save it. Run the saved schedule from its row.",
             "servicesTitle": "Services",
             "records": {
               "label": "Saved schedule",
@@ -3938,11 +3938,22 @@
               "new": "Add",
               "newName": "New schedule",
               "open": "Open",
+              "edit": "Edit schedule",
+              "run": "Run schedule",
+              "manageContainer": "Manage container",
+              "menuAdd": "Add {{service}} schedule",
+              "addForService": "Add schedule for {{service}}",
+              "duplicate": "Duplicate",
               "enable": "Enable",
               "disable": "Disable",
               "enableSchedule": "Enable",
               "disableSchedule": "Disable",
               "delete": "Delete",
+              "deleteTitle": "Delete {{service}} schedule “{{name}}”?",
+              "deleteBody": "Deletes this saved schedule. It does not stop or delete the service container.",
+              "lastRecord": "Keep at least one schedule for this service.",
+              "missing": "This schedule no longer exists. Close this dialog and refresh the schedules.",
+              "empty": "No saved schedules for {{service}}.",
               "saveAs": "Copy",
               "copySuffix": "copy",
               "nameRequired": "Enter a schedule name before saving.",
@@ -3950,7 +3961,7 @@
               "enabled": "{{service}} schedule \"{{name}}\" is now enabled.",
               "disabled": "{{service}} schedule \"{{name}}\" is now disabled.",
               "confirmEnabledSaveTitle": "Save changes to an enabled schedule?",
-              "confirmEnabledSaveBody": "At least one schedule that is enabled on the server will be changed or removed. It can run with the updated settings as soon as its next run is due."
+              "confirmEnabledSaveBody": "Save changes to {{service}} schedule “{{name}}”? Its next due run uses these settings."
             },
             "enabled": "Enabled",
             "service": "Service",
@@ -3972,20 +3983,20 @@
             "loginToSteam": "Log in to Steam",
             "loginToEpic": "Log in to Epic",
             "loginToXbox": "Log in to Xbox",
-            "save": "Save configuration",
-            "saving": "Saving...",
-            "saveFailed": "Failed to save scheduled prefill configuration",
-            "loadFailed": "Failed to load scheduled prefill configuration",
+            "save": "Save schedule",
+            "saving": "Saving schedule...",
+            "saveFailed": "Could not save this schedule",
+            "loadFailed": "Could not load scheduled prefill schedules",
             "lastSaved": "Last saved {{time}}",
-            "title": "Configure Scheduled Prefill",
-            "loading": "Loading scheduled prefill configuration...",
-            "loadError": "Failed to load scheduled prefill configuration: {{error}}",
-            "saveError": "Failed to save scheduled prefill configuration: {{error}}",
-            "empty": "Scheduled prefill configuration is not available.",
+            "title": "Scheduled Prefill schedules",
+            "loading": "Loading schedules...",
+            "loadError": "Failed to load schedules: {{error}}",
+            "saveError": "Failed to save schedule: {{error}}",
+            "empty": "No saved schedules are available.",
             "label": "Scheduled prefill",
             "authWarning": "{{services}} needs login before scheduled prefill can run for this service.",
             "authWarning_other": "{{services}} need login before scheduled prefill can run for these services.",
-            "zeroEnabledWarning": "No services are enabled. Scheduled prefill will not download anything until at least one service is enabled.",
+            "zeroEnabledWarning": "No schedules are enabled. Scheduled prefill will not download anything until at least one schedule is enabled.",
             "bulkToggle": {
               "label": "All schedules",
               "help": "Turn every saved schedule on or off at once, without changing your individual choices below.",
@@ -3996,21 +4007,27 @@
             "backendUpdateRequired": "Update the server to manage named scheduled prefill records.",
             "actions": {
               "configure": "Configure",
-              "save": "Save configuration",
-              "saving": "Saving...",
+              "viewActivity": "View activity",
+              "sharedSettings": "Shared container settings",
+              "save": "Save schedule",
+              "saving": "Saving schedule...",
               "forceDownload": "Download even if already cached",
               "selectGames": "Select games",
               "clearGames": "Clear selection"
             },
             "discardChanges": {
               "confirmTitle": "Discard your changes?",
-              "confirmBody": "Cancelling closes this window without saving. Every setting you changed here goes back to what it was before you opened it.",
+              "confirmBody": "Discards only unsaved changes in this dialog.",
               "confirmButton": "Discard changes"
             },
+            "containerModalTitle": "{{service}} container",
+            "containerModalDescription": "This container is shared by all {{service}} schedules.",
+            "activityTitle": "Scheduled Prefill activity",
+            "activityDescription": "Active downloads and run history for every service.",
             "persistentContainer": {
               "help": "Long-lived container for game library, login, and downloads. The current Steam container runs one prefill at a time and downloads games sequentially. Connections controls requests for the current game.",
               "error": "Persistent prefill container action failed: {{error}}",
-              "downloadNow": "Download now",
+              "downloadNow": "Run this schedule",
               "cancelDownload": "Cancel download",
               "downloadRequiresAuth": "Log in to the persistent container before downloading.",
               "downloadRequiresSelection": "Select at least one game before downloading.",
@@ -4039,11 +4056,11 @@
                 "gamesSelected": "Games selected"
               },
               "workflow": {
-                "stopped": "Start the container, then sign in to choose games.",
-                "stoppedAnonymous": "Start the container to choose games.",
-                "needsLogin": "Sign in to choose games from your library.",
-                "selectGames": "Select games for this platform, then download when ready.",
-                "ready": "Container is ready. Download selected games or wait for the next scheduled run."
+                "stopped": "Start the shared service container, then sign in to choose games for this schedule.",
+                "stoppedAnonymous": "Start the shared service container to choose games for this schedule.",
+                "needsLogin": "Sign in to the shared service container to choose games for this schedule.",
+                "selectGames": "Choose games for this schedule, then save it.",
+                "ready": "The shared service container is ready. Save this schedule before running it."
               },
               "anonymous": {
                 "badge": "No login required",
@@ -4058,12 +4075,16 @@
             "selectedGames": {
               "count": "{{count}} games selected",
               "overridePreset": "Specific game selection overrides the preset for this service.",
-              "requiresPersistentContainer": "Start the container to select games.",
+              "requiresPersistentContainer": "Save or close this schedule, then start its container from Manage the service container.",
+              "signInToSelectGames": "Sign in to select games. Use {{actions}} → {{manageContainer}}.",
               "error": "Failed to load game selection: {{error}}"
             },
             "settings": {
-              "title": "Settings",
-              "description": "Applies to all platforms.",
+              "title": "Shared container settings",
+              "description": "Applies to all service containers.",
+              "save": "Save settings",
+              "overrideNote": "These services use saved restart overrides: {{services}}.",
+              "partialSave": "Some settings were saved. Retry the fields that still show an error.",
               "loading": "Loading settings...",
               "error": "Could not read the persistent container login validity, so that field stays locked: {{error}}",
               "sharedContainerSettings": "Login & restart",
@@ -4175,7 +4196,10 @@
               "authPathsPersistent": "Persistent containers are used for library browse and game selection on every platform. Starting the container and logging in there is the only login scheduled prefill needs."
             },
             "errors": {
-              "editSessionLoading": "Scheduled-prefill edit session data is still loading."
+              "editSessionLoading": "Scheduled-prefill edit session data is still loading.",
+              "cleanupPending": "Previous container changes could not be cleared. Retry this action.",
+              "recordAction": "Could not update this schedule.",
+              "sharedSettings": "Could not save the shared container settings."
             }
           },
           "events": {
@@ -5205,7 +5229,12 @@
       "appId": "App ID: {{id}}",
       "cachedBadge": "Cached",
       "removeFromCache": "Remove {{name}} from cache",
-      "saveSelection": "Save Selection"
+      "saveSelection": "Save Selection",
+      "discardChanges": {
+        "confirmTitle": "Discard game selection changes?",
+        "confirmBody": "Your unsaved game selection changes will be discarded.",
+        "confirmButton": "Discard changes"
+      }
     },
     "placeholders": {
       "selectPlatforms": "Select platforms",

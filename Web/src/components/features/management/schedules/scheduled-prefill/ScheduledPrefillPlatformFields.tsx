@@ -195,7 +195,7 @@ export function ScheduledPrefillDownloadFields({
         aria-labelledby={presetLabelId}
       >
         <div className="scheduled-prefill-config-modal__setting-copy">
-          <div className="flex items-center gap-1.5">
+          <div className="scheduled-prefill-field-label-with-help flex items-center gap-1.5">
             <span id={presetLabelId} className="scheduled-prefill-config-modal__global-label">
               {t(`${baseKey}.fields.preset`)}
             </span>
@@ -346,6 +346,7 @@ export function ScheduledPrefillDownloadFields({
         </div>
         <div className="scheduled-prefill-config-modal__setting-actions">
           <ToggleSwitch
+            size="md"
             options={[
               { value: 'false', label: t(`${baseKey}.fields.toggleOff`), activeColor: 'default' },
               { value: 'true', label: t(`${baseKey}.fields.toggleOn`), activeColor: 'warning' }

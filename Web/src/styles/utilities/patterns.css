@@ -10,6 +10,10 @@
    wins by specificity regardless of chunk order. Kept unlayered here to match the rest of
    the app's stylesheets (see .control-h-md in forms.css). */
 
+:root {
+  --control-gap-compact: 0.5rem;
+}
+
 /* Hairline divider between direct children (list rows, stacked rows). */
 .divided-list > * + * {
   border-top: 1px solid var(--theme-border-secondary);
@@ -21,7 +25,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--control-gap-compact);
 }
 
 /* Keyboard focus outline for custom interactive elements. */

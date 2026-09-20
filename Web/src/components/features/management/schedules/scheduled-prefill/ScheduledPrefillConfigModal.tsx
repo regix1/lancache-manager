@@ -1,199 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import Badge from '@components/ui/Badge';
-import { HelpPopover } from '@components/ui/HelpPopover';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
-import { useScrollAreaHeight } from '@hooks/useScrollAreaHeight';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import { resolveCachedAppIds } from '@components/features/prefill/cachedApps';
-import {
-  canStartPrefill,
-  isPrefillRunActive,
-  mergePrefillRuns
-} from '@components/features/prefill/hooks/prefillTypes';
-import { NumberInput } from '@components/ui/NumberInput';
-import { SegmentedControl } from '@components/ui/SegmentedControl';
-import {
-  PERSISTENT_PREFILL_SERVICES,
-  PERSISTENT_PREFILL_VALIDITY_BOUNDS
-} from '@components/features/prefill/persistentPrefillConstants';
-import {
-  getPersistentPrefillRunOptions,
-  type PersistentIntegrationLoginAvailability,
-  type PersistentPrefillContainerDto,
-  type PersistentPrefillServiceId
-} from '@components/features/prefill/persistentPrefillTypes';
-import {
-  SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
-  SCHEDULED_PREFILL_BUTTON_SIZE,
-  SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
-  SCHEDULED_PREFILL_SERVICE_RUN_ORDER,
-  SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS,
-  SCHEDULED_PREFILL_SUPPORTED_PRESETS,
-  SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS
-} from './constants';
+import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
 import {
   getPersistentServiceId,
-  isScheduledPrefillAccountService,
-  isScheduledPrefillAnonymousService,
-  needsPersistentLogin
+  isScheduledPrefillAnonymousService
 } from './scheduledPrefillPlatformUi';
-import { PersistentLoginHost } from './PersistentLoginHost';
-import { normalizePersistentLoginClearResults } from './persistentLoginClearResult';
-import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import {
-  endPersistentLogin,
-  hasActivePersistentLogin,
-  isPersistentLoginIntegrationReuse,
-  isPersistentLoginDismissed,
-  reconcilePersistentLoginFromServer,
-  requestPersistentLoginAttempt,
-  resetPersistentLoginState,
-  retirePersistentLoginState,
-  setPersistentLoginStartSessionId,
-  usePersistentLoginStoreVersion
-} from './persistentLoginStore';
-import {
-  beginEditSessionCleanup,
-  buildEditSessionCleanupRequest,
-  clearConfirmedEditSession,
-  createScheduledPrefillEditSession,
-  createScheduledPrefillEditSessionId,
-  discardCommittedEditSession,
-  hasScheduledPrefillEditActions,
-  loadScheduledPrefillEditSession,
-  recordEditActionIntent,
-  recordEditSessionStartResult,
-  type ScheduledPrefillEditSessionLedger,
-  type ScheduledPrefillEditActionKind,
-  type ScheduledPrefillEditSessionServiceId
-} from './scheduledPrefillEditSessionLedger';
-import { uniqueScheduleName } from './scheduleNames';
-import { createUuid } from '@utils/uuid';
-import { MS_PER_DAY } from '../custom-schedule/customSchedulePreview';
-import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
-import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChallengeSignalR';
-import type {
-  ScheduledPrefillConfigDto,
-  ScheduledPrefillPersistenceMode,
-  ScheduledPrefillServiceConfigDto,
-  ScheduledPrefillSchedule,
-  ScheduledPrefillServiceKey
-} from './types';
-import { getErrorMessage, isAbortError } from '@utils/error';
-import { sessionStore } from '@utils/storage';
-import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
-import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+  SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
+  SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS,
+  SCHEDULED_PREFILL_SUPPORTED_PRESETS
+} from './constants';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useAuth } from '@contexts/useAuth';
-import { useSteamAuth } from '@contexts/useSteamAuth';
-import { getIntegrationReasonKey } from '../../../../../types';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { getErrorMessage, isAbortError } from '@utils/error';
+import type {
+  ScheduledPrefillEditTarget,
+  ScheduledPrefillSchedule,
+  ScheduledPrefillServiceKey,
+  ScheduledPrefillGameSelectionState
+} from './types';
 
 interface ScheduledPrefillConfigModalProps {
-  opened: boolean;
-  initialServiceKey?: ScheduledPrefillServiceKey;
-  initialScheduleId?: string;
+  target: ScheduledPrefillEditTarget | null;
+  container?: PersistentPrefillContainerDto;
+  identity: string;
   onClose: () => void;
-  onSaved?: () => void | Promise<void>;
+  onSaved: (serviceKey: ScheduledPrefillServiceKey, schedule: ScheduledPrefillSchedule) => void;
+  onLoaded: (serviceKey: ScheduledPrefillServiceKey, schedule: ScheduledPrefillSchedule) => void;
 }
-
-interface ScheduledPrefillOwnedGame {
-  appId: string;
-  name: string;
-}
-
-interface ScheduledPrefillGameSelectionState {
-  serviceKey: ScheduledPrefillServiceKey;
-  scheduleId: string;
-  sessionId: string;
-  games: ScheduledPrefillOwnedGame[];
-  cachedAppIds: string[];
-  outdatedAppIds: string[];
-  unknownAppIds: string[];
-}
-
-interface NumericBounds {
-  min: number;
-  max: number;
-}
-
-const DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS = 90;
-
-const PERSISTENCE_MODE_OPTIONS = ['killOnRestart', 'keepAcrossRestart', 'fullPersistence'] as const;
-
-const isScheduledPrefillPersistenceMode = (
-  value: string
-): value is ScheduledPrefillPersistenceMode =>
-  (PERSISTENCE_MODE_OPTIONS as readonly string[]).includes(value);
-
-const clampToBounds = (value: number, bounds: NumericBounds): number =>
-  Math.min(bounds.max, Math.max(bounds.min, Math.trunc(value)));
-
-const reconcileServiceConfigPreset = (
-  serviceKey: ScheduledPrefillServiceKey,
-  schedule: ScheduledPrefillSchedule
-): ScheduledPrefillSchedule => {
-  if (SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(schedule.preset)) {
-    return schedule;
-  }
-
-  // A config saved before this service's preset options were capability-gated (or written
-  // directly via the API) can carry a preset this service no longer offers. Fall back to 'All' at
-  // load time so the segmented control always shows a valid active selection instead of nothing.
-  return { ...schedule, preset: 'All', topCount: null };
-};
-
-const reconcileServiceConfigOperatingSystems = (
-  serviceKey: ScheduledPrefillServiceKey,
-  schedule: ScheduledPrefillSchedule
-): ScheduledPrefillSchedule => {
-  const supportedOperatingSystems = SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey];
-  if (schedule.operatingSystems.every((os) => supportedOperatingSystems.includes(os))) {
-    return schedule;
-  }
-
-  // A config saved before this service's platform selection was capability-gated (or written
-  // directly via the API) can carry OS values this service no longer supports. Drop them at load
-  // time so the (now-hidden, for this service) field never resurfaces an unsupported selection.
-  return {
-    ...schedule,
-    operatingSystems: schedule.operatingSystems.filter((os) =>
-      supportedOperatingSystems.includes(os)
-    )
-  };
-};
-
-const reconcileServiceConfig = (
-  serviceKey: ScheduledPrefillServiceKey,
-  serviceConfig: ScheduledPrefillServiceConfigDto
-): ScheduledPrefillServiceConfigDto => ({
-  ...serviceConfig,
-  schedules: serviceConfig.schedules.map((schedule) =>
-    reconcileServiceConfigOperatingSystems(
-      serviceKey,
-      reconcileServiceConfigPreset(serviceKey, schedule)
-    )
-  )
-});
-
-const reconcileScheduledPrefillConfig = (
-  rawConfig: ScheduledPrefillConfigDto
-): ScheduledPrefillConfigDto => ({
-  ...rawConfig,
-  steam: reconcileServiceConfig('steam', rawConfig.steam),
-  epic: reconcileServiceConfig('epic', rawConfig.epic),
-  xbox: reconcileServiceConfig('xbox', rawConfig.xbox),
-  battleNet: reconcileServiceConfig('battleNet', rawConfig.battleNet),
-  riot: reconcileServiceConfig('riot', rawConfig.riot)
-});
-
 const validateServiceConfig = (
   schedule: ScheduledPrefillSchedule,
   serviceKey: ScheduledPrefillServiceKey,
@@ -206,8 +51,6 @@ const validateServiceConfig = (
     return null;
   }
 
-  // Defense-in-depth: config is reconciled at load time, so this should not normally trigger, but
-  // it guarantees an unsupported preset+service combination can never be silently re-saved.
   if (!SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(schedule.preset)) {
     return t(`${baseKey}.validation.unsupportedPreset`, {
       service: serviceName,
@@ -219,8 +62,6 @@ const validateServiceConfig = (
     return t(`${baseKey}.validation.topCount`, { service: serviceName });
   }
 
-  // Services with no supported operating systems have the field hidden entirely, so they can
-  // never populate this list - only require a selection where the field is actually shown.
   if (
     SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 &&
     schedule.operatingSystems.length === 0
@@ -243,102 +84,44 @@ const validateServiceConfig = (
   return null;
 };
 
-// What saving the validity field would move a container's re-login date to. The server anchors the
-// window on the container's creation instant and never promises a date past the daemon's own token
-// (PersistentPrefillController.ComputeEffectiveRelogin), so the preview does both, or a number typed
-// into the field would promise a window the save cannot deliver.
-const previewReloginWindow = (
-  container: PersistentPrefillContainerDto,
-  validityDays: number
-): PersistentPrefillContainerDto => {
-  const windowEnds = new Date(container.createdAtUtc).getTime() + validityDays * MS_PER_DAY;
-  const tokenExpires = container.daemonAuthExpiresAtUtc
-    ? new Date(container.daemonAuthExpiresAtUtc).getTime()
-    : null;
-  const relogin = tokenExpires !== null && tokenExpires < windowEnds ? tokenExpires : windowEnds;
-
-  return {
-    ...container,
-    authExpiresAtUtc: new Date(relogin).toISOString(),
-    // A container already past its window is inside the new one again, and the save clears the flag
-    // server-side. Leaving it set would put a re-login warning next to a future re-login date.
-    needsRelogin: relogin > Date.now() ? false : container.needsRelogin
-  };
-};
-
 export function ScheduledPrefillConfigModal({
-  opened,
-  initialServiceKey,
-  initialScheduleId,
+  target,
+  container,
+  identity,
   onClose,
-  onSaved
+  onSaved,
+  onLoaded
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
-  const {
-    accountId,
-    authMode,
-    sessionId,
-    authenticationEnabled,
-    isLoading: authLoading
-  } = useAuth();
-  const { revision } = useSteamAuth();
-  const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
-  const [setScrollAreaEl, scrollAreaHeight] = useScrollAreaHeight();
-  const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
-  /** The config as it arrived, to compare against on Cancel. */
-  const loadedConfigRef = useRef<string | null>(null);
-  /** The persisted records, so Save can tell which enabled schedules it is about to overwrite. */
-  const persistedConfigRef = useRef<ScheduledPrefillConfigDto | null>(null);
+  const baseKey = 'management.schedules.services.scheduledPrefill.config';
+  const [config, setConfig] = useState<ScheduledPrefillSchedule | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
+  const [missing, setMissing] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [overwriteEnabledConfirmOpen, setOverwriteEnabledConfirmOpen] = useState(false);
-  const [loadingConfig, setLoadingConfig] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  // null = never loaded yet (drives the initial-load-only spinner below); an empty array means a
-  // load completed and found no containers, which is a real, renderable state, not "loading".
-  const [persistentContainers, setPersistentContainers] = useState<
-    PersistentPrefillContainerDto[] | null
-  >(null);
-  const [loadingPersistentContainers, setLoadingPersistentContainers] = useState(false);
-  const [integrationLoginAvailabilityByService, setIntegrationLoginAvailabilityByService] =
-    useState<Map<ScheduledPrefillServiceKey, PersistentIntegrationLoginAvailability>>(new Map());
-  const [integrationLoginAvailabilityIdentity, setIntegrationLoginAvailabilityIdentity] =
-    useState('');
-  const [loadingIntegrationLoginAvailability, setLoadingIntegrationLoginAvailability] =
-    useState(false);
-  const [persistentError, setPersistentError] = useState<string | null>(null);
-  const [persistentAction, setPersistentAction] =
-    useState<ScheduledPrefillPersistentActionState | null>(null);
-  const [cancellingRunIds, setCancellingRunIds] = useState<string[]>([]);
-  const cancellingRunsRef = useRef(new Set<string>());
-  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
-  const [persistentValidityDays, setPersistentValidityDays] = useState(
-    DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
-  );
-  // The window the server is actually holding, or null while that is unknown: before the settings
-  // request answers, and after it fails. The field above is a draft, and the containers below
-  // preview it only once the two disagree, so an untouched field leaves the real dates alone.
-  // Null also gates the field and the save, because a draft that was never seeded from the server
-  // is a default, not a choice.
-  const [savedValidityDays, setSavedValidityDays] = useState<number | null>(null);
-  const savedValidityDaysRef = useRef(savedValidityDays);
-  savedValidityDaysRef.current = savedValidityDays;
-  const [globalSettingsError, setGlobalSettingsError] = useState<string | null>(null);
-  const [clearLoginsConfirmOpen, setClearLoginsConfirmOpen] = useState(false);
-  const [clearingLogins, setClearingLogins] = useState(false);
-  const [clearLoginsSuccessNote, setClearLoginsSuccessNote] = useState<string | null>(null);
+  const baseline = useRef<string | null>(null);
+  const dirty = useRef(false);
+  const current = useRef(target);
+  current.current = target;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const containerRef = useRef(container);
+  containerRef.current = container;
+  const confirmed = useRef({ onSaved, onLoaded });
+  confirmed.current = { onSaved, onLoaded };
+  const writes = useRef(new Map<string, object>());
   const [gameSelection, setGameSelection] = useState<ScheduledPrefillGameSelectionState | null>(
     null
   );
   const [loadingGameSelectionService, setLoadingGameSelectionService] =
     useState<ScheduledPrefillServiceKey | null>(null);
-  const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
+  const [gameLoaded, setGameLoaded] = useState(false);
   const [gameLoadError, setGameLoadError] = useState<string | null>(null);
   const gameSelectionRef = useRef(gameSelection);
-  const gameEpochRef = useRef(0);
-  gameSelectionRef.current = opened ? gameSelection : null;
+  gameSelectionRef.current = target ? gameSelection : null;
   const gameAuthRef = useRef<{ key: string; authenticated: boolean } | null>(null);
   const gameRequestRef = useRef<{
     key: string;
@@ -346,1347 +129,150 @@ export function ScheduledPrefillConfigModal({
     again: boolean;
     promise: Promise<void>;
   } | null>(null);
-  const [isClearingCachedGames, setIsClearingCachedGames] = useState(false);
-  const [persistentLoginTarget, setPersistentLoginTarget] =
-    useState<ScheduledPrefillServiceKey | null>(null);
-  const [closingEditSession, setClosingEditSession] = useState(false);
-  const [editSessionCleanupPending, setEditSessionCleanupPending] = useState(false);
-  const editSessionRef = useRef<ScheduledPrefillEditSessionLedger | null>(null);
-  const editSessionRetiredRef = useRef(false);
-  const editSessionCleanupPromiseRef = useRef<Promise<void> | null>(null);
-  const storedCleanupPromiseRef = useRef<Promise<void> | null>(null);
-  const baseKey = 'management.schedules.services.scheduledPrefill.config';
-  const privateAvailabilityIdentity = `${authenticationEnabled}:${authMode}:${accountId ?? ''}:${sessionId ?? ''}`;
-  const privateAvailabilityIdentityRef = useRef(privateAvailabilityIdentity);
-  privateAvailabilityIdentityRef.current = privateAvailabilityIdentity;
-  const canUseSavedLogin =
-    !authLoading &&
-    (authenticationEnabled === false ||
-      (authMode === 'authenticated' && Boolean(accountId && sessionId)));
-  const requiresIndividualAccount =
-    authenticationEnabled !== false && authMode === 'authenticated' && !accountId;
-
-  // Auto-dismiss the "logins cleared" success note so it does not linger forever.
-  const scheduleClearLoginsSuccessDismiss = useTimeoutCallback(2500);
-
-  const loadConfig = useCallback(async (signal?: AbortSignal) => {
-    if (signal?.aborted) return;
-    setLoadingConfig(true);
-    try {
-      const nextConfig = await ApiService.getScheduledPrefillConfig(signal);
-      if (signal?.aborted) return;
-      const reconciled = reconcileScheduledPrefillConfig(nextConfig);
-      // Snapshot what was loaded so Cancel can tell an edited form from an untouched one and only
-      // warn about losing work when there is work to lose.
-      loadedConfigRef.current = JSON.stringify(reconciled);
-      persistedConfigRef.current = reconciled;
-      setConfig(reconciled);
-      setLoadError(null);
-    } catch (error: unknown) {
-      if (!signal?.aborted && !isAbortError(error)) {
-        setLoadError(getErrorMessage(error));
-      }
-    } finally {
-      if (!signal?.aborted) setLoadingConfig(false);
-    }
-  }, []);
-
-  // Single-flight: the click-handler path (runPersistentStartFlow etc.) and the SignalR onRefresh
-  // subscription both call this independently. Triggers during a request queue a trailing pass
-  // so a terminal event cannot be hidden by an older response captured while downloading.
-  const persistentContainersRequestRef = useRef<{
-    controller: AbortController;
-    again: boolean;
-    promise: Promise<void>;
-  } | null>(null);
-
-  const loadPersistentContainers = useCallback(async (signal?: AbortSignal) => {
-    if (signal?.aborted) return;
-    if (
-      persistentContainersRequestRef.current &&
-      !persistentContainersRequestRef.current.controller.signal.aborted
-    ) {
-      persistentContainersRequestRef.current.again = true;
-      return persistentContainersRequestRef.current.promise;
-    }
-
+  const gameSelectionNeedsLogin =
+    target !== null &&
+    !isScheduledPrefillAnonymousService(target.serviceKey) &&
+    (!container?.isRunning || !container.isAuthenticated || container.needsRelogin);
+  const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
+  const loadKey = target
+    ? `${identity}:${target.serviceKey}:${target.scheduleId ?? 'create'}`
+    : null;
+  useEffect(() => {
     const controller = new AbortController();
-    const abort = () => controller.abort();
-    signal?.addEventListener('abort', abort, { once: true });
-    const request = { controller, again: false, promise: Promise.resolve() };
-    persistentContainersRequestRef.current = request;
-    setLoadingPersistentContainers(true);
-    request.promise = (async () => {
-      try {
-        do {
-          request.again = false;
-          const nextContainers = await ApiService.getPersistentPrefillContainers(controller.signal);
-          if (controller.signal.aborted || persistentContainersRequestRef.current !== request)
-            return;
-          setPersistentContainers((current) =>
-            nextContainers.map((container) => {
-              const previous = current?.find((item) => item.sessionId === container.sessionId);
-              return previous?.runs && container.runs
-                ? { ...container, runs: mergePrefillRuns(previous.runs, container.runs) }
-                : container;
-            })
-          );
-          setPersistentError(null);
-        } while (request.again && !controller.signal.aborted);
-      } catch (error: unknown) {
+    const opening = target?.opening;
+    setConfig(target?.schedule ?? null);
+    baseline.current = target?.schedule ? JSON.stringify(target.schedule) : null;
+    dirty.current = false;
+    setSaving(false);
+    setError(null);
+    setMissing(false);
+    setDiscardConfirmOpen(false);
+    setOverwriteEnabledConfirmOpen(false);
+    setGameSelection(null);
+    gameSelectionRef.current = null;
+    gameRequestRef.current?.controller.abort();
+    gameRequestRef.current = null;
+    setLoadingGameSelectionService(null);
+    setGameLoaded(false);
+    setGameLoadError(null);
+    if (!target || target.create) {
+      setLoading(false);
+      return;
+    }
+    const requestKey = `${identityRef.current}:${target.serviceKey}:${target.scheduleId}`;
+    setLoading(true);
+    void ApiService.getScheduledPrefillConfig(controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted || current.current?.opening !== opening) return;
+        setLoadError((current) => (current?.key === requestKey ? null : current));
+        const record = result[target.serviceKey].schedules.find(
+          (item) => item.id === target.scheduleId
+        );
+        if (!record) {
+          setMissing(true);
+          return;
+        }
+        if (!dirty.current) {
+          confirmed.current.onLoaded(target.serviceKey, record);
+          setConfig(record);
+          baseline.current = JSON.stringify(record);
+        }
+      })
+      .catch((failure: unknown) => {
         if (
           !controller.signal.aborted &&
-          persistentContainersRequestRef.current === request &&
-          !isAbortError(error)
-        ) {
-          setPersistentError(getErrorMessage(error));
-        }
-      } finally {
-        signal?.removeEventListener('abort', abort);
-        if (persistentContainersRequestRef.current === request) {
-          persistentContainersRequestRef.current = null;
-          setLoadingPersistentContainers(false);
-        }
-      }
-    })();
-
-    return request.promise;
-  }, []);
-
-  const integrationLoginRequestRef = useRef<AbortController | null>(null);
-  const loadIntegrationLoginAvailability = useCallback(
-    async (signal?: AbortSignal) => {
-      if (signal?.aborted) return;
-      integrationLoginRequestRef.current?.abort();
-      const controller = new AbortController();
-      integrationLoginRequestRef.current = controller;
-      const requestIdentity = privateAvailabilityIdentityRef.current;
-      const isCurrent = () =>
-        integrationLoginRequestRef.current === controller &&
-        !controller.signal.aborted &&
-        requestIdentity === privateAvailabilityIdentityRef.current;
-      if (!canUseSavedLogin) {
-        if (isCurrent()) {
-          setIntegrationLoginAvailabilityByService(
-            new Map(
-              requiresIndividualAccount
-                ? SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) => [
-                    serviceKey,
-                    { available: false, account: null, reason: 'account-required' }
-                  ])
-                : []
-            )
-          );
-          setIntegrationLoginAvailabilityIdentity(requestIdentity);
-          setLoadingIntegrationLoginAvailability(false);
-        }
-        return;
-      }
-
-      const abort = () => controller.abort();
-      signal?.addEventListener('abort', abort, { once: true });
-      if (isCurrent()) setLoadingIntegrationLoginAvailability(true);
-      try {
-        const availability = await Promise.all(
-          SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map(async (serviceKey) => {
-            try {
-              const result = await ApiService.getPersistentIntegrationLoginAvailability(
-                getPersistentServiceId(serviceKey),
-                controller.signal
-              );
-              return [serviceKey, result] as const;
-            } catch (error: unknown) {
-              if (isAbortError(error)) {
-                throw error;
-              }
-              return null;
-            }
-          })
-        );
-        if (isCurrent()) {
-          setIntegrationLoginAvailabilityByService(
-            new Map(availability.filter((entry) => entry !== null))
-          );
-          setIntegrationLoginAvailabilityIdentity(requestIdentity);
-        }
-      } catch (error: unknown) {
-        if (!isAbortError(error) && isCurrent()) {
-          setIntegrationLoginAvailabilityByService(new Map());
-          setIntegrationLoginAvailabilityIdentity(requestIdentity);
-        }
-      } finally {
-        signal?.removeEventListener('abort', abort);
-        if (isCurrent()) {
-          setLoadingIntegrationLoginAvailability(false);
-        }
-      }
-    },
-    [canUseSavedLogin, requiresIndividualAccount]
-  );
-
-  const visibleIntegrationLoginAvailabilityByService = useMemo(
-    () =>
-      integrationLoginAvailabilityIdentity === privateAvailabilityIdentity
-        ? integrationLoginAvailabilityByService
-        : new Map<ScheduledPrefillServiceKey, PersistentIntegrationLoginAvailability>(),
-    [
-      integrationLoginAvailabilityByService,
-      integrationLoginAvailabilityIdentity,
-      privateAvailabilityIdentity
-    ]
-  );
-
-  const privateAvailabilityIdentityAppliedRef = useRef(privateAvailabilityIdentity);
-  useEffect(() => {
-    if (privateAvailabilityIdentityAppliedRef.current === privateAvailabilityIdentity) {
-      return;
-    }
-
-    privateAvailabilityIdentityAppliedRef.current = privateAvailabilityIdentity;
-    const privateReuseServiceKeys = SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceKey) =>
-      isPersistentLoginIntegrationReuse(getPersistentServiceId(serviceKey))
-    );
-    for (const serviceKey of privateReuseServiceKeys) {
-      resetPersistentLoginState(getPersistentServiceId(serviceKey));
-    }
-    setPersistentLoginTarget((current) =>
-      current &&
-      isScheduledPrefillAccountService(current) &&
-      privateReuseServiceKeys.includes(current)
-        ? null
-        : current
-    );
-  }, [privateAvailabilityIdentity]);
-
-  useEffect(() => {
-    if (!opened) {
-      integrationLoginRequestRef.current?.abort();
-      return;
-    }
-
-    const controller = new AbortController();
-    void loadIntegrationLoginAvailability(controller.signal);
-    return () => {
-      controller.abort();
-      integrationLoginRequestRef.current?.abort();
-    };
-  }, [opened, privateAvailabilityIdentity, revision, loadIntegrationLoginAvailability]);
-
-  const loadGlobalSettings = useCallback(async (signal?: AbortSignal) => {
-    if (signal?.aborted) return;
-    try {
-      const validity = await ApiService.getPersistentPrefillValidity(signal);
-      if (signal?.aborted) return;
-      const days = clampToBounds(validity.days, PERSISTENT_PREFILL_VALIDITY_BOUNDS);
-      setPersistentValidityDays(days);
-      setSavedValidityDays(days);
-      setGlobalSettingsError(null);
-    } catch (error: unknown) {
-      if (!signal?.aborted && !isAbortError(error)) {
-        setSavedValidityDays(null);
-        setGlobalSettingsError(getErrorMessage(error));
-      }
-    }
-  }, []);
-
-  const retireEditSessionLoginState = useCallback(
-    (editSession: ScheduledPrefillEditSessionLedger) => {
-      let retiredAny = false;
-      for (const serviceKey of SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS) {
-        const serviceId = getPersistentServiceId(serviceKey);
-        const serviceEditSession = editSession.services[serviceId];
-        if (serviceEditSession.login || serviceEditSession.start) {
-          retirePersistentLoginState(serviceId);
-          retiredAny = true;
-        }
-      }
-      if (retiredAny) {
-        setPersistentLoginTarget(null);
-      }
-    },
-    []
-  );
-
-  const retryStoredEditSessionCleanup = useCallback(async () => {
-    if (storedCleanupPromiseRef.current) {
-      return storedCleanupPromiseRef.current;
-    }
-
-    const stored = loadScheduledPrefillEditSession(sessionStore);
-    if (!stored || !hasScheduledPrefillEditActions(stored)) {
-      return;
-    }
-
-    const request = (async () => {
-      const pending = beginEditSessionCleanup(
-        sessionStore,
-        stored,
-        createScheduledPrefillEditSessionId
-      );
-      editSessionRef.current = pending;
-      editSessionRetiredRef.current = true;
-      setEditSessionCleanupPending(true);
-      retireEditSessionLoginState(pending);
-      try {
-        await ApiService.cleanupPersistentPrefillEditSession(
-          buildEditSessionCleanupRequest(pending)
-        );
-        clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
-        if (editSessionRef.current?.editSessionId === pending.editSessionId) {
-          editSessionRef.current = null;
-        }
-        editSessionRetiredRef.current = false;
-      } finally {
-        // The flag means "a cleanup is in flight", and it gates every control in the modal. A
-        // request that never lands - the API restarting is enough - must not leave those controls
-        // dead for the rest of the page's life. The cleanup itself is retried on the next close.
-        setEditSessionCleanupPending(false);
-      }
-    })();
-
-    storedCleanupPromiseRef.current = request;
-    try {
-      await request;
-    } finally {
-      storedCleanupPromiseRef.current = null;
-    }
-  }, [retireEditSessionLoginState]);
-
-  useEffect(() => {
-    void retryStoredEditSessionCleanup().catch(() => undefined);
-  }, [retryStoredEditSessionCleanup]);
-
-  useEffect(() => {
-    const handlePageHide = () => {
-      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStore);
-      if (!editSession || !hasScheduledPrefillEditActions(editSession)) {
-        return;
-      }
-
-      editSessionRetiredRef.current = true;
-      retireEditSessionLoginState(editSession);
-      const pending = beginEditSessionCleanup(
-        sessionStore,
-        editSession,
-        createScheduledPrefillEditSessionId
-      );
-      editSessionRef.current = pending;
-      void ApiService.cleanupPersistentPrefillEditSession(
-        buildEditSessionCleanupRequest(pending),
-        true
-      )
-        .then(() => {
-          clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
-        })
-        .catch(() => undefined);
-    };
-
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (!event.persisted) {
-        return;
-      }
-
-      if (loadScheduledPrefillEditSession(sessionStore)) {
-        void retryStoredEditSessionCleanup().catch(() => undefined);
-      } else if (editSessionRetiredRef.current) {
-        editSessionRef.current = null;
-        editSessionRetiredRef.current = false;
-        setEditSessionCleanupPending(false);
-      }
-    };
-
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('pageshow', handlePageShow);
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('pageshow', handlePageShow);
-    };
-  }, [retireEditSessionLoginState, retryStoredEditSessionCleanup]);
-
-  useEffect(() => {
-    if (!opened) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const storedEditSession = loadScheduledPrefillEditSession(sessionStore);
-    if (!storedEditSession) {
-      editSessionRef.current = null;
-      editSessionRetiredRef.current = false;
-      setEditSessionCleanupPending(false);
-    } else {
-      void retryStoredEditSessionCleanup().catch((error: unknown) => {
-        if (!controller.signal.aborted) setPersistentError(getErrorMessage(error));
-      });
-    }
-    setConfig(persistedConfigRef.current);
-    setPersistentValidityDays(
-      savedValidityDaysRef.current ?? DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
-    );
-    setValidationError(null);
-    setSaveError(null);
-    setPersistentError(null);
-    setGlobalSettingsError(null);
-    setGameSelectionError(null);
-    setGameSelection(null);
-    void loadConfig(controller.signal);
-    void loadPersistentContainers(controller.signal);
-    void loadGlobalSettings(controller.signal);
-
-    return () => {
-      controller.abort();
-      persistentContainersRequestRef.current?.controller.abort();
-    };
-  }, [
-    opened,
-    loadConfig,
-    loadPersistentContainers,
-    loadGlobalSettings,
-    retryStoredEditSessionCleanup
-  ]);
-
-  const persistentContainerByService = useMemo(
-    () =>
-      new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
-        (persistentContainers ?? []).map((container) => [container.service, container])
-      ),
-    [persistentContainers]
-  );
-
-  // Always-current mirror of the container map for effects that must READ it without re-running on
-  // every change to it (see the reconcile effect below).
-  const persistentContainerByServiceRef = useRef(persistentContainerByService);
-  persistentContainerByServiceRef.current = persistentContainerByService;
-
-  // Always-current mirror of `config` so the reconcile effect can read a service's `enabled` flag
-  // without depending on the whole config object (which changes on every keystroke). Mirrors
-  // persistentContainerByServiceRef; the reconcile effect re-runs on persistentEnabledSignature
-  // (below) when an enabled toggle actually flips.
-  const configRef = useRef(config);
-  configRef.current = config;
-
-  const initializeEditSession = useCallback((): ScheduledPrefillEditSessionLedger => {
-    if (editSessionRetiredRef.current) {
-      throw new Error('Scheduled-prefill cleanup is already pending.');
-    }
-    if (editSessionRef.current) {
-      return editSessionRef.current;
-    }
-    if (!config || persistentContainers === null) {
-      throw new Error(
-        t('management.schedules.services.scheduledPrefill.config.errors.editSessionLoading')
-      );
-    }
-
-    const selectedAppIdsByService = {} as Record<ScheduledPrefillEditSessionServiceId, string[]>;
-    const sessionIdByService = {} as Record<ScheduledPrefillEditSessionServiceId, string | null>;
-    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-      const serviceId = getPersistentServiceId(serviceKey);
-      selectedAppIdsByService[serviceId] = [
-        ...(config[serviceKey].schedules[0]?.selectedAppIds ?? [])
-      ];
-      sessionIdByService[serviceId] =
-        persistentContainerByService.get(serviceId)?.sessionId ?? null;
-    }
-
-    const editSession = createScheduledPrefillEditSession(
-      { selectedAppIdsByService, sessionIdByService },
-      createScheduledPrefillEditSessionId
-    );
-    editSessionRef.current = editSession;
-    return editSession;
-  }, [config, persistentContainers, persistentContainerByService, t]);
-
-  const recordEditAction = useCallback(
-    (
-      service: PersistentPrefillServiceId,
-      kind: ScheduledPrefillEditActionKind,
-      sessionId: string | null
-    ): { editSession: ScheduledPrefillEditSessionLedger; editActionId: string } => {
-      const recorded = recordEditActionIntent(
-        sessionStore,
-        initializeEditSession(),
-        service,
-        kind,
-        sessionId,
-        createScheduledPrefillEditSessionId
-      );
-      editSessionRef.current = recorded.editSession;
-      return recorded;
-    },
-    [initializeEditSession]
-  );
-
-  useEffect(() => {
-    if (
-      opened &&
-      config &&
-      persistentContainers !== null &&
-      !editSessionRef.current &&
-      !editSessionRetiredRef.current &&
-      !loadScheduledPrefillEditSession(sessionStore)
-    ) {
-      initializeEditSession();
-    }
-  }, [opened, config, persistentContainers, initializeEditSession]);
-
-  // Stable signature of ONLY the account services' enabled flags. Added to the reconcile effect's
-  // deps so it re-checks for a resumable login when a service is enabled/disabled, WITHOUT re-firing
-  // on the unrelated config edits (presets, selected app ids) a raw `config` dependency would catch.
-  const persistentEnabledSignature = useMemo(
-    () =>
-      SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) =>
-        config?.[serviceKey].schedules.some((schedule) => schedule.enabled) ? '1' : '0'
-      ).join(''),
-    [config]
-  );
-
-  // Stable signature of ONLY the fields the reconcile effect branches on (running / authenticated /
-  // session). The container list is refreshed on every container SignalR push - including the rapid
-  // prefill-progress pushes that only move byte counters - and each refresh makes a brand-new array,
-  // so keying the reconcile effect off the whole map made it re-probe the daemon (GET challenge) on
-  // every progress tick. This signature only changes when a reconcile-relevant field actually
-  // changes, so a progress-only refresh no longer re-fires the probe.
-  const persistentReconcileSignature = useMemo(
-    () =>
-      (persistentContainers ?? [])
-        .map(
-          (container) =>
-            `${container.service}:${container.isRunning ? 1 : 0}:${
-              container.isAuthenticated ? 1 : 0
-            }:${container.sessionId}`
+          current.current?.opening === opening &&
+          !isAbortError(failure)
         )
-        .join('|'),
-    [persistentContainers]
-  );
-
-  // Reconcile instead of wipe: reopening the modal used to clear persistentLoginTarget
-  // unconditionally, killing a visible auth modal and abandoning an in-progress login
-  // (diagnostic §6 item 1). Once the container list is loaded, ask the backend (which caches the
-  // pending challenge - see PersistentPrefillController) whether any running-but-unauthenticated
-  // account service still has a login in flight, and resume it instead of losing it.
-  //
-  // Only skipped while the CURRENT target still has a real flow in progress (loading or an
-  // already-applied challenge) - it must still run when a target is set but the store is empty
-  // (the wedged state from diagnostic §3.2 W1: start() settled without ever applying the daemon's
-  // challenge), otherwise a challenge cached backend-side could never reach the store again.
-  //
-  // Two guards keep this repair from overreaching:
-  // - When a target is already set, only that service is probed - repair it in place. Scanning
-  //   every account service here (as if no target were set) could find a DIFFERENT service's
-  //   cached challenge first and steal the target away from the one the user is actually on.
-  // - A challenge whose store entry is `dismissed` stays closed. Reconcile exists to restore state
-  //   lost to a reload/unmount, not to reopen a modal the user just closed; only the explicit Log
-  //   in click (which calls resumeModal via beginLogin's hasChallenge branch) reopens that one.
-  useEffect(() => {
-    if (!opened) {
-      return;
-    }
-
-    if (
-      persistentLoginTarget !== null &&
-      hasActivePersistentLogin(getPersistentServiceId(persistentLoginTarget))
-    ) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const reconcile = async () => {
-      const candidateKeys =
-        persistentLoginTarget !== null
-          ? [persistentLoginTarget]
-          : SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS;
-
-      for (const serviceKey of candidateKeys) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        const serviceId = getPersistentServiceId(serviceKey);
-        // A disabled (or not-yet-loaded) service must never drive an account login target: don't
-        // even probe the daemon for a cached challenge, and never resurrect a stale one (bug #2 -
-        // reconcile used to set a target for any running-unauthenticated account container
-        // regardless of whether the current schedule enables it). configRef is read (not `config`)
-        // so this effect need not depend on the whole config object; persistentEnabledSignature in
-        // the dep array re-runs it when an enabled toggle actually flips.
-        if (!configRef.current?.[serviceKey].schedules.some((schedule) => schedule.enabled)) {
-          continue;
-        }
-        // Read through the ref (not the closed-over map) so this effect can depend on the reconcile
-        // signature alone - the reconcile-relevant fields it reads here are exactly what that
-        // signature tracks, so the ref is guaranteed current for them.
-        const container = persistentContainerByServiceRef.current.get(serviceId);
-        if (!container?.isRunning || container.isAuthenticated) {
-          continue;
-        }
-
-        // Checked before the probe as well as after it. Closing the modal nulls
-        // persistentLoginTarget, which re-runs this effect while the cancel POST is still in
-        // flight; if the probe's GET is served the challenge the daemon has not dropped yet,
-        // applyPersistentLoginChallenge reads it as a brand new challenge and clears `dismissed`,
-        // so the post-check below can no longer stop the modal from reopening on a login the user
-        // just cancelled. The close writes `dismissed` synchronously, so it is already true here.
-        if (isPersistentLoginDismissed(serviceId)) {
-          continue;
-        }
-
-        const result = await reconcilePersistentLoginFromServer(serviceId, container.sessionId, {
-          noResult: t('prefill.persistent.errors.noResult'),
-          timedOut: t('prefill.persistent.loginTimedOut')
-        });
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        if (
-          (result === 'challenge' || result === 'unavailable') &&
-          !isPersistentLoginDismissed(serviceId)
-        ) {
-          setPersistentLoginTarget(serviceKey);
-          return;
-        }
-      }
-    };
-
-    void reconcile();
-
-    return () => {
-      controller.abort();
-    };
-    // Depends on the reconcile signature, NOT the whole container map, so a prefill-progress refresh
-    // (byte counters only) no longer re-fires a daemon GET-challenge probe. persistentContainerByService
-    // and config are read via refs inside, so they are intentionally not dependencies;
-    // persistentEnabledSignature re-runs this only when an account service's enabled flag flips
-    // (e.g. config finishing its initial load), so a just-enabled service's login can still resume.
-  }, [opened, persistentLoginTarget, persistentReconcileSignature, persistentEnabledSignature, t]);
-
-  // Every service (account or anonymous) reuses the same addressable persistent-container session
-  // (ScheduledPrefillService.RunServiceAsync dispatches identically for all five platforms), so the
-  // container map is keyed off the full run order, not just the account services.
-  const containersByServiceKey = useMemo(() => {
-    const map = new Map<ScheduledPrefillServiceKey, PersistentPrefillContainerDto>();
-    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-      const serviceId = getPersistentServiceId(serviceKey);
-      const container = persistentContainerByService.get(serviceId);
-      if (container) {
-        // Typing a new validity moves each container's re-login date as the number changes, rather
-        // than leaving the old date on screen until the save round-trips.
-        map.set(
-          serviceKey,
-          savedValidityDays === null || persistentValidityDays === savedValidityDays
-            ? container
-            : previewReloginWindow(container, persistentValidityDays)
-        );
-      }
-    }
-    return map;
-  }, [persistentContainerByService, persistentValidityDays, savedValidityDays]);
-
-  const selectedGamesCountByScheduleId = useMemo(() => {
-    const counts: Record<string, number> = {};
-    if (!config) {
-      return counts;
-    }
-
-    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-      for (const schedule of config[serviceKey].schedules) {
-        counts[schedule.id] = schedule.selectedAppIds.length;
-      }
-    }
-    return counts;
-  }, [config]);
-
-  // Persistent per-service debounce timers for the cleanup effect below, keyed outside of render so
-  // a re-run of the effect (every container-list refresh) never restarts a countdown already in
-  // flight - see the effect's own comment for why restarting on every refresh would leak forever.
-  const stopCleanupTimersRef = useRef<
-    Map<PersistentPrefillServiceId, ReturnType<typeof setTimeout>>
-  >(new Map());
-
-  useEffect(
-    () => () => {
-      stopCleanupTimersRef.current.forEach((timer) => clearTimeout(timer));
-      stopCleanupTimersRef.current.clear();
-    },
-    []
-  );
-
-  // Authoritative cleanup driven by the live container list (SignalR refresh or the initial load):
-  // a service whose container has become authenticated, OR has stopped/disappeared, can never
-  // legitimately resume a login, so its persistentLoginStore state (pendingChallenge/loading/
-  // dismissed/challenge flags) must be dropped here - this restores the cleanup role the old
-  // unconditional reopen-wipe used to provide (stale "authenticating" badges, abandoned-flow flags)
-  // without losing the resumability the wipe's removal was for.
-  // Resume (the reconcile effect above) is only ever offered for running+unauthenticated+pending -
-  // this effect is what retires everything else, including clearing a stale persistentLoginTarget
-  // that pointed at one of these services so the auth modal can never reopen on an unresumable login.
-  //
-  // "Stopped/missing" is reported by the very same container-list refresh that PersistentLoginHost's
-  // own TRANSIENT_STOP_GRACE_MS grace period exists to tolerate (a transient blip, not a real stop).
-  // Wiping the store immediately here would destroy hasActiveLogin's source data before that grace
-  // timer ever gets to matter, defeating it from the sibling effect instead of the login host's own
-  // unmount logic. So a service with a login actively in flight (loading or a pending challenge) gets
-  // the same grace period mirrored here via a debounced reset instead of an immediate one - the login
-  // host only ever unmounts on a real stop, it never resets this module-level store itself, so nothing
-  // else would otherwise clean up a service that really did stop while a login was in flight.
-  useEffect(() => {
-    if (!opened) {
-      return;
-    }
-
-    const timers = stopCleanupTimersRef.current;
-
-    const clearPendingTimer = (serviceId: PersistentPrefillServiceId) => {
-      const pending = timers.get(serviceId);
-      if (pending) {
-        clearTimeout(pending);
-        timers.delete(serviceId);
-      }
-    };
-
-    const retire = (
-      serviceKey: ScheduledPrefillServiceKey,
-      serviceId: PersistentPrefillServiceId
-    ) => {
-      resetPersistentLoginState(serviceId);
-      setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
-    };
-
-    for (const service of PERSISTENT_PREFILL_SERVICES) {
-      const container = persistentContainerByService.get(service.service);
-      const authenticatedElsewhere = container?.isRunning && container.isAuthenticated;
-      const stoppedOrMissing = !container?.isRunning;
-
-      if (!authenticatedElsewhere && !stoppedOrMissing) {
-        // Running and not authenticated: a legitimate in-flight login. Cancel any stop-cleanup
-        // countdown started by an earlier (transient) refresh.
-        clearPendingTimer(service.service);
-        continue;
-      }
-
-      if (authenticatedElsewhere) {
-        clearPendingTimer(service.service);
-        retire(service.key, service.service);
-        continue;
-      }
-
-      // stoppedOrMissing from here on.
-      if (!hasActivePersistentLogin(service.service)) {
-        clearPendingTimer(service.service);
-        retire(service.key, service.service);
-        continue;
-      }
-
-      if (!timers.has(service.service)) {
-        const timer = setTimeout(() => {
-          timers.delete(service.service);
-          retire(service.key, service.service);
-        }, SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS);
-        timers.set(service.service, timer);
-      }
-    }
-  }, [opened, persistentContainerByService]);
-
-  const shouldWatchPersistentAuth = useMemo(
-    () =>
-      (persistentContainers ?? []).some(
-        (container) => container.isRunning && !container.isAuthenticated
-      ) || persistentLoginTarget !== null,
-    [persistentContainers, persistentLoginTarget]
-  );
-
-  // Enabled for the whole time the modal is open, never gated on the current container list: the
-  // list is the very thing this listener keeps fresh, so gating on it would silence the listener
-  // exactly when the list is empty/idle - the moment a container is created, started, or begins a
-  // download it would never be observed and the card would stay frozen on its stale first snapshot.
-  // The container-list refresh this drives is also the only thing that picks up a running
-  // download's live totalBytesTransferred/isPrefilling (the backend broadcasts DaemonSessionUpdated
-  // on every progress tick for this - PrefillDaemonServiceBase.Notifications.cs).
-  usePersistentPrefillContainerSignalR({
-    enabled: opened,
-    onRefresh: () => {
-      void loadPersistentContainers();
-    }
-  });
-
-  // Event-driven challenge delivery: writes straight into persistentLoginStore the instant the
-  // daemon emits a challenge, so the modal opens without waiting on the REST poll in
-  // usePersistentPrefillAuth (which stays wired as the fallback for when SignalR is down).
-  // Gated on shouldWatchPersistentAuth ALONE (not `opened &&`): a keep-pending login must keep
-  // receiving challenge pushes while the Configure modal is closed, since ScheduledPrefillConfigModal
-  // itself stays mounted and persistentLoginTarget survives the close - the hook already
-  // unsubscribes on its own once nothing is pending/watched (shouldWatchPersistentAuth flips
-  // false), so this cannot leak a subscription once a login truly ends.
-  usePersistentLoginChallengeSignalR({
-    enabled: shouldWatchPersistentAuth,
-    containersByService: persistentContainerByService
-  });
-
-  // Reflects the REAL login-flow state (store loading/pendingChallenge) instead of click-time
-  // bookkeeping, so a settled flow (success, failure, or an empty response) can never leave a
-  // service stuck showing "Authenticating..." with its Log in button disabled (diagnostic §6/§7
-  // issue 3). `hasActivePersistentLogin` and `isPersistentLoginDismissed` are plain Map reads, not
-  // themselves reactive, so this also needs to recompute on the store-wide version bump below -
-  // otherwise closing the auth modal, which writes the login store without producing any
-  // container-list change, leaves this memo and everything it disables stuck on its last value
-  // forever, which is the "Authenticating..." badge that never cleared.
-  //
-  // The `dismissed` exclusion stays because closing the modal writes that flag last, after the
-  // login has already been ended and the store reset (see the auth modals' close handler): a
-  // service the user has closed must never read as "authenticating" from either signal.
-  const persistentLoginStoreVersion = usePersistentLoginStoreVersion();
-  const authenticatingServiceKeys = useMemo(
-    () =>
-      SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceKey) => {
-        const serviceId = getPersistentServiceId(serviceKey);
-        const container = persistentContainerByService.get(serviceId);
-        return (
-          container?.isRunning &&
-          !container.isAuthenticated &&
-          hasActivePersistentLogin(serviceId) &&
-          !isPersistentLoginDismissed(serviceId)
-        );
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [persistentContainerByService, persistentLoginStoreVersion]
-  );
-
-  const isLoading = loadingConfig;
-  const hasInitialData = config !== null;
-  const editSessionActionsDisabled = saving || closingEditSession || editSessionCleanupPending;
-
-  // Keep-previous-data: once the container list has loaded once, a background refresh must never
-  // swap the persistent card's body (or the nav hints) back to a loading placeholder (diagnostic
-  // §3 fix direction) - only the very first load, before any data has ever arrived, shows it.
-  const isInitialPersistentContainersLoad =
-    loadingPersistentContainers && persistentContainers === null;
-
-  const validationMessage = useMemo(() => {
-    if (!config) {
-      return null;
-    }
-
-    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-      const serviceName = t(`${baseKey}.services.${serviceKey}`);
-      // The server checks names on every schedule of a platform, switched off ones included, and
-      // rejects the whole config over one collision. validateServiceConfig stands down for a
-      // disabled schedule, so the name rules cannot live inside it.
-      const seenNames = new Set<string>();
-      for (const schedule of config[serviceKey].schedules) {
-        const name = schedule.name.trim();
-        if (!name) {
-          return t(`${baseKey}.records.nameRequired`);
-        }
-        if (seenNames.has(name.toLowerCase())) {
-          return t(`${baseKey}.records.nameTaken`, { name, service: serviceName });
-        }
-        seenNames.add(name.toLowerCase());
-
-        const error = validateServiceConfig(schedule, serviceKey, serviceName, t);
-        if (error) {
-          return error;
-        }
-      }
-    }
-
-    return null;
-  }, [config, t, baseKey]);
-
-  const enabledCount = useMemo(
-    () =>
-      config
-        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.flatMap(
-            (serviceKey) => config[serviceKey].schedules
-          ).filter((schedule) => schedule.enabled).length
-        : 0,
-    [config]
-  );
-
-  // Same unit as enabledCount: every named record across the five platforms, not the platforms.
-  const totalCount = useMemo(
-    () =>
-      config
-        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.reduce(
-            (count, serviceKey) => count + config[serviceKey].schedules.length,
-            0
+          setLoadError({
+            key: requestKey,
+            message: t(`${baseKey}.summaryError`, { error: getErrorMessage(failure) })
+          });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && current.current?.opening === opening) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [target, t]);
+  const change = (record: ScheduledPrefillSchedule) => {
+    dirty.current = JSON.stringify(record) !== baseline.current;
+    setConfig(record);
+    setError(null);
+  };
+  const handleClose = () => {
+    if (!saving) onClose();
+  };
+  const handleCancel = () => {
+    if (saving) return;
+    if (dirty.current) setDiscardConfirmOpen(true);
+    else handleClose();
+  };
+  const commitSave = async () => {
+    if (!target || !config || saving || missing) return;
+    const opening = target.opening;
+    const key = `${target.serviceKey}:${config.id}`;
+    const write = {};
+    writes.current.set(key, write);
+    setSaving(true);
+    setError(null);
+    try {
+      const result = target.create
+        ? await ApiService.createScheduledPrefillSchedule(
+            getPersistentServiceId(target.serviceKey),
+            config
           )
-        : 0,
-    [config]
-  );
-
-  // The record the card asked to open, or nothing when the loaded config no longer has it: a
-  // deleted record must never leave a stale selection behind for Save to write against.
-  const openedScheduleId =
-    config && initialServiceKey && initialScheduleId
-      ? config[initialServiceKey].schedules.find((schedule) => schedule.id === initialScheduleId)
-          ?.id
-      : undefined;
-
-  // Names of the enabled account services whose persistent container needs login (the
-  // authWarning i18n key interpolates them, so the warning says WHICH services are blocked).
-  const servicesNeedingLogin = useMemo(() => {
-    // Config and the persistent-container list load via independent requests, so config can
-    // resolve before the container list has: don't flag a false "needs login" warning while the
-    // container list has never loaded (or failed to load), since we simply don't know its state
-    // yet. Deliberately keyed on "no data yet" (null), NOT on loadingPersistentContainers: SignalR
-    // pushes a container refresh on every prefill-progress tick during a download, and gating on
-    // the loading flag made this warning blink off and back on with each refresh cycle.
-    if (!config || persistentContainers === null || persistentError) {
-      return [];
+        : await ApiService.updateScheduledPrefillSchedule(
+            getPersistentServiceId(target.serviceKey),
+            config
+          );
+      const saved = result[target.serviceKey].schedules.find((record) => record.id === config.id);
+      if (!saved) throw new Error(t(`${baseKey}.records.missing`));
+      if (writes.current.get(key) !== write) return;
+      confirmed.current.onSaved(target.serviceKey, saved);
+      if (current.current?.opening !== opening) return;
+      baseline.current = JSON.stringify(saved);
+      dirty.current = false;
+      setConfig(saved);
+      onClose();
+    } catch (failure: unknown) {
+      if (current.current?.opening === opening)
+        setError(t(`${baseKey}.saveError`, { error: getErrorMessage(failure) }));
+    } finally {
+      if (current.current?.opening === opening) setSaving(false);
     }
-
-    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceId) => {
-      if (!config[serviceId].schedules.some((schedule) => schedule.enabled)) {
-        return false;
-      }
-
-      // The previewed map, the same one the cards and the sidebar hints read. Raising the validity
-      // clears a container's re-login flag exactly as saving would, and this warning has to agree
-      // with the card beside it rather than naming a service whose own hint has just cleared.
-      const container = containersByServiceKey.get(serviceId);
-      return needsPersistentLogin(container);
-    }).map((serviceId) => t(`${baseKey}.services.${serviceId}`));
-  }, [config, containersByServiceKey, persistentContainers, persistentError, baseKey, t]);
-
-  // Single most-severe banner: errors win over the warning validation hint; success is silent.
-  const banner = useMemo<{ color: 'error' | 'warning' | 'success'; message: string } | null>(() => {
-    if (loadError) {
-      return { color: 'error', message: t(`${baseKey}.loadError`, { error: loadError }) };
-    }
-    if (globalSettingsError) {
-      return {
-        color: 'error',
-        message: t(`${baseKey}.settings.error`, { error: globalSettingsError })
-      };
-    }
-    if (saveError) {
-      return { color: 'error', message: t(`${baseKey}.saveError`, { error: saveError }) };
-    }
-    if (persistentError) {
-      return {
-        color: 'error',
-        message: t(`${baseKey}.persistentContainer.error`, { error: persistentError })
-      };
-    }
-    if (gameSelectionError) {
-      return {
-        color: 'error',
-        message: t(`${baseKey}.selectedGames.error`, { error: gameSelectionError })
-      };
-    }
-    if (validationError) {
-      return { color: 'warning', message: validationError };
-    }
-    // Success notices win over nothing (every error case above already returned), so these are
-    // safe to check last - one shared horizontal banner instead of a message beside each button.
-    if (clearLoginsSuccessNote) {
-      return { color: 'success', message: clearLoginsSuccessNote };
-    }
-    return null;
-  }, [
-    loadError,
-    globalSettingsError,
-    saveError,
-    persistentError,
-    gameSelectionError,
-    validationError,
-    clearLoginsSuccessNote,
-    t,
-    baseKey
-  ]);
-
-  // The banner is the only surface for several one-shot errors (e.g. a failed selection sync),
-  // so it must be dismissible: clear every source it can display, whichever one is showing.
-  const dismissBanner = () => {
-    setLoadError(null);
-    setGlobalSettingsError(null);
-    setSaveError(null);
-    setPersistentError(null);
-    setGameSelectionError(null);
-    setValidationError(null);
-    setClearLoginsSuccessNote(null);
   };
-
-  const handleScheduleChange = (
-    serviceKey: ScheduledPrefillServiceKey,
-    schedule: ScheduledPrefillSchedule
-  ) => {
-    setConfig((current) =>
-      current
-        ? {
-            ...current,
-            [serviceKey]: {
-              ...current[serviceKey],
-              schedules: current[serviceKey].schedules.map((currentSchedule) =>
-                currentSchedule.id === schedule.id ? schedule : currentSchedule
-              )
-            }
-          }
-        : current
-    );
-    setValidationError(null);
-    setSaveError(null);
-  };
-
-  // Both creators mint the id before the state update and hand it back: the panel selects the
-  // record it just made, which is the only sign the user gets that anything happened.
-  const handleAddSchedule = (serviceKey: ScheduledPrefillServiceKey): string => {
-    const createdScheduleId = createUuid();
-    setConfig((current) => {
-      const source = current?.[serviceKey].schedules[0];
-      if (!current || !source) {
-        return current;
-      }
-      return {
-        ...current,
-        [serviceKey]: {
-          ...current[serviceKey],
-          schedules: [
-            ...current[serviceKey].schedules,
-            {
-              ...source,
-              id: createdScheduleId,
-              name: uniqueScheduleName(
-                t(`${baseKey}.records.newName`),
-                current[serviceKey].schedules.map((schedule) => schedule.name)
-              ),
-              enabled: false
-            }
-          ]
-        }
-      };
-    });
-    setValidationError(null);
-    setSaveError(null);
-    return createdScheduleId;
-  };
-
-  const handleDuplicateSchedule = (
-    serviceKey: ScheduledPrefillServiceKey,
-    scheduleId: string
-  ): string => {
-    const createdScheduleId = createUuid();
-    setConfig((current) => {
-      const source = current?.[serviceKey].schedules.find((schedule) => schedule.id === scheduleId);
-      if (!current || !source) {
-        return current;
-      }
-      return {
-        ...current,
-        [serviceKey]: {
-          ...current[serviceKey],
-          schedules: [
-            ...current[serviceKey].schedules,
-            {
-              ...source,
-              id: createdScheduleId,
-              name: uniqueScheduleName(
-                `${source.name} ${t(`${baseKey}.records.copySuffix`)}`,
-                current[serviceKey].schedules.map((schedule) => schedule.name)
-              )
-            }
-          ]
-        }
-      };
-    });
-    setValidationError(null);
-    setSaveError(null);
-    return createdScheduleId;
-  };
-
-  const handleDeleteSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
-    setConfig((current) => {
-      if (!current || current[serviceKey].schedules.length === 1) {
-        return current;
-      }
-      return {
-        ...current,
-        [serviceKey]: {
-          ...current[serviceKey],
-          schedules: current[serviceKey].schedules.filter((schedule) => schedule.id !== scheduleId)
-        }
-      };
-    });
-    setValidationError(null);
-    setSaveError(null);
-  };
-
-  // Bulk enable/disable alongside the per-service toggles (not a replacement for them) - flips
-  // every service's `enabled` flag in one setConfig call so it's a single undo step, not five.
-  const handleSetAllServicesEnabled = (enabled: boolean) => {
-    setConfig((current) => {
-      if (!current) {
-        return current;
-      }
-      const next = { ...current };
-      for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-        next[serviceKey] = {
-          ...next[serviceKey],
-          schedules: next[serviceKey].schedules.map((schedule) => ({ ...schedule, enabled }))
-        };
-      }
-      return next;
-    });
-    setValidationError(null);
-    setSaveError(null);
-  };
-
-  const handlePersistentValidityDaysChange = (value: number) => {
-    setPersistentValidityDays(clampToBounds(value, PERSISTENT_PREFILL_VALIDITY_BOUNDS));
-    setGlobalSettingsError(null);
-  };
-
-  // Lives inside `config` itself (unlike persistentValidityDays above), so it rides the
-  // modal's single Save call - no separate endpoint, no separate local state.
-  const handlePersistenceModeChange = (value: ScheduledPrefillPersistenceMode) => {
-    setConfig((current) => (current ? { ...current, persistenceMode: value } : current));
-    setValidationError(null);
-    setSaveError(null);
-  };
-
-  // Wipes stored logins for every persistent-container service in one shot: logs out any running
-  // container and removes the saved credentials of stopped ones. Runs after an explicit confirm
-  // (the action is destructive and requires fresh logins afterwards for every account service).
-  // Local login-flow state is reset for every service regardless of the per-service outcome, since
-  // none of them can have a login worth resuming once the backend has torn the credentials down.
-  const handleConfirmClearLogins = async () => {
-    setClearingLogins(true);
-    setPersistentError(null);
-    setClearLoginsSuccessNote(null);
-
-    try {
-      const response = await ApiService.clearPersistentLogins();
-      const results = normalizePersistentLoginClearResults(response);
-
-      for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-        resetPersistentLoginState(getPersistentServiceId(serviceKey));
-      }
-      setPersistentLoginTarget(null);
-
-      const failedResults = results.filter((result) => result.outcome === 'failed');
-      if (failedResults.length > 0) {
-        setPersistentError(
-          t(`${baseKey}.settings.clearLogins.partialFailure`, {
-            failedCount: failedResults.length,
-            total: results.length,
-            services: failedResults.map((result) => result.service).join(', ')
-          })
+  const handleSave = () => {
+    if (!config || !target) return;
+    const validation = !config.name.trim()
+      ? t(`${baseKey}.records.nameRequired`)
+      : validateServiceConfig(
+          config,
+          target.serviceKey,
+          t(`${baseKey}.services.${target.serviceKey}`),
+          t
         );
-      } else {
-        setClearLoginsSuccessNote(t(`${baseKey}.settings.clearLogins.success`));
-        scheduleClearLoginsSuccessDismiss(() => setClearLoginsSuccessNote(null));
-      }
-
-      setClearLoginsConfirmOpen(false);
-      await loadPersistentContainers();
-    } catch (error: unknown) {
-      setPersistentError(getErrorMessage(error));
-      setClearLoginsConfirmOpen(false);
-    } finally {
-      setClearingLogins(false);
-    }
-  };
-
-  // Starts (or restarts, for logout) the container and refreshes the list. Shared by
-  // handleStartPersistent and handleLogoutPersistent so both land in the same "running, not
-  // logged in" state via a single code path - neither ever initiates a login itself; only the
-  // explicit Log in click (handlePersistentLogin) or a resumed cached challenge (reconcile effect)
-  // does that (diagnostic §2/§8 fix 1).
-  const runPersistentStartFlow = async (serviceKey: ScheduledPrefillServiceKey) => {
-    const serviceId = getPersistentServiceId(serviceKey);
-    // A stopped container has no live daemon session, so any challenge left over from before it
-    // was stopped is stale and must never be resumed against the new one.
-    resetPersistentLoginState(serviceId);
-    // The start POST already resolves once the container's daemon socket is connected (i.e. once
-    // it is running - diagnostic §2), so a single refresh is enough to reflect the new state; no
-    // bounded wait is needed here.
-    const { editSession, editActionId } = recordEditAction(serviceId, 'start', null);
-    const started = await ApiService.startPersistentPrefillContainer(
-      serviceId,
-      editSession.editSessionId,
-      editActionId
-    );
-    const updated = recordEditSessionStartResult(
-      sessionStore,
-      editSession,
-      serviceId,
-      editActionId,
-      started.id
-    );
-    if (!editSessionRetiredRef.current) {
-      editSessionRef.current = updated;
-    }
-    if (editSessionRetiredRef.current) {
+    if (validation) {
+      setError(validation);
       return;
     }
-    await loadPersistentContainers();
-    setPersistentError(null);
+    if (!target.create && target.schedule?.enabled) setOverwriteEnabledConfirmOpen(true);
+    else void commitSave();
   };
-
-  const handleStartPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
-    setPersistentAction({ serviceKey, action: 'start' });
-    setPersistentError(null);
-
-    try {
-      await runPersistentStartFlow(serviceKey);
-    } catch (error: unknown) {
-      if (!editSessionRetiredRef.current) {
-        setPersistentError(getErrorMessage(error));
-      }
-    } finally {
-      if (!editSessionRetiredRef.current) {
-        setPersistentAction(null);
-      }
-    }
-  };
-
-  const handleStopPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
-    const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
-    if (!container) {
-      return;
-    }
-
-    setPersistentAction({ serviceKey, action: 'stop' });
-    setPersistentError(null);
-
-    try {
-      await ApiService.stopPersistentPrefillContainer(container.sessionId);
-      // The daemon session is gone - drop any pending challenge so a later start never tries to
-      // resume a login that belonged to this now-dead session.
-      resetPersistentLoginState(getPersistentServiceId(serviceKey));
-      await loadPersistentContainers();
-    } catch (error: unknown) {
-      setPersistentError(getErrorMessage(error));
-    } finally {
-      setPersistentAction(null);
-    }
-  };
-
-  // Manual logout: asks the daemon to forget its stored account in place first, landing back at
-  // "running, not logged in" with no restart needed. A genuine failure (socket error, timeout) falls
-  // back to the existing stop+restart flow - which restarts the container but does NOT actually
-  // forget the account (its named auth volume survives a restart) - so the fallback surfaces a
-  // notice telling the admin their daemon image needs updating. Note an un-updated steam/epic image
-  // still reports success here (it tears the live session down, just doesn't delete the account
-  // file yet), so this fallback only ever triggers on a true failure, not on "unsupported command".
-  // Either branch also closes an open login modal for this service immediately - logging out while a
-  // login prompt is showing must not leave a stale modal open against an account that was just
-  // forgotten (or is about to be stopped/restarted).
-  //
-  // A login still mid-challenge (not yet authenticated) is a separate case, checked first: the
-  // daemon's "logout" command rejects any pre-login session outright on some daemon images (it
-  // requires an authenticated session), so `forgotten` would always come back false here and this
-  // handler would fall through to the stop+restart fallback - tearing the container down and
-  // immediately starting a brand new one/login in the same click, an infinite-looking restart loop
-  // for exactly the case an admin would use Logout to cancel. Cancelling the in-flight daemon login
-  // instead (the same RPC the auth modal's own Cancel action uses) is accepted before authentication
-  // completes on every daemon image, and never restarts the container.
-  const handleLogoutPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
-    const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
-    if (!container) {
-      return;
-    }
-
-    const serviceId = getPersistentServiceId(serviceKey);
-    setPersistentAction({ serviceKey, action: 'logout' });
-    setPersistentError(null);
-
-    try {
-      if (hasActivePersistentLogin(serviceId)) {
-        // The pinned sessionId (RC3 fix) is the login flow's
-        // OWN session, which may already differ from `container.sessionId` if a replacement
-        // container has since started - falling back to the container's id only covers the edge
-        // where cancel is clicked before the login ever pinned one (see usePersistentPrefillAuth's
-        // cancel() for the matching case); cancel-login is idempotent on a mismatch either way.
-        // endPersistentLogin resolves the same fallback and resets the store, so this no longer
-        // needs its own copy of that sequence.
-        const cancelled = await endPersistentLogin(serviceId, container.sessionId);
-        setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
-        await loadPersistentContainers();
-        if (!cancelled) {
-          // Set AFTER the refresh, which clears this same field on success. Without it the logout
-          // looks clean while the daemon is still holding a login challenge with no client
-          // watching it and no armed timeout.
-          setPersistentError(t('prefill.persistent.cancelLoginFailed'));
-        }
-        return;
-      }
-
-      const { forgotten } = await ApiService.logoutPersistentPrefillContainer(serviceId);
-      if (forgotten) {
-        resetPersistentLoginState(serviceId);
-        setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
-        await loadPersistentContainers();
-      } else {
-        setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
-        await ApiService.stopPersistentPrefillContainer(container.sessionId);
-        await runPersistentStartFlow(serviceKey);
-        setPersistentError(t('prefill.persistent.messages.logoutFallbackNotice'));
-      }
-    } catch (error: unknown) {
-      setPersistentError(getErrorMessage(error));
-    } finally {
-      setPersistentAction(null);
-    }
-  };
-
-  const handlePersistentLogin = (
-    serviceKey: ScheduledPrefillServiceKey,
-    reuseIntegration: boolean
-  ) => {
-    if (reuseIntegration) {
-      const availability = visibleIntegrationLoginAvailabilityByService.get(serviceKey);
-      if (
-        privateAvailabilityIdentityRef.current !== privateAvailabilityIdentity ||
-        !canUseSavedLogin ||
-        availability?.available !== true ||
-        loadingIntegrationLoginAvailability
-      ) {
-        setPersistentError(
-          availability?.available === false
-            ? t(getIntegrationReasonKey(availability.reason))
-            : t('errors.integration.statusUnavailable')
-        );
-        return;
-      }
-    }
-    const serviceId = getPersistentServiceId(serviceKey);
-    const container = persistentContainerByService.get(serviceId);
-    if (!container?.isRunning) {
-      setPersistentError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
-      return;
-    }
-
-    setPersistentError(null);
-    if (!hasActivePersistentLogin(serviceId)) {
-      const { editSession, editActionId } = recordEditAction(
-        serviceId,
-        'login',
-        container.sessionId
-      );
-      setPersistentLoginStartSessionId(
-        serviceId,
-        container.sessionId,
-        editSession.editSessionId,
-        editActionId,
-        reuseIntegration
-      );
-    }
-    setPersistentLoginTarget(serviceKey);
-    // Setting the target above is a same-value no-op for React whenever this service was already
-    // the target (a dismissed-but-pending challenge, or a wedge where a prior start() settled with
-    // nothing) - the mounted login component would never see the click. This nonce is watched by
-    // its autostart effect independently of the target's value, so the click always reaches
-    // beginLogin(), which itself decides resume-vs-fresh-start via state.hasChallenge.
-    requestPersistentLoginAttempt(serviceId);
-  };
-
   const loadGameSelection = useCallback(
     async (serviceKey: ScheduledPrefillServiceKey, sessionId: string) => {
       const key = `${serviceKey}:${sessionId}`;
       if (`${gameSelectionRef.current?.serviceKey}:${gameSelectionRef.current?.sessionId}` !== key)
         return;
+      const activeContainer = containerRef.current;
+      if (
+        !activeContainer ||
+        activeContainer.sessionId !== sessionId ||
+        !activeContainer.isRunning ||
+        (!isScheduledPrefillAnonymousService(serviceKey) &&
+          (!activeContainer.isAuthenticated || activeContainer.needsRelogin))
+      )
+        return;
+      if (gameAuthRef.current?.key === key && !gameAuthRef.current.authenticated) return;
       if (gameRequestRef.current?.key === key) {
         gameRequestRef.current.again = true;
         return gameRequestRef.current.promise;
@@ -1694,24 +280,21 @@ export function ScheduledPrefillConfigModal({
       gameRequestRef.current?.controller.abort();
       const controller = new AbortController();
       const request = { key, controller, again: false, promise: Promise.resolve() };
+      const opening = current.current?.opening;
+      const requestIdentity = identityRef.current;
       gameRequestRef.current = request;
       setLoadingGameSelectionService(serviceKey);
-      setGameSelection((current) =>
-        current?.serviceKey === serviceKey && current.sessionId === sessionId
-          ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds }
-          : current
-      );
       const isCurrent = () =>
         gameRequestRef.current === request &&
         !controller.signal.aborted &&
+        opening === current.current?.opening &&
+        requestIdentity === identityRef.current &&
         `${gameSelectionRef.current?.serviceKey}:${gameSelectionRef.current?.sessionId}` === key;
       request.promise = (async () => {
         try {
           do {
             request.again = false;
             try {
-              // Persistent sessions are system-owned, so the user-scoped games route 403s. Use the
-              // AdminOnly endpoint that resolves the running persistent session and bypasses ownership.
               const { games, cachedAppIds, outdatedAppIds, unknownAppIds } =
                 await ApiService.getPersistentPrefillGames(
                   getPersistentServiceId(serviceKey),
@@ -1720,11 +303,14 @@ export function ScheduledPrefillConfigModal({
                 );
               if (!isCurrent()) return;
 
-              const normalizedGames: ScheduledPrefillOwnedGame[] = games.map((game) => ({
-                name: game.name,
-                appId: String(game.appId)
-              }));
+              const normalizedGames: ScheduledPrefillGameSelectionState['games'] = games.map(
+                (game) => ({
+                  name: game.name,
+                  appId: String(game.appId)
+                })
+              );
 
+              setGameLoaded(true);
               setGameSelection((current) =>
                 current?.serviceKey === serviceKey && current.sessionId === sessionId
                   ? {
@@ -1740,7 +326,7 @@ export function ScheduledPrefillConfigModal({
                     }
                   : current
               );
-              if (unknownAppIds.length === 0) setGameLoadError(null);
+              setGameLoadError(null);
             } catch (error: unknown) {
               if (!isCurrent()) return;
               const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
@@ -1750,11 +336,6 @@ export function ScheduledPrefillConfigModal({
                   : stageKey === 'errors.steam.gameDetailsUnavailable'
                     ? t('errors.steam.gameDetailsUnavailable')
                     : t('errors.prefill.requestFailed')
-              );
-              setGameSelection((current) =>
-                current?.serviceKey === serviceKey && current.sessionId === sessionId
-                  ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds }
-                  : current
               );
             }
           } while (request.again && isCurrent());
@@ -1771,840 +352,191 @@ export function ScheduledPrefillConfigModal({
   );
 
   useEffect(() => {
-    const key =
-      gameSelection?.serviceKey && `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
-    if (!key || !opened || (gameRequestRef.current && gameRequestRef.current.key !== key)) {
-      gameRequestRef.current?.controller.abort();
-      gameRequestRef.current = null;
-      setLoadingGameSelectionService(null);
-      setGameLoadError(null);
-      setGameSelectionError(null);
-      setIsClearingCachedGames(false);
-    }
-  }, [gameSelection?.serviceKey, gameSelection?.sessionId, opened]);
-
-  useEffect(
-    () => () => {
-      gameRequestRef.current?.controller.abort();
-      gameRequestRef.current = null;
-      gameSelectionRef.current = null;
-    },
-    []
-  );
-
-  const handleClearAllCachedGames = useCallback(async () => {
-    if (!gameSelection) return;
-    const epoch = gameEpochRef.current;
-    setIsClearingCachedGames(true);
-    setGameSelectionError(null);
-    try {
-      await ApiService.clearAllPrefillCache(getPersistentServiceId(gameSelection.serviceKey));
-      if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
-      gameRequestRef.current?.controller.abort();
-      gameRequestRef.current = null;
-      setGameSelection((current) =>
-        current ? { ...current, cachedAppIds: [], outdatedAppIds: [], unknownAppIds: [] } : current
-      );
-      await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
-    } catch {
-      if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
-      setGameSelectionError(t('prefill.errors.clearAllFromCacheFailed'));
-    } finally {
-      if (gameSelectionRef.current && gameEpochRef.current === epoch)
-        setIsClearingCachedGames(false);
-    }
-  }, [gameSelection, loadGameSelection, t]);
-
-  useEffect(() => {
-    if (!opened || !gameSelection) {
+    if (!gameSelection) {
       gameAuthRef.current = null;
       return;
     }
-    const key = `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
-    const container = persistentContainerByService.get(
-      getPersistentServiceId(gameSelection.serviceKey)
-    );
-    if (!container || container.sessionId !== gameSelection.sessionId) {
+    if (
+      !target ||
+      target.serviceKey !== gameSelection.serviceKey ||
+      !container ||
+      container.sessionId !== gameSelection.sessionId
+    ) {
       gameRequestRef.current?.controller.abort();
       gameRequestRef.current = null;
       gameSelectionRef.current = null;
       setGameSelection(null);
+      setLoadingGameSelectionService(null);
+      setGameLoaded(false);
+      gameAuthRef.current = null;
       return;
     }
+    const key = `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
+    const authenticated =
+      container.isRunning &&
+      (isScheduledPrefillAnonymousService(gameSelection.serviceKey) ||
+        (container.isAuthenticated && !container.needsRelogin));
     const previous = gameAuthRef.current;
-    gameAuthRef.current = { key, authenticated: container.isAuthenticated };
-    if (previous?.key !== key) return;
-    if (previous.authenticated && !container.isAuthenticated) {
+    gameAuthRef.current = { key, authenticated };
+    if (!authenticated && (previous?.key !== key || previous.authenticated)) {
       gameRequestRef.current?.controller.abort();
       gameRequestRef.current = null;
       setLoadingGameSelectionService(null);
       setGameSelection((current) =>
-        current ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds } : current
+        current?.serviceKey === gameSelection.serviceKey &&
+        current.sessionId === gameSelection.sessionId
+          ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds }
+          : current
       );
-    }
-    if (!previous.authenticated && container.isAuthenticated) {
+    } else if (authenticated && previous?.key === key && !previous.authenticated) {
       void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
     }
-  }, [opened, gameSelection, persistentContainerByService, loadGameSelection]);
-
-  // The cached-depot table is shared by every container and every browser, so a game finishing in
-  // any of them has to reach this picker while it is open. Nothing to re-read when it is closed:
-  // the reload needs the open selection's service and session, and reopening loads them anyway.
+  }, [target, container, gameSelection, loadGameSelection]);
   useEffect(() => {
-    const handlePrefillCacheChanged = () => {
-      if (!gameSelection) {
-        return;
-      }
-      void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
+    gameRequestRef.current?.controller.abort();
+    gameRequestRef.current = null;
+    gameSelectionRef.current = null;
+    gameAuthRef.current = null;
+    setGameSelection(null);
+  }, [identity]);
+  useEffect(() => {
+    const refresh = () => {
+      const selection = gameSelectionRef.current;
+      if (selection) void loadGameSelection(selection.serviceKey, selection.sessionId);
     };
-    onSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
+    onSignalR('PrefillCacheChanged', refresh);
     return () => {
-      offSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
+      offSignalR('PrefillCacheChanged', refresh);
     };
-  }, [onSignalR, offSignalR, gameSelection, loadGameSelection]);
-
+  }, [onSignalR, offSignalR, loadGameSelection]);
   useReconnectRefetch(isConnected, () => {
-    if (!opened) {
-      return;
-    }
-    void loadIntegrationLoginAvailability();
+    const selection = gameSelectionRef.current;
+    if (selection) void loadGameSelection(selection.serviceKey, selection.sessionId);
   });
-
-  // A broadcast that lands while the socket is down is lost, leaving the cached badges stale for
-  // as long as the picker stays open. Re-read once the connection is live again.
-  useReconnectRefetch(isConnected, () => {
-    if (!gameSelection) {
-      return;
-    }
-    void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
-  });
-
-  const handleOpenGameSelection = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
-    const serviceId = getPersistentServiceId(serviceKey);
-    const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
-    const container = persistentContainerByService.get(serviceId);
+  const handleOpenGameSelection = () => {
+    if (!target || !config || saving || !config.enabled) return;
+    if (gameSelectionNeedsLogin) return;
     if (!container?.isRunning) {
-      setGameSelectionError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
+      setError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
       return;
     }
-
-    // Select games never logs the user in on their behalf - only the explicit Log in button does
-    // (diagnostic census #2). Surface the same needs-login hint the button's own disabled-state
-    // tooltip already uses for this state (ScheduledPrefillPersistentCard's isGameSelectionBlocked).
-    if (!isAnonymous && !container.isAuthenticated) {
-      setGameSelectionError(t('prefill.persistent.loginToSelectGames'));
-      return;
-    }
-
-    setGameSelectionError(null);
-    setGameLoadError(null);
     const selection: ScheduledPrefillGameSelectionState = {
-      serviceKey,
-      scheduleId,
+      serviceKey: target.serviceKey,
+      scheduleId: target.scheduleId,
       sessionId: container.sessionId,
       games: [],
       cachedAppIds: [],
       outdatedAppIds: [],
       unknownAppIds: []
     };
-    gameSelectionRef.current = selection;
-    gameEpochRef.current += 1;
+    setError(null);
+    setGameLoadError(null);
+    setGameLoaded(false);
     gameRequestRef.current?.controller.abort();
     gameRequestRef.current = null;
+    gameSelectionRef.current = selection;
     setGameSelection(selection);
-    void loadGameSelection(serviceKey, container.sessionId);
+    void loadGameSelection(selection.serviceKey, selection.sessionId);
   };
-
-  const applyGameSelection = async (
-    serviceKey: ScheduledPrefillServiceKey,
-    scheduleId: string,
-    selectedAppIds: string[]
-  ) => {
-    const epoch = gameEpochRef.current;
-    setConfig((current) =>
-      current
-        ? {
-            ...current,
-            [serviceKey]: {
-              ...current[serviceKey],
-              schedules: current[serviceKey].schedules.map((schedule) =>
-                schedule.id === scheduleId ? { ...schedule, selectedAppIds } : schedule
-              )
-            }
-          }
-        : current
-    );
-    setValidationError(null);
-    setSaveError(null);
-    setGameSelectionError(null);
-
-    const serviceId = getPersistentServiceId(serviceKey);
-    const container = persistentContainerByService.get(serviceId);
-    const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
-    if (container?.isRunning && (isAnonymous || container.isAuthenticated)) {
-      try {
-        const { editSession, editActionId } = recordEditAction(
-          serviceId,
-          'selection',
-          container.sessionId
-        );
-        await ApiService.setPersistentPrefillSelectedApps(
-          serviceId,
-          container.sessionId,
-          selectedAppIds,
-          editSession.editSessionId,
-          editActionId
-        );
-      } catch {
-        if (editSessionRetiredRef.current || gameEpochRef.current !== epoch) return;
-        setGameSelectionError(t('prefill.errors.saveSelectionFailed'));
-      }
-    }
-  };
-
-  const handleSaveGameSelection = async (selectedIds: string[]) => {
-    if (!gameSelection) {
-      return;
-    }
-
-    const selectedAppIds = Array.from(new Set(selectedIds.map((selectedId) => String(selectedId))));
-    await applyGameSelection(gameSelection.serviceKey, gameSelection.scheduleId, selectedAppIds);
-  };
-
-  const handleClearGameSelection = async (
-    serviceKey: ScheduledPrefillServiceKey,
-    scheduleId: string
-  ) => {
-    await applyGameSelection(serviceKey, scheduleId, []);
-  };
-
-  const handlePersistentDownload = async (
-    serviceKey: ScheduledPrefillServiceKey,
-    scheduleId: string
-  ) => {
-    if (!config) {
-      return;
-    }
-
-    const schedule = config[serviceKey].schedules.find((item) => item.id === scheduleId);
-    const serviceId = getPersistentServiceId(serviceKey);
-    const container = persistentContainerByService.get(serviceId);
-    const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
-
-    if (!container?.isRunning || (!isAnonymous && !container.isAuthenticated)) {
-      setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresAuth`));
-      return;
-    }
-    if (!canStartPrefill(container) || !schedule || !schedule.enabled) {
-      return;
-    }
-
-    setPersistentAction({ serviceKey, action: 'download' });
-    setPersistentError(null);
-
-    try {
-      const { editSession, editActionId } = recordEditAction(
-        serviceId,
-        'download',
-        container.sessionId
-      );
-      // The in-memory record runs as edited, without saving it: exact IDs when games were picked,
-      // otherwise the preset flags (All/Recent/Top) with an empty list.
-      await ApiService.startPersistentPrefill(serviceId, {
-        sessionId: container.sessionId,
-        ...getPersistentPrefillRunOptions(schedule),
-        editSessionId: editSession.editSessionId,
-        editActionId
-      });
-      await loadPersistentContainers();
-    } catch (error: unknown) {
-      await loadPersistentContainers();
-      setPersistentError(getErrorMessage(error));
-    } finally {
-      setPersistentAction(null);
-    }
-  };
-
-  const handleCancelPersistentDownload = async (
-    serviceKey: ScheduledPrefillServiceKey,
-    runId?: string
-  ) => {
-    const serviceId = getPersistentServiceId(serviceKey);
-    const container = persistentContainerByService.get(serviceId);
-    const targetId = runId ?? container?.runId;
-    const run = container?.runs?.find((item) => item.runId === targetId);
-    if (
-      !container?.isRunning ||
-      !targetId ||
-      cancellingRunsRef.current.has(targetId) ||
-      (run && (!isPrefillRunActive(run) || run.cancelRequested))
-    ) {
-      return;
-    }
-    cancellingRunsRef.current.add(targetId);
-    setCancellingRunIds([...cancellingRunsRef.current]);
-    setRunErrors((errors) => ({ ...errors, [targetId]: '' }));
-
-    try {
-      // Addressed to the run this card is showing, so a click that lands after a replacement run
-      // started cannot cancel the newer one.
-      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, targetId);
-      setPersistentContainers(
-        (current) =>
-          current?.map((item) =>
-            item.sessionId === container.sessionId
-              ? {
-                  ...item,
-                  runs: item.runs?.map((itemRun) =>
-                    itemRun.runId === targetId ? { ...itemRun, cancelRequested: true } : itemRun
-                  )
-                }
-              : item
-          ) ?? current
-      );
-      await loadPersistentContainers();
-    } catch (error: unknown) {
-      setRunErrors((errors) => ({ ...errors, [targetId]: getErrorMessage(error) }));
-    } finally {
-      cancellingRunsRef.current.delete(targetId);
-      setCancellingRunIds([...cancellingRunsRef.current]);
-    }
-  };
-
-  // True when a record that is enabled on the server would be changed or removed by this save.
-  // Judged on the persisted record, not the draft: toggling a live schedule off is itself a change
-  // to a live schedule and still needs the confirmation.
-  const overwritesEnabledSchedule = (draft: ScheduledPrefillConfigDto): boolean => {
-    const persisted = persistedConfigRef.current;
-    if (!persisted) {
-      return false;
-    }
-    return SCHEDULED_PREFILL_SERVICE_RUN_ORDER.some((serviceKey) =>
-      persisted[serviceKey].schedules.some((savedSchedule) => {
-        if (!savedSchedule.enabled) {
-          return false;
-        }
-        const draftSchedule = draft[serviceKey].schedules.find(
-          (schedule) => schedule.id === savedSchedule.id
-        );
-        return !draftSchedule || JSON.stringify(draftSchedule) !== JSON.stringify(savedSchedule);
-      })
-    );
-  };
-
-  const handleSave = () => {
-    if (!config) {
-      return;
-    }
-
-    if (validationMessage) {
-      setValidationError(validationMessage);
-      return;
-    }
-
-    if (overwritesEnabledSchedule(config)) {
-      setOverwriteEnabledConfirmOpen(true);
-      return;
-    }
-
-    void commitSave();
-  };
-
-  const commitSave = async () => {
-    if (!config) {
-      return;
-    }
-
-    setSaving(true);
-    setSaveError(null);
-    setValidationError(null);
-
-    try {
-      // ONE save button for the whole modal: persist the schedule config and the
-      // persistent-login validity together (the validity field no longer carries
-      // its own Save).
-      // Only send a validity the reader could actually see and change. When the settings request
-      // never answered, the field holds a default rather than the server's number, and sending it
-      // would overwrite a window nobody chose.
-      const nextValidityDays =
-        savedValidityDays === null
-          ? null
-          : clampToBounds(persistentValidityDays, PERSISTENT_PREFILL_VALIDITY_BOUNDS);
-      const requests: Promise<unknown>[] = [ApiService.updateScheduledPrefillConfig(config)];
-      if (nextValidityDays !== null) {
-        requests.push(ApiService.updatePersistentPrefillValidity({ days: nextValidityDays }));
-      }
-      await Promise.all(requests);
-      persistedConfigRef.current = config;
-      loadedConfigRef.current = JSON.stringify(config);
-      editSessionRetiredRef.current = true;
-      const committedEditSession = editSessionRef.current;
-      if (committedEditSession) {
-        discardCommittedEditSession(sessionStore, committedEditSession.editSessionId);
-      }
-      editSessionRef.current = null;
-      if (nextValidityDays !== null) {
-        setSavedValidityDays(nextValidityDays);
-      }
-      setPersistentLoginTarget(null);
-      await Promise.resolve(onSaved?.());
-      onClose();
-    } catch (error: unknown) {
-      setSaveError(getErrorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /** True when the form holds edits that Save has not committed. Both halves matter: the service
-   *  settings live in `config`, the login validity window is its own field saved by its own call. */
-  const hasUnsavedChanges = (): boolean => {
-    if (config && loadedConfigRef.current !== null) {
-      if (JSON.stringify(config) !== loadedConfigRef.current) return true;
-    }
-    return savedValidityDays !== null && persistentValidityDays !== savedValidityDays;
-  };
-
-  /** Cancel asks first when there is something to lose, and closes straight away when there is not. */
-  const handleCancel = () => {
-    if (saving || closingEditSession) return;
-    if (hasUnsavedChanges()) {
-      setDiscardConfirmOpen(true);
-      return;
-    }
-    handleClose();
-  };
-
-  const handleClose = () => {
-    if (saving || editSessionCleanupPromiseRef.current) {
-      return;
-    }
-
-    const cleanup = (async () => {
-      setClosingEditSession(true);
-      setGameSelection(null);
-
-      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStore);
-      if (!editSession || !hasScheduledPrefillEditActions(editSession)) {
-        onClose();
-        return;
-      }
-
-      editSessionRetiredRef.current = true;
-      setEditSessionCleanupPending(true);
-      retireEditSessionLoginState(editSession);
-      const pending = beginEditSessionCleanup(
-        sessionStore,
-        editSession,
-        createScheduledPrefillEditSessionId
-      );
-      editSessionRef.current = pending;
-      await ApiService.cleanupPersistentPrefillEditSession(buildEditSessionCleanupRequest(pending));
-      clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
-      editSessionRef.current = null;
-      setEditSessionCleanupPending(false);
-      onClose();
-    })();
-
-    editSessionCleanupPromiseRef.current = cleanup;
-    void cleanup
-      .catch((error: unknown) => {
-        // The modal stays open showing the error, so its controls have to come back with it.
-        // Leaving the flag set disables Save and every platform control until the page reloads.
-        setEditSessionCleanupPending(false);
-        setPersistentError(getErrorMessage(error));
-      })
-      .finally(() => {
-        editSessionCleanupPromiseRef.current = null;
-        setClosingEditSession(false);
-      });
-  };
-
   return (
     <>
       <Modal
-        opened={opened}
-        onClose={handleClose}
-        title={t(`${baseKey}.title`)}
-        size="full"
-        className="scheduled-prefill-dialog"
+        opened={target !== null}
+        onClose={handleCancel}
+        size="xl"
         bodyFlexLayout
+        className="scheduled-prefill-content-dialog scheduled-prefill-focused-dialog"
+        title={
+          target
+            ? t(`${baseKey}.modalTitle`, {
+                service: t(`${baseKey}.services.${target.serviceKey}`),
+                name: config ? config.name : target.name
+              })
+            : ''
+        }
       >
         <div className="scheduled-prefill-config-modal">
-          <div ref={setScrollAreaEl} className="scheduled-prefill-config-modal__scroll-area">
+          <p className="text-sm text-themed-muted">{t(`${baseKey}.modalDescription`)}</p>
+          <div className="scheduled-prefill-config-modal__scroll-area">
             <CustomScrollbar
+              maxHeight="none"
               className="scheduled-prefill-config-modal__viewport"
-              maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
               radius="none"
             >
               <div className="scheduled-prefill-config-modal__scroll-content">
-                {isLoading && !hasInitialData ? (
-                  <div
-                    className="scheduled-prefill-config-modal__skeleton"
-                    role="status"
-                    aria-busy="true"
-                    aria-label={t(`${baseKey}.loading`)}
-                  >
-                    <div className="scheduled-prefill-config-modal__skeleton-overview skeleton-shimmer" />
-                    <div className="scheduled-prefill-config-modal__skeleton-body">
-                      <div className="scheduled-prefill-config-modal__skeleton-nav">
-                        {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => (
-                          <div
-                            key={serviceKey}
-                            className="scheduled-prefill-config-modal__skeleton-nav-item skeleton-shimmer"
-                          />
-                        ))}
-                      </div>
-                      <div className="scheduled-prefill-config-modal__skeleton-detail">
-                        <div className="scheduled-prefill-config-modal__skeleton-block skeleton-shimmer" />
-                        <div className="scheduled-prefill-config-modal__skeleton-block skeleton-shimmer" />
-                        <div className="scheduled-prefill-config-modal__skeleton-block skeleton-shimmer scheduled-prefill-config-modal__skeleton-block--tall" />
-                      </div>
-                    </div>
-                  </div>
+                {loadError?.key === loadKey && <Alert color="red">{loadError.message}</Alert>}
+                {error && <Alert color="red">{error}</Alert>}
+                {missing ? (
+                  <Alert color="red">{t(`${baseKey}.records.missing`)}</Alert>
+                ) : config && target ? (
+                  <ScheduledPrefillPlatformsPanel
+                    serviceKey={target.serviceKey}
+                    config={config}
+                    disabled={saving}
+                    gameSelectionLoading={loadingGameSelectionService !== null && !gameLoaded}
+                    gameSelectionNeedsLogin={gameSelectionNeedsLogin}
+                    onChange={change}
+                    onSelectGames={handleOpenGameSelection}
+                    onClearGames={() => change({ ...config, selectedAppIds: [] })}
+                  />
                 ) : (
-                  <>
-                    <div className="scheduled-prefill-config-modal__overview">
-                      <div className="scheduled-prefill-config-modal__overview-main">
-                        <div className="scheduled-prefill-config-modal__overview-status cluster">
-                          <Badge variant="info">
-                            {t(`${baseKey}.summary`, {
-                              enabled: enabledCount,
-                              total: totalCount
-                            })}
-                          </Badge>
-                          <HelpPopover position="left" width={360} maxHeight="20rem">
-                            <ul className="scheduled-prefill-config-modal__help-list help-list">
-                              {servicesNeedingLogin.length > 0 && (
-                                <li className="schedule-extra-help">
-                                  {t(`${baseKey}.authWarning`, {
-                                    services: servicesNeedingLogin.join(', '),
-                                    count: servicesNeedingLogin.length
-                                  })}
-                                </li>
-                              )}
-                              <li className="schedule-extra-help">
-                                {t(`${baseKey}.auth.authPathsBattleNet`)}
-                              </li>
-                              <li className="schedule-extra-help">
-                                {t(`${baseKey}.auth.authPathsRiot`)}
-                              </li>
-                              <li className="schedule-extra-help">
-                                {t(`${baseKey}.auth.authPathsPersistent`)}
-                              </li>
-                            </ul>
-                          </HelpPopover>
-                        </div>
-                      </div>
-
-                      <div className="scheduled-prefill-config-modal__settings-list">
-                        <div className="scheduled-prefill-config-modal__setting-row">
-                          <div
-                            className="scheduled-prefill-config-modal__setting-actions scheduled-prefill-config-modal__setting-actions--bulk-toggle"
-                            role="group"
-                            aria-label={t(`${baseKey}.bulkToggle.label`)}
-                          >
-                            <Button
-                              type="button"
-                              variant="default"
-                              size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                              onClick={() => handleSetAllServicesEnabled(true)}
-                              disabled={
-                                !config ||
-                                editSessionActionsDisabled ||
-                                loadingConfig ||
-                                enabledCount === totalCount
-                              }
-                            >
-                              {t(`${baseKey}.bulkToggle.enableAll`)}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="default"
-                              size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                              onClick={() => handleSetAllServicesEnabled(false)}
-                              disabled={
-                                !config ||
-                                editSessionActionsDisabled ||
-                                loadingConfig ||
-                                enabledCount === 0
-                              }
-                            >
-                              {t(`${baseKey}.bulkToggle.disableAll`)}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {banner && (
-                      <Alert
-                        color={banner.color}
-                        className="scheduled-prefill-config-modal__alert"
-                        withCloseButton
-                        onClose={dismissBanner}
-                      >
-                        {banner.message}
-                      </Alert>
-                    )}
-
-                    {config ? (
-                      <ScheduledPrefillPlatformsPanel
-                        containerSettings={(containerDisabled) => (
-                          <>
-                            <div className="scheduled-prefill-config-modal__settings-list">
-                              <div className="scheduled-prefill-config-modal__setting-row">
-                                <div className="scheduled-prefill-config-modal__setting-copy">
-                                  <label
-                                    className="scheduled-prefill-config-modal__global-label"
-                                    htmlFor="scheduled-prefill-persistent-validity-days"
-                                  >
-                                    {t(`${baseKey}.settings.persistentValidityLabel`)}
-                                  </label>
-                                  <p className="scheduled-prefill-config-modal__global-help">
-                                    {t(`${baseKey}.settings.persistentValidityHelp`, {
-                                      min: PERSISTENT_PREFILL_VALIDITY_BOUNDS.min,
-                                      max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
-                                    })}
-                                  </p>
-                                </div>
-                                <div className="scheduled-prefill-config-modal__setting-actions">
-                                  {/* Saved by the modal's single Save button - no inline save here. */}
-                                  <NumberInput
-                                    id="scheduled-prefill-persistent-validity-days"
-                                    className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
-                                    min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
-                                    max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
-                                    step={1}
-                                    value={persistentValidityDays}
-                                    disabled={
-                                      containerDisabled ||
-                                      savedValidityDays === null ||
-                                      editSessionActionsDisabled
-                                    }
-                                    aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
-                                    onChange={handlePersistentValidityDaysChange}
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="scheduled-prefill-config-modal__setting-row">
-                                <div className="scheduled-prefill-config-modal__setting-copy">
-                                  <span
-                                    id="scheduled-prefill-persistence-mode-label"
-                                    className="scheduled-prefill-config-modal__global-label"
-                                  >
-                                    {t(`${baseKey}.settings.persistenceModeLabel`)}
-                                  </span>
-                                  <p className="scheduled-prefill-config-modal__global-help">
-                                    {t(`${baseKey}.settings.persistenceModeHelp`)}
-                                  </p>
-                                </div>
-                                <div className="scheduled-prefill-config-modal__setting-actions">
-                                  {/* Saved by the modal's single Save button - no inline save here. */}
-                                  <div
-                                    role="group"
-                                    aria-labelledby="scheduled-prefill-persistence-mode-label"
-                                  >
-                                    <SegmentedControl
-                                      options={PERSISTENCE_MODE_OPTIONS.map((option) => ({
-                                        value: option,
-                                        label: t(`${baseKey}.settings.persistenceMode.${option}`),
-                                        disabled:
-                                          containerDisabled ||
-                                          !config ||
-                                          editSessionActionsDisabled ||
-                                          loadingConfig
-                                      }))}
-                                      value={config?.persistenceMode ?? 'keepAcrossRestart'}
-                                      onChange={(value) => {
-                                        if (!isScheduledPrefillPersistenceMode(value)) return;
-                                        handlePersistenceModeChange(value);
-                                      }}
-                                      size="md"
-                                      showLabels
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="scheduled-prefill-config-modal__setting-row">
-                                <div className="scheduled-prefill-config-modal__setting-copy">
-                                  <span className="scheduled-prefill-config-modal__global-label">
-                                    {t(`${baseKey}.settings.clearLogins.zoneTitle`)}
-                                  </span>
-                                  <p className="scheduled-prefill-config-modal__global-help">
-                                    {t(`${baseKey}.settings.clearLogins.help`)}
-                                  </p>
-                                </div>
-                                <div className="scheduled-prefill-config-modal__setting-actions">
-                                  <Button
-                                    type="button"
-                                    variant="default"
-                                    fullWidth
-                                    className="scheduled-prefill-clear-logins-button"
-                                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                                    onClick={() => setClearLoginsConfirmOpen(true)}
-                                    disabled={containerDisabled || clearingLogins}
-                                    loading={clearingLogins}
-                                  >
-                                    {clearingLogins
-                                      ? t(`${baseKey}.settings.clearLogins.clearing`)
-                                      : t(`${baseKey}.settings.clearLogins.button`)}
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-
-                            {config?.persistenceMode === 'fullPersistence' && (
-                              <Alert
-                                color="yellow"
-                                title={t(`${baseKey}.settings.persistenceMode.fullPersistence`)}
-                              >
-                                {t(`${baseKey}.settings.persistenceModeWarning`)}
-                              </Alert>
-                            )}
-                          </>
-                        )}
-                        config={config}
-                        initialServiceKey={initialServiceKey}
-                        initialScheduleId={openedScheduleId}
-                        disabled={editSessionActionsDisabled || loadingConfig}
-                        statusLoading={isInitialPersistentContainersLoad}
-                        containersByServiceKey={containersByServiceKey}
-                        selectedGamesCountByScheduleId={selectedGamesCountByScheduleId}
-                        persistentAction={persistentAction}
-                        authenticatingServiceKeys={authenticatingServiceKeys}
-                        integrationLoginAvailabilityByService={
-                          visibleIntegrationLoginAvailabilityByService
-                        }
-                        integrationLoginAvailabilityLoading={loadingIntegrationLoginAvailability}
-                        gameSelectionLoadingServiceKey={loadingGameSelectionService}
-                        onScheduleChange={handleScheduleChange}
-                        onAddSchedule={handleAddSchedule}
-                        onDuplicateSchedule={handleDuplicateSchedule}
-                        onDeleteSchedule={handleDeleteSchedule}
-                        onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
-                        onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
-                        onLogin={handlePersistentLogin}
-                        onLogout={(serviceKey) => void handleLogoutPersistent(serviceKey)}
-                        onSelectGames={(serviceKey, scheduleId) =>
-                          void handleOpenGameSelection(serviceKey, scheduleId)
-                        }
-                        onClearGames={(serviceKey, scheduleId) =>
-                          void handleClearGameSelection(serviceKey, scheduleId)
-                        }
-                        onDownload={(serviceKey, scheduleId) =>
-                          void handlePersistentDownload(serviceKey, scheduleId)
-                        }
-                        onCancelDownload={(serviceKey, runId) =>
-                          void handleCancelPersistentDownload(serviceKey, runId)
-                        }
-                        cancellingRunIds={cancellingRunIds}
-                        runErrors={runErrors}
-                      />
-                    ) : (
-                      <div className="scheduled-prefill-config-modal__empty">
-                        {t(`${baseKey}.empty`)}
-                      </div>
-                    )}
-                  </>
+                  loading && <LoadingSpinner inline size="md" />
                 )}
               </div>
             </CustomScrollbar>
           </div>
-
           <div className="scheduled-prefill-config-modal__actions">
-            <Button
-              type="button"
-              variant="default"
-              size={SCHEDULED_PREFILL_BUTTON_SIZE}
-              onClick={handleCancel}
-              disabled={saving || closingEditSession}
-              loading={closingEditSession}
-            >
+            <Button onClick={handleCancel} disabled={saving}>
               {t('common.cancel')}
             </Button>
             <Button
-              type="button"
               variant="filled"
               color="primary"
-              size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleSave}
-              disabled={!config || editSessionActionsDisabled || loadingConfig}
               loading={saving}
+              disabled={!config || missing || saving}
             >
-              {saving ? t(`${baseKey}.actions.saving`) : t(`${baseKey}.actions.save`)}
+              {t(`${baseKey}.actions.save`)}
             </Button>
           </div>
         </div>
       </Modal>
-      {persistentLoginTarget && (
-        <PersistentLoginHost
-          serviceKey={persistentLoginTarget}
-          isRunning={
-            persistentContainerByService.get(getPersistentServiceId(persistentLoginTarget))
-              ?.isRunning ?? false
-          }
-          isAuthenticated={
-            persistentContainerByService.get(getPersistentServiceId(persistentLoginTarget))
-              ?.isAuthenticated ?? false
-          }
-          onAuthenticated={(sessionId) => {
-            void loadPersistentContainers();
-            const selection = gameSelectionRef.current;
-            if (
-              opened &&
-              selection?.serviceKey === persistentLoginTarget &&
-              sessionId &&
-              selection.sessionId === sessionId
-            ) {
-              void loadGameSelection(selection.serviceKey, sessionId);
-            }
-          }}
-          onDismiss={() => {
-            setPersistentLoginTarget(null);
-          }}
-        />
-      )}
       <GameSelectionModal
         opened={gameSelection !== null}
         onClose={() => {
           gameSelectionRef.current = null;
           gameRequestRef.current?.controller.abort();
+          gameRequestRef.current = null;
           setGameSelection(null);
+          setLoadingGameSelectionService(null);
+          setGameLoaded(false);
         }}
         serviceId={gameSelection?.serviceKey ?? ''}
         games={gameSelection?.games ?? []}
-        selectedAppIds={
-          gameSelection && config
-            ? (config[gameSelection.serviceKey].schedules.find(
-                (schedule) => schedule.id === gameSelection.scheduleId
-              )?.selectedAppIds ?? [])
-            : []
-        }
-        onSave={handleSaveGameSelection}
-        isLoading={loadingGameSelectionService !== null}
+        selectedAppIds={config?.selectedAppIds ?? []}
+        confirmDiscard
+        onSave={async (selectedIds) => {
+          if (
+            !config ||
+            !gameSelection ||
+            !target ||
+            gameSelection.scheduleId !== target.scheduleId
+          )
+            return;
+          const known = new Set(gameSelection.games.map((game) => game.appId));
+          change({
+            ...config,
+            selectedAppIds: [
+              ...new Set([...config.selectedAppIds.filter((id) => !known.has(id)), ...selectedIds])
+            ]
+          });
+        }}
+        isLoading={loadingGameSelectionService !== null && !gameLoaded}
         cachedAppIds={gameSelection?.cachedAppIds ?? []}
         outdatedAppIds={gameSelection?.outdatedAppIds ?? []}
         unknownAppIds={gameSelection?.unknownAppIds ?? []}
-        error={gameSelectionError ?? gameLoadError}
-        onClearAllCache={handleClearAllCachedGames}
-        isClearingAllCache={isClearingCachedGames}
+        error={gameLoadError}
       />
-      <ConfirmationModal
-        opened={clearLoginsConfirmOpen}
-        onClose={() => setClearLoginsConfirmOpen(false)}
-        onConfirm={() => void handleConfirmClearLogins()}
-        title={t(`${baseKey}.settings.clearLogins.confirmTitle`)}
-        confirmLabel={t(`${baseKey}.settings.clearLogins.confirmButton`)}
-        confirmColor="red"
-        loading={clearingLogins}
-      >
-        <p className="text-sm text-themed-muted">
-          {t(`${baseKey}.settings.clearLogins.confirmBody`)}
-        </p>
-      </ConfirmationModal>
       <ConfirmationModal
         opened={discardConfirmOpen}
         onClose={() => setDiscardConfirmOpen(false)}
@@ -2616,7 +548,7 @@ export function ScheduledPrefillConfigModal({
         confirmLabel={t(`${baseKey}.discardChanges.confirmButton`)}
         confirmColor="red"
       >
-        <p className="text-sm text-themed-muted">{t(`${baseKey}.discardChanges.confirmBody`)}</p>
+        <p>{t(`${baseKey}.discardChanges.confirmBody`)}</p>
       </ConfirmationModal>
       <ConfirmationModal
         opened={overwriteEnabledConfirmOpen}
@@ -2627,11 +559,13 @@ export function ScheduledPrefillConfigModal({
         }}
         title={t(`${baseKey}.records.confirmEnabledSaveTitle`)}
         confirmLabel={t(`${baseKey}.actions.save`)}
-        confirmColor="blue"
         loading={saving}
       >
-        <p className="text-sm text-themed-muted">
-          {t(`${baseKey}.records.confirmEnabledSaveBody`)}
+        <p>
+          {t(`${baseKey}.records.confirmEnabledSaveBody`, {
+            service: target && t(`${baseKey}.services.${target.serviceKey}`),
+            name: config?.name
+          })}
         </p>
       </ConfirmationModal>
     </>

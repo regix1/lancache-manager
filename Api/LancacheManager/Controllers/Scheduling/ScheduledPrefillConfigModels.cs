@@ -3,6 +3,22 @@ using LancacheManager.Models;
 
 namespace LancacheManager.Controllers;
 
+public sealed class ScheduledPrefillEnabledRequest
+{
+    public required bool Enabled { get; init; }
+}
+
+public sealed class ScheduledPrefillTimingRequest
+{
+    public required double IntervalHours { get; init; }
+    public required CustomSchedule? CustomSchedule { get; init; }
+}
+
+public sealed class ScheduledPrefillPersistenceRequest
+{
+    public required PersistenceMode Mode { get; init; }
+}
+
 /// <summary>
 /// Live run state returned by <c>GET /api/system/schedules/scheduledPrefill/run-status</c>.
 /// </summary>

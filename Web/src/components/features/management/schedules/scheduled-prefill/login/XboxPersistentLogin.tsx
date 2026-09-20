@@ -10,7 +10,7 @@ export function XboxPersistentLogin({
   autoStart = false,
   onDismiss
 }: PersistentLoginHostProps) {
-  const { state, actions, startLogin, dismissModal, resumeModal } = usePersistentXboxAuth();
+  const { state, actions, startLogin, resumeModal } = usePersistentXboxAuth();
   const { loginDeadline } = usePersistentLoginStoreState('Xbox');
   const authModalOpened = usePersistentLoginHost({
     service: 'Xbox',
@@ -29,7 +29,7 @@ export function XboxPersistentLogin({
   return (
     <XboxAuthModal
       opened={authModalOpened}
-      onClose={dismissModal}
+      onClose={onDismiss}
       state={state}
       actions={actions}
       dismissBehavior="keep-pending"

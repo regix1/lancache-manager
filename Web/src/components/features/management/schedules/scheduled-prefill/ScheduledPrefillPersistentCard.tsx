@@ -3,12 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
-import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
 import { formatTimeRemaining } from '@components/features/prefill/types';
-import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
@@ -20,13 +18,7 @@ import { usePersistentLoginStoreState } from './persistentLoginStore';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 import { getIntegrationReasonKey } from '../../../../../types';
-import {
-  canStartPrefill,
-  supportsConcurrentPrefill
-} from '@components/features/prefill/hooks/prefillTypes';
 
-// Matches StatusDot's `tone` prop exactly (@components/common/StatusDot) so statusDisplay.tone can be
-// passed straight through.
 type StatusTone = 'idle' | 'warning' | 'info' | 'running';
 
 interface StatusDisplay {
@@ -37,25 +29,17 @@ interface StatusDisplay {
 
 export function ScheduledPrefillPersistentCard({
   serviceKey,
-  scheduleControls,
-  gameSelectionLoading = false,
-  onSelectGames,
-  onClearGames,
   onStop,
   onLogout,
   container,
-  selectedGamesCount,
   disabled = false,
-  scheduleEnabled,
   statusLoading = false,
   authenticating = false,
   integrationLoginAvailability,
   integrationLoginAvailabilityLoading = false,
   action = null,
   onStart,
-  onLogin,
-  onDownload,
-  onCancelDownload
+  onLogin
 }: ScheduledPrefillPersistentCardProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
@@ -63,23 +47,14 @@ export function ScheduledPrefillPersistentCard({
   const authExpiresAt = useFormattedDateTime(container?.authExpiresAtUtc);
   const timeRemaining = useCountdownTimer(container?.authExpiresAtUtc ?? null, false);
 
-  // Anonymous services (Battle.net/Riot) have no login step: the persistent container is
-  // ready as soon as it's running, so every authenticated-gated conditional below treats
-  // "running" as sufficient and the login/logout controls never render.
   const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
-  // Login-flow state lives in the module-level persistent-login store (survives the auth modal
-  // being hidden/unmounted), so the row can show its own login error directly - no more floating
-  // alert rendered outside any card (diagnostic §6 item 6).
+
   const loginState = usePersistentLoginStoreState(getPersistentServiceId(serviceKey));
   const loginError = isAnonymous ? null : loginState.error;
-  // Set when a challenge poll 404'd (the daemon session behind it is gone - diagnostic ADDENDUM),
-  // distinct from `loginError`: this is a terminal "nothing to resume, press Start" state, not a
-  // failed login attempt, so it renders its own friendly copy instead of the loginFailed wrapper.
-  // The backend distinguishes a session that flipped to Error (socket dropped) from one that was
-  // never started, so this picks between two copies rather than one generic message.
+
   const sessionUnavailableState = isAnonymous ? null : loginState.sessionUnavailableState;
   const isSessionUnavailable = sessionUnavailableState !== null;
-  // The REST snapshot owns confirmed state; activity fills the initial loading window only.
+
   const activity = useActivityStatus();
   const activityPlatformKey = serviceKey.toLowerCase();
   const isRunning =
@@ -89,8 +64,7 @@ export function ScheduledPrefillPersistentCard({
     container?.isAuthenticated ??
     activity.isActive('persistentContainer', activityPlatformKey, 'authenticated');
   const isPrefilling = container?.isPrefilling ?? false;
-  // Anonymous services never need to authenticate, so they're "ready" the moment they're
-  // running; authenticated services are only ready once login succeeds.
+
   const isReady = isAnonymous || isAuthenticated;
   const isAuthInProgress = !isAnonymous && isRunning && !isAuthenticated && authenticating;
   const savedLoginHint = (() => {
@@ -106,9 +80,7 @@ export function ScheduledPrefillPersistentCard({
     }
     return t('errors.integration.statusUnavailable');
   })();
-  // Every control below the schedule selector follows the schedule's enabled state. The selector
-  // and its Actions menu stay outside this gate so an individual schedule can be switched back on.
-  const selectionDisabled = disabled || !scheduleEnabled;
+
   const containerActionPending = action === 'stop' || action === 'logout';
   const reuseIntegrationDisabled =
     disabled ||
@@ -116,12 +88,9 @@ export function ScheduledPrefillPersistentCard({
     isAuthInProgress ||
     integrationLoginAvailabilityLoading ||
     !integrationLoginAvailability?.available;
-  // Initial container probe with nothing resolved yet — show the loading view.
+
   const isContainerLoading = statusLoading && container === undefined;
 
-  // One compact status line replaces the three tinted pipeline boxes: a coloured
-  // dot carries meaning (green = logged in, info = downloading, amber = needs
-  // attention, muted = idle) and the label spells it out.
   const statusDisplay: StatusDisplay = (() => {
     if (!isRunning) {
       return { tone: 'idle', label: t('prefill.persistent.status.stopped'), busy: false };
@@ -161,7 +130,6 @@ export function ScheduledPrefillPersistentCard({
     return null;
   })();
 
-  // The primary action follows the container's current state.
   let primaryAction: ReactNode;
   if (!isRunning) {
     primaryAction = (
@@ -190,43 +158,12 @@ export function ScheduledPrefillPersistentCard({
         {t(`${containersKey}.manualLogin`)}
       </Button>
     );
-  } else if (isPrefilling && !supportsConcurrentPrefill(container)) {
-    primaryAction = (
-      <Button
-        type="button"
-        variant="filled"
-        color="stop"
-        size={SCHEDULED_PREFILL_BUTTON_SIZE}
-        onClick={() => onCancelDownload(container?.runId ?? undefined)}
-        disabled={disabled || action === 'download' || !container?.runId}
-        loading={action === 'cancel'}
-      >
-        {t(`${baseKey}.persistentContainer.cancelDownload`)}
-      </Button>
-    );
   } else {
-    primaryAction = (
-      <Button
-        type="button"
-        variant="filled"
-        color="run"
-        size={SCHEDULED_PREFILL_BUTTON_SIZE}
-        onClick={onDownload}
-        disabled={
-          selectionDisabled ||
-          action === 'cancel' ||
-          (container !== undefined && !canStartPrefill(container))
-        }
-        loading={action === 'download'}
-      >
-        {t(`${baseKey}.persistentContainer.downloadNow`)}
-      </Button>
-    );
+    primaryAction = null;
   }
 
   return (
     <Card padding="md" className="scheduled-prefill-persistent-card">
-      {scheduleControls}
       <fieldset className="scheduled-prefill-persistent-card__controls" disabled={disabled}>
         <header className="scheduled-prefill-persistent-card__header">
           <div className="scheduled-prefill-persistent-card__title-block">
@@ -296,30 +233,6 @@ export function ScheduledPrefillPersistentCard({
               </Alert>
             )}
 
-            {isPrefilling && container && !supportsConcurrentPrefill(container) && (
-              <p className="scheduled-prefill-persistent-card__downloading">
-                {container.currentAppName
-                  ? t(`${baseKey}.persistentContainer.downloadProgress`, {
-                      game: container.currentAppName,
-                      bytes: formatBytes(container.totalBytesTransferred ?? 0)
-                    })
-                  : t(`${baseKey}.persistentContainer.downloadProgressGeneric`, {
-                      bytes: formatBytes(container.totalBytesTransferred ?? 0)
-                    })}
-              </p>
-            )}
-
-            {isPrefilling && !supportsConcurrentPrefill(container) && (
-              <div
-                className="scheduled-prefill-persistent-card__progress"
-                role="progressbar"
-                aria-busy="true"
-                aria-label={t(`${containersKey}.steps.downloading`)}
-              >
-                <span className="scheduled-prefill-persistent-card__progress-bar" />
-              </div>
-            )}
-
             {container?.needsRelogin && workflowHint && (
               <p
                 className={`scheduled-prefill-persistent-card__hint${
@@ -355,34 +268,6 @@ export function ScheduledPrefillPersistentCard({
                   </span>
                 </Tooltip>
               )}
-              <Button
-                type="button"
-                variant="default"
-                size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                onClick={onSelectGames}
-                disabled={
-                  selectionDisabled ||
-                  containerActionPending ||
-                  !isRunning ||
-                  !isReady ||
-                  gameSelectionLoading
-                }
-                loading={gameSelectionLoading}
-              >
-                {t(`${baseKey}.actions.selectGames`)}
-                <Badge variant="info">{selectedGamesCount}</Badge>
-              </Button>
-              {selectedGamesCount > 0 && (
-                <Button
-                  type="button"
-                  variant="default"
-                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                  onClick={onClearGames}
-                  disabled={selectionDisabled || containerActionPending || isPrefilling}
-                >
-                  {t(`${baseKey}.actions.clearGames`)}
-                </Button>
-              )}
               {!isAnonymous && isRunning && isAuthenticated && (
                 <Button
                   type="button"
@@ -410,17 +295,6 @@ export function ScheduledPrefillPersistentCard({
                 </Button>
               )}
             </footer>
-            {supportsConcurrentPrefill(container) && container && (
-              <div className="space-y-1">
-                <p className="text-sm text-themed-muted">
-                  {t('prefill.runs.capacity', {
-                    count: container.activeRunCount ?? 0,
-                    limit: container.maxConcurrentRuns ?? 1
-                  })}
-                </p>
-                <p className="text-xs text-themed-muted">{t('prefill.runs.capacityHelp')}</p>
-              </div>
-            )}
           </>
         )}
       </fieldset>

@@ -227,17 +227,22 @@ test('new locale entries match in both languages and preserve placeholders', () 
 
 test('availability responses from a previous LANCache account are discarded', async () => {
   const identity = { current: 'first-account' };
+  const availabilityIdentity = { current: '' };
+  const errorsIdentity = { current: '' };
   let finish;
   let visible = new Map();
+  let errors = {};
   const load = bindLifted(
     liftHookCallback(
-      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
       'useCallback',
       'const requestIdentity = privateAvailabilityIdentityRef.current'
     ),
     {
       privateAvailabilityIdentityRef: identity,
       integrationLoginRequestRef: { current: null },
+      integrationLoginAvailabilityIdentityRef: availabilityIdentity,
+      integrationLoginErrorsIdentityRef: errorsIdentity,
       canUseSavedLogin: true,
       requiresIndividualAccount: false,
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam'],
@@ -249,11 +254,20 @@ test('availability responses from a previous LANCache account are discarded', as
           })
       },
       setIntegrationLoginAvailabilityByService: (value) => {
-        visible = value;
+        visible = typeof value === 'function' ? value(visible) : value;
       },
-      setIntegrationLoginAvailabilityIdentity: () => undefined,
+      setIntegrationLoginErrors: (value) => {
+        errors = typeof value === 'function' ? value(errors) : value;
+      },
+      setIntegrationLoginAvailabilityIdentity: (value) => {
+        availabilityIdentity.current = value;
+      },
+      setIntegrationLoginErrorsIdentity: (value) => {
+        errorsIdentity.current = value;
+      },
       setLoadingIntegrationLoginAvailability: () => undefined,
-      isAbortError: () => false
+      isAbortError: () => false,
+      getErrorMessage: (error) => error.message
     }
   );
   const request = load();
@@ -261,6 +275,67 @@ test('availability responses from a previous LANCache account are discarded', as
   finish({ available: true, account: 'first-steam-login', reason: null });
   await request;
   assert.equal(visible.size, 0);
+  assert.deepEqual(errors, {});
+  assert.equal(availabilityIdentity.current, '');
+  assert.equal(errorsIdentity.current, '');
+});
+
+test('same-account availability keeps settled services and reports only failed reads', async () => {
+  const identity = { current: 'current-account' };
+  const availabilityIdentity = { current: 'current-account' };
+  const errorsIdentity = { current: 'current-account' };
+  let visible = new Map([['steam', { available: true, account: 'settled-steam', reason: null }]]);
+  let errors = {};
+  let loading = null;
+  const load = bindLifted(
+    liftHookCallback(
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
+      'useCallback',
+      'const requestIdentity = privateAvailabilityIdentityRef.current'
+    ),
+    {
+      privateAvailabilityIdentityRef: identity,
+      integrationLoginRequestRef: { current: null },
+      integrationLoginAvailabilityIdentityRef: availabilityIdentity,
+      integrationLoginErrorsIdentityRef: errorsIdentity,
+      canUseSavedLogin: true,
+      requiresIndividualAccount: false,
+      SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam', 'epicGames'],
+      getPersistentServiceId: (key) => key,
+      ApiService: {
+        getPersistentIntegrationLoginAvailability: async (serviceKey) => {
+          if (serviceKey === 'steam') throw new Error('steam unavailable');
+          return { available: true, account: 'current-epic', reason: null };
+        }
+      },
+      setIntegrationLoginAvailabilityByService: (value) => {
+        visible = typeof value === 'function' ? value(visible) : value;
+      },
+      setIntegrationLoginErrors: (value) => {
+        errors = typeof value === 'function' ? value(errors) : value;
+      },
+      setIntegrationLoginAvailabilityIdentity: (value) => {
+        availabilityIdentity.current = value;
+      },
+      setIntegrationLoginErrorsIdentity: (value) => {
+        errorsIdentity.current = value;
+      },
+      setLoadingIntegrationLoginAvailability: (value) => {
+        loading = value;
+      },
+      isAbortError: () => false,
+      getErrorMessage: (error) => error.message
+    }
+  );
+
+  await load();
+
+  assert.equal(loading, false);
+  assert.equal(visible.get('steam').account, 'settled-steam');
+  assert.equal(visible.get('epicGames').account, 'current-epic');
+  assert.deepEqual(errors, { steam: 'steam unavailable' });
+  assert.equal(availabilityIdentity.current, 'current-account');
+  assert.equal(errorsIdentity.current, 'current-account');
 });
 
 test('sign in opens the existing modal and successful login refreshes server state', () => {

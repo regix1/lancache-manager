@@ -4,7 +4,7 @@ import test from 'node:test';
 import { bindLifted, compileToUrl, liftHookCallback } from './transpile-module.mjs';
 
 /**
- * Four claims the Recent Downloads panel makes, driven through the code that ships.
+ * Five claims the Recent Downloads panel makes, driven through the code that ships.
  *
  * The panel builds no groups any more: the server folds them and sends them in order, and the
  * panel draws that order. What is left in the panel is the narrowing a dropdown does before the
@@ -18,9 +18,13 @@ import { bindLifted, compileToUrl, liftHookCallback } from './transpile-module.m
  * 3. microsoft resolves to the xbox brand color, because a merged Xbox group takes its service
  *    from whichever member the server folded first and that member can be microsoft.
  * 4. No group-building code is left in the panel.
+ * 5. Adjacent dashboard controls share the compact gap without changing the Downloads row gap.
  */
 
 const PANEL = 'src/components/features/dashboard/RecentDownloadsPanel.tsx';
+const PATTERNS_CSS = 'src/styles/utilities/patterns.css';
+const RECENT_DOWNLOADS_CSS = 'src/styles/features/recent-downloads.css';
+const SERVICE_ANALYTICS_CSS = 'src/styles/features/service-analytics.css';
 
 const { getServiceFilterKey } = await import(
   await compileToUrl('../src/utils/serviceDisplayName.ts')
@@ -179,5 +183,28 @@ test('the panel builds no groups of its own', async () => {
     source.includes('isResolvedGameName(d.gameName'),
     false,
     'the group-key rules belong to the server'
+  );
+});
+
+test('dashboard adjacent controls share the compact gap without changing Downloads row spacing', async () => {
+  const [patterns, downloads, analytics] = await Promise.all([
+    readFile(new URL(`../${PATTERNS_CSS}`, import.meta.url), 'utf8'),
+    readFile(new URL(`../${RECENT_DOWNLOADS_CSS}`, import.meta.url), 'utf8'),
+    readFile(new URL(`../${SERVICE_ANALYTICS_CSS}`, import.meta.url), 'utf8')
+  ]);
+
+  assert.match(patterns, /--control-gap-compact:\s*0\.5rem;/);
+  assert.match(patterns, /\.cluster\s*\{[^}]*gap:\s*var\(--control-gap-compact\);[^}]*\}/s);
+  assert.match(
+    downloads,
+    /\.rdl-header\s*\{[^}]*column-gap:\s*var\(--control-gap-compact\);[^}]*row-gap:\s*0\.75rem;[^}]*\}/s
+  );
+  assert.match(
+    analytics,
+    /\.service-analytics-controls\s*\{[^}]*gap:\s*var\(--control-gap-compact\);[^}]*\}/s
+  );
+  assert.match(
+    analytics,
+    /\.service-analytics-actions\s*\{[^}]*gap:\s*var\(--control-gap-compact\);[^}]*\}/s
   );
 });

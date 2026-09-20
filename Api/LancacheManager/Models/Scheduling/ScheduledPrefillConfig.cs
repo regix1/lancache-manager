@@ -987,7 +987,7 @@ public static class ScheduledPrefillConfigFactory
         };
     }
 
-    private static ScheduledPrefillServiceConfigDto CopyServiceWithSchedules(
+    public static ScheduledPrefillServiceConfigDto CopyServiceWithSchedules(
         ScheduledPrefillServiceConfigDto service,
         List<ScheduledPrefillSchedule> schedules)
     {
@@ -997,6 +997,8 @@ public static class ScheduledPrefillConfigFactory
             ServiceId = service.ServiceId,
             PersistenceMode = service.PersistenceMode,
             Schedules = schedules,
+            ScheduleId = service.ScheduleId,
+            ScheduleName = service.ScheduleName,
             Enabled = service.Enabled,
             ShowNotification = service.ShowNotification,
             NotificationMode = service.NotificationMode,
@@ -1023,7 +1025,25 @@ public static class ScheduledPrefillConfigFactory
     /// </summary>
     public static ScheduledPrefillConfigDto Validate(ScheduledPrefillConfigDto config)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        if (config is null)
+            throw new ScheduledPrefillConfigValidationException("Scheduled prefill config is required.");
+
+        // Check structural and enum validity before reconciliation reads or filters these members.
+        foreach (var service in config.GetServicesInRunOrder())
+        {
+            if (service is null || service.Schedules is null)
+                throw new ScheduledPrefillConfigValidationException("Every service must include its schedules.");
+            if (service.SelectedAppIds is null || service.OperatingSystems is null)
+                throw new ScheduledPrefillConfigValidationException("Service selections must not be null.");
+            foreach (var schedule in service.Schedules)
+            {
+                if (schedule is null || schedule.SelectedAppIds is null || schedule.OperatingSystems is null)
+                    throw new ScheduledPrefillConfigValidationException("Schedule members and selections must not be null.");
+                if (!Enum.IsDefined(schedule.Preset) || schedule.OperatingSystems.Any(os => !Enum.IsDefined(os))
+                    || schedule.OperatingSystems.Distinct().Count() != schedule.OperatingSystems.Count)
+                    throw new ScheduledPrefillConfigValidationException("Schedule selections contain an unsupported value.");
+            }
+        }
 
         config = ReconcileUnsupportedPresets(config);
         config = ReconcileUnsupportedOperatingSystems(config);

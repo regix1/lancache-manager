@@ -55,7 +55,7 @@ export function PersistentLoginHost({
 
   useEffect(() => {
     dismissedRef.current = false;
-  }, [serviceKey]);
+  }, [loginAttemptNonce, serviceKey]);
 
   // Grace period applies unconditionally on every reported stop, regardless of whether a login is
   // active (diagnostic §3 fix direction) - a single transient container-list refresh reporting
@@ -83,15 +83,14 @@ export function PersistentLoginHost({
   }, [isAuthenticated, onDismiss]);
 
   const handleAuthenticated = () => {
+    dismissedRef.current = true;
     onAuthenticated(loginState.sessionId);
     onDismiss();
   };
 
   const handleDismiss = () => {
-    if (!dismissedRef.current) {
-      dismissedRef.current = true;
-      onDismiss();
-    }
+    dismissedRef.current = true;
+    onDismiss();
   };
 
   if (!stableRunning || isAuthenticated) {

@@ -101,7 +101,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   };
 
   const handleOpenAuthUrl = () => {
-    if (state.canAuthenticate === false) return;
+    if (state.canAuthenticate === false || loading || isSubmitting) return;
     if (authorizationUrl) {
       window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
     }
@@ -165,7 +165,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                     variant="filled"
                     color="secondary"
                     onClick={handleOpenAuthUrl}
-                    disabled={state.canAuthenticate === false}
+                    disabled={state.canAuthenticate === false || loading || isSubmitting}
                     className="w-full"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -190,7 +190,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                         }
                         placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
                         className="w-full px-3 py-2.5 themed-input font-mono text-sm"
-                        disabled={loading || state.canAuthenticate === false}
+                        disabled={loading || isSubmitting || state.canAuthenticate === false}
                         autoFocus
                       />
                     )}

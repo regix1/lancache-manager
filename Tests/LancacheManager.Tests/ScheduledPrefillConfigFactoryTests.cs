@@ -15,6 +15,28 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledPrefillConfigFactoryTests
 {
+    [Theory]
+    [InlineData("Steam", "null")]
+    [InlineData("Steam.Schedules", "null")]
+    [InlineData("Steam.Schedules", "[null]")]
+    [InlineData("Steam.OperatingSystems", "null")]
+    [InlineData("Steam.Schedules.0.SelectedAppIds", "null")]
+    [InlineData("Steam.Schedules.0.OperatingSystems", "null")]
+    [InlineData("Steam.Schedules.0.OperatingSystems", "[999]")]
+    [InlineData("Steam.Schedules.0.Preset", "999")]
+    [InlineData("Steam.Schedules.0.MaxConcurrency", "null")]
+    public void ValidateRejectsMalformedMembersBeforeReconciliation(string path, string value)
+    {
+        var root = JsonSerializer.SerializeToNode(ScheduledPrefillConfigFactory.CreateDefault())!;
+        var parts = path.Split('.');
+        var node = root;
+        foreach (var part in parts[..^1])
+            node = int.TryParse(part, out var index) ? node[index]! : node[part]!;
+        node[parts[^1]] = System.Text.Json.Nodes.JsonNode.Parse(value);
+        var config = root.Deserialize<ScheduledPrefillConfigDto>()!;
+        Assert.Throws<ScheduledPrefillConfigValidationException>(() => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
     [Fact]
     public void CreateDefault_SeedsDefaultIntervalAndIsCurrentVersionAndValid()
     {

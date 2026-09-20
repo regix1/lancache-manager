@@ -344,11 +344,11 @@ const SessionCard: React.FC<{
             {(operatingSystem || browser) && <span>{operatingSystem || browser}</span>}
           </div>
         </div>
-        <div
-          className="mgmt-row__actions session-row__actions"
-          onClick={(e: React.MouseEvent) => e.stopPropagation()}
-        >
-          {isAdmin && isLive && (onBan || onTerminate) && (
+        {isAdmin && isLive && (onBan || onTerminate) && (
+          <div
+            className="mgmt-row__actions session-row__actions"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
             <RowActionsMenu open={menuOpen} onOpenChange={setMenuOpen}>
               {(close) => (
                 <>
@@ -382,10 +382,12 @@ const SessionCard: React.FC<{
                 </>
               )}
             </RowActionsMenu>
-          )}
-        </div>
+          </div>
+        )}
         {isLoadingHistory ? (
-          <LoadingSpinner inline size="xs" />
+          <span className="session-row__chevron">
+            <LoadingSpinner inline size="xs" />
+          </span>
         ) : (
           <Button
             type="button"

@@ -58,22 +58,3 @@ test('createUuid produces RFC 4122 version 4 identifiers without randomUUID', as
   assert.match(second, uuidPattern);
   assert.notEqual(first, second);
 });
-
-test('the scheduled-prefill edit-session identifier uses the shared UUID generator', async (t) => {
-  setCrypto({
-    getRandomValues(bytes) {
-      bytes.fill(0);
-      return bytes;
-    }
-  });
-  t.after(restoreCrypto);
-
-  const uuidUrl = await compileToUrl('../src/utils/uuid.ts');
-  const ledgerUrl = await compileToUrl(
-    '../src/components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger.ts',
-    { '@utils/uuid': uuidUrl }
-  );
-  const { createScheduledPrefillEditSessionId } = await import(ledgerUrl);
-
-  assert.match(createScheduledPrefillEditSessionId(), uuidPattern);
-});

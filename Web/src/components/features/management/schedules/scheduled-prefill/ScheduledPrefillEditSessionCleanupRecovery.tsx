@@ -1,13 +1,6 @@
 import { useEffect } from 'react';
 import ApiService from '@services/api.service';
-import {
-  beginEditSessionCleanup,
-  buildEditSessionCleanupRequest,
-  clearConfirmedEditSession,
-  createScheduledPrefillEditSessionId,
-  hasScheduledPrefillEditActions,
-  loadScheduledPrefillEditSession
-} from './scheduledPrefillEditSessionLedger';
+import { recoverScheduledPrefillEditSession } from './scheduledPrefillEditSessionLedger';
 import { sessionStore } from '@utils/storage';
 
 const CLEANUP_RETRY_DELAY_MS = 5000;
@@ -23,21 +16,10 @@ export function ScheduledPrefillEditSessionCleanupRecovery() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const retry = async () => {
-      const stored = loadScheduledPrefillEditSession(sessionStore);
-      if (!stored || !hasScheduledPrefillEditActions(stored)) {
-        return;
-      }
-
-      const pending = beginEditSessionCleanup(
-        sessionStore,
-        stored,
-        createScheduledPrefillEditSessionId
-      );
       try {
-        await ApiService.cleanupPersistentPrefillEditSession(
-          buildEditSessionCleanupRequest(pending)
+        await recoverScheduledPrefillEditSession(sessionStore, (request) =>
+          ApiService.cleanupPersistentPrefillEditSession(request)
         );
-        clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
       } catch {
         if (!disposed) {
           retryTimer = setTimeout(() => {

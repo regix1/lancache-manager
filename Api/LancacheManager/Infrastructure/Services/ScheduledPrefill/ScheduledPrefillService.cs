@@ -34,6 +34,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
+    private readonly object _scheduleLock = new();
 
     /// <summary>
     /// Platforms that have actually run at least once in this process. The due-check reads it from the
@@ -119,6 +120,41 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         => ScheduledPrefillRunGates.HasAnyEnabledService(
             _stateService.GetScheduledPrefillConfig().GetSchedulesInRunOrder());
 
+    public ScheduledPrefillConfigDto UpdateConfig(Func<ScheduledPrefillConfigDto, ScheduledPrefillConfigDto> update)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        lock (_scheduleLock)
+        {
+            var activeIds = _runningSchedules.Keys.ToHashSet();
+            var tracker = scope.ServiceProvider.GetRequiredService<IUnifiedOperationTracker>();
+            foreach (var operation in tracker.GetActiveOperations(OperationType.ScheduledPrefill))
+                if (operation.Metadata is ScheduledPrefillServiceRunState state)
+                    activeIds.Add(state.ScheduleId);
+
+            var recovering = false;
+            foreach (var platform in Enum.GetValues<PrefillPlatform>())
+            {
+                var session = PrefillDaemonServiceBase.ResolveDaemon(scope.ServiceProvider, platform)?.GetActivePersistentSession();
+                if (session is null) continue;
+                recovering |= session.Recovering || session.AdmissionClosed;
+                foreach (var run in session.Runs.Values)
+                {
+                    recovering |= run.Recovering;
+                    if (!run.CompletedAtUtc.HasValue && run.PrefillScheduleId is { } id)
+                        activeIds.Add(id);
+                }
+                if (session.IsPrefilling && session.PrefillScheduleId is { } scheduleId)
+                    activeIds.Add(scheduleId);
+            }
+
+            return _stateService.UpdateScheduledPrefillConfig(update, removedIds =>
+            {
+                if (removedIds.Count > 0 && (recovering || removedIds.Overlaps(activeIds)))
+                    throw new ConflictException("An active or recovering scheduled prefill record cannot be deleted.");
+            });
+        }
+    }
+
     /// <summary>
     /// Runs ONE platform right now, on its own task, outside the scheduling loop. Backs the Schedules
     /// page's per-row Run button. It cannot go through the loop: the loop awaits one tick at a time, so
@@ -139,15 +175,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 "Unknown scheduled prefill service id.");
         }
 
-        var config = _stateService.GetScheduledPrefillConfig();
-        var serviceConfig = config.GetSchedulesInRunOrder()
-            .FirstOrDefault(schedule =>
-                schedule.ServiceId == serviceId && schedule.ScheduleId == scheduleId);
-        if (serviceConfig is null)
-        {
-            return null;
-        }
-
         IServiceScope? scope = null;
         CancellationTokenSource? cts = null;
         Guid? operationId = null;
@@ -155,10 +182,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         try
         {
             scope = _scopeFactory.CreateScope();
-            if (!TryClaimRun(serviceConfig, scope.ServiceProvider, out claimId))
+            ScheduledPrefillConfigDto config;
+            ScheduledPrefillServiceConfigDto? serviceConfig;
+            lock (_scheduleLock)
             {
-                scope.Dispose();
-                return null;
+                config = _stateService.GetScheduledPrefillConfig();
+                serviceConfig = config.GetSchedulesInRunOrder().FirstOrDefault(schedule =>
+                    schedule.ServiceId == serviceId && schedule.ScheduleId == scheduleId);
+                if (serviceConfig is null || !TryClaimRun(serviceConfig, scope.ServiceProvider, out claimId))
+                {
+                    scope.Dispose();
+                    return null;
+                }
             }
             var tracker = scope.ServiceProvider.GetRequiredService<IUnifiedOperationTracker>();
             var notifications = scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>();
@@ -421,47 +456,61 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
         try
         {
-            // The decision is fixed for this snapshot, including a platform already owned by a detached run.
-            foreach (var schedule in dueServices)
+            lock (_scheduleLock)
             {
-                if (TryClaimRun(schedule, scope.ServiceProvider, out var claimId))
-                    claimedPlatforms.Add(schedule.ScheduleId, claimId);
-            }
+                config = _stateService.GetScheduledPrefillConfig();
+                var candidates = dueServices.Select(schedule => schedule.ScheduleId).ToHashSet();
+                dueServices = config.GetSchedulesInRunOrder()
+                    .Where(schedule => candidates.Contains(schedule.ScheduleId) && schedule.Enabled)
+                    .Where(schedule =>
+                    {
+                        if (trigger == RunTrigger.Manual) return true;
+                        lock (_ranThisProcess)
+                            return ScheduledPrefillRunGates.IsServiceDue(schedule.IntervalHours,
+                                _stateService.GetScheduledPrefillServiceLastRun(schedule.ScheduleId.ToString("N")),
+                                DateTime.UtcNow, _ranThisProcess.Contains(schedule.ScheduleId), schedule.CustomSchedule);
+                    }).ToList();
+                foreach (var schedule in dueServices)
+                    if (TryClaimRun(schedule, scope.ServiceProvider, out var claimId))
+                        claimedPlatforms.Add(schedule.ScheduleId, claimId);
+                if (dueServices.Count == 0) return;
+                notificationMetadata = new ScheduledPrefillOperationMetadata(dueServices.Any(schedule => ResolveShowNotification(schedule, trigger)));
 
-            operationId = tracker.RegisterOperation(
-                OperationType.ScheduledPrefill, "Scheduled Prefill", cts, notificationMetadata);
-            var operationIdString = operationId.Value.ToString();
-            foreach (var dueService in dueServices)
-            {
-                var serviceState = new ScheduledPrefillServiceRunState(
-                    dueService.ServiceId, dueService.ScheduleId, dueService.ScheduleName,
-                    ResolveShowNotification(dueService, trigger));
-                var serviceCts = CancellationTokenSource.CreateLinkedTokenSource(runToken);
-                var serviceToken = serviceCts.Token;
-                Guid serviceOperationId;
-                try
+                operationId = tracker.RegisterOperation(
+                    OperationType.ScheduledPrefill, "Scheduled Prefill", cts, notificationMetadata);
+                var operationIdString = operationId.Value.ToString();
+                foreach (var dueService in dueServices)
                 {
-                    serviceOperationId = tracker.RegisterOperation(
-                        OperationType.ScheduledPrefill,
-                        $"Scheduled Prefill - {dueService.ServiceId} - {dueService.ScheduleName}",
-                        serviceCts, serviceState);
-                }
-                catch
-                {
-                    serviceCts.Dispose();
-                    throw;
-                }
+                    var serviceState = new ScheduledPrefillServiceRunState(
+                        dueService.ServiceId, dueService.ScheduleId, dueService.ScheduleName,
+                        ResolveShowNotification(dueService, trigger));
+                    var serviceCts = CancellationTokenSource.CreateLinkedTokenSource(runToken);
+                    var serviceToken = serviceCts.Token;
+                    Guid serviceOperationId;
+                    try
+                    {
+                        serviceOperationId = tracker.RegisterOperation(
+                            OperationType.ScheduledPrefill,
+                            $"Scheduled Prefill - {dueService.ServiceId} - {dueService.ScheduleName}",
+                            serviceCts, serviceState);
+                    }
+                    catch
+                    {
+                        serviceCts.Dispose();
+                        throw;
+                    }
 
-                serviceRuns.Add(new ScheduledPrefillServiceRun(
-                    dueService, serviceOperationId, serviceOperationId.ToString(),
-                    operationIdString, serviceState, serviceToken, ClaimId: claimedPlatforms.GetValueOrDefault(dueService.ScheduleId)));
+                    serviceRuns.Add(new ScheduledPrefillServiceRun(
+                        dueService, serviceOperationId, serviceOperationId.ToString(),
+                        operationIdString, serviceState, serviceToken, ClaimId: claimedPlatforms.GetValueOrDefault(dueService.ScheduleId)));
+                }
             }
 
             RaiseExecutionStateChanged();
             await notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillStarted, new
             {
-                operationId = operationIdString,
-                runOperationId = operationIdString,
+                operationId = operationId.Value.ToString(),
+                runOperationId = operationId.Value.ToString(),
                 serviceId = (string?)null,
                 serviceCount = dueServices.Count,
                 showNotification = notificationMetadata.ShowNotification
@@ -759,7 +808,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 }
                 var run = daemon.GetRun(session.Id, status.RunId);
                 var claimId = Guid.NewGuid();
-                if (run is null || !_runningSchedules.TryAdd(scheduleId, (claimId, null))) continue;
+                lock (_scheduleLock)
+                {
+                    config = _stateService.GetScheduledPrefillConfig();
+                    if (run is null || !config.GetSchedulesInRunOrder().Any(schedule =>
+                            schedule.ScheduleId == scheduleId && schedule.ServiceId == platform)
+                        || !_runningSchedules.TryAdd(scheduleId, (claimId, null))) continue;
+                }
                 var scope = _scopeFactory.CreateScope();
                 var tracker = scope.ServiceProvider.GetRequiredService<IUnifiedOperationTracker>();
                 var notifications = scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>();

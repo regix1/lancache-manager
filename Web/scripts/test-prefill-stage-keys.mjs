@@ -96,10 +96,13 @@ globalThis.testTranslator = translator;
 
 test('both capacity surfaces render active downloads separately from saved schedules in both locales', async () => {
   const paths = [
-    'src/components/features/prefill/PrefillCommandButtons.tsx',
-    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx'
+    ['src/components/features/prefill/PrefillCommandButtons.tsx', 'space-y-1'],
+    [
+      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillActivityModal.tsx',
+      'scheduled-prefill-activity__capacity'
+    ]
   ];
-  for (const path of paths) {
+  for (const [path, capacityClass] of paths) {
     const source = parseSource(path, ts.ScriptKind.TSX);
     const call = findSoleNode(
       source,
@@ -137,7 +140,7 @@ test('both capacity surfaces render active downloads separately from saved sched
           maxConcurrentRuns: 4
         });
         assert.equal(tree.type, 'div');
-        assert.equal(tree.props.className, 'space-y-1');
+        assert.equal(tree.props.className, capacityClass);
         const paragraphs = tree.children.filter((child) => child?.type === 'p');
         assert.equal(paragraphs.length, 2);
         const [label, help] = paragraphs.map((paragraph) => paragraph.children.join(''));
@@ -156,6 +159,60 @@ test('both capacity surfaces render active downloads separately from saved sched
         assert.doesNotMatch(label + help, /{{|prefill\.runs\.|run slots in use/);
       }
     }
+  }
+});
+
+test('scheduled Activity binds each service capacity and downloads to the same container', () => {
+  const activity = parseSource(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillActivityModal.tsx',
+    ts.ScriptKind.TSX
+  );
+  const renderService = findSoleNode(
+    activity,
+    'Activity service renderer',
+    (node) =>
+      ts.isArrowFunction(node) &&
+      node.getText(activity).includes('<ScheduledPrefillDownloads') &&
+      node.getText(activity).includes('container.activeRunCount')
+  );
+  const containers = new Map([
+    ['steam', { service: 'Steam', activeRunCount: 1, maxConcurrentRuns: 4 }],
+    ['epic', { service: 'Epic', activeRunCount: 3, maxConcurrentRuns: 6 }]
+  ]);
+  const React = {
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children })
+  };
+  const render = bindLifted(
+    renderService.getText(activity),
+    {
+      React,
+      baseKey: 'management.schedules.services.scheduledPrefill.config',
+      containers: {
+        containersByServiceKey: containers,
+        cancellingRunIds: [],
+        runErrors: {},
+        handleCancelPersistentDownload: () => undefined
+      },
+      disabled: false,
+      supportsConcurrentPrefill: () => true,
+      ScheduledPrefillDownloads: 'downloads',
+      t: (key, values) =>
+        key === 'prefill.runs.capacity' ? `${values.count}/${values.limit}` : key
+    },
+    { jsx: ts.JsxEmit.React }
+  );
+
+  for (const [serviceKey, expected] of [
+    ['steam', '1/4'],
+    ['epic', '3/6']
+  ]) {
+    const tree = render(serviceKey);
+    const capacity = tree.children[1].children[0].children[0];
+    const downloads = tree.children[2];
+    assert.equal(capacity, expected);
+    assert.equal(downloads.type, 'downloads');
+    assert.equal(downloads.props.serviceKey, serviceKey);
+    assert.equal(downloads.props.container, containers.get(serviceKey));
   }
 });
 
@@ -244,6 +301,7 @@ test('both picker load failures translate typed reasons and expose missing requi
       let scheduledMessage;
       const selection = {
         serviceKey: 'steam',
+        scheduleId: 'schedule-1',
         sessionId: 's1',
         cachedAppIds: [],
         outdatedAppIds: [],
@@ -253,6 +311,17 @@ test('both picker load failures translate typed reasons and expose missing requi
       await bindLifted(scheduledSource, {
         ApiError,
         t,
+        current: { current: { opening: 'opening-1' } },
+        identityRef: { current: 'account-a' },
+        containerRef: {
+          current: {
+            sessionId: 's1',
+            isRunning: true,
+            isAuthenticated: true,
+            needsRelogin: false
+          }
+        },
+        gameAuthRef: { current: { key: 'steam:s1', authenticated: true } },
         gameSelectionRef: { current: selection },
         gameRequestRef: { current: null },
         setLoadingGameSelectionService: () => undefined,
@@ -260,6 +329,7 @@ test('both picker load failures translate typed reasons and expose missing requi
         setGameLoadError: (message) => {
           scheduledMessage = message;
         },
+        isScheduledPrefillAnonymousService: (service) => ['battleNet', 'riot'].includes(service),
         getPersistentServiceId: (service) => service,
         ApiService: {
           getPersistentPrefillGames: async () => {

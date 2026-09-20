@@ -10,7 +10,7 @@ export function EpicPersistentLogin({
   autoStart = false,
   onDismiss
 }: PersistentLoginHostProps) {
-  const { state, actions, startLogin, dismissModal, resumeModal } = usePersistentEpicAuth();
+  const { state, actions, startLogin, resumeModal } = usePersistentEpicAuth();
   const { loginDeadline } = usePersistentLoginStoreState('Epic');
   const authModalOpened = usePersistentLoginHost({
     service: 'Epic',
@@ -29,7 +29,7 @@ export function EpicPersistentLogin({
   return (
     <EpicAuthModal
       opened={authModalOpened}
-      onClose={dismissModal}
+      onClose={onDismiss}
       state={state}
       actions={actions}
       dismissBehavior="keep-pending"

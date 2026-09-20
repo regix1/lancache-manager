@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,17 +21,20 @@ public class ScheduledPrefillConfigController : ControllerBase
     private readonly IServiceScheduleRegistry _registry;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ScheduledPrefillService _scheduledPrefill;
+    private readonly ILogger<ScheduledPrefillConfigController> _logger;
 
     public ScheduledPrefillConfigController(
         IStateService stateService,
         IServiceScheduleRegistry registry,
         IUnifiedOperationTracker operationTracker,
-        ScheduledPrefillService scheduledPrefill)
+        ScheduledPrefillService scheduledPrefill,
+        ILogger<ScheduledPrefillConfigController>? logger = null)
     {
         _stateService = stateService;
         _registry = registry;
         _operationTracker = operationTracker;
         _scheduledPrefill = scheduledPrefill;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ScheduledPrefillConfigController>.Instance;
     }
 
     /// <summary>
@@ -106,32 +110,146 @@ public class ScheduledPrefillConfigController : ControllerBase
     [HttpPut("config")]
     public async Task<ActionResult> SetConfigAsync([FromBody] ScheduledPrefillConfigDto config)
     {
-        ScheduledPrefillConfigDto validated;
+        await UpdateAsync(_ => config);
+        return NoContent();
+    }
+
+    [HttpPost("services/{platform}/schedules")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> CreateScheduleAsync(
+        PrefillPlatform platform, [FromBody] ScheduledPrefillSchedule schedule)
+        => Ok(await UpdateAsync(config => ChangeService(config, platform, schedules => [.. schedules, schedule])));
+
+    [HttpPut("services/{platform}/schedules/{scheduleId:guid}")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> SetScheduleAsync(
+        PrefillPlatform platform, Guid scheduleId, [FromBody] ScheduledPrefillSchedule schedule)
+    {
+        if (schedule.Id != scheduleId)
+            throw new ValidationException("The schedule ID must match the route.");
+        return Ok(await UpdateAsync(config => ChangeSchedule(config, platform, scheduleId, _ => schedule)));
+    }
+
+    [HttpPut("services/{platform}/schedules/{scheduleId:guid}/enabled")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> SetEnabledAsync(
+        PrefillPlatform platform, Guid scheduleId, [FromBody] ScheduledPrefillEnabledRequest request)
+        => Ok(await UpdateAsync(config => ChangeSchedule(config, platform, scheduleId,
+            schedule => CopyEnabled(schedule, request.Enabled))));
+
+    [HttpPut("services/{platform}/schedules/{scheduleId:guid}/timing")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> SetTimingAsync(
+        PrefillPlatform platform, Guid scheduleId, [FromBody] ScheduledPrefillTimingRequest request)
+        => Ok(await UpdateAsync(config => ChangeSchedule(config, platform, scheduleId, schedule => new ScheduledPrefillSchedule
+        {
+            Id = schedule.Id,
+            Name = schedule.Name,
+            Enabled = schedule.Enabled,
+            IntervalHours = request.IntervalHours,
+            CustomSchedule = request.CustomSchedule,
+            Preset = schedule.Preset,
+            TopCount = schedule.TopCount,
+            SelectedAppIds = schedule.SelectedAppIds,
+            OperatingSystems = schedule.OperatingSystems,
+            Force = schedule.Force,
+            MaxConcurrency = schedule.MaxConcurrency,
+            NotificationMode = schedule.NotificationMode,
+            NotificationDisplayMode = schedule.NotificationDisplayMode
+        })));
+
+    [HttpDelete("services/{platform}/schedules/{scheduleId:guid}")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> DeleteScheduleAsync(PrefillPlatform platform, Guid scheduleId)
+        => Ok(await UpdateAsync(config => ChangeService(config, platform, schedules =>
+        {
+            if (!schedules.Any(schedule => schedule.Id == scheduleId))
+                throw new NotFoundException("Scheduled prefill record");
+            if (schedules.Count == 1)
+                throw new ValidationException("The final schedule for a service cannot be deleted.");
+            return schedules.Where(schedule => schedule.Id != scheduleId).ToList();
+        })));
+
+    [HttpPut("schedules/enabled")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> SetAllEnabledAsync([FromBody] ScheduledPrefillEnabledRequest request)
+        => Ok(await UpdateAsync(config => CopyConfig(config,
+            config.GetServicesInRunOrder().Select(service => ScheduledPrefillConfigFactory.CopyServiceWithSchedules(
+                service, service.Schedules.Select(schedule => CopyEnabled(schedule, request.Enabled)).ToList())).ToList(),
+            config.PersistenceMode)));
+
+    [HttpPut("settings")]
+    public async Task<ActionResult<ScheduledPrefillConfigDto>> SetSettingsAsync([FromBody] ScheduledPrefillPersistenceRequest request)
+        => Ok(await UpdateAsync(config => CopyConfig(config, config.GetServicesInRunOrder(), request.Mode)));
+
+    private async Task<ScheduledPrefillConfigDto> UpdateAsync(Func<ScheduledPrefillConfigDto, ScheduledPrefillConfigDto> update)
+    {
+        ScheduledPrefillConfigDto saved;
         try
         {
-            validated = ScheduledPrefillConfigFactory.Validate(config);
+            saved = _scheduledPrefill.UpdateConfig(update);
         }
         catch (ScheduledPrefillConfigValidationException ex)
         {
-            return BadRequest(ex.Message);
+            throw new ValidationException(ex.Message);
         }
-
-        var retainedIds = validated.GetSchedulesInRunOrder()
-            .Select(schedule => schedule.ScheduleId)
-            .ToHashSet();
-        var deletingActive = _operationTracker
-            .GetActiveOperations(OperationType.ScheduledPrefill)
-            .Any(operation => operation.Metadata is ScheduledPrefillServiceRunState state
-                && !retainedIds.Contains(state.ScheduleId));
-        if (deletingActive)
+        // The file replacement has committed. Schedule broadcasts are best effort after that point.
+        try
         {
-            return Conflict(ApiResponse.Conflict("An active scheduled prefill record cannot be deleted"));
+            await _registry.BroadcastSchedulesAsync();
         }
-
-        _stateService.SetScheduledPrefillConfig(validated);
-        await _registry.BroadcastSchedulesAsync();
-        return NoContent();
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not broadcast the saved scheduled prefill configuration");
+        }
+        return saved;
     }
+
+    private static ScheduledPrefillConfigDto ChangeSchedule(ScheduledPrefillConfigDto config, PrefillPlatform platform,
+        Guid scheduleId, Func<ScheduledPrefillSchedule, ScheduledPrefillSchedule> update)
+        => ChangeService(config, platform, schedules =>
+        {
+            var index = schedules.FindIndex(schedule => schedule.Id == scheduleId);
+            if (index < 0) throw new NotFoundException("Scheduled prefill record");
+            schedules[index] = update(schedules[index]);
+            return schedules;
+        });
+
+    private static ScheduledPrefillConfigDto ChangeService(ScheduledPrefillConfigDto config, PrefillPlatform platform,
+        Func<List<ScheduledPrefillSchedule>, List<ScheduledPrefillSchedule>> update)
+    {
+        if (!Enum.IsDefined(platform)) throw new ValidationException("Unknown scheduled prefill platform.");
+        return CopyConfig(config, config.GetServicesInRunOrder().Select(service => service.ServiceId == platform
+            ? ScheduledPrefillConfigFactory.CopyServiceWithSchedules(service, update(service.Schedules))
+            : service).ToList(), config.PersistenceMode);
+    }
+
+    private static ScheduledPrefillConfigDto CopyConfig(ScheduledPrefillConfigDto config,
+        IReadOnlyList<ScheduledPrefillServiceConfigDto> services, PersistenceMode? mode)
+        => new()
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = mode,
+            Steam = services.Single(service => service.ServiceId == PrefillPlatform.Steam),
+            Epic = services.Single(service => service.ServiceId == PrefillPlatform.Epic),
+            Xbox = services.Single(service => service.ServiceId == PrefillPlatform.Xbox),
+            BattleNet = services.Single(service => service.ServiceId == PrefillPlatform.BattleNet),
+            Riot = services.Single(service => service.ServiceId == PrefillPlatform.Riot)
+        };
+
+    private static ScheduledPrefillSchedule CopyEnabled(ScheduledPrefillSchedule schedule, bool enabled)
+        => new()
+        {
+            Id = schedule.Id,
+            Name = schedule.Name,
+            Enabled = enabled,
+            IntervalHours = schedule.IntervalHours,
+            CustomSchedule = schedule.CustomSchedule,
+            Preset = schedule.Preset,
+            TopCount = schedule.TopCount,
+            SelectedAppIds = schedule.SelectedAppIds,
+            OperatingSystems = schedule.OperatingSystems,
+            Force = schedule.Force,
+            MaxConcurrency = schedule.MaxConcurrency,
+            NotificationMode = schedule.NotificationMode,
+            NotificationDisplayMode = schedule.NotificationDisplayMode
+        };
 
     /// <summary>
     /// Reports whether a scheduled prefill run is executing right now.

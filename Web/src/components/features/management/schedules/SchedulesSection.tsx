@@ -17,6 +17,8 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
+import { recoverScheduledPrefillEditSession } from './scheduled-prefill/scheduledPrefillEditSessionLedger';
+import { sessionStore } from '@utils/storage';
 import { ApiError } from '@services/apiError';
 import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
@@ -1760,6 +1762,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     try {
+      await recoverScheduledPrefillEditSession(sessionStore, (request) =>
+        ApiService.cleanupPersistentPrefillEditSession(request)
+      );
       const result = await ApiService.runAllSchedules();
       await fetchSchedules();
 
@@ -1808,6 +1813,11 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       );
 
       try {
+        if (key === 'scheduledPrefill') {
+          await recoverScheduledPrefillEditSession(sessionStore, (request) =>
+            ApiService.cleanupPersistentPrefillEditSession(request)
+          );
+        }
         const result = await ApiService.triggerSchedule(key);
         if (result.status === 'skipped') {
           // A retained hold owns its waiting event; retire the optimistic running state.
@@ -1883,6 +1893,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       markStarting(pendingKey);
 
       try {
+        await recoverScheduledPrefillEditSession(sessionStore, (request) =>
+          ApiService.cleanupPersistentPrefillEditSession(request)
+        );
         const result = await ApiService.runScheduledPrefillService(platform, scheduleId);
         // Two outcomes now: it started, or this platform was already running. A run started on its
         // own task no longer waits behind another platform's run, so there is no queued outcome left

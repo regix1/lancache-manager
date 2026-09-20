@@ -23,13 +23,20 @@ import {
 const SCHEDULES = 'src/components/features/management/schedules/SchedulesSection.tsx';
 const runAllSource = liftHookCallback(SCHEDULES, 'useCallback', 'ApiService.runAllSchedules()');
 
-const runAll = async ({ response, failure } = {}) => {
+const runAll = async ({ response, failure, recoveryFailure } = {}) => {
   const calls = [];
   const notices = [];
   const running = [];
   const confirmations = [];
   const handler = bindLifted(runAllSource, {
+    sessionStore: {},
+    recoverScheduledPrefillEditSession: async (_store, cleanup) => {
+      calls.push('recover');
+      if (recoveryFailure) throw recoveryFailure;
+      await cleanup({ editSessionId: 'old-edit' });
+    },
     ApiService: {
+      cleanupPersistentPrefillEditSession: async () => calls.push('cleanup'),
       runAllSchedules: async () => {
         calls.push('request');
         if (failure) throw failure;
@@ -49,7 +56,7 @@ const runAll = async ({ response, failure } = {}) => {
   return { calls, notices, running, confirmations };
 };
 
-test('normal, queued and refused fan-outs rely only on per-service acknowledgments', async () => {
+test('result fixtures without unqueued active work rely only on per-service acknowledgments', async () => {
   for (const response of [
     { triggeredCount: 4, alreadyRunningCount: 0, skippedCount: 0 },
     { triggeredCount: 2, alreadyRunningCount: 2, skippedCount: 0 },
@@ -61,7 +68,7 @@ test('normal, queued and refused fan-outs rely only on per-service acknowledgmen
     }
   ]) {
     const result = await runAll({ response });
-    assert.deepEqual(result.calls, ['request', 'refresh', 'flash']);
+    assert.deepEqual(result.calls, ['recover', 'cleanup', 'request', 'refresh', 'flash']);
     assert.deepEqual(result.notices, [], 'the HTTP fan-out adds no aggregate acknowledgment');
     assert.deepEqual(result.running, [true, false]);
     assert.deepEqual(result.confirmations, [false]);
@@ -71,12 +78,28 @@ test('normal, queued and refused fan-outs rely only on per-service acknowledgmen
 test('a Run All request failure still uses the existing error notification and finally cleanup', async () => {
   const result = await runAll({ failure: new Error('Run All transport failed') });
 
-  assert.deepEqual(result.calls, ['request']);
+  assert.deepEqual(result.calls, ['recover', 'cleanup', 'request']);
   assert.deepEqual(result.notices, [
     {
       type: 'generic',
       status: 'failed',
       message: 'Run All transport failed',
+      details: { notificationType: 'error' }
+    }
+  ]);
+  assert.deepEqual(result.running, [true, false]);
+  assert.deepEqual(result.confirmations, [false]);
+});
+
+test('cleanup rejection prevents dispatch and still uses failure and finally handling', async () => {
+  const result = await runAll({ recoveryFailure: new Error('Old edit cleanup failed') });
+
+  assert.deepEqual(result.calls, ['recover']);
+  assert.deepEqual(result.notices, [
+    {
+      type: 'generic',
+      status: 'failed',
+      message: 'Old edit cleanup failed',
       details: { notificationType: 'error' }
     }
   ]);

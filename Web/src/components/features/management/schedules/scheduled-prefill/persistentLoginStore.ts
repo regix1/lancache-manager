@@ -5,6 +5,7 @@ import type {
   PersistentSessionNotFoundState
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
+import { getAuthStage, type AuthStage, type AuthStep } from '@hooks/authStage';
 import { sessionStore } from '@utils/storage';
 import { isRecord } from './typeGuards';
 
@@ -55,6 +56,7 @@ interface PersistentLoginStoreState {
    * through explicit Cancel but cannot submit credentials or start polling.
    */
   loginDeadline: number | null;
+  step: AuthStep | null;
 }
 
 interface PersistentChallengeFlags {
@@ -100,7 +102,8 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   dismissed: false,
   sessionUnavailableState: null,
   sessionId: null,
-  loginDeadline: null
+  loginDeadline: null,
+  step: null
 };
 
 /**
@@ -188,6 +191,8 @@ const loginAttemptListeners = new Map<PersistentPrefillServiceId, Set<Listener>>
 // the replacement attempt's auth modal.
 const loginEpochs = new Map<PersistentPrefillServiceId, number>();
 const integrationReuseEpochs = new Map<PersistentPrefillServiceId, number>();
+const stepCounters = new Map<PersistentPrefillServiceId, number>();
+const retiredChallengeIds = new Map<PersistentPrefillServiceId, Set<string>>();
 
 interface PersistentLoginStartRequest {
   sessionId: string;
@@ -294,6 +299,7 @@ function invalidateInFlightLogin(service: PersistentPrefillServiceId): void {
   integrationReuseEpochs.delete(service);
   startPromises.delete(service);
   activeLoginEditActions.delete(service);
+  retiredChallengeIds.delete(service);
   const cancelFlag = cancelFlags.get(service);
   if (cancelFlag) {
     cancelFlag.current = false;
@@ -343,6 +349,53 @@ export function updatePersistentLoginState(
 ): void {
   states.set(service, updater(getPersistentLoginState(service)));
   notify(service);
+}
+
+function retirePersistentLoginStep(service: PersistentPrefillServiceId, step: AuthStep): void {
+  if (step.challengeIds.size === 0) return;
+  const retired = retiredChallengeIds.get(service) ?? new Set<string>();
+  for (const challengeId of step.challengeIds) retired.add(challengeId);
+  retiredChallengeIds.set(service, retired);
+}
+
+export function beginPersistentLoginStep(
+  service: PersistentPrefillServiceId,
+  stage: AuthStage
+): AuthStep | null {
+  const current = getPersistentLoginState(service);
+  if (current.step) return null;
+  const challengeIds = new Set<string>();
+  if (current.pendingChallenge && getAuthStage(current.pendingChallenge.credentialType) === stage) {
+    challengeIds.add(current.pendingChallenge.challengeId);
+  }
+  const step: AuthStep = {
+    actionId: (stepCounters.get(service) ?? 0) + 1,
+    stage,
+    challengeIds
+  };
+  stepCounters.set(service, step.actionId);
+  updatePersistentLoginState(service, (state) => ({
+    ...state,
+    step,
+    loading: true,
+    error: null
+  }));
+  return step;
+}
+
+export function finishPersistentLoginStep(
+  service: PersistentPrefillServiceId,
+  actionId: number
+): boolean {
+  const current = getPersistentLoginState(service);
+  if (current.step?.actionId !== actionId) return false;
+  retirePersistentLoginStep(service, current.step);
+  updatePersistentLoginState(service, (state) => ({
+    ...state,
+    step: null,
+    loading: false
+  }));
+  return true;
 }
 
 // The ceiling here runs from the explicit "Log in" click that starts the attempt, not from a
@@ -423,11 +476,13 @@ export function armPersistentLoginTimeout(
   if (!clocks.has(service)) {
     readPersistentLoginClock(service);
     if (!sessionStore.removeItem(`persistent-login-deadline:${service}`)) {
+      if (current.step) retirePersistentLoginStep(service, current.step);
       updatePersistentLoginState(service, (state) => ({
         ...state,
         sessionId: state.sessionId ?? getPersistentLoginStartRequest(service)?.sessionId ?? null,
         loading: false,
         loginDeadline: null,
+        step: null,
         error: messages.noResult
       }));
       return false;
@@ -500,11 +555,13 @@ export function ensurePersistentLoginTimeout(
     !Number.isFinite(current.loginDeadline) ||
     clocks.get(service)?.deadline !== current.loginDeadline
   ) {
+    if (current.step) retirePersistentLoginStep(service, current.step);
     clearPersistentLoginTimeout(service);
     updatePersistentLoginState(service, (state) => ({
       ...state,
       loading: false,
       loginDeadline: null,
+      step: null,
       error: messages.noResult
     }));
     return false;
@@ -533,11 +590,14 @@ if (typeof window !== 'undefined') {
         snapshots.delete(service);
       } else {
         const messages = clockMessages.get(service)!;
+        const current = getPersistentLoginState(service);
+        if (current.step) retirePersistentLoginStep(service, current.step);
         clocks.delete(service);
         updatePersistentLoginState(service, (state) => ({
           ...state,
           loading: false,
           loginDeadline: null,
+          step: null,
           error: messages.noResult
         }));
       }
@@ -607,19 +667,6 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
   invalidateInFlightLogin(service);
   states.set(service, INITIAL_PERSISTENT_LOGIN_STATE);
   notify(service);
-}
-
-export function retirePersistentLoginState(service: PersistentPrefillServiceId): void {
-  clearPersistentLoginClock(service);
-  clearPersistentLoginTimeout(service);
-  requestedLoginStarts.delete(service);
-  integrationReuseEpochs.delete(service);
-  invalidateInFlightLogin(service);
-  const current = states.get(service);
-  if (current !== undefined && current !== INITIAL_PERSISTENT_LOGIN_STATE) {
-    states.set(service, INITIAL_PERSISTENT_LOGIN_STATE);
-    notify(service);
-  }
 }
 
 /**
@@ -703,6 +750,7 @@ export function applyPersistentLoginChallenge(
   const session = sessionId !== undefined ? sessionId : current.sessionId;
   const active = clocks.get(service);
   const operationId = challenge.operationId ?? null;
+  const stage = getAuthStage(challenge.credentialType);
   if (current.sessionId && current.sessionId !== session) return false;
   if (active?.operationId && operationId !== null && active.operationId !== operationId)
     return false;
@@ -723,11 +771,13 @@ export function applyPersistentLoginChallenge(
     !session ||
     typeof challenge.challengeId !== 'string' ||
     !challenge.challengeId ||
+    stage === null ||
     !Number.isFinite(expiry) ||
     !consumed ||
     (operationId !== null && (typeof operationId !== 'string' || !operationId.trim())) ||
     !matches
   ) {
+    if (current.step) retirePersistentLoginStep(service, current.step);
     clearPersistentLoginTimeout(service);
     clocks.delete(service);
     updatePersistentLoginState(service, (state) => ({
@@ -735,11 +785,16 @@ export function applyPersistentLoginChallenge(
       pendingChallenge: challenge,
       sessionId: session,
       loading: false,
-      dismissed: false,
+      dismissed: state.dismissed,
       loginDeadline: null,
+      step: null,
       error: messages.noResult
     }));
     return false;
+  }
+
+  if (retiredChallengeIds.get(service)?.has(challenge.challengeId)) {
+    return true;
   }
 
   const deadline = Math.min(stored.deadline, expiry);
@@ -750,15 +805,24 @@ export function applyPersistentLoginChallenge(
     operationId: stored.operationId ?? operationId,
     challengeId: challenge.challengeId
   });
+  const submitted = current.step;
+  const nextStep =
+    submitted && submitted.stage === stage
+      ? {
+          ...submitted,
+          challengeIds: new Set([...submitted.challengeIds, challenge.challengeId])
+        }
+      : null;
+  if (submitted && !nextStep) retirePersistentLoginStep(service, submitted);
   updatePersistentLoginState(service, (state) => {
-    const isRedelivery = state.pendingChallenge?.challengeId === challenge.challengeId;
     return {
       ...state,
       pendingChallenge: challenge,
-      loading: isRedelivery ? state.loading : false,
-      dismissed: isRedelivery ? state.dismissed : false,
+      loading: nextStep ? true : false,
+      dismissed: state.dismissed,
       sessionId: session,
-      loginDeadline: deadline
+      loginDeadline: deadline,
+      step: nextStep
     };
   });
   armPersistentLoginTimeout(service, deadline, messages);
@@ -853,7 +917,13 @@ function subscribeLoginAttempt(
  * per mount, so an explicit click always reaches `beginLogin` again.
  */
 export function requestPersistentLoginAttempt(service: PersistentPrefillServiceId): void {
-  loginAttemptCounters.set(service, (loginAttemptCounters.get(service) ?? 0) + 1);
+  const nonce = (loginAttemptCounters.get(service) ?? 0) + 1;
+  loginAttemptCounters.set(service, nonce);
+  const current = getPersistentLoginState(service);
+  if (current.dismissed) {
+    states.set(service, { ...current, dismissed: false });
+    notify(service);
+  }
   notifyLoginAttempt(service);
 }
 
@@ -889,6 +959,12 @@ export function consumeLoginAttemptNonce(
   service: PersistentPrefillServiceId,
   nonce: number
 ): boolean {
+  if (
+    nonce !== (loginAttemptCounters.get(service) ?? 0) ||
+    getPersistentLoginState(service).dismissed
+  ) {
+    return false;
+  }
   const consumed = consumedLoginAttemptNonces.get(service) ?? -1;
   if (nonce <= consumed) {
     return false;
@@ -915,6 +991,12 @@ export function hasUnconsumedLoginAttempt(
   service: PersistentPrefillServiceId,
   nonce: number = loginAttemptCounters.get(service) ?? 0
 ): boolean {
+  if (
+    nonce !== (loginAttemptCounters.get(service) ?? 0) ||
+    getPersistentLoginState(service).dismissed
+  ) {
+    return false;
+  }
   const consumed = consumedLoginAttemptNonces.get(service) ?? -1;
   return nonce > consumed;
 }

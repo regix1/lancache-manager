@@ -43,36 +43,18 @@ function CalendarNavigation({
   }));
 
   return (
-    // Two groups, not six loose controls. Stepping a month is one job, so the arrows and the
-    // two selects sit in a tight cluster and read as one control; the caller's own actions are
-    // a separate job and get a generous gap and the trailing edge. The wide gap is what makes
-    // the two groups legible, so the inner gap stays deliberately smaller than it.
-    //
-    // Six controls cannot share one line on a phone: at a 298px track their own widths total
-    // 309px before any gap at all. So the actions wrap to a second line by design and are
-    // right-aligned there by the auto margin, rather than a lone control being orphaned in the
-    // centre of a row that ran out of room.
-    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-4">
-      <div className="calendar-nav flex items-center gap-1 max-sm:flex-1 sm:gap-1.5">
-        {/* md is the shared 40px control height, and below the phone breakpoint the dropdown
-            takes a 44px touch floor, so the icon-only arrows are squares at whichever of the
-            two is current. */}
+    <div className="calendar-navigation">
+      <div className="calendar-nav">
         <Button
           variant="filled"
           color="secondary"
           size="md"
-          className="btn-icon-square max-sm:w-11 max-sm:h-11"
+          className="btn-icon-square calendar-nav__previous"
           onClick={() => changeMonth(-1)}
         >
           <ChevronLeft className="w-5 h-5" />
         </Button>
 
-        {/* Both selects hold a constant width. Letting them size to their label moves every
-            control after them whenever the month changes, because proportional type gives Sep,
-            May and Jul three different widths, and monthNames is localized so a locale can be
-            wider still. On sm+ the widths are pinned to the longest label each list can produce;
-            below that the month select instead fills whatever the arrows and year leave on the
-            row, which is still a fixed span, because 68px cut December to "De..." on a phone. */}
         <EnhancedDropdown
           options={monthOptions}
           value={String(currentMonth.getMonth())}
@@ -81,7 +63,7 @@ function CalendarNavigation({
           size="md"
           maxHeight="200px"
           dropdownWidth="w-40"
-          className="max-sm:flex-1 max-sm:min-w-0 sm:w-[120px]"
+          className="calendar-nav__month"
         />
 
         <EnhancedDropdown
@@ -93,23 +75,21 @@ function CalendarNavigation({
           alignRight
           maxHeight="200px"
           dropdownWidth="w-28"
-          className="w-[72px] sm:w-[92px]"
+          className="calendar-nav__year"
         />
 
         <Button
           variant="filled"
           color="secondary"
           size="md"
-          className="btn-icon-square max-sm:w-11 max-sm:h-11"
+          className="btn-icon-square calendar-nav__next"
           onClick={() => changeMonth(1)}
         >
           <ChevronRight className="w-5 h-5" />
         </Button>
       </div>
 
-      {/* Only the two Events callers pass anything here. The auto margin is inside the guard so
-          the two date pickers, which pass nothing, keep a cluster that is not pushed anywhere. */}
-      {children ? <div className="ml-auto flex items-center gap-2">{children}</div> : null}
+      {children ? <div className="calendar-navigation__actions">{children}</div> : null}
     </div>
   );
 }

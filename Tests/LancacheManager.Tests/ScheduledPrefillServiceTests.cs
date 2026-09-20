@@ -483,11 +483,12 @@ public class ScheduledPrefillServiceTests
     // are constructed for real but never exercised (no SteamAuth is set, so Encrypt short-circuits and
     // no key material is needed); the in-memory state starts empty so the save path runs only the
     // anchor logic and never touches the disk-migration / steam-auth machinery.
-    private sealed class TempStateServiceContext : IDisposable
+    internal sealed class TempStateServiceContext : IDisposable
     {
         private readonly string _root;
 
-        public StateService StateService { get; }
+        public TestStateService StateService { get; }
+        public string StatePath { get; }
 
         public TempStateServiceContext()
         {
@@ -503,7 +504,8 @@ public class ScheduledPrefillServiceTests
             var steamAuthStorage = new SteamAuthStorageService(
                 NullLogger<SteamAuthStorageService>.Instance, pathResolver, encryption);
 
-            StateService = new StateService(
+            StatePath = Path.Combine(pathResolver.GetStateDirectory(), "state.json");
+            StateService = new TestStateService(
                 NullLogger<StateService>.Instance, pathResolver, encryption, steamAuthStorage);
 
             // Seed an empty in-memory state so GetState() short-circuits on the cache and the save path
@@ -699,6 +701,23 @@ public class ScheduledPrefillServiceTests
 
         Assert.DoesNotContain("Scheduled Prefill - BattleNet - Default", harness.Tracker.RegisteredNames);
         Assert.DoesNotContain("Scheduled Prefill - Steam - Default", harness.Tracker.RegisteredNames);
+    }
+
+    internal sealed class TestStateService : StateService
+    {
+        public bool FailWrites { get; set; }
+        public Action? BeforeWrite { get; set; }
+
+        public TestStateService(ILogger<StateService> logger, IPathResolver paths,
+            SecureStateEncryptionService encryption, SteamAuthStorageService auth)
+            : base(logger, paths, encryption, auth) { }
+
+        protected override void WriteState(string contents)
+        {
+            BeforeWrite?.Invoke();
+            if (FailWrites) throw new IOException("Injected write failure.");
+            base.WriteState(contents);
+        }
     }
 
     [Fact]
@@ -935,8 +954,8 @@ public class ScheduledPrefillServiceTests
         var replacement = ScheduledPrefillConfigFactory.CreateDefault();
         replacement.Steam.Schedules.Clear();
 
-        Assert.IsType<ConflictObjectResult>(
-            await controller.SetConfigAsync(replacement));
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => controller.SetConfigAsync(replacement));
     }
 
     [Fact]
@@ -1059,26 +1078,34 @@ public class ScheduledPrefillServiceTests
 
     private static (ScheduledPrefillConfigController Controller, List<OperationInfo> Active) CreateRunServiceController()
     {
-        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
         var tracker = (ActiveOperationsTrackerProxy)DispatchProxy.Create<IUnifiedOperationTracker, ActiveOperationsTrackerProxy>();
         var state = (PrefillConfigStateServiceProxy)DispatchProxy.Create<IStateService, PrefillConfigStateServiceProxy>();
+        var services = new ServiceCollection();
+        services.AddSingleton((IUnifiedOperationTracker)tracker);
+        services.AddSingleton((ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>());
+        var container = services.BuildServiceProvider();
+        var runtime = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            container.GetRequiredService<IServiceScopeFactory>(), (IStateService)state);
         var controller = new ScheduledPrefillConfigController(
             (IStateService)state,
             (IServiceScheduleRegistry)DispatchProxy.Create<IServiceScheduleRegistry, NullReturningProxy>(),
             (IUnifiedOperationTracker)tracker,
-            harness.Service);
+            runtime, NullLogger<ScheduledPrefillConfigController>.Instance);
 
         return (controller, tracker.Active);
     }
 
     // Answers GetActiveOperations from a list the test fills; every other member no-ops.
     // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
-    private class ActiveOperationsTrackerProxy : DispatchProxy
+    internal class ActiveOperationsTrackerProxy : DispatchProxy
     {
         public List<OperationInfo> Active { get; } = [];
+        public Action? BeforeRegister { get; set; }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
+            if (targetMethod?.Name == nameof(IUnifiedOperationTracker.RegisterOperation))
+                BeforeRegister?.Invoke();
             if (targetMethod?.Name == nameof(IUnifiedOperationTracker.GetActiveOperations))
             {
                 return Active.AsEnumerable();
@@ -1531,6 +1558,16 @@ public class ScheduledPrefillServiceTests
         {
             if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillConfig))
             {
+                return Config;
+            }
+
+            if (targetMethod?.Name == nameof(IStateService.UpdateScheduledPrefillConfig))
+            {
+                var next = ScheduledPrefillConfigFactory.Validate(((Func<ScheduledPrefillConfigDto, ScheduledPrefillConfigDto>)args![0]!)(Config));
+                var retained = next.GetSchedulesInRunOrder().Select(schedule => schedule.ScheduleId).ToHashSet();
+                ((Action<IReadOnlySet<Guid>>?)args[1])?.Invoke(Config.GetSchedulesInRunOrder()
+                    .Select(schedule => schedule.ScheduleId).Where(id => !retained.Contains(id)).ToHashSet());
+                Config = next;
                 return Config;
             }
 

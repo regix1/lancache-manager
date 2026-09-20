@@ -34,6 +34,85 @@ public sealed class EndpointAuthorizationCollection
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class EndpointAuthorizationContractTests
 {
+    [Fact]
+    public async Task ScheduledPrefillMutationsRequireAccountsAndAntiforgery()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var anonymous = host.Application.CreateClient();
+        using var guest = host.Application.CreateClient();
+        using var admin = await host.CreateAdminClientAsync();
+        host.Application.Services.GetRequiredService<IStateService>().SetSetupCompleted(true);
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(guest);
+        using var guestLogin = await guest.PostAsync("/api/auth/guest", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, guestLogin.StatusCode);
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(guest);
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        var root = "/api/system/schedules/scheduledPrefill";
+        var routes = new (HttpMethod Method, string Path)[]
+        {
+            (HttpMethod.Post, $"{root}/services/Steam/schedules"),
+            (HttpMethod.Put, $"{root}/services/Steam/schedules/{id}"),
+            (HttpMethod.Put, $"{root}/services/Steam/schedules/{id}/enabled"),
+            (HttpMethod.Put, $"{root}/services/Steam/schedules/{id}/timing"),
+            (HttpMethod.Delete, $"{root}/services/Steam/schedules/{id}"),
+            (HttpMethod.Put, $"{root}/schedules/enabled"),
+            (HttpMethod.Put, $"{root}/settings")
+        };
+        admin.DefaultRequestHeaders.Remove(AntiforgeryToken.HeaderName);
+        foreach (var (method, path) in routes)
+        {
+            using var anonymousRequest = new HttpRequestMessage(method, path) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            using var anonymousResponse = await anonymous.SendAsync(anonymousRequest);
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+            using var guestRequest = new HttpRequestMessage(method, path) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            using var guestResponse = await guest.SendAsync(guestRequest);
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, guestResponse.StatusCode);
+            using var adminRequest = new HttpRequestMessage(method, path) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            using var adminResponse = await admin.SendAsync(adminRequest);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, adminResponse.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task ScheduledPrefillMutationBindingRejectsMissingFieldsAndAcceptsExplicitNullTiming()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = await host.CreateAdminClientAsync();
+        var root = "/api/system/schedules/scheduledPrefill";
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        foreach (var (path, contents) in new[]
+        {
+            ($"{root}/schedules/enabled", "{}"),
+            ($"{root}/settings", "{}"),
+            ($"{root}/services/Steam/schedules/{id}/enabled", "{}"),
+            ($"{root}/services/Steam/schedules/{id}/timing", "{\"intervalHours\":24}"),
+            ($"{root}/services/Steam/schedules/{id}/timing", "{\"customSchedule\":null}"),
+            ($"{root}/services/Unknown/schedules/{id}/enabled", "{\"enabled\":true}"),
+            ($"{root}/services/999/schedules/{id}/enabled", "{\"enabled\":true}")
+        })
+        {
+            using var body = new StringContent(contents, Encoding.UTF8, "application/json");
+            using var response = await client.PutAsync(path, body);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
+        using var timing = await client.PutAsJsonAsync($"{root}/services/Steam/schedules/{id}/timing",
+            new ScheduledPrefillTimingRequest { IntervalHours = 24, CustomSchedule = null });
+        Assert.Equal(System.Net.HttpStatusCode.OK, timing.StatusCode);
+        var saved = await timing.Content.ReadFromJsonAsync<ScheduledPrefillConfigDto>();
+        Assert.NotNull(saved);
+        Assert.Null(saved.Steam.Schedules[0].CustomSchedule);
+        var invalid = JsonSerializer.SerializeToNode(saved)!;
+        invalid["Version"] = 0;
+        using var configResponse = await client.PutAsJsonAsync($"{root}/config", invalid);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, configResponse.StatusCode);
+        var error = await configResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(error.TryGetProperty("error", out _));
+        invalid["Version"] = saved.Version;
+        invalid["Steam"] = null;
+        using var nullResponse = await client.PutAsJsonAsync($"{root}/config", invalid);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, nullResponse.StatusCode);
+    }
+
     private static readonly IReadOnlyDictionary<string, string> PrefillClaims =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -1110,7 +1189,7 @@ public sealed class EndpointAuthorizationContractTests
             "MetricsController" => ["MetricsController.GetInterval", "MetricsController.SetInterval", "MetricsController.GetGameLimit", "MetricsController.SetGameLimit", "MetricsController.GetSecurity", "MetricsController.SetSecurity"],
             "OperationsController" => ["OperationsController.GetOperationStatus", "OperationsController.GetWaitingOperations", "OperationsController.CancelOperation", "OperationsController.ForceKill"],
             "PersistentPrefillController" => ["PersistentPrefillController.Start", "PersistentPrefillController.Stop", "PersistentPrefillController.CleanupEditSession", "PersistentPrefillController.List", "PersistentPrefillController.GetRuns", "PersistentPrefillController.GetGames", "PersistentPrefillController.SetSelectedApps", "PersistentPrefillController.StartPrefill", "PersistentPrefillController.CancelPrefill", "PersistentPrefillController.GetIntegrationLoginAvailability", "PersistentPrefillController.StartLogin", "PersistentPrefillController.ProvideCredential", "PersistentPrefillController.GetChallenge", "PersistentPrefillController.CancelLogin", "PersistentPrefillController.Logout", "PersistentPrefillController.ClearLogins", "PersistentPrefillController.GetValidity", "PersistentPrefillController.SetValidity"],
-            "ScheduledPrefillConfigController" => ["ScheduledPrefillConfigController.GetConfig", "ScheduledPrefillConfigController.GetSchedule", "ScheduledPrefillConfigController.SetConfig", "ScheduledPrefillConfigController.GetRunStatus", "ScheduledPrefillConfigController.RunService"],
+            "ScheduledPrefillConfigController" => ["ScheduledPrefillConfigController.GetConfig", "ScheduledPrefillConfigController.GetSchedule", "ScheduledPrefillConfigController.SetConfig", "ScheduledPrefillConfigController.GetRunStatus", "ScheduledPrefillConfigController.RunService", "ScheduledPrefillConfigController.CreateSchedule", "ScheduledPrefillConfigController.SetSchedule", "ScheduledPrefillConfigController.SetEnabled", "ScheduledPrefillConfigController.SetTiming", "ScheduledPrefillConfigController.DeleteSchedule", "ScheduledPrefillConfigController.SetAllEnabled", "ScheduledPrefillConfigController.SetSettings"],
             "StatusCheckController" => ["StatusCheckController.GetState", "StatusCheckController.SetResolverMode", "StatusCheckController.Run", "StatusCheckController.TestDomain", "StatusCheckController.RefreshDomains", "StatusCheckController.GetDomains"],
             "SteamApiKeysController" => ["SteamApiKeysController.GetStatus", "SteamApiKeysController.TestKey", "SteamApiKeysController.SaveKey", "SteamApiKeysController.RemoveKey"],
             "SteamAuthController" => ["SteamAuthController.GetStatus", "SteamAuthController.Login", "SteamAuthController.CancelLogin", "SteamAuthController.SetMode", "SteamAuthController.Logout"],

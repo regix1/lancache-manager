@@ -181,19 +181,12 @@ export const Modal: React.FC<ModalProps> = ({
       };
     }
 
-    // opened === false: play the close animation, then hide and restore focus. Stack bookkeeping for
-    // this modal already ran in the open branch's cleanup (React runs it before this effect), so the
-    // close path only has to finish the visual close.
+    // opened === false: play the close animation, then hide. Stack bookkeeping for this modal
+    // already ran in the open branch's cleanup (React runs it before this effect), so the close path
+    // only has to finish the visual close.
     setIsAnimating(false);
     closeTimerRef.current = setTimeout(() => {
       setIsVisible(false);
-
-      // Restore focus to whatever was focused before this modal opened.
-      const prev = previouslyFocusedRef.current;
-      if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
-        prev.focus();
-      }
-      previouslyFocusedRef.current = null;
     }, 250); // Match transition duration
 
     return () => {
@@ -215,6 +208,17 @@ export const Modal: React.FC<ModalProps> = ({
     if (el.contains(document.activeElement)) return;
     el.focus();
   }, [isVisible]);
+
+  React.useEffect(() => {
+    if (opened || isVisible) return;
+
+    // Restore focus only after React has committed removal of this modal's portal.
+    const prev = previouslyFocusedRef.current;
+    if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
+      prev.focus();
+    }
+    previouslyFocusedRef.current = null;
+  }, [opened, isVisible]);
 
   if (!isVisible) return null;
 
@@ -271,7 +275,10 @@ export const Modal: React.FC<ModalProps> = ({
       onClick={(e) => e.target === e.currentTarget && onClose()}
       onKeyDown={handleKeyDown}
     >
-      <div className="min-h-full flex items-center justify-center px-4">
+      <div
+        className="min-h-full flex items-center justify-center px-4"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+      >
         <div
           ref={contentRef}
           role="dialog"
@@ -285,21 +292,25 @@ export const Modal: React.FC<ModalProps> = ({
           }`}
         >
           {title && (
-            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-themed-secondary flex-shrink-0">
-              <div id={titleId} className="text-base sm:text-lg font-semibold text-themed-primary">
+            <div className="modal-header flex items-center justify-between p-4 sm:p-6 border-b border-themed-secondary flex-shrink-0">
+              <div
+                id={titleId}
+                className="modal-title text-base sm:text-lg font-semibold text-themed-primary"
+              >
                 {title}
               </div>
               <button
+                type="button"
                 onClick={onClose}
                 aria-label={t('common.close')}
-                className="p-1 hover:bg-themed-hover themed-border-radius-sm smooth-transition"
+                className="modal-close p-0 hover:bg-themed-hover themed-border-radius-sm smooth-transition"
               >
                 <X className="w-5 h-5 text-themed-muted" />
               </button>
             </div>
           )}
           <div
-            className={`p-4 sm:p-6 flex-1 min-h-0 ${
+            className={`modal-body p-4 sm:p-6 flex-1 min-h-0 ${
               bodyFlexLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
             }`}
           >

@@ -541,7 +541,7 @@ public sealed class ScheduledPrefillRecoveryTests
     public async Task RestorationKeepsIdentityStartTimeVisibilityAndCancellationOwnershipAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
-        var id = Guid.NewGuid();
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
         var daemonRun = await fixture.StartAsync("20", id);
         var prior = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam, id, "Nightly", false);
         prior.Record("recovering", "Waiting", null, 30, run: daemonRun);
@@ -585,7 +585,7 @@ public sealed class ScheduledPrefillRecoveryTests
     public async Task RejectedRestorationDisposesOnlyTheUnadoptedCancellationSourceAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
-        var run = await fixture.StartAsync("20", Guid.NewGuid());
+        var run = await fixture.StartAsync("20", ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam));
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var cts = new CancellationTokenSource();
         Assert.True(tracker.TryRestoreOperation(run.PrefillRunId, OperationType.ScheduledPrefill, "Existing", cts));

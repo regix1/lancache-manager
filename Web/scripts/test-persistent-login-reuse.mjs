@@ -48,12 +48,14 @@ const loadStore = async (nonce, context) => {
   const guardsUrl = await compileToUrl(
     '../src/components/features/management/schedules/scheduled-prefill/typeGuards.ts'
   );
+  const authStageUrl = await compileToUrl('../src/hooks/authStage.ts');
   const storeUrl = `${await compileToUrl(
     '../src/components/features/management/schedules/scheduled-prefill/persistentLoginStore.ts',
     {
       react: reactUrl,
       '@services/api.service': apiUrl,
       '@utils/storage': `${await compileToUrl('../src/utils/storage.ts')}#${nonce}`,
+      '@hooks/authStage': authStageUrl,
       './typeGuards': guardsUrl
     }
   )}#${nonce}`;
@@ -64,7 +66,7 @@ const loadStore = async (nonce, context) => {
 
 const loadHost = async (storeUrl, nonce) => {
   const reactUrl = moduleUrl(
-    `// ${nonce}\nexport const useCallback = (callback) => callback; export const useEffect = () => {}; export const useRef = (value) => ({ current: value });`
+    `// ${nonce}\nexport const useCallback = (callback) => callback; export const useEffect = (callback) => callback(); export const useRef = (value) => ({ current: value });`
   );
   const i18nUrl = moduleUrl(
     `// ${nonce}\nexport const useTranslation = () => ({ t: (key) => key });`
@@ -179,6 +181,60 @@ test('a reset invalidates stale reuse before a new manual attempt owns the servi
   });
 });
 
+test('an explicit same-session request resumes pending state without a duplicate start', async (context) => {
+  const store = await loadStore('same-session-resume', context);
+  const host = await loadHost(storeUrls.get('same-session-resume'), 'same-session-host');
+  const deadline = Date.now() + 60_000;
+  store.setPersistentLoginStartSessionId('Epic', 'epic-session');
+  assert.equal(
+    store.armPersistentLoginTimeout('Epic', deadline, {
+      noResult: 'no result',
+      timedOut: 'timed out'
+    }),
+    true
+  );
+  store.updatePersistentLoginState('Epic', (current) => ({
+    ...current,
+    sessionId: 'epic-session',
+    pendingChallenge: {
+      type: 'challenge',
+      challengeId: 'epic-challenge',
+      credentialType: 'password',
+      serverPublicKey: 'key',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(deadline).toISOString(),
+      operationId: 'epic-operation'
+    },
+    dismissed: true
+  }));
+  store.requestPersistentLoginAttempt('Epic');
+  const nonce = store.usePersistentLoginRequestNonce('Epic');
+  let starts = 0;
+  let resumes = 0;
+  const options = {
+    service: 'Epic',
+    state: { authenticated: false, dismissed: false, hasChallenge: true, loading: false },
+    startLogin: () => {
+      starts += 1;
+    },
+    resumeModal: () => {
+      resumes += 1;
+    },
+    isRunning: true,
+    isAuthenticated: false,
+    onAuthenticated: () => undefined,
+    autoStart: true
+  };
+
+  assert.equal(host.usePersistentLoginHost(options), true);
+  assert.equal(host.usePersistentLoginHost(options), true);
+  assert.equal(store.usePersistentLoginRequestNonce('Epic'), nonce);
+  assert.equal(store.getPersistentLoginState('Epic').loginDeadline, deadline);
+  assert.equal(store.getPersistentLoginState('Epic').dismissed, false);
+  assert.equal(starts, 0);
+  assert.equal(resumes, 1);
+});
+
 test('an account change clears a pending saved-login reuse without changing shared containers', async (context) => {
   const store = await loadStore('identity-transition', context);
   const sharedContainers = new Map([
@@ -190,19 +246,29 @@ test('an account change clears a pending saved-login reuse without changing shar
 
   const onIdentityChange = bindLifted(
     liftHookCallback(
-      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
       'useEffect',
       'privateReuseServiceKeys'
     ),
     {
       privateAvailabilityIdentityAppliedRef: { current: 'authenticated:account-a:session-a' },
       privateAvailabilityIdentity: 'authenticated:account-b:session-b',
+      login: {
+        current: {
+          serviceKey: 'steam',
+          sessionId: 'shared-session',
+          identity: 'authenticated:account-a:session-a',
+          visible: true
+        }
+      },
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam', 'epic', 'xbox'],
       isPersistentLoginIntegrationReuse: store.isPersistentLoginIntegrationReuse,
       isScheduledPrefillAccountService: (serviceKey) =>
         serviceKey === 'steam' || serviceKey === 'epic' || serviceKey === 'xbox',
       getPersistentServiceId: (serviceKey) =>
         ({ steam: 'Steam', epic: 'Epic', xbox: 'Xbox' })[serviceKey],
+      getPersistentLoginState: store.getPersistentLoginState,
+      getPersistentLoginStartRequest: store.getPersistentLoginStartRequest,
       resetPersistentLoginState: store.resetPersistentLoginState,
       setPersistentLoginTarget: (update) => {
         persistentLoginTarget = update(persistentLoginTarget);
@@ -233,24 +299,29 @@ test('an availability response from a prior account cannot populate the new acco
   const loadingWrites = [];
   const loadAvailability = bindLifted(
     liftHookCallback(
-      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
       'useCallback',
       'getPersistentIntegrationLoginAvailability'
     ),
     {
       privateAvailabilityIdentityRef: availabilityIdentityRef,
       integrationLoginRequestRef: { current: null },
+      integrationLoginAvailabilityIdentityRef: { current: '' },
+      integrationLoginErrorsIdentityRef: { current: '' },
       canUseSavedLogin: true,
       requiresIndividualAccount: false,
       setIntegrationLoginAvailabilityByService: (value) => availabilityWrites.push(value),
       setIntegrationLoginAvailabilityIdentity: (value) => availabilityIdentityWrites.push(value),
+      setIntegrationLoginErrors: (value) => availabilityWrites.push(value),
+      setIntegrationLoginErrorsIdentity: (value) => availabilityIdentityWrites.push(value),
       setLoadingIntegrationLoginAvailability: (value) => loadingWrites.push(value),
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam'],
       ApiService: {
         getPersistentIntegrationLoginAvailability: () => availability
       },
       getPersistentServiceId: () => 'Steam',
-      isAbortError: () => false
+      isAbortError: () => false,
+      getErrorMessage: (error) => error.message
     }
   );
 
@@ -271,17 +342,21 @@ test('an authenticated shared caller without an individual account gets account-
   let availabilityCalls = 0;
   const loadAvailability = bindLifted(
     liftHookCallback(
-      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
       'useCallback',
       'getPersistentIntegrationLoginAvailability'
     ),
     {
       privateAvailabilityIdentityRef: { current: 'authenticated::shared-session' },
       integrationLoginRequestRef: { current: null },
+      integrationLoginAvailabilityIdentityRef: { current: '' },
+      integrationLoginErrorsIdentityRef: { current: '' },
       canUseSavedLogin: false,
       requiresIndividualAccount: true,
       setIntegrationLoginAvailabilityByService: (value) => availabilityWrites.push(value),
       setIntegrationLoginAvailabilityIdentity: (value) => availabilityIdentityWrites.push(value),
+      setIntegrationLoginErrors: () => undefined,
+      setIntegrationLoginErrorsIdentity: () => undefined,
       setLoadingIntegrationLoginAvailability: (value) => loadingWrites.push(value),
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam', 'epic', 'xbox'],
       ApiService: {
@@ -291,7 +366,8 @@ test('an authenticated shared caller without an individual account gets account-
         }
       },
       getPersistentServiceId: (serviceKey) => serviceKey,
-      isAbortError: () => false
+      isAbortError: () => false,
+      getErrorMessage: (error) => error.message
     }
   );
 
@@ -312,17 +388,26 @@ test('an authenticated shared caller without an individual account gets account-
 
 function availabilitySession() {
   const pending = [];
-  const state = { values: new Map(), loading: false, identity: null };
+  const state = { values: new Map(), errors: {}, loading: false, identity: null };
   const bindings = {
     privateAvailabilityIdentityRef: { current: 'authenticated:a:session-a' },
     integrationLoginRequestRef: { current: null },
+    integrationLoginAvailabilityIdentityRef: { current: '' },
+    integrationLoginErrorsIdentityRef: { current: '' },
     canUseSavedLogin: true,
     requiresIndividualAccount: false,
     setIntegrationLoginAvailabilityByService: (values) => {
-      state.values = values;
+      state.values = typeof values === 'function' ? values(state.values) : values;
     },
     setIntegrationLoginAvailabilityIdentity: (identity) => {
       state.identity = identity;
+      bindings.integrationLoginAvailabilityIdentityRef.current = identity;
+    },
+    setIntegrationLoginErrors: (errors) => {
+      state.errors = typeof errors === 'function' ? errors(state.errors) : errors;
+    },
+    setIntegrationLoginErrorsIdentity: (identity) => {
+      bindings.integrationLoginErrorsIdentityRef.current = identity;
     },
     setLoadingIntegrationLoginAvailability: (loading) => {
       state.loading = loading;
@@ -335,10 +420,11 @@ function availabilitySession() {
         })
     },
     getPersistentServiceId: (service) => service,
-    isAbortError: (error) => error.name === 'AbortError'
+    isAbortError: (error) => error.name === 'AbortError',
+    getErrorMessage: (error) => error.message
   };
   const source = liftHookCallback(
-    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+    'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
     'useCallback',
     'getPersistentIntegrationLoginAvailability'
   );
@@ -380,7 +466,7 @@ test('fresh and refreshed availability follows authoritative truth in both direc
     const previous = f.state.values;
     const request = f.load();
     assert.equal(f.state.values, previous, 'checking retains same-owner content');
-    assert.equal(f.state.loading, true);
+    assert.equal(f.state.loading, index === 0);
     f.finish(index * 2, available);
     await request;
     assert.equal(f.state.values.get('steam').available, available);
@@ -388,7 +474,7 @@ test('fresh and refreshed availability follows authoritative truth in both direc
   }
 });
 
-test('close, reopen and reconnect supersede pending availability without old finally clearing checking', async () => {
+test('mounted owner replacement and reconnect supersede pending availability without old finally clearing checking', async () => {
   const f = availabilitySession();
   const opening = new AbortController();
   const old = f.load(opening.signal);
@@ -441,11 +527,13 @@ test('one service failure preserves Steam success and a retry restores the missi
   await request;
   assert.equal(f.state.values.get('steam').available, true);
   assert.equal(f.state.values.has('epic'), false);
+  assert.equal(f.state.errors.epic, 'unreachable');
   const retry = f.load();
   f.finish(2, true);
   await retry;
   assert.equal(f.state.values.get('epic').available, true);
   assert.equal(f.state.values.get('epic').reason, null);
+  assert.equal(f.state.errors.epic, undefined);
 });
 
 test('an aborted caller cannot issue requests or disturb a newer availability request', async () => {

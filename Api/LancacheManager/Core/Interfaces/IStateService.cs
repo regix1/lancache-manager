@@ -132,6 +132,9 @@ public interface IStateService
     // (both throw ScheduledPrefillConfigValidationException on invalid config).
     ScheduledPrefillConfigDto GetScheduledPrefillConfig();
     void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config);
+    ScheduledPrefillConfigDto UpdateScheduledPrefillConfig(
+        Func<ScheduledPrefillConfigDto, ScheduledPrefillConfigDto> update,
+        Action<IReadOnlySet<Guid>>? guard = null);
 
     // Scheduled Prefill Per-Service Last-Run Methods (durable, keyed by PrefillPlatform name).
     // Drive the independent per-service due-check + next-run computation; persist to state.json.

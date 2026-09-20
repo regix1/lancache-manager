@@ -250,13 +250,18 @@ test('persistent cancellation targets the selected run while another cancel is p
   let pendingIds = [];
   const calls = [];
   const releases = [];
+  let releaseRecovery;
+  const recovery = new Promise((resolve) => {
+    releaseRecovery = resolve;
+  });
   const container = { sessionId: 'session', isRunning: true, runs: [run('1'), run('2'), run('3')] };
   const cancel = bindLifted(
     liftConstArrow(
-      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
       'handleCancelPersistentDownload'
     ),
     {
+      recover: () => recovery,
       getPersistentServiceId: () => 'Steam',
       persistentContainerByService: new Map([['Steam', container]]),
       cancellingRunsRef: { current: new Set() },
@@ -266,6 +271,7 @@ test('persistent cancellation targets the selected run while another cancel is p
       },
       setRunErrors: () => undefined,
       setPersistentContainers: (update) => update([container]),
+      getErrorMessage: (error) => error.message,
       ApiService: {
         cancelPersistentPrefill: (...args) =>
           new Promise((resolve) => {
@@ -277,8 +283,13 @@ test('persistent cancellation targets the selected run while another cancel is p
     }
   );
   const first = cancel('steam', '1');
+  const duplicate = cancel('steam', '1');
   const second = cancel('steam', '2');
   assert.deepEqual(pendingIds, ['1', '2']);
+  assert.deepEqual(calls, [], 'cleanup must finish before either request is sent');
+  await duplicate;
+  releaseRecovery();
+  await Promise.resolve();
   assert.deepEqual(calls, [
     ['Steam', 'session', '1'],
     ['Steam', 'session', '2']

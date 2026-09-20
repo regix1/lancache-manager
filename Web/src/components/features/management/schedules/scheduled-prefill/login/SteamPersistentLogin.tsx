@@ -10,7 +10,7 @@ export function SteamPersistentLogin({
   autoStart = false,
   onDismiss
 }: PersistentLoginHostProps) {
-  const { state, actions, dismissModal, resumeModal } = usePersistentSteamAuth();
+  const { state, actions, resumeModal } = usePersistentSteamAuth();
   const { loginDeadline } = usePersistentLoginStoreState('Steam');
   const authModalOpened = usePersistentLoginHost({
     service: 'Steam',
@@ -29,7 +29,7 @@ export function SteamPersistentLogin({
   return (
     <SteamAuthModal
       opened={authModalOpened}
-      onClose={dismissModal}
+      onClose={onDismiss}
       state={state}
       actions={actions}
       isPrefillMode={true}

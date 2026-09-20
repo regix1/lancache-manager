@@ -56,41 +56,31 @@ The dialog tells you how many games were added, how many were already selected, 
 
 ### Scheduled Prefill { #scheduled-prefill }
 
-Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. Each of the five platforms gets its own interval, preset, and game selection.
+Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. The card has one global **Run** action and one global **Actions** menu. **Run** starts the enabled saved schedules immediately. **Actions** opens Activity and Shared container settings.
 
-<div align="center" markdown>
-<img alt="Scheduled Prefill card showing per-platform status, next run, and run interval for Steam, Epic, Xbox, Battle.net, and Riot" src="../images/schedules-prefill-table.png" />
+Each service lists its saved schedules as separate rows. A row shows one exact saved schedule, and its **Run** action starts only that schedule. **Edit schedule** opens that exact record. Save your changes, close the editor, and then use **Run this schedule** from its row. Unsaved changes never affect a run.
 
-<em>Scheduled Prefill - per-service status, next run, and last run at a glance</em>
-</div>
+**Add schedule for _service_** and **Duplicate** both open a draft. They do not create a schedule until you choose **Save schedule**. Deleting a saved schedule does not stop its service container or remove cached games, and each service must keep at least one saved schedule.
 
-A *persistent container* is a prefill container you start once and leave running, with its sign-in kept inside it. One rule governs everything here: **a scheduled run reuses a persistent container that is already running. It never starts one.**
+Each service has one shared container for all of its schedules. Use **Manage the service container** to start it and sign in. A scheduled run reuses the container only when it is already running; it never starts the container. If an account service is not ready, its schedule is skipped as "needs login" while other services continue. A run where every schedule is skipped reports as unsuccessful and shows the reason in its notification.
 
-So before scheduling a service, start its persistent container and sign in if the platform needs an account. A service that isn't ready is *skipped* as "needs login" while the others still run. A skipped service doesn't fail a run where another service prefills; a run where every service was skipped reports as unsuccessful, with the reason shown on the notification.
+**Shared container settings** supplies the defaults used by all service containers. An existing saved **After a restart** override still takes precedence for its service. Stopping a service container signs it out and clears its stored login. Only the LANCache account that saved a Steam, Epic, or Xbox login can reuse that login. Battle.net and Riot are anonymous and require no account, but their shared service containers must still be running.
 
-How it behaves:
+**Activity** covers Steam, Epic, Xbox, Battle.net, and Riot in one view. It shows active downloads and run history, and it lets you cancel an active download. Game selection belongs to the exact saved schedule. To delete cached game content, use **Management → Game Cache Removal** instead of deleting a schedule.
 
-- **Per-service schedules.** Each service has its own "run every" interval. You can also pause a service or set it to run only on startup.
-- **Presets or hand-picked games.** Presets are **All**, **Recent**, and **Top**. Not every platform supports every preset: Epic has no Recent (its API exposes no last-played data), and Battle.net and Riot are All-only. Picking specific games overrides the preset.
-- **The first run comes one interval after you save.** Saving never starts a prefill immediately. **Run Now** on the card is the only instant path.
-- **"Last run: Never" is normal on a new schedule.** *Next run* is predicted from the interval, but *Last run* only counts runs that actually finished, so it stays "Never" until the first one completes.
-- **Stopping a persistent container signs it out.** LANCache Manager erases the stored login whenever you stop the container, so that service needs a fresh sign-in before its next scheduled run. There's also a "Clear stored logins" control if you want that explicitly.
-- **Battle.net and Riot work out of the box.** They need no account, so they're enabled by default - but their persistent containers still have to be running.
-- **Target platforms is Steam-only.** Steam can prefill Windows, Linux, or macOS depots (Windows by default); the other services don't offer the filter.
-- **Force re-download and Connections are per service too.** Force re-download re-fetches games even when they look complete (off by default). Connections is **Auto**, or **Fixed** at 1-256.
-- Each service can post its run notifications normally or silently - your choice per service.
+Other schedule behavior remains service-specific:
 
-<div align="center" markdown>
-<img alt="Configure Scheduled Prefill dialog showing per-platform schedule, preset, and download settings" src="../images/schedules-prefill-configure.png" />
-
-<em>Configure Scheduled Prefill - per-platform schedule, preset, and target-platform controls</em>
-</div>
+- **Intervals and state.** Every saved schedule has its own "run every" interval. You can pause a schedule or set it to run only on startup. The first automatic run is one interval after you save; saving does not start a run.
+- **Presets or hand-picked games.** Presets are **All**, **Recent**, and **Top**. Epic has no Recent because its API exposes no last-played data. Battle.net and Riot are All-only. Games selected for a schedule override its preset.
+- **New schedule history.** "Last run: Never" remains until that saved schedule finishes its first run. Its next run is predicted from its interval.
+- **Target platforms.** Only Steam supports the Windows, Linux, and macOS depot filter. Windows is the default.
+- **Download controls.** Force re-download is off by default. Connections can be **Auto** or **Fixed** from 1 through 256. Each schedule can show its run notifications normally or silently.
 
 Defaults and limits:
 
 | Setting | Default |
 |---|---|
-| Run every (per service) | 24 hours |
+| Run every (per schedule) | 24 hours |
 | Preset | All (Top uses the top 50 games) |
 | Persistent login validity | 90 days |
 | No-progress cutoff (per scheduled run) | 30 minutes |
@@ -98,7 +88,7 @@ Defaults and limits:
 | Max concurrency | Auto (fixed: 1-256) |
 | Longest single service run | 12 hours |
 
-The rest of the Schedules page works the same way for every background service - log rotation, eviction scans, game detection, cache snapshots, and more. Each service is a row with its own interval and a **Run Now** control at the end of it, shown as a play icon on desktop and a labelled button on phones. There's an **Xbox Game Mapping** row too, so the Xbox catalog can refresh on its own schedule.
+The rest of the Schedules page works the same way for every background service - log rotation, eviction scans, game detection, cache snapshots, and more. Each service is a row with its own interval and a run control at the end. There's an **Xbox Game Mapping** row too, so the Xbox catalog can refresh on its own schedule.
 
 ### Network setup { #prefill-network }
 

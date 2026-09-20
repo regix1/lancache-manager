@@ -12,16 +12,9 @@ const SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY = 'scheduled-prefill:edit-sessi
  */
 type EditSessionStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
-export const createScheduledPrefillEditSessionId = (): string => createUuid();
+const createScheduledPrefillEditSessionId = (): string => createUuid();
 
-export type ScheduledPrefillEditSessionServiceId = ScheduledPrefillServiceId;
-
-export type ScheduledPrefillEditActionKind = 'start' | 'login' | 'download' | 'selection';
-
-interface ScheduledPrefillEditSessionBaseline {
-  selectedAppIdsByService: Record<ScheduledPrefillEditSessionServiceId, string[]>;
-  sessionIdByService: Record<ScheduledPrefillEditSessionServiceId, string | null>;
-}
+type ScheduledPrefillEditSessionServiceId = ScheduledPrefillServiceId;
 
 interface ScheduledPrefillEditAction {
   editActionId: string;
@@ -41,7 +34,7 @@ interface ScheduledPrefillEditSessionServiceState {
   selection?: ScheduledPrefillEditAction;
 }
 
-export interface ScheduledPrefillEditSessionLedger {
+interface ScheduledPrefillEditSessionLedger {
   version: 1;
   editSessionId: string;
   phase: 'active' | 'cleanup-pending';
@@ -98,28 +91,7 @@ const persistLedger = (
 const hasEditAction = (service: ScheduledPrefillEditSessionServiceState): boolean =>
   Boolean(service.start || service.login || service.download || service.selection);
 
-export function createScheduledPrefillEditSession(
-  baseline: ScheduledPrefillEditSessionBaseline,
-  createId: () => string
-): ScheduledPrefillEditSessionLedger {
-  return {
-    version: 1,
-    editSessionId: createId(),
-    phase: 'active',
-    cleanupId: null,
-    services: Object.fromEntries(
-      SERVICES.map((service) => [
-        service,
-        {
-          baselineSessionId: baseline.sessionIdByService[service],
-          baselineSelectedAppIds: [...baseline.selectedAppIdsByService[service]]
-        }
-      ])
-    ) as ScheduledPrefillEditSessionLedger['services']
-  };
-}
-
-export function loadScheduledPrefillEditSession(
+function loadScheduledPrefillEditSession(
   storage: EditSessionStore
 ): ScheduledPrefillEditSessionLedger | null {
   const raw = storage.getItem(SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY);
@@ -143,61 +115,11 @@ export function loadScheduledPrefillEditSession(
   }
 }
 
-export function hasScheduledPrefillEditActions(ledger: ScheduledPrefillEditSessionLedger): boolean {
+function hasScheduledPrefillEditActions(ledger: ScheduledPrefillEditSessionLedger): boolean {
   return SERVICES.some((service) => hasEditAction(ledger.services[service]));
 }
 
-export function recordEditActionIntent(
-  storage: EditSessionStore,
-  ledger: ScheduledPrefillEditSessionLedger,
-  service: ScheduledPrefillEditSessionServiceId,
-  kind: ScheduledPrefillEditActionKind,
-  sessionId: string | null,
-  createId: () => string
-): { editSession: ScheduledPrefillEditSessionLedger; editActionId: string } {
-  if (ledger.phase !== 'active') {
-    throw new Error('Cannot change a scheduled-prefill edit session after cleanup has begun.');
-  }
-
-  const editActionId = createId();
-  const next = cloneLedger(ledger);
-  const editAction = { editActionId, sessionId };
-  next.services[service] = {
-    ...next.services[service],
-    [kind]: kind === 'start' ? { ...editAction, returnedSessionId: null } : editAction
-  };
-  persistLedger(storage, next);
-  return { editSession: next, editActionId };
-}
-
-export function recordEditSessionStartResult(
-  storage: EditSessionStore,
-  ledger: ScheduledPrefillEditSessionLedger,
-  service: ScheduledPrefillEditSessionServiceId,
-  editActionId: string,
-  sessionId: string
-): ScheduledPrefillEditSessionLedger {
-  const current = loadScheduledPrefillEditSession(storage);
-  const start = current?.services[service].start;
-  if (
-    !current ||
-    current.phase !== 'active' ||
-    current.editSessionId !== ledger.editSessionId ||
-    start?.editActionId !== editActionId
-  ) {
-    return ledger;
-  }
-
-  const next = cloneLedger(current);
-  next.services[service] = {
-    ...next.services[service],
-    start: { ...start, returnedSessionId: sessionId }
-  };
-  persistLedger(storage, next);
-  return next;
-}
-
-export function beginEditSessionCleanup(
+function beginEditSessionCleanup(
   storage: EditSessionStore,
   ledger: ScheduledPrefillEditSessionLedger | null,
   createId: () => string
@@ -218,7 +140,7 @@ export function beginEditSessionCleanup(
   return next;
 }
 
-export function buildEditSessionCleanupRequest(
+function buildEditSessionCleanupRequest(
   ledger: ScheduledPrefillEditSessionLedger
 ): PersistentPrefillEditSessionCleanupRequest {
   if (ledger.phase !== 'cleanup-pending' || !ledger.cleanupId) {
@@ -247,7 +169,7 @@ export function buildEditSessionCleanupRequest(
   };
 }
 
-export function clearConfirmedEditSession(
+function clearConfirmedEditSession(
   storage: EditSessionStore,
   editSessionId: string,
   cleanupId: string
@@ -266,10 +188,7 @@ export function clearConfirmedEditSession(
   return true;
 }
 
-export function discardCommittedEditSession(
-  storage: EditSessionStore,
-  editSessionId: string
-): boolean {
+function discardCommittedEditSession(storage: EditSessionStore, editSessionId: string): boolean {
   const current = loadScheduledPrefillEditSession(storage);
   if (!current || current.editSessionId !== editSessionId) {
     return false;
@@ -277,4 +196,39 @@ export function discardCommittedEditSession(
 
   storage.removeItem(SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY);
   return true;
+}
+
+let recovery: Promise<void> | null = null;
+
+export function recoverScheduledPrefillEditSession(
+  storage: EditSessionStore,
+  cleanup: (request: PersistentPrefillEditSessionCleanupRequest) => Promise<unknown>
+): Promise<void> {
+  if (recovery) return recovery;
+  const stored = loadScheduledPrefillEditSession(storage);
+  if (!stored) return Promise.resolve();
+
+  recovery = Promise.resolve()
+    .then(async () => {
+      let current: ScheduledPrefillEditSessionLedger | null = stored;
+      while (current) {
+        if (!hasScheduledPrefillEditActions(current)) {
+          discardCommittedEditSession(storage, current.editSessionId);
+        } else {
+          const pending = beginEditSessionCleanup(
+            storage,
+            current,
+            createScheduledPrefillEditSessionId
+          );
+          const request = buildEditSessionCleanupRequest(pending);
+          await cleanup(request);
+          clearConfirmedEditSession(storage, request.editSessionId, request.cleanupId);
+        }
+        current = loadScheduledPrefillEditSession(storage);
+      }
+    })
+    .finally(() => {
+      recovery = null;
+    });
+  return recovery;
 }

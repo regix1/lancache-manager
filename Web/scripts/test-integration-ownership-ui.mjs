@@ -837,66 +837,152 @@ test('same-caller Web API refresh failure retains health but refuses mutation un
   }
 });
 
-test('saved-login reuse refusal happens before any edit or persistent login mutation', () => {
-  const source = liftConstArrow(
-    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
-    'handlePersistentLogin'
-  );
+const containersHook =
+  'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts';
+const actSource = liftConstArrow(containersHook, 'act');
+const persistentLoginSource = liftConstArrow(containersHook, 'handlePersistentLogin');
+
+const savedLoginAction = ({
+  identity = 'a',
+  liveIdentity = identity,
+  availability = { available: true, reason: null },
+  loading = false,
+  recover = async () => undefined
+} = {}) => {
+  const counters = {
+    recovery: 0,
+    loads: 0,
+    stores: [],
+    targets: [],
+    attempts: [],
+    actions: [],
+    errors: []
+  };
+  const privateAvailabilityIdentityRef = { current: liveIdentity };
+  const attempts = { current: new Map() };
+  const actionState = {};
+  const errorState = {};
+  const persistentContainerByServiceRef = {
+    current: new Map([['Steam', { sessionId: 'session', isRunning: true }]])
+  };
+  const setActions = (update) => {
+    Object.assign(actionState, update(actionState));
+    counters.actions.push(actionState.steam);
+  };
+  const setErrors = (update) => {
+    Object.assign(errorState, update(errorState));
+    counters.errors.push(errorState.steam);
+  };
+  const act = bindLifted(actSource, {
+    privateAvailabilityIdentity: identity,
+    privateAvailabilityIdentityRef,
+    attempts,
+    view: { current: { service: 'steam' } },
+    persistentContainerByServiceRef,
+    getPersistentServiceId: () => 'Steam',
+    setActions,
+    setErrors,
+    recover: async () => {
+      counters.recovery += 1;
+      await recover();
+    },
+    loadPersistentContainers: async () => {
+      counters.loads += 1;
+    },
+    getErrorMessage: (error) => error.message
+  });
+  const login = bindLifted(persistentLoginSource, {
+    act,
+    getPersistentServiceId: () => 'Steam',
+    persistentContainerByServiceRef,
+    visibleIntegrationLoginAvailabilityByService: new Map([['steam', availability]]),
+    visibleIntegrationLoginErrors: loading ? { steam: 'status failed' } : {},
+    activeRef: { current: 'steam' },
+    canUseSavedLogin: true,
+    loadingIntegrationLoginAvailability: loading,
+    getIntegrationReasonKey,
+    t: (key) => key,
+    baseKey: 'management.schedules.services.scheduledPrefill.config',
+    hasActivePersistentLogin: () => false,
+    setPersistentLoginStartSessionId: (...args) => counters.stores.push(args),
+    setPersistentLoginTarget: (value) => counters.targets.push(value),
+    requestPersistentLoginAttempt: (value) => counters.attempts.push(value)
+  });
+  return {
+    actionState,
+    attempts,
+    counters,
+    errorState,
+    login,
+    privateAvailabilityIdentityRef
+  };
+};
+
+test('saved-login refusal preserves exact action ownership without login mutation', async () => {
   for (const reason of [
     'owned-by-another-account',
     'reauthentication-required',
     'account-required',
     'no-saved-login'
   ]) {
-    let edits = 0;
-    let error;
-    bindLifted(source, {
-      privateAvailabilityIdentity: 'a',
-      privateAvailabilityIdentityRef: { current: 'a' },
-      canUseSavedLogin: true,
-      loadingIntegrationLoginAvailability: false,
-      visibleIntegrationLoginAvailabilityByService: new Map([
-        ['steam', { available: false, reason }]
-      ]),
-      getIntegrationReasonKey,
-      integrationReasonKeys,
-      setPersistentError: (value) => {
-        error = value;
-      },
-      t: (key) => key,
-      recordEditAction: () => edits++
-    })('steam', true);
-    assert.equal(edits, 0);
-    assert.equal(error, integrationReasonKeys[reason]);
+    const fixture = savedLoginAction({ availability: { available: false, reason } });
+    await fixture.login('steam', true);
+    assert.deepEqual(fixture.counters.stores, []);
+    assert.deepEqual(fixture.counters.targets, []);
+    assert.deepEqual(fixture.counters.attempts, []);
+    assert.deepEqual(fixture.counters.actions, ['login', undefined]);
+    assert.deepEqual(fixture.counters.errors, [undefined, integrationReasonKeys[reason]]);
+    assert.equal(fixture.counters.recovery, 1);
+    assert.equal(fixture.counters.loads, 0);
   }
 });
 
-test('saved-login available without a reason stays blocked while loading or stale', () => {
-  const source = liftConstArrow(
-    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
-    'handlePersistentLogin'
-  );
-  for (const loading of [false, true]) {
-    let edits = 0;
-    let error;
-    bindLifted(source, {
-      privateAvailabilityIdentity: 'a',
-      privateAvailabilityIdentityRef: { current: loading ? 'a' : 'b' },
-      canUseSavedLogin: true,
-      loadingIntegrationLoginAvailability: loading,
-      visibleIntegrationLoginAvailabilityByService: new Map([
-        ['steam', { available: true, reason: null }]
-      ]),
-      getIntegrationReasonKey,
-      setPersistentError: (value) => {
-        error = value;
-      },
-      t: (key) => key,
-      recordEditAction: () => edits++
-    })('steam', true);
-    assert.equal(edits, 0);
-    assert.equal(error, 'errors.integration.statusUnavailable');
-  }
+test('saved-login loading and retained stale handlers cannot mutate the current owner', async () => {
+  const loading = savedLoginAction({ loading: true });
+  await loading.login('steam', true);
+  assert.deepEqual(loading.counters.stores, []);
+  assert.deepEqual(loading.counters.targets, []);
+  assert.deepEqual(loading.counters.attempts, []);
+  assert.deepEqual(loading.counters.actions, ['login', undefined]);
+  assert.deepEqual(loading.counters.errors, [undefined, 'errors.integration.statusUnavailable']);
+
+  const stale = savedLoginAction({ identity: 'a', liveIdentity: 'b' });
+  await stale.login('steam', true);
+  assert.deepEqual(stale.counters, {
+    recovery: 0,
+    loads: 0,
+    stores: [],
+    targets: [],
+    attempts: [],
+    actions: [],
+    errors: []
+  });
+});
+
+test('identity change during deferred cleanup leaves the replacement action and error untouched', async () => {
+  const gate = deferred();
+  const fixture = savedLoginAction({ recover: () => gate.promise });
+  const pending = fixture.login('steam', true);
+  assert.deepEqual(fixture.counters.actions, ['login']);
+  assert.deepEqual(fixture.counters.errors, [undefined]);
+
+  fixture.privateAvailabilityIdentityRef.current = 'b';
+  fixture.attempts.current.set('steam', { replacement: true });
+  fixture.actionState.steam = 'start';
+  fixture.errorState.steam = 'new-owner-error';
+  const actionWrites = fixture.counters.actions.length;
+  const errorWrites = fixture.counters.errors.length;
+  gate.resolve();
+  await pending;
+
+  assert.equal(fixture.actionState.steam, 'start');
+  assert.equal(fixture.errorState.steam, 'new-owner-error');
+  assert.equal(fixture.counters.actions.length, actionWrites);
+  assert.equal(fixture.counters.errors.length, errorWrites);
+  assert.deepEqual(fixture.counters.stores, []);
+  assert.deepEqual(fixture.counters.targets, []);
+  assert.deepEqual(fixture.counters.attempts, []);
+  assert.equal(fixture.counters.loads, 0);
 });
 
 test('persistent card renders checking, unavailable and optional available-account states', () => {
@@ -1028,6 +1114,54 @@ test('all integration modal submissions and provider links refuse disabled actio
     })();
   }
   assert.equal(opens, 0);
+});
+
+test('Epic provider link and code input refuse accepted submissions', () => {
+  for (const pending of [
+    { loading: true, isSubmitting: false },
+    { loading: false, isSubmitting: true }
+  ]) {
+    let opens = 0;
+    bindLifted(
+      liftConstArrow('src/components/modals/auth/EpicAuthModal.tsx', 'handleOpenAuthUrl'),
+      {
+        state: { canAuthenticate: true },
+        authorizationUrl: 'https://example.test/epic',
+        window: { open: () => opens++ },
+        ...pending
+      }
+    )();
+    assert.equal(opens, 0);
+
+    const pendingReact = { ...React, useState: () => [pending.isSubmitting, noop] };
+    const Modal = make('src/components/modals/auth/EpicAuthModal.tsx', 'EpicAuthModal', {
+      ...renderBindings,
+      React: pendingReact,
+      FormField: ({ children }) => children({})
+    });
+    const markup = renderToStaticMarkup(
+      React.createElement(Modal, {
+        opened: true,
+        onClose: noop,
+        state: {
+          canAuthenticate: true,
+          loading: pending.loading,
+          needsAuthorizationCode: true,
+          authorizationUrl: 'https://example.test/epic',
+          authorizationCode: 'accepted-code',
+          error: null
+        },
+        actions: {
+          setAuthorizationCode: noop,
+          handleAuthenticate: async () => false,
+          resetAuthForm: noop,
+          cancelPendingRequest: noop
+        }
+      })
+    );
+    assert.match(markup, /<button disabled=""[^>]*>[\s\S]*openEpicLogin/);
+    assert.match(markup, /<input[^>]*disabled=""/);
+  }
 });
 
 test('primary recovery keeps every integration modal submission enabled', async () => {

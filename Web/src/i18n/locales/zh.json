@@ -3929,8 +3929,8 @@
               "customSchedule": "自定义计划"
             },
             "configure": "配置",
-            "modalTitle": "配置计划预填充",
-            "modalDescription": "配置登录、持久容器和已保存的计划。每个平台一次只能运行一个计划；重叠的尝试会被跳过，不会排队。",
+            "modalTitle": "{{service}} · {{name}}",
+            "modalDescription": "编辑并保存此计划，然后从对应行运行已保存的计划。",
             "servicesTitle": "服务",
             "records": {
               "label": "已保存的计划",
@@ -3938,11 +3938,22 @@
               "new": "新增",
               "newName": "新建计划",
               "open": "打开",
+              "edit": "编辑计划",
+              "run": "运行计划",
+              "manageContainer": "管理容器",
+              "menuAdd": "添加 {{service}} 计划",
+              "addForService": "为 {{service}} 添加计划",
+              "duplicate": "复制",
               "enable": "启用",
               "disable": "禁用",
               "enableSchedule": "启用",
               "disableSchedule": "禁用",
               "delete": "删除",
+              "deleteTitle": "删除 {{service}} 的计划“{{name}}”？",
+              "deleteBody": "删除此已保存的计划，不会停止或删除该服务的容器。",
+              "lastRecord": "此服务必须保留至少一个计划。",
+              "missing": "此计划已不存在。请关闭此窗口并刷新计划列表。",
+              "empty": "{{service}} 尚无已保存的计划。",
               "saveAs": "复制",
               "copySuffix": "副本",
               "nameRequired": "请先输入计划名称再保存。",
@@ -3950,7 +3961,7 @@
               "enabled": "{{service}} 计划“{{name}}”已启用。",
               "disabled": "{{service}} 计划“{{name}}”已禁用。",
               "confirmEnabledSaveTitle": "保存对此已启用计划的更改？",
-              "confirmEnabledSaveBody": "服务器上至少一个已启用的计划将被更改或删除。它可能会在下一次到期运行时使用更新后的设置。"
+              "confirmEnabledSaveBody": "保存对 {{service}} 计划“{{name}}”的更改吗？下次到期运行将使用这些设置。"
             },
             "enabled": "启用",
             "service": "服务",
@@ -3972,20 +3983,20 @@
             "loginToSteam": "登录 Steam",
             "loginToEpic": "登录 Epic",
             "loginToXbox": "登录 Xbox",
-            "save": "保存配置",
-            "saving": "保存中...",
-            "saveFailed": "保存计划预填充配置失败",
-            "loadFailed": "加载计划预填充配置失败",
+            "save": "保存计划",
+            "saving": "正在保存计划...",
+            "saveFailed": "无法保存此计划",
+            "loadFailed": "无法加载计划预填充的计划",
             "lastSaved": "上次保存于 {{time}}",
-            "title": "配置计划预填充",
-            "loading": "正在加载计划预填充配置...",
-            "loadError": "加载计划预填充配置失败：{{error}}",
-            "saveError": "保存计划预填充配置失败：{{error}}",
-            "empty": "计划预填充配置不可用。",
+            "title": "计划预填充计划",
+            "loading": "正在加载计划...",
+            "loadError": "加载计划失败：{{error}}",
+            "saveError": "保存计划失败：{{error}}",
+            "empty": "暂无已保存的计划。",
             "label": "计划预填充",
             "authWarning": "{{services}} 需要登录后才能为这些服务运行计划预填充。",
             "authWarning_other": "{{services}} 需要登录后才能为这些服务运行计划预填充。",
-            "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
+            "zeroEnabledWarning": "未启用任何计划。在至少启用一个计划之前，计划预填充不会下载任何内容。",
             "bulkToggle": {
               "label": "所有计划",
               "help": "一次性开启或关闭所有已保存的计划，不会更改下方各计划的单独设置。",
@@ -3996,21 +4007,27 @@
             "backendUpdateRequired": "请更新服务器后再管理命名的计划预填充记录。",
             "actions": {
               "configure": "配置",
-              "save": "保存配置",
-              "saving": "保存中...",
+              "viewActivity": "查看活动",
+              "sharedSettings": "共享容器设置",
+              "save": "保存计划",
+              "saving": "正在保存计划...",
               "forceDownload": "即使已缓存也下载",
               "selectGames": "选择游戏",
               "clearGames": "清除所选"
             },
             "discardChanges": {
               "confirmTitle": "放弃更改？",
-              "confirmBody": "取消将关闭此窗口且不保存。您在此处更改的所有设置都会恢复为打开前的状态。",
+              "confirmBody": "仅放弃此窗口内尚未保存的更改。",
               "confirmButton": "放弃更改"
             },
+            "containerModalTitle": "{{service}} 容器",
+            "containerModalDescription": "此容器由 {{service}} 的所有计划共享。",
+            "activityTitle": "计划预填充活动",
+            "activityDescription": "查看所有服务的当前下载和运行历史。",
             "persistentContainer": {
               "help": "用于游戏库、登录和下载的长期容器。当前 Steam 容器一次只能运行一个预填充任务，并依次下载游戏。“连接数”控制当前游戏的请求数量。",
               "error": "持久预填充容器操作失败：{{error}}",
-              "downloadNow": "下载所选游戏",
+              "downloadNow": "运行此计划",
               "cancelDownload": "取消下载",
               "downloadRequiresAuth": "下载前请先登录持久容器。",
               "downloadRequiresSelection": "下载前请至少选择一个游戏。",
@@ -4039,11 +4056,11 @@
                 "gamesSelected": "已选游戏"
               },
               "workflow": {
-                "stopped": "启动容器以启用登录、游戏选择和下载。",
-                "stoppedAnonymous": "启动容器以启用游戏选择和下载。",
-                "needsLogin": "登录以浏览游戏库并下载游戏。",
-                "selectGames": "为此平台选择游戏，准备好后即可下载。",
-                "ready": "容器已就绪。可下载所选游戏或等待下次计划运行。"
+                "stopped": "启动共享服务容器并登录，再为此计划选择游戏。",
+                "stoppedAnonymous": "启动共享服务容器，再为此计划选择游戏。",
+                "needsLogin": "登录共享服务容器，再为此计划选择游戏。",
+                "selectGames": "为此计划选择游戏，然后保存。",
+                "ready": "共享服务容器已就绪。请先保存此计划，再运行它。"
               },
               "anonymous": {
                 "badge": "无需登录",
@@ -4058,12 +4075,16 @@
             "selectedGames": {
               "count": "已选择 {{count}} 个游戏",
               "overridePreset": "选择特定游戏会覆盖此服务的预设。",
-              "requiresPersistentContainer": "请先启动容器以选择游戏。",
+              "requiresPersistentContainer": "保存或关闭此计划，再通过“管理此服务的容器”启动容器。",
+              "signInToSelectGames": "请先登录再选择游戏。前往“{{actions}}”→“{{manageContainer}}”登录。",
               "error": "加载游戏选择失败：{{error}}"
             },
             "settings": {
-              "title": "设置",
-              "description": "所有计划预填充服务共用的全局持久容器和访客容器限制。",
+              "title": "共享容器设置",
+              "description": "适用于所有服务容器。",
+              "save": "保存设置",
+              "overrideNote": "以下服务使用单独保存的重启设置：{{services}}。",
+              "partialSave": "部分设置已保存。请重试仍显示错误的项目。",
               "loading": "正在加载设置...",
               "error": "无法读取持久容器登录有效期，该字段将保持锁定：{{error}}",
               "sharedContainerSettings": "登录与重启设置",
@@ -4175,7 +4196,10 @@
               "authPathsPersistent": "持久容器用于所有平台的游戏库浏览和游戏选择。启动容器并在其中登录，是计划预填充唯一需要的登录。"
             },
             "errors": {
-              "editSessionLoading": "计划预填充的编辑会话数据仍在加载中。"
+              "editSessionLoading": "计划预填充的编辑会话数据仍在加载中。",
+              "cleanupPending": "无法清理之前的容器更改。请重试此操作。",
+              "recordAction": "无法更新此计划。",
+              "sharedSettings": "无法保存共享容器设置。"
             }
           },
           "events": {
@@ -5205,7 +5229,12 @@
       "appId": "应用 ID：{{id}}",
       "cachedBadge": "已缓存",
       "removeFromCache": "从缓存中移除 {{name}}",
-      "saveSelection": "保存选择"
+      "saveSelection": "保存选择",
+      "discardChanges": {
+        "confirmTitle": "放弃游戏选择更改？",
+        "confirmBody": "尚未保存的游戏选择更改将被放弃。",
+        "confirmButton": "放弃更改"
+      }
     },
     "placeholders": {
       "selectPlatforms": "选择平台",
