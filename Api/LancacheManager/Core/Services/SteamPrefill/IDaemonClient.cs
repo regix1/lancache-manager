@@ -277,6 +277,7 @@ public interface IDaemonClient : IDisposable
     /// Check cache status by comparing cached depots against Steam manifests.
     /// </summary>
     Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<uint> appIds,
         List<CachedDepotInput> cachedDepots,
         CancellationToken cancellationToken = default);
 

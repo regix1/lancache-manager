@@ -1382,21 +1382,38 @@ public abstract class DaemonClientBase : IDaemonClient
     /// Check cache status by comparing cached depots against Steam manifests.
     /// </summary>
     public async Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<uint> appIds,
         List<CachedDepotInput> cachedDepots,
         CancellationToken cancellationToken = default)
     {
-        if (cachedDepots == null || cachedDepots.Count == 0)
+        if (appIds == null || appIds.Count == 0)
         {
-            return new CacheStatusResult { Message = "No cached depots provided" };
+            return new CacheStatusResult { Apps = [] };
+        }
+
+        await EnsureConnectedAsync(cancellationToken);
+        var generation = _connectionLifecycle.CurrentGeneration;
+        var status = await GetStatusAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (status is null)
+        {
+            throw new DaemonCommandException();
+        }
+        if (generation == 0 || generation != _connectionLifecycle.CurrentGeneration
+            || _statusGeneration != generation
+            || status.Features?.Contains("cacheStatusAppIds", StringComparer.Ordinal) != true)
+        {
+            return new CacheStatusResult { Apps = [] };
         }
 
         var parameters = new Dictionary<string, string>
         {
+            ["appIds"] = JsonSerializer.Serialize(appIds, _jsonOptions),
             ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions)
         };
 
         return await ReadResultAsync<CacheStatusResult>("check-cache-status", parameters,
-            TimeSpan.FromMinutes(10), cancellationToken);
+            TimeSpan.FromMinutes(10), cancellationToken, generation);
     }
 
     public async Task<DaemonRunSnapshot> CancelPrefillAsync(Guid runId, string daemonInstanceId,
@@ -1486,11 +1503,14 @@ public abstract class DaemonClientBase : IDaemonClient
     }
 
     private async Task<T> ReadResultAsync<T>(string command, Dictionary<string, string>? parameters,
-        TimeSpan timeout, CancellationToken cancellationToken) where T : class
+        TimeSpan timeout, CancellationToken cancellationToken, long? expectedGeneration = null) where T : class
     {
         try
         {
-            var response = await SendCommandAsync(command, parameters, timeout, cancellationToken);
+            var response = expectedGeneration.HasValue
+                ? await SendCoreAsync(command, parameters, timeout, cancellationToken,
+                    expectedGeneration: expectedGeneration)
+                : await SendCommandAsync(command, parameters, timeout, cancellationToken);
             if (!response.Success || response.RequiresLogin == true)
             {
                 _logger?.LogWarning("Daemon query {Command} failed with {ErrorCode}: {Error}",

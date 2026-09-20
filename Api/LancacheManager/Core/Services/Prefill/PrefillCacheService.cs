@@ -376,27 +376,4 @@ public class PrefillCacheService
         return cachedDepots.Select(d => ((long)d.AppId, (long)d.DepotId, d.ManifestId)).ToList();
     }
 
-    /// <summary>
-    /// Gets cached depots for specific apps in the format needed for the prefill daemon.
-    /// </summary>
-    public async Task<List<(long AppId, long DepotId, ulong ManifestId)>> GetCachedDepotsForAppsAsync(IEnumerable<long> appIds)
-    {
-        var appIdList = appIds?.Distinct().ToList() ?? new List<long>();
-        if (appIdList.Count == 0)
-        {
-            return new List<(long AppId, long DepotId, ulong ManifestId)>();
-        }
-
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var cachedDepots = await context.PrefillCachedDepots
-            .AsNoTracking()
-            .Where(d => appIdList.Contains(d.AppId))
-            .Select(d => new { d.AppId, d.DepotId, d.ManifestId })
-            .ToListAsync();
-
-        _logger.LogDebug("Retrieved {Count} cached depot manifests for {AppCount} apps", cachedDepots.Count, appIdList.Count);
-
-        return cachedDepots.Select(d => ((long)d.AppId, (long)d.DepotId, d.ManifestId)).ToList();
-    }
 }

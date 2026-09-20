@@ -379,6 +379,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   );
 
   const closeDropdown = useCallback((): void => setIsOpen(false), []);
+  const focusTrigger = useCallback((): void => buttonRef.current?.focus(), []);
 
   const {
     present,
@@ -390,6 +391,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     anchorRef: buttonRef,
     panelRef: dropdownRef,
     onClose: closeDropdown,
+    onEscape: focusTrigger,
     gutter: MENU_GUTTER_PX,
     place
   });

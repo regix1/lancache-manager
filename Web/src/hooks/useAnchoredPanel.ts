@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { useAnchorFollow, readAnchorRect, type AnchorRect } from './useAnchorFollow';
 import { useExitPresence, DROPDOWN_EXIT_MS } from './useExitPresence';
 import { clampToViewport } from '@utils/viewportClamp';
@@ -232,7 +233,11 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
 
     const sizeObserver = new ResizeObserver(() => {
       const anchor = anchorRef.current;
-      if (anchor !== null) handleAnchorMove(readAnchorRect(anchor));
+      if (anchor !== null) {
+        flushSync(() => {
+          handleAnchorMove(readAnchorRect(anchor));
+        });
+      }
     });
     sizeObserver.observe(panel);
     return () => sizeObserver.disconnect();

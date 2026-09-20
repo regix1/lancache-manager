@@ -461,7 +461,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task<CacheStatusResult> CheckCacheStatusAsync(List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
+    public Task<CacheStatusResult> CheckCacheStatusAsync(List<uint> appIds, List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task ShutdownAsync(CancellationToken cancellationToken = default)
         => ShutdownHandler is null ? throw new NotSupportedException() : ShutdownHandler(cancellationToken);
@@ -740,7 +740,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task<CacheStatusResult> CheckCacheStatusAsync(List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
+    public Task<CacheStatusResult> CheckCacheStatusAsync(List<uint> appIds, List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task ShutdownAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
@@ -852,6 +852,7 @@ internal abstract class TestDaemonClientBase : IDaemonClient
         => throw new NotSupportedException();
 
     public Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<uint> appIds,
         List<CachedDepotInput> cachedDepots,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException();

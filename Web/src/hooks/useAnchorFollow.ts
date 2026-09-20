@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 
 /**
  * Viewport geometry of an anchor (trigger) element. Collision decisions (which
@@ -115,8 +116,8 @@ function isAnchorOffscreen(rect: AnchorRect): boolean {
  * Anchoring an overlay in viewport coordinates instead (`position: fixed`) forces
  * JavaScript to re-place it every scroll frame, and the main thread cannot keep up
  * with a fast fling: the overlay visibly wobbles against its trigger. Only a real
- * reflow moves the anchor on the page, and those are one-off jumps where a frame
- * of catch-up is invisible.
+ * reflow moves the anchor on the page. Its new coordinates must publish before
+ * the browser paints so a portalled overlay stays attached during that frame.
  *
  * Since the overlay tracks its trigger, callers need not close on scroll to avoid a
  * stale position. What they do need is `onAnchorLost`: once the trigger is scrolled
@@ -149,6 +150,7 @@ export function useAnchorFollow(options: AnchorFollowOptions): void {
     let frameId = 0;
     let lastPoint: DocumentPoint | null = null;
     let lost = false;
+    let active = true;
 
     const reposition = (): void => {
       const anchor = anchorRef.current;
@@ -170,13 +172,15 @@ export function useAnchorFollow(options: AnchorFollowOptions): void {
       const point = toDocumentPoint(rect);
       if (hasMovedOnPage(lastPoint, point)) {
         lastPoint = point;
-        moveRef.current(rect);
+        flushSync(() => {
+          moveRef.current(rect);
+        });
       }
     };
 
     const tick = (): void => {
       reposition();
-      frameId = requestAnimationFrame(tick);
+      if (active) frameId = requestAnimationFrame(tick);
     };
 
     // A resize changes the viewport the overlay is clamped and flipped against
@@ -204,6 +208,7 @@ export function useAnchorFollow(options: AnchorFollowOptions): void {
     frameId = requestAnimationFrame(tick);
     window.addEventListener('resize', handleResize);
     return () => {
+      active = false;
       cancelAnimationFrame(frameId);
       clipObserver.disconnect();
       window.removeEventListener('resize', handleResize);

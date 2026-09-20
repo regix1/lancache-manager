@@ -79,13 +79,18 @@ public abstract partial class PrefillDaemonServiceBase
             return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
         }
 
-        var numericAppIds = appIds.Where(id => long.TryParse(id, out _)).Select(long.Parse);
-        var cachedData = await _cacheService.GetCachedDepotsForAppsAsync(numericAppIds);
-        if (cachedData.Count == 0)
+        var numericAppIds = appIds
+            .Select(id => uint.TryParse(id, out var appId) ? appId : (uint?)null)
+            .Where(appId => appId.HasValue)
+            .Select(appId => appId!.Value)
+            .Distinct()
+            .ToList();
+        if (numericAppIds.Count == 0)
         {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No cached depots found" };
+            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
         }
 
+        var cachedData = await _cacheService.GetAllCachedDepotsAsync();
         var cachedDepots = cachedData.Select(d => new CachedDepotInput
         {
             AppId = d.AppId,
@@ -93,7 +98,7 @@ public abstract partial class PrefillDaemonServiceBase
             ManifestId = d.ManifestId
         }).ToList();
 
-        return await session.Client.CheckCacheStatusAsync(cachedDepots, cancellationToken);
+        return await session.Client.CheckCacheStatusAsync(numericAppIds, cachedDepots, cancellationToken);
     }
 
     /// <summary>

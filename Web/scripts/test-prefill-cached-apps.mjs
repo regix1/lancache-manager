@@ -34,8 +34,65 @@ test('verified and previous unknown memberships are deduplicated', () => {
 });
 
 const panelPath = 'src/components/features/prefill/PrefillPanel.tsx';
+const gameSelectionPath = 'src/components/features/prefill/GameSelectionModal.tsx';
 const modalPath =
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx';
+
+const gameSelectionSource = parseSource(gameSelectionPath, ts.ScriptKind.TSX);
+const renderGameRow = findSoleNode(
+  gameSelectionSource,
+  'game selection row',
+  (node) =>
+    ts.isVariableDeclaration(node) && node.name.getText(gameSelectionSource) === 'renderGameRow'
+);
+
+const rowChildren = (node) => {
+  if (Array.isArray(node)) return node.flatMap(rowChildren);
+  if (node == null || typeof node === 'boolean') return [];
+  if (typeof node !== 'object') return [];
+  return [node, ...rowChildren(node.props?.children)];
+};
+
+const rowText = (node) => {
+  if (Array.isArray(node)) return node.map(rowText).join('');
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node !== 'object') return String(node);
+  return rowText(node.props?.children);
+};
+
+const pickerRow = ({ cached = [], outdated = [], unknown = [], selected = false } = {}) => {
+  const toggled = [];
+  const React = {
+    createElement: (type, props, ...children) => ({
+      type,
+      props: { ...props, children: children.flat(Infinity) }
+    })
+  };
+  const draw = bindLifted(
+    renderGameRow.initializer.getText(gameSelectionSource),
+    {
+      React,
+      cachedAppIdsSet: new Set(cached.map((id) => id.toLowerCase())),
+      outdatedAppIdsSet: new Set(outdated.map((id) => id.toLowerCase())),
+      unknownAppIdsSet: new Set(unknown.map((id) => id.toLowerCase())),
+      toggleGame: (appId) => toggled.push(appId),
+      t: (key) => key,
+      Button: 'Button',
+      Tooltip: 'Tooltip',
+      Badge: 'Badge',
+      Check: 'Check'
+    },
+    { jsx: ts.JsxEmit.React }
+  );
+  const tree = draw({ appId: '251570', name: 'Shared Depot Fixture' }, selected);
+  return {
+    badges: rowChildren(tree)
+      .filter((node) => node.type === 'Badge')
+      .map(rowText),
+    button: rowChildren(tree).find((node) => node.type === 'Button'),
+    toggled
+  };
+};
 
 const panel = (
   previous = [],
@@ -43,7 +100,8 @@ const panel = (
     upToDateAppIds: ['A'],
     outdatedAppIds: [],
     unknownAppIds: ['B']
-  })
+  }),
+  managerApps = ['A', 'B']
 ) => {
   let badges = previous;
   let outdated = [];
@@ -73,12 +131,12 @@ const panel = (
     API_BASE: '/api',
     fetch: async () => ({
       ok: true,
-      json: async () => ['A', 'B', 'C'].map((appId) => ({ appId }))
+      json: async () => [...new Set([...previous, 'A', 'B', 'C'])].map((appId) => ({ appId }))
     }),
     ApiService: {
       getPrefillCachedApps: async (service) => {
         calls.push(service);
-        return ['A', 'B'].map((appId) => ({ appId }));
+        return managerApps.map((appId) => ({ appId }));
       },
       getPrefillCacheStatus: status
     },
@@ -102,6 +160,107 @@ const panel = (
     load: bindLifted(liftHookCallback(panelPath, 'useCallback', 'const gamesCache ='), bindings)
   };
 };
+
+test('a current shared-depot result stays cached without an update badge', async () => {
+  const picker = panel(
+    ['251570'],
+    async () => ({
+      upToDateAppIds: ['251570'],
+      outdatedAppIds: [],
+      unknownAppIds: []
+    }),
+    ['251570']
+  );
+  await picker.load();
+  const row = pickerRow({
+    cached: picker.badges(),
+    outdated: picker.outdated(),
+    unknown: picker.unknown()
+  });
+  assert.deepEqual(picker.badges(), ['251570']);
+  assert.deepEqual(row.badges, ['prefill.gameSelection.cachedBadge']);
+  assert.equal(row.badges.includes('prefill.gameSelection.updateAvailable'), false);
+});
+
+test('a truly outdated cached game keeps both badges and stays selectable', async () => {
+  const picker = panel(
+    ['251570'],
+    async () => ({
+      upToDateAppIds: [],
+      outdatedAppIds: ['251570'],
+      unknownAppIds: []
+    }),
+    ['251570']
+  );
+  await picker.load();
+  const row = pickerRow({
+    cached: picker.badges(),
+    outdated: picker.outdated(),
+    unknown: picker.unknown()
+  });
+  assert.deepEqual(row.badges, [
+    'prefill.gameSelection.cachedBadge',
+    'prefill.gameSelection.updateAvailable'
+  ]);
+  assert.equal(row.button.props['aria-pressed'], false);
+  row.button.props.onClick();
+  assert.deepEqual(row.toggled, ['251570']);
+});
+
+test('an unsupported daemon result preserves manager membership as unknown', async () => {
+  const picker = panel(
+    ['251570'],
+    async () => ({
+      upToDateAppIds: [],
+      outdatedAppIds: [],
+      unknownAppIds: ['251570']
+    }),
+    ['251570']
+  );
+  await picker.load();
+  const row = pickerRow({
+    cached: picker.badges(),
+    outdated: picker.outdated(),
+    unknown: picker.unknown()
+  });
+  assert.deepEqual(picker.badges(), ['251570']);
+  assert.deepEqual(row.badges, [
+    'prefill.gameSelection.cachedBadge',
+    'prefill.gameSelection.statusUnknown'
+  ]);
+});
+
+test('normal selection and Force retain their existing request options', async () => {
+  const bodies = [];
+  const signalR = {
+    isCancelling: { current: true },
+    session: { maxConcurrentRuns: 2 },
+    refreshRuns: async () => undefined
+  };
+  const call = bindLifted(
+    liftHookCallback(panelPath, 'useCallback', 'const requestBody: Record<string, unknown>'),
+    {
+      signalR,
+      supportsConcurrentPrefill: () => true,
+      selectedAppIds: ['251570'],
+      selectedOS: ['windows', 'linux', 'macos'],
+      maxConcurrency: 'auto',
+      serviceBasePath: 'steam-prefill',
+      API_BASE: '/api',
+      ApiService: {
+        getJsonFetchOptions: (body, options) => {
+          bodies.push(body);
+          return options;
+        }
+      },
+      fetch: async () => ({ json: async () => ({ success: true }) }),
+      assertOk: async () => undefined
+    }
+  );
+  await call('session-a', {});
+  await call('session-a', { force: true });
+  assert.deepEqual(bodies, [{ appIds: ['251570'] }, { force: true, appIds: ['251570'] }]);
+});
 
 test('ordinary picker consumes explicit unknowns and filters unsolicited positives by eligibility', async () => {
   const picker = panel(['B', 'C'], async () => ({
@@ -149,6 +308,40 @@ test('ordinary picker service reset aborts stale verification without restoring 
   await pending;
   assert.deepEqual(picker.badges(), []);
   assert.equal(picker.bindings.gamesCacheRef.current, null);
+});
+
+test('ordinary picker accepts only the current request cache result', async () => {
+  let release;
+  let entered;
+  let calls = 0;
+  const ready = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const picker = panel(
+    ['251570'],
+    async () => {
+      if (++calls === 1) {
+        entered();
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return {
+        upToDateAppIds: ['251570'],
+        outdatedAppIds: [],
+        unknownAppIds: []
+      };
+    },
+    ['A', '251570']
+  );
+  const older = picker.load();
+  await ready;
+  await picker.load();
+  release({ upToDateAppIds: ['A'], outdatedAppIds: ['A'], unknownAppIds: [] });
+  await older;
+  assert.deepEqual(picker.badges(), ['A', '251570']);
+  assert.deepEqual(picker.outdated(), []);
+  assert.deepEqual(picker.unknown(), []);
 });
 
 test('ordinary picker reload bursts run one active pass and one catch-up pass', async () => {
@@ -331,6 +524,7 @@ const scheduled = (fetchGames) => {
   let actionError = 'cache removal failed';
   let loading = null;
   let loaded = true;
+  const gameSelectionRef = { current: selection };
   const bindings = {
     current: { current: { opening: 'opening-1' } },
     identityRef: { current: 'account-a' },
@@ -343,7 +537,7 @@ const scheduled = (fetchGames) => {
       }
     },
     gameAuthRef: { current: { key: 'steam:s1', authenticated: true } },
-    gameSelectionRef: { current: selection },
+    gameSelectionRef,
     gameRequestRef: { current: null },
     setLoadingGameSelectionService: (value) => {
       loading = value;
@@ -359,6 +553,7 @@ const scheduled = (fetchGames) => {
     },
     setGameSelection: (update) => {
       selection = update(selection);
+      gameSelectionRef.current = selection;
     },
     isScheduledPrefillAnonymousService: (service) => ['battleNet', 'riot'].includes(service),
     getPersistentServiceId: (service) => service,
@@ -406,6 +601,57 @@ test('scheduled picker request checks the current container before auth effects 
   });
   await picker.load('steam', 's1');
   assert.equal(calls, 1);
+});
+
+test('scheduled picker accepts only the current session cache result', async () => {
+  let release;
+  let entered;
+  const ready = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const picker = scheduled(async (_service, _signal, sessionId) => {
+    if (sessionId === 's1') {
+      entered();
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    }
+    return {
+      games: [{ appId: 'B', name: 'Beta' }],
+      cachedAppIds: ['B'],
+      outdatedAppIds: ['B'],
+      unknownAppIds: []
+    };
+  });
+  const older = picker.load('steam', 's1');
+  await ready;
+  picker.bindings.setGameSelection(() => ({
+    serviceKey: 'steam',
+    scheduleId: 'schedule-2',
+    sessionId: 's2',
+    games: [{ appId: 'B', name: 'Beta' }],
+    cachedAppIds: ['B'],
+    outdatedAppIds: [],
+    unknownAppIds: []
+  }));
+  picker.bindings.containerRef.current = {
+    sessionId: 's2',
+    isRunning: true,
+    isAuthenticated: true,
+    needsRelogin: false
+  };
+  picker.bindings.gameAuthRef.current = { key: 'steam:s2', authenticated: true };
+  await picker.load('steam', 's2');
+  release({
+    games: [{ appId: 'A', name: 'Alpha' }],
+    cachedAppIds: ['A'],
+    outdatedAppIds: [],
+    unknownAppIds: []
+  });
+  await older;
+  assert.deepEqual(picker.state().selection.games, [{ appId: 'B', name: 'Beta' }]);
+  assert.deepEqual(picker.state().selection.cachedAppIds, ['B']);
+  assert.deepEqual(picker.state().selection.outdatedAppIds, ['B']);
 });
 
 test('failed scheduled load drains queued authentication and clears only its load error', async () => {

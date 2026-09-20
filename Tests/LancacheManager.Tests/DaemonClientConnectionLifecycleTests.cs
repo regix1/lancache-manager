@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -13,6 +14,207 @@ namespace LancacheManager.Tests;
 
 public sealed class DaemonClientConnectionLifecycleTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SteamCacheStatusSendsDistinctIdsAndCompletePhysicalSnapshot(bool useTcp)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var context = new AppDbContext(database.Options))
+        {
+            context.PrefillCachedDepots.AddRange(
+                new PrefillCachedDepot
+                {
+                    AppId = 10, DepotId = 100, ManifestId = 1000, TotalBytes = 1,
+                    CachedAtUtc = DateTime.UtcNow
+                },
+                new PrefillCachedDepot
+                {
+                    AppId = 30, DepotId = 200, ManifestId = 2000, TotalBytes = 1,
+                    CachedAtUtc = DateTime.UtcNow
+                });
+            await context.SaveChangesAsync();
+        }
+
+        var (daemon, session, _) = PrefillCacheChangeTests.NewDaemon(database.Options);
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        session.Client = client;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var statusRequest = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("status", statusRequest.Type);
+            await WriteResponseAsync(stream, statusRequest.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(new
+                {
+                    isLoggedIn = true,
+                    isInitialized = true,
+                    features = new[] { "cacheStatusAppIds" }
+                }));
+            var request = await ReadRequestWithBodyAsync(stream, timeout.Token);
+            await WriteResponseAsync(stream, request.GetProperty("id").GetString()!, true, null, null,
+                timeout.Token, result: JsonSerializer.SerializeToElement(new CacheStatusResult
+                {
+                    Apps = [new AppCacheStatus { AppId = "20", IsUpToDate = true }]
+                }));
+            return request;
+        }, timeout.Token);
+
+        var result = await daemon.GetCacheStatusAsync(
+            session.Id,
+            ["20", "020", "invalid"],
+            timeout.Token);
+        var command = await server;
+        Assert.Equal("check-cache-status", command.GetProperty("type").GetString());
+        var parameters = command.GetProperty("parameters");
+        using var appIds = JsonDocument.Parse(parameters.GetProperty("appIds").GetString()!);
+        Assert.Equal(20U, Assert.Single(appIds.RootElement.EnumerateArray()).GetUInt32());
+        using var cachedDepots = JsonDocument.Parse(parameters.GetProperty("cachedDepots").GetString()!);
+        Assert.Equal(2, cachedDepots.RootElement.GetArrayLength());
+        Assert.Contains(cachedDepots.RootElement.EnumerateArray(), depot =>
+            depot.GetProperty("appId").GetInt64() == 10
+            && depot.GetProperty("depotId").GetInt64() == 100);
+        Assert.Contains(cachedDepots.RootElement.EnumerateArray(), depot =>
+            depot.GetProperty("appId").GetInt64() == 30
+            && depot.GetProperty("depotId").GetInt64() == 200);
+        Assert.True(Assert.Single(result.Apps).IsUpToDate);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SteamCacheStatusWithoutFeatureReturnsUnknownWithoutSendingCommand(bool useTcp)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var statusRequest = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("status", statusRequest.Type);
+            await WriteResponseAsync(stream, statusRequest.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(new
+                {
+                    isLoggedIn = true,
+                    isInitialized = true,
+                    features = Array.Empty<string>()
+                }));
+            using var noCommand = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+            try
+            {
+                await ReadRequestAsync(stream, noCommand.Token);
+                return false;
+            }
+            catch (OperationCanceledException) when (noCommand.IsCancellationRequested)
+            {
+                return true;
+            }
+        }, timeout.Token);
+
+        var result = await client.CheckCacheStatusAsync(
+            [20],
+            [new CachedDepotInput { AppId = 10, DepotId = 100, ManifestId = 1000 }],
+            timeout.Token);
+        Assert.Empty(result.Apps);
+        Assert.True(await server);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SteamCacheStatusPreservesLargeManifestIds(bool useTcp)
+    {
+        const ulong manifestId = ulong.MaxValue - 1;
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var statusRequest = await ReadRequestAsync(stream, timeout.Token);
+            await WriteResponseAsync(stream, statusRequest.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(new
+                {
+                    isLoggedIn = true,
+                    isInitialized = true,
+                    features = new[] { "cacheStatusAppIds" }
+                }));
+            var request = await ReadRequestWithBodyAsync(stream, timeout.Token);
+            await WriteResponseAsync(stream, request.GetProperty("id").GetString()!, true, null, null,
+                timeout.Token, result: JsonSerializer.SerializeToElement(new CacheStatusResult { Apps = [] }));
+            return request;
+        }, timeout.Token);
+
+        await client.CheckCacheStatusAsync(
+            [20],
+            [new CachedDepotInput { AppId = 10, DepotId = 100, ManifestId = manifestId }],
+            timeout.Token);
+        var command = await server;
+        using var cachedDepots = JsonDocument.Parse(
+            command.GetProperty("parameters").GetProperty("cachedDepots").GetString()!);
+        var serializedManifest = Assert.Single(cachedDepots.RootElement.EnumerateArray())
+            .GetProperty("manifestId");
+        Assert.Equal(manifestId, serializedManifest.ValueKind == JsonValueKind.String
+            ? ulong.Parse(serializedManifest.GetString()!)
+            : serializedManifest.GetUInt64());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CacheStatusQueryRejectsAStaleConnectionGeneration(bool useTcp)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            using var noCommand = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+            try
+            {
+                await ReadRequestAsync(stream, noCommand.Token);
+                return false;
+            }
+            catch (OperationCanceledException) when (noCommand.IsCancellationRequested)
+            {
+                return true;
+            }
+        }, timeout.Token);
+        await client.ConnectAsync(timeout.Token);
+        var lifecycle = typeof(DaemonClientBase)
+            .GetField("_connectionLifecycle", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(client)!;
+        var lifecycleType = lifecycle.GetType();
+        var generation = (long)lifecycleType.GetProperty("CurrentGeneration",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.GetValue(lifecycle)!;
+        lifecycleType.GetMethod("MarkDisconnected",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(lifecycle, null);
+        lifecycleType.GetMethod("CreateGeneration",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(lifecycle, null);
+        var readResult = typeof(DaemonClientBase)
+            .GetMethod("ReadResultAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .MakeGenericMethod(typeof(CacheStatusResult));
+        var query = (Task<CacheStatusResult>)readResult.Invoke(client,
+            [
+                "check-cache-status",
+                new Dictionary<string, string>(),
+                TimeSpan.FromMinutes(10),
+                timeout.Token,
+                generation
+            ])!;
+
+        await Assert.ThrowsAsync<DaemonCommandException>(() => query);
+        Assert.True(await server);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -438,6 +640,18 @@ public sealed class DaemonClientConnectionLifecycleTests
             using var connection = await endpoint.AcceptAsync(timeout.Token);
             using var stream = new NetworkStream(connection, ownsSocket: false);
             var request = await ReadRequestAsync(stream, timeout.Token);
+            if (command == "check-cache-status")
+            {
+                Assert.Equal("status", request.Type);
+                await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
+                    result: JsonSerializer.SerializeToElement(new
+                    {
+                        isLoggedIn = true,
+                        isInitialized = true,
+                        features = new[] { "cacheStatusAppIds" }
+                    }));
+                request = await ReadRequestAsync(stream, timeout.Token);
+            }
             Assert.Equal(command, request.Type);
             await WriteResponseAsync(stream, request.Id, false, null, "Remote.JobFailure: stack details",
                 timeout.Token, requiresLogin, errorCode);
@@ -467,6 +681,18 @@ public sealed class DaemonClientConnectionLifecycleTests
             using var connection = await endpoint.AcceptAsync(timeout.Token);
             using var stream = new NetworkStream(connection, ownsSocket: false);
             var request = await ReadRequestAsync(stream, timeout.Token);
+            if (command == "check-cache-status")
+            {
+                Assert.Equal("status", request.Type);
+                await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
+                    result: JsonSerializer.SerializeToElement(new
+                    {
+                        isLoggedIn = true,
+                        isInitialized = true,
+                        features = new[] { "cacheStatusAppIds" }
+                    }));
+                request = await ReadRequestAsync(stream, timeout.Token);
+            }
             await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
                 result: body is null ? null : JsonSerializer.Deserialize<JsonElement>(body));
         }, timeout.Token);
@@ -490,6 +716,18 @@ public sealed class DaemonClientConnectionLifecycleTests
             using var connection = await endpoint.AcceptAsync(timeout.Token);
             using var stream = new NetworkStream(connection, ownsSocket: false);
             var request = await ReadRequestAsync(stream, timeout.Token);
+            if (command == "check-cache-status")
+            {
+                Assert.Equal("status", request.Type);
+                await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
+                    result: JsonSerializer.SerializeToElement(new
+                    {
+                        isLoggedIn = true,
+                        isInitialized = true,
+                        features = new[] { "cacheStatusAppIds" }
+                    }));
+                request = await ReadRequestAsync(stream, timeout.Token);
+            }
             await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
                 result: JsonSerializer.Deserialize<JsonElement>(body));
         }, timeout.Token);
@@ -504,6 +742,7 @@ public sealed class DaemonClientConnectionLifecycleTests
             "get-owned-games" => client.GetOwnedGamesAsync(cancellationToken),
             "get-selected-apps-status" => client.GetSelectedAppsStatusAsync(cancellationToken: cancellationToken),
             "check-cache-status" => client.CheckCacheStatusAsync(
+                [10],
                 [new CachedDepotInput { AppId = 10, DepotId = 11, ManifestId = 12 }], cancellationToken),
             _ => throw new ArgumentException("Unknown command", nameof(command))
         };
@@ -747,6 +986,18 @@ public sealed class DaemonClientConnectionLifecycleTests
         return new DaemonRequest(
             request.RootElement.GetProperty("id").GetString()!,
             request.RootElement.GetProperty("type").GetString()!);
+    }
+
+    private static async Task<JsonElement> ReadRequestWithBodyAsync(
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        var lengthBuffer = new byte[4];
+        await ReadExactlyAsync(stream, lengthBuffer, cancellationToken);
+        var requestBuffer = new byte[BitConverter.ToInt32(lengthBuffer, 0)];
+        await ReadExactlyAsync(stream, requestBuffer, cancellationToken);
+        using var request = JsonDocument.Parse(requestBuffer);
+        return request.RootElement.Clone();
     }
 
     private static async Task WriteResponseAsync(

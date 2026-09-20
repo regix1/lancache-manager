@@ -312,7 +312,7 @@ public class PersistentLoginDualChannelChallengeTests
         public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<CacheStatusResult> CheckCacheStatusAsync(List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
+        public Task<CacheStatusResult> CheckCacheStatusAsync(List<uint> appIds, List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task ShutdownAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

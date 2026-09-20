@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './transpile-module.mjs';
 
 const COMPONENT_PATH = 'src/components/ui/EnhancedDropdown.tsx';
-const source = parseSource(COMPONENT_PATH, ts.ScriptKind.TSX);
+const sourcePath = process.env.ENHANCED_DROPDOWN_SOURCE;
+const source = sourcePath
+  ? ts.createSourceFile(
+      sourcePath,
+      readFileSync(sourcePath, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    )
+  : parseSource(COMPONENT_PATH, ts.ScriptKind.TSX);
 
 const selectableDeclaration = findSoleNode(
   source,
@@ -204,6 +214,69 @@ test('close clears the filter and reopen activates the committed selection', () 
   assert.equal(searchTerm, '');
   assert.equal(activeValue, null);
   assert.equal(applyActiveEffect({ activeValue, searchTerm, selectedValue: 'alpha' }), 'alpha');
+});
+
+test('Escape closes and restores focus without changing the committed value', () => {
+  const anchoredCall = findSoleNode(
+    source,
+    'useAnchoredPanel call',
+    (node) => ts.isCallExpression(node) && node.expression.getText(source) === 'useAnchoredPanel'
+  );
+  const anchoredArgument = anchoredCall.arguments[0];
+  assert.ok(ts.isObjectLiteralExpression(anchoredArgument));
+  const onEscapeProperty = anchoredArgument.properties.find(
+    (property) => property.name?.getText(source) === 'onEscape'
+  );
+  assert.ok(onEscapeProperty, 'production anchored options supply Escape focus restoration');
+
+  const callbackFor = (name) => {
+    const declaration = findSoleNode(
+      source,
+      `${name} declaration`,
+      (node) =>
+        ts.isVariableDeclaration(node) &&
+        node.name.getText(source) === name &&
+        ts.isCallExpression(node.initializer)
+    );
+    return declaration.initializer.arguments[0].getText(source);
+  };
+
+  let isOpen = true;
+  const committedValue = 'beta';
+  let focusCalls = 0;
+  const buttonRef = {
+    current: {
+      focus: () => {
+        focusCalls += 1;
+      }
+    }
+  };
+  const setIsOpen = (update) => {
+    isOpen = typeof update === 'function' ? update(isOpen) : update;
+  };
+  const closeDropdown = bindLifted(callbackFor('closeDropdown'), { setIsOpen });
+  const focusTrigger = bindLifted(callbackFor('focusTrigger'), { buttonRef });
+  const anchoredOptions = bindLifted(`() => (${anchoredArgument.getText(source)})`, {
+    isOpen,
+    buttonRef,
+    dropdownRef: { current: {} },
+    closeDropdown,
+    focusTrigger,
+    MENU_GUTTER_PX: 8,
+    place: () => undefined
+  })();
+
+  anchoredOptions.onClose();
+  assert.equal(isOpen, false, 'outside close keeps using the shared close callback');
+  assert.equal(focusCalls, 0, 'outside close does not move focus');
+  assert.equal(committedValue, 'beta');
+
+  isOpen = true;
+  anchoredOptions.onClose();
+  anchoredOptions.onEscape();
+  assert.equal(isOpen, false);
+  assert.equal(focusCalls, 1, 'Escape returns focus to the trigger');
+  assert.equal(committedValue, 'beta');
 });
 
 test('search and trigger controls expose their owned list and active row', () => {
