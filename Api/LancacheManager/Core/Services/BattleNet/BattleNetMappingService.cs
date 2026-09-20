@@ -29,9 +29,6 @@ public class BattleNetMappingService
 {
     private const string CatalogResourceName = "LancacheManager.tact_products.json";
 
-    /// <summary>Terminal stage key for a pass that matched none of its candidates to a game.</summary>
-    private const string NothingResolvedSkipStageKey = "signalr.battleNetMapping.skippedNothingResolved";
-
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
@@ -88,8 +85,57 @@ public class BattleNetMappingService
 
             if (unresolvedDownloads.Count == 0)
             {
-                // A concurrent ingest pass can name the last candidate between the count and this
-                // load, and the progress math below divides by this count.
+                // A concurrent ingest pass can name the last candidate between the count and this load.
+                return 0;
+            }
+
+            var matches = new List<(Download Download, TactResolution Resolution)>();
+            var unmatchedSampleLogged = false;
+            foreach (var download in unresolvedDownloads)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (string.IsNullOrEmpty(download.LastUrl))
+                {
+                    continue;
+                }
+
+                var segment = ExtractTactSegment(download.LastUrl);
+                if (segment == null)
+                {
+                    var rootSegment = ExtractCdnPathRootSegment(download.LastUrl);
+                    if (rootSegment != null
+                        && _catalog.Value.Resolve(rootSegment).Kind != TactResolutionKind.Unknown)
+                    {
+                        segment = rootSegment;
+                    }
+                }
+
+                if (segment == null)
+                {
+                    continue;
+                }
+
+                var resolution = _catalog.Value.Resolve(segment);
+                if (resolution.Kind == TactResolutionKind.Unknown)
+                {
+                    if (!unmatchedSampleLogged)
+                    {
+                        _logger.LogWarning(
+                            "Unmapped Blizzard CDN path '{Segment}' (sample url: '{Url}')",
+                            segment,
+                            download.LastUrl);
+                        unmatchedSampleLogged = true;
+                    }
+
+                    continue;
+                }
+
+                matches.Add((download, resolution));
+            }
+
+            if (matches.Count == 0)
+            {
+                _logger.LogInformation("No unnamed Blizzard downloads matched the embedded TACT catalog");
                 return 0;
             }
 
@@ -100,7 +146,7 @@ public class BattleNetMappingService
                 new()
                 {
                     ["processed"] = processed,
-                    ["total"] = unresolvedDownloads.Count,
+                    ["total"] = matches.Count,
                     ["mapped"] = resolvedCount,
                     ["errorDetail"] = errorDetail,
                 };
@@ -116,82 +162,35 @@ public class BattleNetMappingService
 
             try
             {
-                var unmatchedSampleLogged = false;
-                foreach (var download in unresolvedDownloads)
+                foreach (var (download, resolution) in matches)
                 {
                     reporter.Token.ThrowIfCancellationRequested();
-                    if (!string.IsNullOrEmpty(download.LastUrl))
-                    {
-                        var segment = ExtractTactSegment(download.LastUrl);
-                        if (segment == null)
-                        {
-                            var rootSegment = ExtractCdnPathRootSegment(download.LastUrl);
-                            if (rootSegment != null
-                                && _catalog.Value.Resolve(rootSegment).Kind != TactResolutionKind.Unknown)
-                            {
-                                segment = rootSegment;
-                            }
-                        }
-
-                        if (segment != null)
-                        {
-                            var resolution = _catalog.Value.Resolve(segment);
-                            if (resolution.Kind != TactResolutionKind.Unknown)
-                            {
-                                download.GameName = resolution.Name;
-                                resolvedCount++;
-                            }
-                            else if (!unmatchedSampleLogged)
-                            {
-                                _logger.LogWarning(
-                                    "Unmapped Blizzard CDN path '{Segment}' (sample url: '{Url}')",
-                                    segment,
-                                    download.LastUrl);
-                                unmatchedSampleLogged = true;
-                            }
-                        }
-                    }
+                    download.GameName = resolution.Name;
+                    resolvedCount++;
 
                     processed++;
-                    var bucket = processed * 20 / unresolvedDownloads.Count;
-                    if (bucket > lastReportedBucket || processed == unresolvedDownloads.Count)
+                    var bucket = processed * 20 / matches.Count;
+                    if (bucket > lastReportedBucket || processed == matches.Count)
                     {
                         lastReportedBucket = bucket;
                         await reporter.ReportAsync(
-                            processed * 90.0 / unresolvedDownloads.Count,
+                            processed * 90.0 / matches.Count,
                             "signalr.battleNetMapping.resolving",
                             Context());
                     }
                 }
 
-                if (resolvedCount > 0)
+                await reporter.ReportAsync(
+                    95,
+                    "signalr.battleNetMapping.saving",
+                    Context());
+                await db.SaveChangesAsync(reporter.Token);
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                 {
-                    await reporter.ReportAsync(
-                        95,
-                        "signalr.battleNetMapping.saving",
-                        Context());
-                    await db.SaveChangesAsync(reporter.Token);
-                    await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-                    {
-                        source = "blizzard-download-resolution",
-                        resolvedCount
-                    });
-                }
-
-                // Nothing resolved means nothing was saved and no refresh was emitted, so the pass
-                // left the database exactly as it found it and says so instead of claiming a
-                // completed re-map. Progress above is not suppressed the way a signed-out Epic or
-                // Xbox pass suppresses its own: those know before they start that they may do
-                // nothing, while this only learns it after walking every candidate, and the walk
-                // itself is real work worth showing.
-                if (resolvedCount == 0)
-                {
-                    await reporter.CompleteSkippedAsync(NothingResolvedSkipStageKey, Context());
-                }
-                else
-                {
-                    await reporter.CompleteAsync(success: true, context: Context());
-                }
+                    source = "blizzard-download-resolution",
+                    resolvedCount
+                });
+                await reporter.CompleteAsync(success: true, context: Context());
 
                 return resolvedCount;
             }
@@ -349,4 +348,3 @@ public class BattleNetMappingService
         }
     }
 }
-

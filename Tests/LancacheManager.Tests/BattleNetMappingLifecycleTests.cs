@@ -73,6 +73,43 @@ public sealed class BattleNetMappingLifecycleTests
                     or SignalREvents.BattleNetMappingComplete));
     }
 
+    [Fact]
+    public async Task ResolveDownloads_UnmatchedCandidatesCreateNoOperationAsync()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"battle-net-unmatched-{Guid.NewGuid():N}")
+            .Options;
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(new Download
+            {
+                Service = "blizzard",
+                ClientIp = "127.0.0.1",
+                LastUrl = "/tpr/not-a-catalog-product/data/aa/bb/hash",
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var notifications = new RecordingNotifications();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var service = new BattleNetMappingService(
+            new TestDbContextFactory(options),
+            notifications,
+            tracker,
+            NullLogger<BattleNetMappingService>.Instance);
+
+        Assert.Equal(0, await service.ResolveDownloadsAsync());
+        Assert.Equal(0, await service.ResolveDownloadsAsync());
+        Assert.DoesNotContain(
+            notifications.Events,
+            item => item.EventName is SignalREvents.BattleNetMappingStarted
+                or SignalREvents.BattleNetMappingProgress
+                or SignalREvents.BattleNetMappingComplete);
+        Assert.Empty(tracker.GetActiveOperations(OperationType.BattleNetMapping));
+    }
+
     private sealed record CapturedEvent(string EventName, object? Payload);
 
     private sealed class RecordingNotifications : ISignalRNotificationService
