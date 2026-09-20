@@ -147,7 +147,7 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
   assert.equal(calls, 3);
 });
 
-test('platform starts create only per-platform hidden controls', async () => {
+test('silent platform starts create only per-platform background controls', async () => {
   globalThis.localStorage = new MemoryStorage();
   globalThis.sessionStorage = new MemoryStorage();
   const handlers = await loadHandlerFactories();
@@ -162,16 +162,16 @@ test('platform starts create only per-platform hidden controls', async () => {
   let state = [];
   const started = build(
     { type: 'scheduled_prefill', id: 'prefill', storageKey: '', cancelKind: 'serverOp' },
-    { shouldDisplay: () => false, defaultMessage: 'Prefill' },
+    { shouldDisplay: (event) => event.hideNotification !== true, defaultMessage: 'Prefill' },
     (update) => {
       state = update(state);
     },
     () => undefined
   );
-  started({ operationId: 'aggregate' });
+  started({ operationId: 'aggregate', hideNotification: true });
   assert.equal(state.length, 0);
-  started({ operationId: 'steam-op', serviceId: 'steam' });
-  started({ operationId: 'epic-op', serviceId: 'epic' });
+  started({ operationId: 'steam-op', serviceId: 'steam', showNotification: false });
+  started({ operationId: 'epic-op', serviceId: 'epic', showNotification: false });
   assert.equal(state.length, 2);
   assert.deepEqual(state.map((n) => n.details.service).sort(), ['epic', 'steam']);
   assert.ok(state.every((n) => n.controlOnly));
@@ -219,7 +219,7 @@ test('hidden waiting handoff preserves the exact replacement in either event ord
   }
 });
 
-test('hidden operations keep separate controls and preserve cancellation during replay', async () => {
+test('silent operations keep separate controls and preserve cancellation during replay', async () => {
   globalThis.localStorage = new MemoryStorage();
   globalThis.sessionStorage = new MemoryStorage();
   const handlers = await loadHandlerFactories();
@@ -236,19 +236,18 @@ test('hidden operations keep separate controls and preserve cancellation during 
   const config = {
     type: 'game_detection',
     getId: () => 'slot',
-    storageKey: 'hidden',
-    shouldDisplay: () => false,
-    canControl: () => true,
+    storageKey: 'silent',
+    shouldDisplay: (event) => event.hideNotification !== true,
     defaultMessage: 'Detection',
     getDetails: (event) => ({ operationId: event.operationId })
   };
   const started = handlers.createStartedHandler(config, set);
-  started({ operationId: 'first' });
-  started({ operationId: 'second' });
+  started({ operationId: 'first', showNotification: false });
+  started({ operationId: 'second', showNotification: false });
   const first = state.find((n) => n.details.operationId === 'first');
   first.details.cancelRequested = true;
   first.details.cancelPending = true;
-  started({ operationId: 'first' });
+  started({ operationId: 'first', showNotification: false });
   assert.equal(state.length, 3);
   assert.equal(
     state.find((n) => n.id === 'slot'),
@@ -256,15 +255,25 @@ test('hidden operations keep separate controls and preserve cancellation during 
   );
   assert.equal(state.find((n) => n.id === first.id).details.cancelPending, true);
   assert.equal(state.filter((n) => n.controlOnly).length, 2);
-  assert.equal(globalThis.localStorage.getItem('hidden'), null);
+  assert.equal(globalThis.localStorage.getItem('silent'), null);
   for (const useAnimationDelay of [true, false]) {
     const complete = handlers.createCompletionHandler(
       { ...config, useAnimationDelay },
       set,
       () => undefined
     );
-    complete({ operationId: 'first', success: false, error: 'Connection closed' });
-    complete({ operationId: 'first', success: false, error: 'Connection closed' });
+    complete({
+      operationId: 'first',
+      success: false,
+      error: 'Connection closed',
+      showNotification: false
+    });
+    complete({
+      operationId: 'first',
+      success: false,
+      error: 'Connection closed',
+      showNotification: false
+    });
     const failed = state.find((n) => n.details.operationId === 'first');
     assert.equal(failed.status, 'failed');
     assert.equal(failed.error, 'Connection closed');
@@ -275,12 +284,12 @@ test('hidden operations keep separate controls and preserve cancellation during 
     config,
     set,
     () => undefined
-  )({ operationId: 'second', success: true });
+  )({ operationId: 'second', success: true, showNotification: false });
   assert.equal(state.length, 2);
   assert.equal(state[0], live);
 });
 
-test('hidden skipped and cancelled progress are quiet while failures survive occupied slots', async () => {
+test('silent skipped and cancelled progress are quiet while failures survive occupied slots', async () => {
   globalThis.localStorage = new MemoryStorage();
   const handlers = await loadHandlerFactories();
   for (const status of ['skipped', 'cancelled', 'failed']) {
@@ -296,8 +305,7 @@ test('hidden skipped and cancelled progress are quiet while failures survive occ
         type: 'game_detection',
         getId: () => 'slot',
         storageKey: '',
-        shouldDisplay: () => false,
-        canControl: () => true,
+        shouldDisplay: (event) => event.hideNotification !== true,
         getStatus: (event) => event.status,
         getMessage: () => 'Detection',
         getProgress: () => 42,
@@ -309,12 +317,57 @@ test('hidden skipped and cancelled progress are quiet while failures survive occ
       },
       () => undefined
     );
-    progress({ operationId: 'hidden', status: 'running' });
-    progress({ operationId: 'hidden', status, error: 'Write failed' });
+    progress({ operationId: 'silent', status: 'running', showNotification: false });
+    progress({
+      operationId: 'silent',
+      status,
+      error: 'Write failed',
+      showNotification: false
+    });
     assert.equal(state[0], live);
     assert.equal(state.length, status === 'failed' ? 2 : 1);
     if (status === 'failed') assert.equal(state[1].error, 'Write failed');
   }
+});
+
+test('hidden operations never enter notification state, including failures', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  const handlers = await loadHandlerFactories();
+  let state = [];
+  const set = (update) => {
+    state = update(state);
+  };
+  const config = {
+    type: 'game_detection',
+    getId: () => 'slot',
+    storageKey: 'hidden',
+    shouldDisplay: (event) => event.hideNotification !== true,
+    defaultMessage: 'Detection',
+    getDetails: (event) => ({ operationId: event.operationId })
+  };
+
+  handlers.createStartedHandler(
+    config,
+    set
+  )({
+    operationId: 'hidden-operation',
+    showNotification: false,
+    hideNotification: true
+  });
+  handlers.createCompletionHandler(
+    config,
+    set,
+    () => undefined
+  )({
+    operationId: 'hidden-operation',
+    success: false,
+    error: 'Write failed',
+    showNotification: false,
+    hideNotification: true
+  });
+
+  assert.deepEqual(state, []);
+  assert.equal(globalThis.localStorage.getItem('hidden'), null);
 });
 
 test('eviction waiting wire routes once through warning rendering and actual dismissal', async () => {

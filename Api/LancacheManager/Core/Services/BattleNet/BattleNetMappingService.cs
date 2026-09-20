@@ -55,7 +55,7 @@ public class BattleNetMappingService
     /// GameAppId NULL, persists, and emits <see cref="SignalREvents.DownloadsRefresh"/> so the
     /// renamed rows are re-pulled. Returns the number of downloads that were resolved.
     /// </summary>
-    public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default)
+    public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default, bool hideNotification = true)
     {
         await _resolveGate.WaitAsync(ct);
         try
@@ -157,7 +157,8 @@ public class BattleNetMappingService
                 MappingOperations.BattleNet,
                 showNotification: false,
                 ct,
-                _logger);
+                _logger,
+                hideNotification: hideNotification);
             await reporter.StartAsync(Context());
 
             try

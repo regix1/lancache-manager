@@ -267,6 +267,7 @@ public class OrphanedDownloadsRemovedResponse
 public class EvictionScanStartedResponse
 {
     public bool ShowNotification { get; set; } = true;
+    public bool HideNotification { get; set; }
 
     /// <summary>
     /// The started scan's operation id. Null when the scan could not start immediately and was
@@ -292,6 +293,7 @@ public class EvictionScanStatusResponse
     public bool SilentMode { get; set; }
     /// <summary>Includes a nonfatal detection failure even when the scan started silent.</summary>
     public bool ShowNotification { get; set; }
+    public bool HideNotification { get; set; }
     public OperationStatus Status { get; set; }
     public double PercentComplete { get; set; }
     public string Message { get; set; } = string.Empty;

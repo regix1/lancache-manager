@@ -31,6 +31,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     private readonly ScheduledRunEventNames _events;
     private readonly string _completeStageKey;
     private readonly bool _showNotification;
+    private readonly bool _hideNotification;
     private readonly RunNotice? _notice;
     private CancellationTokenRegistration _cancelRegistration;
     private readonly CancellationTokenSource _cts;
@@ -78,7 +79,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         Action? onTerminalCleanup = null,
         ILogger? logger = null,
         Func<OperationTerminalInfo, string>? externalTerminalStageKey = null,
-        RunNotice? notice = null)
+        RunNotice? notice = null,
+        bool hideNotification = false)
     {
         _notifications = notifications;
         _tracker = tracker;
@@ -89,6 +91,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _terminalStageKey = completeStageKey;
         _notice = notice;
         _showNotification = notice?.ShowNotification ?? showNotification;
+        _hideNotification = notice?.HideNotification ?? hideNotification;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _payloadFactories = payloadFactories;
         _onTerminalCleanup = onTerminalCleanup;
@@ -140,6 +143,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 metadata: new Dictionary<string, object?>
                 {
                     ["showNotification"] = _showNotification,
+                    ["hideNotification"] = _hideNotification,
                     ["context"] = context,
                     ["runNotice"] = _notice,
                     ["integrationLogin"] = login,
@@ -159,7 +163,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 _operationId,
                 stageKey,
                 context,
-                _showNotification);
+                _showNotification,
+                _hideNotification);
             await _notifications.NotifyAllAsync(
                 _events.Started,
                 _payloadFactories?.Started(started) ?? started);
@@ -217,7 +222,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 stageKey,
                 clamped,
                 context,
-                _showNotification);
+                _showNotification,
+                _hideNotification);
             await _notifications.NotifyAllAsync(
                 _events.Progress,
                 _payloadFactories?.Progress(progress) ?? progress);
@@ -350,7 +356,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 _lastContext,
                 _showNotification,
                 info.Cancelled,
-                status);
+                status,
+                _hideNotification);
             var payload = _payloadFactories?.Complete(terminal) ?? terminal;
 
             if (info.Success || info.Cancelled)

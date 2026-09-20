@@ -36,16 +36,28 @@ public class ScheduledPrefillRunVisibilityTests
     public static IEnumerable<object[]> VisibilityCases()
     {
         // One visible + one silent -> the run's card is visible (OR is true), regardless of order.
-        yield return new object[] { NotificationMode.All, NotificationMode.Silent, true };
-        yield return new object[] { NotificationMode.Silent, NotificationMode.All, true };
+        yield return new object[] { NotificationMode.All, NotificationMode.Silent, true, false };
+        yield return new object[] { NotificationMode.Silent, NotificationMode.All, true, false };
         // Every due platform silent -> the whole run is silent.
-        yield return new object[] { NotificationMode.Silent, NotificationMode.Silent, false };
+        yield return new object[] { NotificationMode.Silent, NotificationMode.Silent, false, false };
+        // Hidden and scheduled Manual-only children disappear. The aggregate disappears when every
+        // due platform disappears.
+        yield return new object[] { NotificationMode.Hidden, NotificationMode.Hidden, false, true };
+        yield return new object[] { NotificationMode.Manual, NotificationMode.Manual, false, true };
+        yield return new object[] { NotificationMode.Manual, NotificationMode.Hidden, false, true };
+        yield return new object[] { NotificationMode.Hidden, NotificationMode.Silent, false, false };
+        yield return new object[] { NotificationMode.Manual, NotificationMode.Silent, false, false };
+        yield return new object[] { NotificationMode.All, NotificationMode.Hidden, true, false };
+        yield return new object[] { NotificationMode.All, NotificationMode.Manual, true, false };
     }
 
     [Theory]
     [MemberData(nameof(VisibilityCases))]
     public async Task ExecuteWorkAsync_StampsRunLevelVisibilityOnEveryLifecycleEvent(
-        NotificationMode steamMode, NotificationMode epicMode, bool expectedVisible)
+        NotificationMode steamMode,
+        NotificationMode epicMode,
+        bool expectedVisible,
+        bool expectedHidden)
     {
         var recorder = (RecordingNotificationsProxy)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
         var tracker = (NoopTrackerProxy)DispatchProxy.Create<IUnifiedOperationTracker, NoopTrackerProxy>();
@@ -74,13 +86,29 @@ public class ScheduledPrefillRunVisibilityTests
         Assert.NotEmpty(recorder.Events);
         Assert.All(
             recorder.Events.Where(e => e.ServiceId is null),
-            e => Assert.Equal(expectedVisible, e.ShowNotification));
+            e =>
+            {
+                Assert.Equal(expectedVisible, e.ShowNotification);
+                Assert.Equal(expectedHidden, e.HideNotification);
+            });
         Assert.All(
             recorder.Events.Where(e => e.ServiceId == PrefillPlatform.Steam.ToString()),
-            e => Assert.Equal(steamMode == NotificationMode.All, e.ShowNotification));
+            e =>
+            {
+                Assert.Equal(steamMode == NotificationMode.All, e.ShowNotification);
+                Assert.Equal(
+                    steamMode is NotificationMode.Hidden or NotificationMode.Manual,
+                    e.HideNotification);
+            });
         Assert.All(
             recorder.Events.Where(e => e.ServiceId == PrefillPlatform.Epic.ToString()),
-            e => Assert.Equal(epicMode == NotificationMode.All, e.ShowNotification));
+            e =>
+            {
+                Assert.Equal(epicMode == NotificationMode.All, e.ShowNotification);
+                Assert.Equal(
+                    epicMode is NotificationMode.Hidden or NotificationMode.Manual,
+                    e.HideNotification);
+            });
 
         // A run emits a Started and a Completed per due service beside its own run-level pair, so each
         // service's card opens and closes on its own timing. Every one of them carries the run-level
@@ -185,6 +213,7 @@ public class ScheduledPrefillRunVisibilityTests
     private sealed record CapturedEvent(
         string EventName,
         bool ShowNotification,
+        bool HideNotification,
         string? ServiceId,
         string? Status,
         bool? Success);
@@ -213,12 +242,13 @@ public class ScheduledPrefillRunVisibilityTests
                 && args[1] is { } payload
                 && payload.GetType().GetProperty("showNotification")?.GetValue(payload) is bool showNotification)
             {
+                var hideNotification = payload.GetType().GetProperty("hideNotification")?.GetValue(payload) is true;
                 var status = payload.GetType().GetProperty("status")?.GetValue(payload) as string;
                 var serviceId = payload.GetType().GetProperty("serviceId")?.GetValue(payload) as string;
                 var success = payload.GetType().GetProperty("success")?.GetValue(payload) as bool?;
                 lock (_sync)
                 {
-                    _events.Add(new CapturedEvent(eventName, showNotification, serviceId, status, success));
+                    _events.Add(new CapturedEvent(eventName, showNotification, hideNotification, serviceId, status, success));
                 }
             }
 

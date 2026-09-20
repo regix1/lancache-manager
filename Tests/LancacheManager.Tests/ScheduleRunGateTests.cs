@@ -242,6 +242,34 @@ public class ScheduleRunGateTests
         Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
     }
 
+    [Fact]
+    public async Task HiddenUntrackedFailureRemainsHidden()
+    {
+        using var service = new RunGateProbeService("gameDetection");
+        var tracker = CreateRealTracker();
+        var announced = new TaskCompletionSource<ScheduledRunCompleteEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = CreateProxy<ISignalRNotificationService>((_, args) =>
+        {
+            if (args?.Length > 1 && args[1] is ScheduledRunCompleteEvent terminal)
+                announced.TrySetResult(terminal);
+            return Task.CompletedTask;
+        });
+        _ = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker, notifications);
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
+
+        var result = await service.InvokeRunScheduledWorkAsync(
+            RunTrigger.Scheduled,
+            CancellationToken.None,
+            notice,
+            _ => throw new InvalidOperationException("the worker broke"));
+        var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.RunFailed);
+        Assert.False(terminal.ShowNotification);
+        Assert.True(terminal.HideNotification);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -677,7 +705,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(EvictionKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (status, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.NotNull(skippedReason);
         Assert.False(status.IsRunning);
@@ -690,7 +718,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(EvictionKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Idle());
 
-        var (status, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.Null(skippedReason);
         Assert.False(status.IsRunning);
@@ -707,7 +735,7 @@ public class ScheduleRunGateTests
         using var cts = new CancellationTokenSource();
         tracker.RegisterOperation(OperationType.EvictionScan, EvictionKey, cts);
 
-        var (status, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.Null(skippedReason);
         Assert.True(status.IsRunning);
@@ -796,7 +824,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(serviceKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (_, skippedReason, _, _) = await registry.TriggerRunAsync(serviceKey);
+        var (_, skippedReason, _, _, _) = await registry.TriggerRunAsync(serviceKey);
 
         Assert.Null(skippedReason);
         Assert.True(service.HasPendingRun);
@@ -811,7 +839,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(serviceKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (_, skippedReason, _, _) = await registry.TriggerRunAsync(serviceKey);
+        var (_, skippedReason, _, _, _) = await registry.TriggerRunAsync(serviceKey);
 
         Assert.NotNull(skippedReason);
         Assert.False(service.HasPendingRun);
@@ -1082,7 +1110,7 @@ public class ScheduleRunGateTests
         CacheScanGateHarness.MakeBusy(snapshot);
         var registry = CreateRegistry([service, asksLater], gate);
 
-        var (_, skippedReason, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (_, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
         Assert.NotNull(skippedReason);
         // The answer says the run is kept rather than telling the person to try again, which is what
         // the gate's own sentence does for the controllers.

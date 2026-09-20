@@ -83,4 +83,5 @@ public class ScheduleRunStatus
     public string? StageKey { get; set; }
     public IReadOnlyDictionary<string, object?>? Context { get; set; }
     public bool ShowNotification { get; set; }
+    public bool HideNotification { get; set; }
 }

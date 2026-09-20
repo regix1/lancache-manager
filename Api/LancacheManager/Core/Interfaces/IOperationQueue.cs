@@ -60,4 +60,6 @@ public interface IOperationQueue
     /// be both a card its schedule asked not to see and an announcement repeated for one parking.
     /// </summary>
     bool IsWaiterSilent(Guid waitingOperationId);
+
+    bool IsWaiterHidden(Guid waitingOperationId);
 }

@@ -872,7 +872,7 @@ for (const locale of ['en', 'zh']) {
     const active = f.state.find((card) => card.details.operationId === 'E');
     assert.equal(active.id, parent.id);
     assert.equal(active.startedAt, parent.startedAt);
-    assert.equal(active.controlOnly, undefined);
+    assert.equal(active.controlOnly, true);
     assert.equal(active.status, 'running');
     assert.equal(active.error, undefined);
     assert.match(active.detailMessage, /Child disk error/);

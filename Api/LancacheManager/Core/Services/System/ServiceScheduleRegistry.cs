@@ -251,7 +251,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         failedId = _tracker.RegisterOperation(type, serviceKey, new CancellationTokenSource(), metadata: notice,
             onTerminalEmit: outcome => _notifications.NotifyOperationFailedAsync(completeEvent,
                 new ScheduledRunCompleteEvent(serviceKey, failedId, false, "", 0, outcome.Error, null,
-                    notice.ShowNotification, false, OperationStatus.Failed)));
+                    notice.ShowNotification, false, OperationStatus.Failed, notice.HideNotification)));
         notice.Attach(_tracker, failedId);
         _tracker.CompleteOperation(failedId, success: false, error: error);
     }
@@ -984,6 +984,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             SignalREvents.OperationWaiting,
             new OperationWaitingNotification(heldId, typeWire, displayName, blockerName,
                 Silent: !notice.ShowNotification,
+                Hidden: notice.HideNotification,
                 Acknowledge: notice.Mode == NotificationMode.Silent && notice.TryAcknowledge()));
         return notice;
     }
@@ -1002,7 +1003,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     new OperationWaitingCompleteNotification(pendingId, operationType.ToWireString(),
                         outcome.Cancelled, outcome.Error, outcome.Success && !outcome.Skipped, outcome.Skipped,
                         notice.OperationId != pendingId ? notice.OperationId : null,
-                        notice.OperationId is { } nextId && nextId != pendingId ? _tracker.GetOperation(nextId)?.Status.ToWireString() : null)));
+                        notice.OperationId is { } nextId && nextId != pendingId ? _tracker.GetOperation(nextId)?.Status.ToWireString() : null,
+                        notice.HideNotification)));
             notice.PendingId = pendingId;
             notice.Token = cts.Token;
             cts.Token.Register(() =>
@@ -1021,6 +1023,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         _ = _notifications.NotifyAllAsync(SignalREvents.OperationWaiting,
             new OperationWaitingNotification(notice.PendingId.Value, operationType.ToWireString(), displayName, null,
                 Silent: !notice.ShowNotification,
+                Hidden: notice.HideNotification,
                 Acknowledge: notice.Mode == NotificationMode.Silent && notice.TryAcknowledge()));
     }
 
@@ -1076,15 +1079,16 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         await _notifications.NotifyAllAsync(completeEvent, terminal);
     }
 
-    public Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
+    public Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool HideNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
     {
         var loop = FindScheduleLoop(serviceKey);
         var notice = new RunNotice(loop?.EffectiveNotificationMode ?? NotificationMode.All, RunTrigger.Manual);
         var runDenial = CheckScheduleRun(serviceKey, ref notice);
         if (runDenial is not null)
         {
-            return Task.FromResult<(ScheduleRunStatus, string?, bool, bool)>(
-                (new ScheduleRunStatus { IsRunning = false, ShowNotification = true }, runDenial, notice.ShowNotification, false));
+            return Task.FromResult<(ScheduleRunStatus, string?, bool, bool, bool)>(
+                (new ScheduleRunStatus { IsRunning = false, ShowNotification = true }, runDenial,
+                    notice.ShowNotification, notice.HideNotification, false));
         }
 
         var statusBeforeTrigger = GetRunStatus(serviceKey) ?? new ScheduleRunStatus { IsRunning = false, ShowNotification = true };
@@ -1103,8 +1107,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             if (!admitted || followUpQueued) statusBeforeTrigger.IsRunning = true;
         }
 
-        return Task.FromResult<(ScheduleRunStatus, string?, bool, bool)>(
-            (statusBeforeTrigger, null, notice.ShowNotification, followUpQueued));
+        return Task.FromResult<(ScheduleRunStatus, string?, bool, bool, bool)>(
+            (statusBeforeTrigger, null, notice.ShowNotification, notice.HideNotification, followUpQueued));
     }
 
     /// <summary>
@@ -1156,6 +1160,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             StageKey = string.IsNullOrEmpty(active.Message) ? null : active.Message,
             Context = ReadContext(active.Metadata),
             ShowNotification = ReadShowNotification(active.Metadata),
+            HideNotification = ReadHideNotification(active.Metadata),
         };
     }
 
@@ -1173,6 +1178,22 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         };
 
         return value is not bool show || show;
+    }
+
+    private static bool ReadHideNotification(object? state)
+    {
+        if (RunNotice.ReadRunNotice(state) is { } run)
+        {
+            return run.HideNotification;
+        }
+        var value = state switch
+        {
+            IReadOnlyDictionary<string, object?> readOnly when readOnly.TryGetValue("hideNotification", out var v) => v,
+            IDictionary<string, object> mutable when mutable.TryGetValue("hideNotification", out var v) => v,
+            _ => null,
+        };
+
+        return value is bool hide && hide;
     }
 
 

@@ -273,6 +273,7 @@ public class CacheSizeScanStatusResponse
 {
     public bool IsProcessing { get; set; }
     public bool ShowNotification { get; set; } = true;
+    public bool HideNotification { get; set; }
     public OperationStatus Status { get; set; } = OperationStatus.Completed;
     public double PercentComplete { get; set; }
     public string Message { get; set; } = string.Empty;

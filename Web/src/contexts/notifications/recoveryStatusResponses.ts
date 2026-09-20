@@ -99,6 +99,7 @@ interface ScheduledPrefillServiceRunStatus {
   scheduleId?: string | null;
   scheduleName?: string | null;
   showNotification?: boolean;
+  hideNotification?: boolean;
   stage: string;
   message?: string | null;
   stageKey?: string | null;
@@ -110,6 +111,7 @@ export interface ScheduledPrefillRunStatusResponse {
   isRunning: boolean;
   operationId?: string | null;
   showNotification?: boolean;
+  hideNotification?: boolean;
   services: ScheduledPrefillServiceRunStatus[];
 }
 
@@ -129,11 +131,9 @@ interface GameDetectionOperationInfo {
 export interface GameDetectionStatusResponse {
   isProcessing: boolean;
   operation: GameDetectionOperationInfo | null;
-  /**
-   * Run-stable display flag for the active detection. A silent automatic run reports false so
-   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
-   */
+  /** Selects a full card when true and background progress when false. */
   showNotification?: boolean;
+  hideNotification?: boolean;
 }
 
 /**
@@ -175,6 +175,7 @@ export interface DataImportStatusResponse {
 export interface EvictionScanStatusResponse {
   isProcessing: boolean;
   showNotification?: boolean;
+  hideNotification?: boolean;
   silentMode: boolean;
   status: string;
   percentComplete: number;
@@ -201,11 +202,9 @@ export interface OperationStatusResponse {
 export interface CacheSizeScanStatusResponse {
   previousOperationId?: string | null;
   isProcessing: boolean;
-  /**
-   * Run-stable display flag for the active scan. A silent automatic run reports false so
-   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
-   */
+  /** Selects a full card when true and background progress when false. */
   showNotification?: boolean;
+  hideNotification?: boolean;
   status: string;
   percentComplete: number;
   message: string;

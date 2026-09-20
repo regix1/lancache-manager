@@ -589,6 +589,7 @@ public class RustLogProcessorService
                 _logger,
                 processingToken,
                 showNotification: !silentMode,
+                hideNotification: silentMode,
                 cancelOwner: () =>
                 {
                     if (ownerOperationId.HasValue)
@@ -1048,7 +1049,8 @@ public class RustLogProcessorService
                 try
                 {
                     var battleNetMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
-                    var resolvedBlizzard = await battleNetMappingService.ResolveDownloadsAsync();
+                    var resolvedBlizzard = await battleNetMappingService.ResolveDownloadsAsync(
+                        hideNotification: silentMode);
                     if (resolvedBlizzard > 0)
                     {
                         _logger.LogInformation("Resolved {Count} Blizzard downloads to game names after log processing", resolvedBlizzard);

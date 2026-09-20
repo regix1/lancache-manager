@@ -13,10 +13,12 @@ namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
 public sealed class ScheduledPrefillOperationMetadata
 {
     private int _showNotification;
+    private readonly bool _hideNotification;
 
-    public ScheduledPrefillOperationMetadata(bool showNotification)
+    public ScheduledPrefillOperationMetadata(bool showNotification, bool hideNotification = false)
     {
         _showNotification = showNotification ? 1 : 0;
+        _hideNotification = hideNotification;
     }
 
     /// <summary>
@@ -27,6 +29,8 @@ public sealed class ScheduledPrefillOperationMetadata
         get => Volatile.Read(ref _showNotification) == 1;
         set => Volatile.Write(ref _showNotification, value ? 1 : 0);
     }
+
+    public bool HideNotification => _hideNotification;
 }
 
 /// <summary>
@@ -45,12 +49,18 @@ public sealed class ScheduledPrefillServiceRunState
     private DaemonRun? _run;
     private DaemonSession? _session;
 
-    public ScheduledPrefillServiceRunState(PrefillPlatform serviceId, Guid scheduleId, string name, bool showNotification)
+    public ScheduledPrefillServiceRunState(
+        PrefillPlatform serviceId,
+        Guid scheduleId,
+        string name,
+        bool showNotification,
+        bool hideNotification = false)
     {
         ServiceId = serviceId;
         ScheduleId = scheduleId;
         Name = name;
         ShowNotification = showNotification;
+        HideNotification = hideNotification;
     }
 
     /// <summary>The platform this operation prefills.</summary>
@@ -61,6 +71,8 @@ public sealed class ScheduledPrefillServiceRunState
     public string Name { get; }
 
     public bool ShowNotification { get; }
+
+    public bool HideNotification { get; }
 
     public DateTime? CompletedAtUtc { get; set; }
     public bool Detached { get; set; }

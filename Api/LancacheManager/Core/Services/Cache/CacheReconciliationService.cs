@@ -138,6 +138,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         RunNotice? notice = null)
     {
         silent = notice is null ? silent : !notice.ShowNotification;
+        var hideNotification = notice?.HideNotification == true;
         if (!TryBeginRun())
         {
             return null;
@@ -169,6 +170,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         operationId,
                         cts.Token,
                         silent,
+                        hideNotification,
                         deferIfDownloading);
                 }
                 catch (Exception ex)
@@ -391,12 +393,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Guid operationId,
         CancellationToken stoppingToken,
         bool silent,
+        bool hideNotification,
         bool deferIfDownloading)
     {
         // Display silence is the schedule notification mode only. Evicted-data mode (including
-        // Remove) does not hide the scan card. Lifecycle events are ALWAYS emitted - the incoming
-        // <paramref name="silent"/> flag only stamps ShowNotification so the frontend hides the card
-        // when the schedule is Silent (or Manual for a non-manual trigger).
+        // Remove) does not change the scan presentation. Lifecycle events are always emitted. The
+        // incoming flags select background progress or complete suppression on the frontend.
         // Stamped FIRST, before the capability revalidation below: that check can enumerate log
         // directories (ms-scale I/O), and until the stamp lands the eviction scan status endpoint
         // would report this already-running operation with the PREVIOUS run's silent flag, letting
@@ -446,16 +448,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         try
         {
-            // Always emit the lifecycle event; the display flag (not transport suppression) decides
-            // whether the frontend surfaces the card.
+            // Always emit the lifecycle event; its presentation flags decide whether the frontend
+            // shows a card, background progress, or nothing.
             await _notifications.NotifyAllAsync(SignalREvents.EvictionScanStarted, new EvictionScanStarted(
                 StageKey: "signalr.evictionScan.detectingGames",
                 OperationId: operationId,
-                ShowNotification: !silent));
+                ShowNotification: !silent,
+                HideNotification: hideNotification));
 
-            await RunFullDetectionPhaseAsync(operationId, showNotification: !silent, stoppingToken);
+            await RunFullDetectionPhaseAsync(
+                operationId,
+                showNotification: !silent,
+                hideNotification: hideNotification,
+                stoppingToken: stoppingToken);
             stoppingToken.ThrowIfCancellationRequested();
-            await ReportScanProgressAsync(operationId, 0, "signalr.evictionScan.scanning", new EvictionScanResult(), !silent);
+            await ReportScanProgressAsync(
+                operationId,
+                0,
+                "signalr.evictionScan.scanning",
+                new EvictionScanResult(),
+                !silent,
+                hideNotification);
 
             _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary (scanSilent: {ScanSilent})", silent);
 
@@ -477,8 +490,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Hybrid transport (mirrors CacheClearingService): the stdout progress event from
             // cache_eviction_scan.rs is a zero-latency wake-up that triggers exactly one read of
             // the (Rust-side-unchanged) progress file, replacing the previous standalone
-            // MonitorProgressFileAsync poll-every-500ms task. Always wired: lifecycle events are
-            // emitted regardless of silence, with scanSilent negated into the display flag.
+            // MonitorProgressFileAsync poll-every-500ms task. Lifecycle events remain wired for
+            // state tracking regardless of presentation mode.
             Func<RustProgressEvent, Task>? onProgressEvent = async _ =>
                 {
                     var progress = await _rustProcessHelper.ReadProgressFileAsync<EvictionScanProgressData>(progressFilePath!);
@@ -531,7 +544,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Evicted: progress.Evicted,
                         UnEvicted: progress.UnEvicted,
                         Context: context,
-                        ShowNotification: !silent || context.ContainsKey("detectionError")));
+                        ShowNotification: !silent || context.ContainsKey("detectionError"),
+                        HideNotification: hideNotification));
                 };
 
             // Execute the Rust binary
@@ -554,7 +568,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     86.0,
                     "signalr.evictionScan.postProcessing",
                     scanResult,
-                    showNotification: !silent);
+                    showNotification: !silent,
+                    hideNotification: hideNotification);
 
                 stoppingToken.ThrowIfCancellationRequested();
 
@@ -656,7 +671,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         92.0,
                         "signalr.evictionScan.refreshingSummary",
                         scanResult,
-                        showNotification: !silent);
+                        showNotification: !silent,
+                        hideNotification: hideNotification);
 
                     await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
                 }
@@ -746,18 +762,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Registers an EvictionScan operation whose terminal SignalR event fires EXACTLY ONCE from
     /// inside CompleteOperation (via onTerminalEmit). A mutable terminal-state holder is created up
     /// front and captured by value; ReconcileCacheFilesAsync fills it just before CompleteOperation.
-    /// The terminal ALWAYS emits; the scan-phase display flag (Silent) is negated into
-    /// ShowNotification so the frontend gates the card instead of the transport suppressing it.
+    /// The terminal always emits with the scan's stable presentation flags so reconnect recovery
+    /// cannot change a Silent or Hidden run into a visible card.
     /// </summary>
     private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false, RunNotice? notice = null)
     {
-        var terminalState = new EvictionScanTerminalState { Silent = silent };
+        var terminalState = new EvictionScanTerminalState
+        {
+            Silent = silent,
+            Hidden = notice?.HideNotification == true
+        };
         Guid operationId = default;
         operationId = _operationTracker.RegisterOperation(
             OperationType.EvictionScan,
             name,
             cts,
-            metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = !silent },
+            metadata: new Dictionary<string, object?>
+            {
+                ["runNotice"] = notice,
+                ["showNotification"] = !silent,
+                ["hideNotification"] = terminalState.Hidden
+            },
             onTerminalCleanup: () =>
             {
                 _evictionScanTerminalStates.TryRemove(operationId, out _);
@@ -792,7 +817,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         UnEvicted: 0,
                         Context: context,
                         ShowNotification: showNotification,
-                        Cancelled: true));
+                        Cancelled: true,
+                        HideNotification: terminalState.Hidden));
                 }
 
                 // Above the success branch: a refused run completes successfully because it did
@@ -815,7 +841,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Error: info.Error,
                         Context: context,
                         ShowNotification: showNotification,
-                        Skipped: true));
+                        Skipped: true,
+                        HideNotification: terminalState.Hidden));
                 }
 
                 if (info.Success)
@@ -828,7 +855,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Evicted: terminalState.Evicted,
                         UnEvicted: terminalState.UnEvicted,
                         Context: context,
-                        ShowNotification: showNotification));
+                        ShowNotification: showNotification,
+                        HideNotification: terminalState.Hidden));
                 }
 
                 return _notifications.NotifyOperationFailedAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
@@ -840,7 +868,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     UnEvicted: 0,
                     Error: info.Error ?? "Rust eviction scan binary returned failure",
                     Context: context,
-                    ShowNotification: showNotification));
+                    ShowNotification: showNotification,
+                    HideNotification: terminalState.Hidden));
             });
 
         _evictionScanTerminalStates[operationId] = terminalState;
@@ -862,12 +891,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// forwarded onto this scan's card, and cancelling the scan cancels it. A refused or failed
     /// detection is logged and the scan goes on, because the scan reports its own gates itself.
     /// </summary>
-    private async Task RunFullDetectionPhaseAsync(Guid operationId, bool showNotification, CancellationToken stoppingToken)
+    private async Task RunFullDetectionPhaseAsync(
+        Guid operationId,
+        bool showNotification,
+        bool hideNotification,
+        CancellationToken stoppingToken)
     {
         Guid? detectionId;
         try
         {
-            detectionId = await _gameCacheDetectionService.StartDetectionAsync(incremental: false, showNotification: false, parentOperationId: operationId);
+            var childNotice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual);
+            detectionId = await _gameCacheDetectionService.StartDetectionAsync(
+                incremental: false,
+                notice: childNotice,
+                parentOperationId: operationId);
         }
         catch (ValidationException ex)
         {
@@ -912,7 +949,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     detection.PercentComplete,
                     "signalr.evictionScan.detectingGames",
                     new EvictionScanResult(),
-                    showNotification);
+                    showNotification,
+                    hideNotification);
 
                 await Task.WhenAny(finished.Task, Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken.None));
             }
@@ -929,7 +967,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         terminalState.DetectionError = detectionError;
                 });
                 await ReportScanProgressAsync(operationId, terminal.PercentComplete,
-                    "signalr.evictionScan.detectingGames", new EvictionScanResult(), showNotification);
+                    "signalr.evictionScan.detectingGames", new EvictionScanResult(), showNotification, hideNotification);
             }
 
             _logger.LogInformation("[EvictionScan] Full detection ahead of the scan finished (operation: {DetectionId})", detectionId);
@@ -945,7 +983,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         double percentComplete,
         string stageKey,
         EvictionScanResult scanResult,
-        bool showNotification)
+        bool showNotification,
+        bool hideNotification)
     {
         var context = new Dictionary<string, object?>
         {
@@ -984,7 +1023,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             Evicted: scanResult.Evicted,
             UnEvicted: scanResult.UnEvicted,
             Context: context,
-            ShowNotification: showNotification || context.ContainsKey("detectionError")));
+            ShowNotification: showNotification || context.ContainsKey("detectionError"),
+            HideNotification: hideNotification));
     }
 
     /// <summary>
@@ -1035,12 +1075,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionScan. Populated BY VALUE in
     /// ReconcileCacheFilesAsync immediately before CompleteOperation; read by the onTerminalEmit
-    /// closure registered at RegisterOperation time. <see cref="Silent"/> is the scan-phase display
-    /// flag (scanSilent) the closure negates into ShowNotification; the terminal is always emitted.
+    /// closure registered at RegisterOperation time. The terminal is always emitted with the same
+    /// Silent and Hidden presentation flags captured when the scan started.
     /// </summary>
     private sealed class EvictionScanTerminalState
     {
         public bool Silent;
+        public bool Hidden;
         public string? DetectionError;
         public int Processed;
         public int Evicted;

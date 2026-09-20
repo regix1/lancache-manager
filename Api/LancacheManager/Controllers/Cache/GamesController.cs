@@ -618,7 +618,8 @@ public class GamesController : ControllerBase
         {
             IsProcessing = true,
             Operation = activeOperation,
-            ShowNotification = activeOperation.ShowNotification
+            ShowNotification = activeOperation.ShowNotification,
+            HideNotification = activeOperation.HideNotification
         });
     }
 

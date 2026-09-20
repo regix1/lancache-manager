@@ -1,9 +1,9 @@
 import type { CustomSchedule } from './custom-schedule/types';
 
-export type NotificationMode = 'all' | 'manual' | 'silent';
+export type NotificationMode = 'all' | 'manual' | 'silent' | 'hidden';
 
 export const isNotificationMode = (value: string): value is NotificationMode =>
-  value === 'all' || value === 'manual' || value === 'silent';
+  value === 'all' || value === 'manual' || value === 'silent' || value === 'hidden';
 
 export type NotificationDisplayMode = 'full' | 'condensed';
 

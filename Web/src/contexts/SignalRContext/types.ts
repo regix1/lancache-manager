@@ -343,6 +343,8 @@ export const SIGNALR_REFRESH_EVENTS = [
  */
 interface OperationEvent {
   operationId: string;
+  showNotification?: boolean;
+  hideNotification?: boolean;
   /**
    * The server builds this as `Dictionary<string, object?>` and writes null into an entry whose
    * source value is absent (a scan mode that was never resolved, a service name on a non-service
@@ -668,6 +670,7 @@ export interface MappingStartedEvent {
   stageKey: string;
   context: MappingStageContext | null;
   showNotification: boolean;
+  hideNotification?: boolean;
 }
 
 export interface MappingProgressEvent {
@@ -678,6 +681,7 @@ export interface MappingProgressEvent {
   percentComplete: number;
   context: MappingStageContext | null;
   showNotification: boolean;
+  hideNotification?: boolean;
 }
 
 export interface MappingCompleteEvent {
@@ -689,6 +693,7 @@ export interface MappingCompleteEvent {
   error: string | null;
   context: MappingStageContext | null;
   showNotification: boolean;
+  hideNotification?: boolean;
   cancelled: boolean;
   status: OperationStatus;
 }
@@ -1030,6 +1035,7 @@ export interface ScheduledPrefillStartedEvent {
   scheduleName?: string | null;
   runOperationId?: string | null;
   showNotification?: boolean;
+  hideNotification?: boolean;
 }
 
 export interface ScheduledPrefillProgressEvent {
@@ -1059,6 +1065,7 @@ export interface ScheduledPrefillProgressEvent {
   downloadSessionId?: string | null;
   percentComplete?: number | null;
   showNotification?: boolean;
+  hideNotification?: boolean;
 }
 
 export interface ScheduledPrefillCompletedEvent {
@@ -1087,6 +1094,7 @@ export interface ScheduledPrefillCompletedEvent {
   /** "skipped" when the service did nothing (no container, needs login); the card closes as skipped. */
   status?: string | null;
   showNotification?: boolean;
+  hideNotification?: boolean;
 }
 
 // ============================================================================
@@ -1100,14 +1108,12 @@ export interface ScheduledPrefillCompletedEvent {
 
 export interface ScheduledRunStartedEvent extends OperationEvent {
   serviceKey: string;
-  showNotification?: boolean;
 }
 
 export interface ScheduledRunProgressEvent extends OperationEvent {
   serviceKey: string;
   status: OperationStatus;
   percentComplete: number;
-  showNotification?: boolean;
 }
 
 export interface ScheduledRunCompleteEvent extends OperationEvent {
@@ -1120,7 +1126,6 @@ export interface ScheduledRunCompleteEvent extends OperationEvent {
   cancelled?: boolean;
   percentComplete: number;
   error?: string;
-  showNotification?: boolean;
   /**
    * Terminal status. A skipped run reports success:true here, so this is the only field that
    * tells a run which did nothing apart from one which finished its work.
@@ -1267,6 +1272,7 @@ export interface OperationWaitingEvent {
    * backend sends this event for it exactly once, never again on a blocker change.
    */
   silent?: boolean;
+  hidden?: boolean;
 }
 
 /**
@@ -1287,6 +1293,7 @@ export interface OperationWaitingCompleteEvent {
    * with `promoted`, and the reason travels in `error`.
    */
   skipped?: boolean;
+  hidden?: boolean;
 }
 
 export interface EvictionRemovalStartedEvent extends OperationEvent {

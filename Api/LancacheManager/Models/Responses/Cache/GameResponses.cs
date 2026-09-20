@@ -43,6 +43,7 @@ public class ActiveDetectionResponse
     /// resurrecting a card on page reload instead of leaving it stuck once the silent terminal arrives.
     /// </summary>
     public bool ShowNotification { get; set; } = true;
+    public bool HideNotification { get; set; }
 }
 
 /// <summary>

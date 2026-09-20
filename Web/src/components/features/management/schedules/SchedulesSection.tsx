@@ -772,6 +772,11 @@ const ScheduleRow = memo(function ScheduleRow({
       value: 'silent',
       label: t('management.schedules.notificationMode.silent'),
       description: t('management.schedules.notificationMode.silentDescription')
+    },
+    {
+      value: 'hidden',
+      label: t('management.schedules.notificationMode.hidden'),
+      description: t('management.schedules.notificationMode.hiddenDescription')
     }
   ];
 
@@ -862,11 +867,13 @@ const ScheduleRow = memo(function ScheduleRow({
                       >
                         <Badge
                           variant={
-                            service.notificationMode === 'silent'
-                              ? 'waiting-outline'
-                              : service.notificationMode === 'manual'
-                                ? 'info'
-                                : 'waiting'
+                            service.notificationMode === 'hidden'
+                              ? 'neutral'
+                              : service.notificationMode === 'silent'
+                                ? 'waiting-outline'
+                                : service.notificationMode === 'manual'
+                                  ? 'info'
+                                  : 'waiting'
                           }
                           className="schedule-task-flag"
                         >
@@ -1061,7 +1068,11 @@ const ScheduleRow = memo(function ScheduleRow({
                     ]}
                     value={service.runOnStartup ? 'true' : 'false'}
                     onChange={handleRunOnStartupChange}
-                    disabled={isDisabled}
+                    disabled={
+                      isDisabled ||
+                      service.notificationMode === 'silent' ||
+                      service.notificationMode === 'hidden'
+                    }
                     title={t('management.schedules.runOnStartupTooltip')}
                     size="sm"
                   />
@@ -1828,6 +1839,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             return next;
           });
           if (result.skippedReason === cacheQueuedReasonKey) return;
+          if (result.hideNotification) return;
           addNotification({
             type: 'generic',
             status: 'skipped',

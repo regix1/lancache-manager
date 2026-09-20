@@ -254,10 +254,11 @@ public static class SignalRNotifications
         // Additive terminal field (appended so positional callers are unaffected) — guarantees the
         // shared IOperationComplete contract on the failure path.
         string? Error = null,
-        // Run-stable display flag: the terminal carries the same visibility the run started with so a
-        // silent run's terminal cannot resurrect a card. Appended to keep positional callers safe.
+        // Run-stable presentation flags keep the terminal in the same full, background, or hidden
+        // mode that the operation started with. Appended to keep positional callers safe.
         bool ShowNotification = true,
-        Guid? ParentOperationId = null
+        Guid? ParentOperationId = null,
+        bool HideNotification = false
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
@@ -411,7 +412,8 @@ public static class SignalRNotifications
         string Status = "running",
         double PercentComplete = 0,
         int TotalApps = 0,
-        int ProcessedApps = 0
+        int ProcessedApps = 0,
+        bool HideNotification = false
     );
 
     /// <summary>
@@ -442,7 +444,8 @@ public static class SignalRNotifications
         int? MaxReconnectAttempts = null,
         int ProcessedMappings = 0,
         int TotalMappings = 0,
-        int MappingsApplied = 0
+        int MappingsApplied = 0,
+        bool HideNotification = false
     );
 
     /// <summary>
@@ -475,7 +478,8 @@ public static class SignalRNotifications
         Dictionary<string, object?>? Context = null,
         int? DepotMappingsFound = null,
         int? TotalApps = null,
-        int? TotalBatches = null
+        int? TotalBatches = null,
+        bool HideNotification = false
     ) : IOperationComplete
     {
         public string ServiceKey => "depotMapping";

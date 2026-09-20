@@ -100,6 +100,7 @@ public class OperationsController : ControllerBase
                 OperationType = op.Type.ToWireString(),
                 Name = op.Name,
                 ShowNotification = RunNotice.ReadRunNotice(op.Metadata)?.ShowNotification ?? !_operationQueue.IsWaiterSilent(op.Id),
+                HideNotification = RunNotice.ReadRunNotice(op.Metadata)?.HideNotification ?? _operationQueue.IsWaiterHidden(op.Id),
                 Status = op.Status.ToWireString(),
                 // Two owners park operations and each answers for its own: the queue for a run
                 // waiting on another operation, the schedule registry for one held for a download.

@@ -1677,7 +1677,7 @@ function ServicePrefillPanel({
 
           {(signalR.runs.length > 0 ||
             runCompletions.some(
-              (run) => run.sessionId === signalR.session?.id && run.notificationMode !== 'silent'
+              (run) => run.sessionId === signalR.session?.id && run.notificationMode !== 'hidden'
             )) && (
             <div className="prefill-sec-progress space-y-3">
               {[
@@ -1685,7 +1685,7 @@ function ServicePrefillPanel({
                 ...runCompletions.filter(
                   (run) =>
                     run.sessionId === signalR.session?.id &&
-                    run.notificationMode !== 'silent' &&
+                    run.notificationMode !== 'hidden' &&
                     !signalR.runs.some(
                       (current) =>
                         current.runId === run.runId &&

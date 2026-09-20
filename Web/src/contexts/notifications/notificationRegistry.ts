@@ -689,8 +689,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       apiEndpoint: '/api/games/detect/active',
       isProcessing: (data: GameDetectionStatusResponse) =>
         data.isProcessing && data.operation !== null,
-      // A silent automatic run still emits its terminal (display-gated). Skip recovery so a page
-      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
+      // A hidden run still emits its lifecycle for operation ownership, but recovery must never
+      // create a notification for it.
       createNotification: (data: GameDetectionStatusResponse) => {
         // `isProcessing` guard above ensures `data.operation !== null` here.
         const op = data.operation!;
@@ -1084,8 +1084,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       },
       apiEndpoint: '/api/cache/size/scan/status',
       isProcessing: (data: CacheSizeScanStatusResponse) => data.isProcessing,
-      // A silent automatic scan still emits its terminal (display-gated). Skip recovery so a page
-      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
+      // A hidden scan still emits its lifecycle for operation ownership, but recovery must never
+      // create a notification for it.
       createNotification: (data: CacheSizeScanStatusResponse) => ({
         controlOnly: data.showNotification === false,
         message: translateRecoveryStage(
@@ -1153,17 +1153,19 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // One card per service still running, each on the operation that service's own cancel
       // needs, so a reload mid-run comes back with the run it left rather than one card for it.
       recoverCards: (data: ScheduledPrefillRunStatusResponse) =>
-        data.services.map((service) => ({
-          id: scheduledPrefillCardId(service.serviceId, service.operationId),
-          controlOnly: (service.showNotification ?? data.showNotification) === false,
-          message: scheduledPrefillServiceMessage(service),
-          progress: service.percentComplete ?? undefined,
-          detailMessage: formatScheduledPrefillDetailMessage({
-            ...service,
-            message: service.message ?? ''
-          }),
-          details: scheduledPrefillDetails({ ...service, runOperationId: data.operationId })
-        })),
+        data.services
+          .filter((service) => !service.hideNotification)
+          .map((service) => ({
+            id: scheduledPrefillCardId(service.serviceId, service.operationId),
+            controlOnly: (service.showNotification ?? data.showNotification) === false,
+            message: scheduledPrefillServiceMessage(service),
+            progress: service.percentComplete ?? undefined,
+            detailMessage: formatScheduledPrefillDetailMessage({
+              ...service,
+              message: service.message ?? ''
+            }),
+            details: scheduledPrefillDetails({ ...service, runOperationId: data.operationId })
+          })),
       staleMessageKey: 'signalr.scheduledPrefill.stale'
     } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
     started: {

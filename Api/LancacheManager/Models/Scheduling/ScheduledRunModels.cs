@@ -15,16 +15,17 @@ public readonly record struct ScheduledRunEventNames(string Started, string Prog
 
 /// <summary>
 /// Run-started payload for a scheduled maintenance service. Emitted once per run attempt.
-/// <see cref="ShowNotification"/> is stamped once from the run's notification mode + trigger and is
-/// immutable for the run; lifecycle events are ALWAYS emitted and the frontend gates display on this
-/// flag (display-flag pattern, not transport suppression).
+/// <see cref="ShowNotification"/> selects a full card or background progress.
+/// <see cref="HideNotification"/> suppresses both presentations. Both values are immutable for the
+/// run; lifecycle events are always emitted so recovery and cancellation retain one contract.
 /// </summary>
 public sealed record ScheduledRunStartedEvent(
     string ServiceKey,
     Guid OperationId,
     string StageKey,
     Dictionary<string, object?>? Context,
-    bool ShowNotification);
+    bool ShowNotification,
+    bool HideNotification = false);
 
 /// <summary>
 /// Progress payload for a scheduled maintenance service. <see cref="PercentComplete"/> is clamped
@@ -37,7 +38,8 @@ public sealed record ScheduledRunProgressEvent(
     string StageKey,
     double PercentComplete,
     Dictionary<string, object?>? Context,
-    bool ShowNotification);
+    bool ShowNotification,
+    bool HideNotification = false);
 
 /// <summary>
 /// Single terminal payload for a scheduled maintenance service. Emitted exactly once per run attempt
@@ -58,7 +60,8 @@ public sealed record ScheduledRunCompleteEvent(
     Dictionary<string, object?>? Context,
     bool ShowNotification,
     bool Cancelled,
-    OperationStatus Status) : IOperationComplete
+    OperationStatus Status,
+    bool HideNotification = false) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
 }

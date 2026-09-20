@@ -527,7 +527,8 @@ public class StatsController : ControllerBase
         return Ok(new EvictionScanStartedResponse
         {
             OperationId = result.OperationId,
-            ShowNotification = notice.ShowNotification
+            ShowNotification = notice.ShowNotification,
+            HideNotification = notice.HideNotification
         });
     }
 
@@ -566,6 +567,8 @@ public class StatsController : ControllerBase
         var silentMode = activeScan?.Metadata is Dictionary<string, object?> visibility &&
             visibility.GetValueOrDefault("showNotification") is bool showNotification
             ? !showNotification : activeScan != null && _reconciliationService.CurrentScanIsSilent;
+        var hideNotification = activeScan?.Metadata is Dictionary<string, object?> runState &&
+            runState.GetValueOrDefault("hideNotification") is true;
         if (activeScan == null)
         {
             return Ok(new EvictionScanStatusResponse
@@ -575,6 +578,7 @@ public class StatsController : ControllerBase
                 // Display flag mirror of silentMode: the recovery config skips resurrecting a card
                 // whose run is display-silent (scanSilent). No scan active → nothing to skip.
                 ShowNotification = !silentMode,
+                HideNotification = false,
                 Status = OperationStatus.Completed,
                 PercentComplete = 0.0,
                 Message = string.Empty,
@@ -602,6 +606,7 @@ public class StatsController : ControllerBase
             IsProcessing = true,
             SilentMode = silentMode,
             ShowNotification = !silentMode || context?.ContainsKey("detectionError") == true,
+            HideNotification = hideNotification,
             Status = activeScan.Status,
             PercentComplete = activeScan.PercentComplete,
             Message = stageKey ?? "Scanning for evictable cache entries...",

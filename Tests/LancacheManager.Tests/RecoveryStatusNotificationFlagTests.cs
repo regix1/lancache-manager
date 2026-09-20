@@ -11,13 +11,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Pins the recovery-status contract for the three pipelines whose live cards are gated on a
-/// run-stable <c>showNotification</c> flag (game detection, cache-file scan, Epic game mapping).
-/// Lifecycle events are always emitted so recovery works, but a silent automatic run's terminal is
-/// display-gated. If the recovery status endpoint did NOT expose the run's flag, a page reload mid-run
-/// would resurrect a visible card that the silent terminal can never clear. These tests lock each
-/// status response to carry the active run's flag (camelCase on the wire) so the frontend recovery
-/// gate can skip resurrecting a silent run's card.
+/// Pins the recovery-status visibility contract for game detection, cache-file scans, and Epic game
+/// mapping. Lifecycle events are always emitted so recovery works. Silent runs restore as background
+/// progress, while Hidden runs never enter notification state.
 /// </summary>
 public class RecoveryStatusNotificationFlagTests
 {
@@ -85,11 +81,13 @@ public class RecoveryStatusNotificationFlagTests
         {
             IsProcessing = true,
             Operation = null,
-            ShowNotification = false
+            ShowNotification = false,
+            HideNotification = false
         };
 
         var json = JsonSerializer.Serialize(response, WireOptions);
         Assert.Contains("\"showNotification\":false", json);
+        Assert.Contains("\"hideNotification\":false", json);
     }
 
     [Fact]
@@ -150,13 +148,14 @@ public class RecoveryStatusNotificationFlagTests
         var body = InvokeCacheSizeScanStatus(controller);
         Assert.True(ReadBool(body, "isProcessing"));
         Assert.False(ReadBool(body, "showNotification"));
+        Assert.False(ReadBool(body, "hideNotification"));
     }
 
     [Fact]
     public void CacheSizeScanStatus_Idle_ReportsVisibleSoMissedTerminalsStaleComplete()
     {
-        // No active scan: recovery must NOT take the silent-skip branch, so the idle response stays
-        // visible and a missed terminal still stale-completes the card.
+        // No active scan: the idle response stays visible so a missed terminal still
+        // stale-completes the card.
         var controller = BuildCacheController(showNotification: null, activeScans: Array.Empty<OperationInfo>());
 
         var body = InvokeCacheSizeScanStatus(controller);

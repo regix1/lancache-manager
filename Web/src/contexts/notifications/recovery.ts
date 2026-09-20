@@ -197,6 +197,7 @@ function reconcileRecoveredCard(
 /** Row shape of GET /api/operations/waiting (wait-queue recovery endpoint). */
 interface WaitingOperationRow {
   showNotification?: boolean;
+  hideNotification?: boolean;
   status?: string;
   operationId: string;
   operationType: string;
@@ -332,6 +333,7 @@ function createWaitingOperationsRecoveryFunction(
           return false;
         });
         for (const row of rows) {
+          if (row.hideNotification) continue;
           const type = OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[row.operationType];
           if (
             !type ||
@@ -429,10 +431,26 @@ function createSimpleRecoveryFunction<TData>(
         message?: string;
         operationId?: string;
         parentOperationId?: string | null;
+        hideNotification?: boolean;
         startedAt?: string;
         startTime?: string;
       };
       const operationId = outcome.operationId;
+      const hideNotification =
+        (data as { hideNotification?: boolean }).hideNotification === true ||
+        outcome.hideNotification === true;
+      if (hideNotification) {
+        setNotifications((prev) => {
+          if (!canRecover(pass, type, operationId)) return prev;
+          return prev.filter(
+            (notification) =>
+              notification.id !== errorId &&
+              (notification.type !== type ||
+                (operationId && notification.details?.operationId !== operationId))
+          );
+        });
+        return;
+      }
       if (
         type === 'game_detection' &&
         operationId &&

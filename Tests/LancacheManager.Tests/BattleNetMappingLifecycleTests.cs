@@ -53,6 +53,9 @@ public sealed class BattleNetMappingLifecycleTests
         Assert.NotEmpty(progress);
         Assert.All(progress, item => Assert.Equal(started.OperationId, item.OperationId));
         Assert.Equal(started.OperationId, complete.OperationId);
+        Assert.True(started.HideNotification);
+        Assert.All(progress, item => Assert.True(item.HideNotification));
+        Assert.True(complete.HideNotification);
         Assert.True(complete.Success);
         Assert.Equal(OperationStatus.Completed, complete.Status);
         Assert.Contains(

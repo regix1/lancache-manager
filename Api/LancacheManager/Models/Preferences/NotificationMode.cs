@@ -4,19 +4,21 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// How a schedulable service surfaces the notifications for a run: on every run, only when the
-/// run was manually triggered, or never.
+/// How a schedulable service surfaces the notifications for a run: as its configured card, only
+/// for manual runs, as background progress, or not at all.
 /// </summary>
 [JsonConverter(typeof(NotificationModeJsonConverter))]
 public enum NotificationMode
 {
     All,
     Manual,
-    Silent
+    Silent,
+    Hidden
 }
 
 /// <summary>
-/// Serializes <see cref="NotificationMode"/> as camelCase strings ("all", "manual", "silent").
+/// Serializes <see cref="NotificationMode"/> as camelCase strings
+/// ("all", "manual", "silent", "hidden").
 /// Mirrors <see cref="PersistenceModeJsonConverter"/>: a dedicated converter is used rather than the
 /// bare <c>JsonStringEnumConverter&lt;TEnum&gt;</c> attribute (which ignores the global naming policy
 /// and would emit PascalCase member names instead), so the wire value matches the frontend union.
@@ -45,6 +47,7 @@ public static class NotificationModeExtensions
         NotificationMode.All => true,
         NotificationMode.Manual => trigger == RunTrigger.Manual,
         NotificationMode.Silent => false,
+        NotificationMode.Hidden => false,
         _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
     };
 }

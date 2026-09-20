@@ -21,6 +21,24 @@ namespace LancacheManager.Tests;
 public class ScheduleControllerNotificationModeTests
 {
     [Theory]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, true, false)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, true)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, true, false)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, false, false)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, false, true)]
+    public void RunNotice_DistinguishesCardsBackgroundProgressAndHiddenRuns(
+        NotificationMode mode,
+        RunTrigger trigger,
+        bool showNotification,
+        bool hideNotification)
+    {
+        var notice = new RunNotice(mode, trigger);
+
+        Assert.Equal(showNotification, notice.ShowNotification);
+        Assert.Equal(hideNotification, notice.HideNotification);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task TriggerRunAsync_ReturnsActualFollowUpDecisionWithoutAnOperation(bool followUpQueued)
@@ -357,6 +375,24 @@ public class ScheduleControllerNotificationModeTests
         Assert.NotNull(status);
         Assert.True(status!.IsRunning);
         Assert.False(status.ShowNotification);
+        Assert.False(status.HideNotification);
+    }
+
+    [Fact]
+    public void GetRunStatus_ActiveHiddenOperation_ReportsHidden()
+    {
+        var tracker = CreateTracker();
+        using var cts = new CancellationTokenSource();
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
+        var state = new Dictionary<string, object?> { ["runNotice"] = notice };
+        var operationId = tracker.RegisterOperation(OperationType.LogRotation, "logRotation", cts, state);
+        tracker.UpdateProgress(operationId, 20, "signalr.scheduledRun.logRotation.running");
+
+        var status = CreateRegistry(tracker).GetRunStatus("logRotation");
+
+        Assert.NotNull(status);
+        Assert.False(status!.ShowNotification);
+        Assert.True(status.HideNotification);
     }
 
     private static ScheduleController CreateController(IServiceScheduleRegistry registry)
@@ -414,8 +450,8 @@ public class ScheduleControllerNotificationModeTests
             return ScanModeAccepted;
         }
 
-        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
-            => Task.FromResult<(ScheduleRunStatus, string?, bool, bool)>((RunStatus ?? new ScheduleRunStatus(), null, true, FollowUpQueued));
+        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool HideNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
+            => Task.FromResult<(ScheduleRunStatus, string?, bool, bool, bool)>((RunStatus ?? new ScheduleRunStatus(), null, true, false, FollowUpQueued));
         public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync()
             => Task.FromResult<(int, int, int, string?, int)>((0, 2, 0, null, FollowUpCount));
         public bool FollowUpQueued { get; set; }

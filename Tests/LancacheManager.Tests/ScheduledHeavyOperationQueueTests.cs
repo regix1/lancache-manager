@@ -553,6 +553,8 @@ public sealed class ScheduledHeavyOperationQueueTests
         public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
 
         public bool IsWaiterSilent(Guid waitingOperationId) => false;
+
+        public bool IsWaiterHidden(Guid waitingOperationId) => false;
     }
 
     private sealed class TestCacheSizeScanScheduledService : CacheSizeScanScheduledService

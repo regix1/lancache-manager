@@ -235,7 +235,7 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        var (status, skippedReason, showNotification, followUpQueued) = await _registry.TriggerRunAsync(serviceKey);
+        var (status, skippedReason, showNotification, hideNotification, followUpQueued) = await _registry.TriggerRunAsync(serviceKey);
         if (skippedReason is not null)
         {
             // The run is retained until downloads finish; its waiting event owns the acknowledgment.
@@ -244,6 +244,7 @@ public class ScheduleController : ControllerBase
                 Status = "skipped",
                 FollowUpQueued = followUpQueued,
                 ShowNotification = showNotification,
+                HideNotification = hideNotification,
                 SkippedReason = skippedReason
             });
         }
@@ -263,6 +264,7 @@ public class ScheduleController : ControllerBase
                 Status = "alreadyRunning",
                 FollowUpQueued = followUpQueued,
                 ShowNotification = showNotification,
+                HideNotification = hideNotification,
                 AlreadyRunning = true,
                 OperationId = activeOperationId
             });
@@ -272,7 +274,8 @@ public class ScheduleController : ControllerBase
         {
             Status = "started",
             FollowUpQueued = followUpQueued,
-            ShowNotification = showNotification
+            ShowNotification = showNotification,
+            HideNotification = hideNotification
         });
     }
 

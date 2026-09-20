@@ -61,7 +61,7 @@ public sealed class RustLogProcessorRefreshContractTests
         var committedEmit = source.IndexOf("await NotifyCommittedDownloadsAsync(finalProgress);", StringComparison.Ordinal);
         var autoTag = source.IndexOf("await AutoTagNewDownloadsAsync();", StringComparison.Ordinal);
         var epicResolve = source.IndexOf("epicMappingService.ResolveDownloadsAsync()", StringComparison.Ordinal);
-        var blizzardResolve = source.IndexOf("battleNetMappingService.ResolveDownloadsAsync()", StringComparison.Ordinal);
+        var blizzardResolve = source.IndexOf("battleNetMappingService.ResolveDownloadsAsync(", StringComparison.Ordinal);
         var xboxResolve = source.IndexOf("xboxMappingService.ResolveDownloadsAsync()", StringComparison.Ordinal);
 
         Assert.True(committedEmit >= 0, "committed-boundary emit call site is missing");

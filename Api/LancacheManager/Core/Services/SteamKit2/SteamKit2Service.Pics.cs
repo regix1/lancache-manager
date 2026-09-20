@@ -240,7 +240,8 @@ public partial class SteamKit2Service
                 IsSteamAuthenticated,
                 DateTime.UtcNow,
                 TotalApps: ContextInt(started.Context, "totalApps"),
-                ProcessedApps: ContextInt(started.Context, "processedApps")),
+                ProcessedApps: ContextInt(started.Context, "processedApps"),
+                HideNotification: started.HideNotification),
             progress => new DepotMappingProgress(
                 progress.ServiceKey,
                 progress.OperationId,
@@ -265,7 +266,8 @@ public partial class SteamKit2Service
                 MaxReconnectAttempts: ContextNullableInt(progress.Context, "maxReconnectAttempts"),
                 ProcessedMappings: ContextInt(progress.Context, "processedMappings"),
                 TotalMappings: ContextInt(progress.Context, "totalMappings"),
-                MappingsApplied: ContextInt(progress.Context, "mappingsApplied")),
+                MappingsApplied: ContextInt(progress.Context, "mappingsApplied"),
+                HideNotification: progress.HideNotification),
             complete => new DepotMappingComplete(
                 complete.OperationId,
                 complete.Success,
@@ -288,7 +290,8 @@ public partial class SteamKit2Service
                 Context: complete.Context,
                 DepotMappingsFound: ContextNullableInt(complete.Context, "depotMappingsFound"),
                 TotalApps: ContextNullableInt(complete.Context, "totalApps"),
-                TotalBatches: ContextNullableInt(complete.Context, "totalBatches")));
+                TotalBatches: ContextNullableInt(complete.Context, "totalBatches"),
+                HideNotification: complete.HideNotification));
 
     private Dictionary<string, object?> CreateDepotContext(
         string? status = null,

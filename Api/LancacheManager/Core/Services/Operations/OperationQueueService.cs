@@ -50,6 +50,7 @@ public sealed class OperationQueueService : IOperationQueue
         /// second time and the one place a silent run must not.
         /// </summary>
         public required bool Silent { get; set; }
+        public required bool Hidden { get; init; }
         public RunNotice? Notice { get; init; }
         /// <summary>
         /// The blocker last announced to the frontend for this waiter (id + display name).
@@ -129,6 +130,8 @@ public sealed class OperationQueueService : IOperationQueue
                         OperationId = duplicateWaiter.WaitingId,
                         Queued = true,
                         AlreadyRunning = true,
+                        ShowNotification = !duplicateWaiter.Silent,
+                        HideNotification = duplicateWaiter.Hidden,
                         Status = "waiting"
                     };
                 }
@@ -248,7 +251,8 @@ public sealed class OperationQueueService : IOperationQueue
                             Promoted: info.Success && !info.Skipped,
                             Skipped: info.Skipped,
                             NextOperationId: successor?.Id,
-                            NextStatus: successor?.Status.ToWireString()));
+                            NextStatus: successor?.Status.ToWireString(),
+                            Hidden: notice?.HideNotification == true));
                 },
                 initialStatus: OperationStatus.Waiting,
                 metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["waiting"] = true });
@@ -281,6 +285,7 @@ public sealed class OperationQueueService : IOperationQueue
                     LastBlockerId = conflict?.ActiveOperationId,
                     LastBlockerName = blockerName,
                     Silent = !showWaitingCard,
+                    Hidden = notice?.HideNotification == true,
                     Notice = notice
                 });
             }
@@ -311,6 +316,7 @@ public sealed class OperationQueueService : IOperationQueue
                     SignalREvents.OperationWaiting,
                     new OperationWaitingNotification(
                         waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard,
+                        Hidden: notice?.HideNotification == true,
                         Acknowledge: notice?.Mode == NotificationMode.Silent && notice.TryAcknowledge()));
 
             if (retryAfterParking)
@@ -322,6 +328,8 @@ public sealed class OperationQueueService : IOperationQueue
             {
                 OperationId = waitingId,
                 Queued = true,
+                ShowNotification = showWaitingCard,
+                HideNotification = notice?.HideNotification == true,
                 Status = "waiting"
             };
         }
@@ -344,6 +352,14 @@ public sealed class OperationQueueService : IOperationQueue
         lock (_sync)
         {
             return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.Silent == true;
+        }
+    }
+
+    public bool IsWaiterHidden(Guid waitingOperationId)
+    {
+        lock (_sync)
+        {
+            return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.Hidden == true;
         }
     }
 
@@ -384,7 +400,7 @@ public sealed class OperationQueueService : IOperationQueue
                 waiter.WaitingId,
                 waiter.Type.ToWireString(),
                 waiter.Name,
-                blockerName, Silent: waiter.Silent, Acknowledge: false));
+                blockerName, Silent: waiter.Silent, Hidden: waiter.Hidden, Acknowledge: false));
     }
 
     private bool RemoveWaiter(Guid waitingId)

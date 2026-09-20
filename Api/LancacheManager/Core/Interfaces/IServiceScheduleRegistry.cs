@@ -51,7 +51,7 @@ public interface IServiceScheduleRegistry
     /// ShowNotification reflects the admitted run's notification preference.
     /// FollowUpQueued reports whether admission retained an additional run behind current work.
     /// </summary>
-    Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey);
+    Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool HideNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey);
 
     /// <summary>
     /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no

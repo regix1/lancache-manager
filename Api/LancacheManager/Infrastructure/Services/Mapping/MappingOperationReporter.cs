@@ -22,7 +22,8 @@ public sealed class MappingOperationReporter : IAsyncDisposable
         ILogger logger,
         ScheduledRunPayloadFactories? payloadFactories = null,
         Action? onTerminalCleanup = null,
-        RunNotice? notice = null)
+        RunNotice? notice = null,
+        bool hideNotification = false)
     {
         _definition = definition;
         _inner = new ScheduledRunReporter(
@@ -39,7 +40,8 @@ public sealed class MappingOperationReporter : IAsyncDisposable
             logger,
             info =>
                 $"{definition.StageKeyPrefix}.{GetTerminalSuffix(info.Success, info.Cancelled)}",
-            notice);
+            notice,
+            hideNotification);
     }
 
     public Guid OperationId => _inner.OperationId;

@@ -399,8 +399,8 @@ public abstract partial class PrefillDaemonServiceBase
         CancellationToken cancellationToken)
     {
         DaemonRun run;
-        if (notificationMode is not null and not "visible" and not "silent")
-            throw new ArgumentException("Notification mode must be visible or silent.", nameof(notificationMode));
+        if (notificationMode is not null and not "visible" and not "silent" and not "hidden")
+            throw new ArgumentException("Notification mode must be visible, silent, or hidden.", nameof(notificationMode));
         lock (session.PrefillLock)
         {
             var status = session.Capabilities!;

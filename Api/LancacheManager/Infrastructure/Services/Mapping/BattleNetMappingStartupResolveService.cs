@@ -32,7 +32,7 @@ public class BattleNetMappingStartupResolveService : BackgroundService
         try
         {
             await Task.Delay(_startupDelay, stoppingToken);
-            var resolved = await _mappingService.ResolveDownloadsAsync(stoppingToken);
+            var resolved = await _mappingService.ResolveDownloadsAsync(stoppingToken, hideNotification: true);
             if (resolved > 0)
             {
                 _logger.LogInformation(

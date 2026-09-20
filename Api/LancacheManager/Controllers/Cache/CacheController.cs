@@ -222,6 +222,7 @@ public class CacheController : ControllerBase
             {
                 isProcessing = false,
                 showNotification = true,
+                hideNotification = false,
                 status = OperationStatus.Completed,
                 percentComplete = 0.0,
                 message = string.Empty,
@@ -237,11 +238,13 @@ public class CacheController : ControllerBase
         // so CacheManagementService exposes the latest progress context for placeholder-bearing
         // keys like signalr.cacheSizeScan.scanning.
         var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
+        var hideNotification = RunNotice.ReadRunNotice(activeScan.Metadata)?.HideNotification == true;
 
         return Ok(new
         {
             isProcessing = true,
             showNotification,
+            hideNotification,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
             message = stageKey ?? "Scanning cache files...",

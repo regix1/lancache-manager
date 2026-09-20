@@ -266,6 +266,14 @@ function eventOperationId(event: unknown): string | undefined {
   return typeof operationId === 'string' ? operationId : undefined;
 }
 
+function eventUsesBackgroundControl(event: unknown, existing?: UnifiedNotification): boolean {
+  const showNotification = (event as { showNotification?: unknown } | null | undefined)
+    ?.showNotification;
+  return (
+    showNotification === false || (showNotification === undefined && existing?.controlOnly === true)
+  );
+}
+
 /**
  * Text for an operation parked in the wait queue. Two things describe that state and carry the same
  * two fields: the live `OperationWaiting` push and a row from the `/api/operations/waiting`
@@ -521,7 +529,6 @@ function mergeEventDetails(
  * @template T - The type of the SignalR event
  */
 interface StartedHandlerConfig<T> extends NotificationEventOptions {
-  canControl?: (event: T) => boolean;
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler creates */
@@ -600,8 +607,7 @@ export function createStartedHandler<T>(
       const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
       if (existing && isTerminalNotificationStatus(existing.status)) return prev;
       const hidden = config.shouldDisplay?.(event) === false;
-      if (!existing && slot && !hidden && !isTerminalNotificationStatus(slot.status)) return prev;
-      if (hidden && !config.canControl?.(event)) {
+      if (hidden) {
         if (!existing) return prev;
         clearPersistedNotificationIfTargeted(
           config.storageKey,
@@ -612,25 +618,29 @@ export function createStartedHandler<T>(
         cancelAutoDismissTimer?.(existing.id);
         return prev.filter((n) => n !== existing);
       }
-      if (hidden && !operationId) return prev;
+      const controlOnly = eventUsesBackgroundControl(event, existing);
+      if (!existing && slot && !controlOnly && !isTerminalNotificationStatus(slot.status))
+        return prev;
+      if (controlOnly && !operationId) return prev;
       if (operationId && findBulkCardOwningOperation(config.type, operationId, prev)) return prev;
       if (!existing && suppressNewItemCardDuringBulk(config.type, prev)) return prev;
       const id =
-        existing?.id ?? (hidden && operationId ? operationCardId(operationId) : notificationId);
+        existing?.id ??
+        (controlOnly && operationId ? operationCardId(operationId) : notificationId);
       cancelAutoDismissTimer?.(id);
       const card: UnifiedNotification = {
         ...existing,
         id,
         type: config.type,
         status: existing?.details?.cancelRequested ? 'cancelling' : 'running',
-        controlOnly: hidden || undefined,
+        controlOnly: controlOnly || undefined,
         message:
           (!existing?.details?.handoffPending && existing?.message) ||
           config.getMessage?.(event) ||
           config.defaultMessage,
         startedAt: existing?.startedAt ?? new Date(),
         instanceVersion: existing?.instanceVersion ?? (slot?.instanceVersion ?? 0) + 1,
-        progress: existing?.progress ?? (hidden ? undefined : 0),
+        progress: existing?.progress ?? (controlOnly ? undefined : 0),
         progressMode: existing?.progressMode ?? config.progressMode,
         details: mergeEventDetails(existing?.details, {
           ...config.getDetails?.(event),
@@ -780,12 +790,29 @@ export function createCompletionHandler<
       const aggregate =
         config.type === 'corruption_removal' && (event as { service?: string }).service === 'all';
       if (aggregate && !exact) return prev;
-      if (
-        !existing &&
-        slot &&
-        (status !== 'failed' || !operationId || config.shouldDisplay?.(event) !== false)
-      )
-        return prev;
+      const hidden = config.shouldDisplay?.(event) === false;
+      if (hidden) {
+        if (!existing) return prev;
+        clearPersistedNotificationIfTargeted(
+          config.storageKey,
+          event,
+          existing.id,
+          config.storesCardsById
+        );
+        return prev.filter((n) => n !== existing);
+      }
+      const controlOnly = eventUsesBackgroundControl(event, existing);
+      if (controlOnly && status !== 'failed') {
+        if (!existing) return prev;
+        clearPersistedNotificationIfTargeted(
+          config.storageKey,
+          event,
+          existing.id,
+          config.storesCardsById
+        );
+        return prev.filter((n) => n !== existing);
+      }
+      if (!existing && slot && (status !== 'failed' || !operationId || !controlOnly)) return prev;
       if (existing && isTerminalNotificationStatus(existing.status) && !config.announcement)
         return prev;
       if (
@@ -796,16 +823,6 @@ export function createCompletionHandler<
       )
         return prev;
 
-      if (status !== 'failed' && config.shouldDisplay?.(event) === false) {
-        if (!existing) return prev;
-        clearPersistedNotificationIfTargeted(
-          config.storageKey,
-          event,
-          existing.id,
-          config.storesCardsById
-        );
-        return prev.filter((n) => n !== existing);
-      }
       if (!existing && suppressNewItemCardDuringBulk(config.type, prev)) return prev;
       const id =
         existing?.id ?? (slot && operationId ? operationCardId(operationId) : notificationId);
@@ -879,7 +896,6 @@ export function createCompletionHandler<
  * @template T - The type of the SignalR event (must have optional status field)
  */
 interface StatusAwareProgressConfig<T> extends NotificationEventOptions {
-  canControl?: (event: T) => boolean;
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler updates */
@@ -1002,12 +1018,8 @@ export function createStatusAwareProgressHandler<T>(
       const slot = prev.find((n) => n.id === notificationId);
       const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
       if (existing && isTerminalNotificationStatus(existing.status)) return prev;
-      const hidden =
-        exact && (event as { showNotification?: boolean }).showNotification === undefined
-          ? exact.controlOnly === true
-          : config.shouldDisplay?.(event) === false;
-      if (!existing && slot && !hidden) return prev;
-      if (hidden && !config.canControl?.(event)) {
+      const hidden = config.shouldDisplay?.(event) === false;
+      if (hidden) {
         if (!existing) return prev;
         clearPersistedNotificationIfTargeted(
           config.storageKey,
@@ -1018,11 +1030,14 @@ export function createStatusAwareProgressHandler<T>(
         cancelAutoDismissTimer?.(existing.id);
         return prev.filter((n) => n !== existing);
       }
-      if (hidden && !operationId) return prev;
+      const controlOnly = eventUsesBackgroundControl(event, existing);
+      if (!existing && slot && !controlOnly) return prev;
+      if (controlOnly && !operationId) return prev;
       if (operationId && findBulkCardOwningOperation(config.type, operationId, prev)) return prev;
       if (!existing && suppressNewItemCardDuringBulk(config.type, prev)) return prev;
       const id =
-        existing?.id ?? (hidden && operationId ? operationCardId(operationId) : notificationId);
+        existing?.id ??
+        (controlOnly && operationId ? operationCardId(operationId) : notificationId);
       if (!existing) cancelAutoDismissTimer?.(id);
       const detailMessage = config.getDetailMessage?.(event);
       const stage = (event as { stage?: string }).stage;
@@ -1043,7 +1058,7 @@ export function createStatusAwareProgressHandler<T>(
           (config.type === 'scheduled_prefill' && stage === 'cancelling')
             ? 'cancelling'
             : promoteStatus(existing?.status ?? 'running'),
-        controlOnly: hidden || undefined,
+        controlOnly: controlOnly || undefined,
         message: transitionOnly ? existing.message : config.getMessage(event),
         progress: transitionOnly ? existing.progress : config.getProgress(event),
         ...(config.getDetailMessage && {
@@ -1097,15 +1112,6 @@ function buildStartedHandler(
         storageKey: entry.storageKey,
         storesCardsById: entry.getId !== undefined,
         shouldDisplay: started.shouldDisplay,
-        canControl: (event: unknown) => {
-          const fields = event as { operationId?: unknown; serviceId?: unknown };
-          return (
-            entry.cancelKind !== 'none' &&
-            entry.cancelKind !== 'clientQueue' &&
-            typeof fields.operationId === 'string' &&
-            (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
-          );
-        },
         eventName: entry.events?.started,
         defaultMessage: started.defaultMessage,
         getMessage: started.getMessage,
@@ -1193,15 +1199,6 @@ function buildProgressHandler(
       storageKey: entry.storageKey,
       storesCardsById: entry.getId !== undefined,
       shouldDisplay: progress.shouldDisplay,
-      canControl: (event: unknown) => {
-        const fields = event as { operationId?: unknown; serviceId?: unknown };
-        return (
-          entry.cancelKind !== 'none' &&
-          entry.cancelKind !== 'clientQueue' &&
-          typeof fields.operationId === 'string' &&
-          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
-        );
-      },
       eventName: entry.events?.progress,
       getMessage: progress.getMessage,
       getProgress: progress.getProgress,
@@ -1279,6 +1276,9 @@ export function applyHandoff(
   scheduleAutoDismiss: ScheduleAutoDismiss,
   cancelAutoDismissTimer: CancelAutoDismissTimer = () => undefined
 ): UnifiedNotification[] {
+  if (event.hidden) {
+    return prev.filter((notification) => notification.details?.operationId !== event.operationId);
+  }
   const confirmed = events.handoffs.get(event.operationId);
   if (
     !confirmed ||

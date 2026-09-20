@@ -4,10 +4,10 @@ using LancacheManager.Models;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Locks the eviction/reconciliation notification contract to the display-flag pattern: lifecycle
-/// events are ALWAYS emitted and carry a <c>ShowNotification</c> flag the frontend gates on, rather
-/// than the backend suppressing the transport. Scan and Remove-mode cleanup both follow the
-/// schedule notification mode; evicted-data mode does not hide the scan card.
+/// Locks the eviction/reconciliation notification contract to explicit visibility flags. Lifecycle
+/// events are always emitted. Silent runs use background progress, while Hidden runs never enter
+/// notification state. Scan and Remove-mode cleanup both follow the schedule notification mode;
+/// evicted-data mode does not hide the scan card.
 /// </summary>
 public class EvictionNotificationDisplayFlagContractTests
 {
@@ -41,6 +41,41 @@ public class EvictionNotificationDisplayFlagContractTests
         Assert.False(started.ShowNotification);
         Assert.False(progress.ShowNotification);
         Assert.False(complete.ShowNotification);
+    }
+
+    [Fact]
+    public void EvictionScanRecords_CarryHiddenSeparatelyFromSilent()
+    {
+        var operationId = Guid.NewGuid();
+        var started = new EvictionScanStarted(
+            "signalr.evictionScan.scanning",
+            operationId,
+            ShowNotification: false,
+            HideNotification: true);
+        var progress = new EvictionScanProgress(
+            operationId,
+            "running",
+            "signalr.evictionScan.progress",
+            42.0,
+            1,
+            2,
+            0,
+            0,
+            ShowNotification: false,
+            HideNotification: true);
+        var complete = new EvictionScanComplete(
+            true,
+            operationId,
+            "signalr.evictionScan.complete",
+            2,
+            0,
+            0,
+            ShowNotification: false,
+            HideNotification: true);
+
+        Assert.True(started.HideNotification);
+        Assert.True(progress.HideNotification);
+        Assert.True(complete.HideNotification);
     }
 
     [Fact]

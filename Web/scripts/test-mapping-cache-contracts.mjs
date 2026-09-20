@@ -47,6 +47,7 @@ const compileHandlerFactory = () => {
   );
   const names = new Set([
     'eventOperationId',
+    'eventUsesBackgroundControl',
     'excludeChild',
     'eventTargetsCard',
     'clearPersistedNotificationIfTargeted',

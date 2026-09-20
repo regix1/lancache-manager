@@ -111,6 +111,7 @@ public sealed class CacheScanDetectionPhaseTests
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         var metrics = Assert.IsType<GameDetectionMetrics>(detection.Metadata);
         Assert.False(metrics.ShowNotification);
+        Assert.True(metrics.HideNotification);
         Assert.Equal(DetectionScanType.Full, metrics.ScanType);
         Assert.Equal(scanId, detection.ParentOperationId);
         Assert.Equal(scanId, metrics.ParentOperationId);
@@ -281,13 +282,13 @@ public sealed class CacheScanDetectionPhaseTests
 
         public Task ReportProgressAsync(Guid id) => (Task)typeof(CacheReconciliationService)
             .GetMethod("ReportScanProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(_scan, [id, 0d, "signalr.evictionScan.scanning", new EvictionScanResult(), false])!;
+            .Invoke(_scan, [id, 0d, "signalr.evictionScan.scanning", new EvictionScanResult(), false, false])!;
 
         public Task RunPhaseAsync(Guid scanOperationId, CancellationToken token, bool showNotification = true)
         {
             var phase = typeof(CacheReconciliationService).GetMethod(
                 "RunFullDetectionPhaseAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            return (Task)phase.Invoke(_scan, [scanOperationId, showNotification, token])!;
+            return (Task)phase.Invoke(_scan, [scanOperationId, showNotification, false, token])!;
         }
 
         public void Dispose()

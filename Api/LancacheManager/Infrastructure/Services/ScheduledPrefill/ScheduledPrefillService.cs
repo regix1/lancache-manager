@@ -201,7 +201,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 ?? throw new InvalidOperationException("Scheduled prefill notification mode is required.");
             var state = new ScheduledPrefillServiceRunState(
                 serviceId, serviceConfig.ScheduleId, serviceConfig.ScheduleName,
-                mode.AllowsTrigger(RunTrigger.Manual));
+                mode.AllowsTrigger(RunTrigger.Manual),
+                mode == NotificationMode.Hidden);
             cts = CancellationTokenSource.CreateLinkedTokenSource(_detachedRunLifetime.Token);
             var token = cts.Token;
             operationId = tracker.RegisterOperation(
@@ -442,7 +443,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         using var scope = _scopeFactory.CreateScope();
         var tracker = scope.ServiceProvider.GetRequiredService<IUnifiedOperationTracker>();
         var notifications = scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>();
-        var notificationMetadata = new ScheduledPrefillOperationMetadata(dueServices.Any(schedule => ResolveShowNotification(schedule, trigger)));
+        var notificationMetadata = new ScheduledPrefillOperationMetadata(
+            dueServices.Any(schedule => ResolveShowNotification(schedule, trigger)),
+            dueServices.All(schedule => ResolveHideNotification(schedule, trigger)));
         var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var runToken = cts.Token;
         var serviceRuns = new List<ScheduledPrefillServiceRun>(dueServices.Count);
@@ -474,7 +477,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     if (TryClaimRun(schedule, scope.ServiceProvider, out var claimId))
                         claimedPlatforms.Add(schedule.ScheduleId, claimId);
                 if (dueServices.Count == 0) return;
-                notificationMetadata = new ScheduledPrefillOperationMetadata(dueServices.Any(schedule => ResolveShowNotification(schedule, trigger)));
+                notificationMetadata = new ScheduledPrefillOperationMetadata(
+                    dueServices.Any(schedule => ResolveShowNotification(schedule, trigger)),
+                    dueServices.All(schedule => ResolveHideNotification(schedule, trigger)));
 
                 operationId = tracker.RegisterOperation(
                     OperationType.ScheduledPrefill, "Scheduled Prefill", cts, notificationMetadata);
@@ -483,7 +488,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 {
                     var serviceState = new ScheduledPrefillServiceRunState(
                         dueService.ServiceId, dueService.ScheduleId, dueService.ScheduleName,
-                        ResolveShowNotification(dueService, trigger));
+                        ResolveShowNotification(dueService, trigger),
+                        ResolveHideNotification(dueService, trigger));
                     var serviceCts = CancellationTokenSource.CreateLinkedTokenSource(runToken);
                     var serviceToken = serviceCts.Token;
                     Guid serviceOperationId;
@@ -513,7 +519,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 runOperationId = operationId.Value.ToString(),
                 serviceId = (string?)null,
                 serviceCount = dueServices.Count,
-                showNotification = notificationMetadata.ShowNotification
+                showNotification = notificationMetadata.ShowNotification,
+                hideNotification = notificationMetadata.HideNotification
             });
 
             var tasks = new List<Task<ScheduledPrefillServiceRunResult>>(serviceRuns.Count);
@@ -591,7 +598,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                             error,
                             stageKey = errorStageKey,
                             cancelled,
-                            showNotification = notificationMetadata.ShowNotification
+                            showNotification = notificationMetadata.ShowNotification,
+                            hideNotification = notificationMetadata.HideNotification
                         });
                     }
                     finally
@@ -696,7 +704,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 downloadSessionId = started.DownloadSessionId,
                 needsLoginReason = started.NeedsLoginReason,
                 recovering = started.Recovering,
-                showNotification = runShowNotification
+                showNotification = runShowNotification,
+                hideNotification = serviceRun.State.HideNotification
             });
 
             if (admitted)
@@ -808,11 +817,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 }
                 var run = daemon.GetRun(session.Id, status.RunId);
                 var claimId = Guid.NewGuid();
+                ScheduledPrefillServiceConfigDto? savedSchedule;
                 lock (_scheduleLock)
                 {
                     config = _stateService.GetScheduledPrefillConfig();
-                    if (run is null || !config.GetSchedulesInRunOrder().Any(schedule =>
-                            schedule.ScheduleId == scheduleId && schedule.ServiceId == platform)
+                    savedSchedule = config.GetSchedulesInRunOrder().FirstOrDefault(schedule =>
+                        schedule.ScheduleId == scheduleId && schedule.ServiceId == platform);
+                    if (run is null || savedSchedule is null
                         || !_runningSchedules.TryAdd(scheduleId, (claimId, null))) continue;
                 }
                 var scope = _scopeFactory.CreateScope();
@@ -820,7 +831,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 var notifications = scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>();
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(_detachedRunLifetime.Token);
                 var state = new ScheduledPrefillServiceRunState(platform, scheduleId,
-                    status.ScheduleName ?? "Scheduled Prefill", status.NotificationMode == "visible");
+                    savedSchedule.ScheduleName, status.NotificationMode == "visible",
+                    status.NotificationMode == "hidden");
                 var restored = false;
                 try
                 {
@@ -834,7 +846,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         ScheduleId = scheduleId,
                         ScheduleName = state.Name,
                         Enabled = true,
-                        NotificationMode = state.ShowNotification ? NotificationMode.All : NotificationMode.Silent,
+                        NotificationMode = state.HideNotification
+                            ? NotificationMode.Hidden
+                            : state.ShowNotification ? NotificationMode.All : NotificationMode.Silent,
                         IntervalHours = 0,
                         Preset = ScheduledPrefillPreset.All,
                         TopCount = status.Options.TopCount,
@@ -930,7 +944,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // The same wire word the tracker puts on a run that did nothing, so the card closes as
                 // skipped rather than reading "failed" for a missing container or a logged-out one. [2]
                 status = skipped ? "skipped" : null,
-                showNotification
+                showNotification,
+                hideNotification = serviceRun.State.HideNotification
             });
         }
         finally
@@ -1420,7 +1435,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 cancellationToken: serviceRun.Token, scheduleId: schedule.ScheduleId,
                 appIds: schedule.SelectedAppIds.Count > 0 ? schedule.SelectedAppIds.ToList() : null,
                 operationId: serviceRun.OperationId, scheduleName: schedule.ScheduleName,
-                notificationMode: serviceRun.State.ShowNotification ? "visible" : "silent",
+                notificationMode: serviceRun.State.HideNotification
+                    ? "hidden"
+                    : serviceRun.State.ShowNotification ? "visible" : "silent",
                 parentOperationId: Guid.TryParse(serviceRun.RunOperationId, out var parent) && parent != serviceRun.OperationId
                     ? parent : null);
             if (!result.Success)
@@ -2007,7 +2024,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             downloadSessionId = snapshot.DownloadSessionId,
             percentComplete = snapshot.PercentComplete,
             recovering = snapshot.Recovering,
-            showNotification
+            showNotification,
+            hideNotification = serviceRun.State.HideNotification
         });
         return snapshot;
     }
@@ -2029,5 +2047,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 $"Scheduled prefill service {serviceConfig.ServiceId} has a null NotificationMode; "
                     + "ScheduledPrefillConfigFactory.Validate must run before the scheduler reads it.");
         return mode.AllowsTrigger(trigger);
+    }
+
+    private static bool ResolveHideNotification(
+        ScheduledPrefillServiceConfigDto serviceConfig,
+        RunTrigger trigger)
+    {
+        var mode = serviceConfig.NotificationMode
+            ?? throw new InvalidOperationException(
+                $"Scheduled prefill service {serviceConfig.ServiceId} has a null NotificationMode; "
+                    + "ScheduledPrefillConfigFactory.Validate must run before the scheduler reads it.");
+        return mode == NotificationMode.Hidden ||
+            (mode == NotificationMode.Manual && trigger != RunTrigger.Manual);
     }
 }

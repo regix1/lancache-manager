@@ -145,6 +145,12 @@ export function useNotificationHandlers(
     const waitingHandler = (event: OperationWaitingEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
+      if (event.hidden) {
+        setNotifications((prev) =>
+          prev.filter((notification) => notification.details?.operationId !== event.operationId)
+        );
+        return;
+      }
       if (!rememberEvent(events.current, entry.type, 'waiting', 'OperationWaiting', event)) return;
       if (event.silent) {
         if (entry.type !== 'scheduled_prefill')

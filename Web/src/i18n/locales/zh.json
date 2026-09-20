@@ -3762,7 +3762,7 @@
       "toggleOff": "关",
       "toggleOn": "开",
       "notificationsLabel": "通知",
-      "notificationsHelp": "选择此服务的运行通知何时显示：每次运行、仅手动运行，或从不显示。",
+      "notificationsHelp": "选择运行时使用所选卡片样式、后台进度条或不显示通知。",
       "notificationModeFailed": "更新 {{service}} 的通知设置失败",
       "notificationMode": {
         "all": "所有运行",
@@ -3770,7 +3770,9 @@
         "manual": "仅手动",
         "manualDescription": "仅在手动启动运行时显示通知。",
         "silent": "静默",
-        "silentDescription": "从不显示运行通知。"
+        "silentDescription": "仅在后台进度条中显示正在运行的任务。",
+        "hidden": "隐藏",
+        "hiddenDescription": "从不显示运行通知。"
       },
       "notificationStyleLabel": "通知样式",
       "notificationStyleHelp": "选择此服务的运行通知在通知栏中的显示方式：完整卡片，或悬停或点击即可展开的细状态条。",

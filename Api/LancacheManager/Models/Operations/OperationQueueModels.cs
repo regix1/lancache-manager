@@ -11,11 +11,9 @@ namespace LancacheManager.Models;
 /// re-emits this event with the new blocker when a waiter stays parked behind a different
 /// operation after its previous blocker finished, so the card always names the current one.
 ///
-/// <see cref="Silent"/> marks a run whose schedule asked it to keep its cards to itself. It is
-/// parked exactly like any other run, but the frontend answers it with the notice that clears
-/// itself rather than the purple card, and the queue sends it only once: the blocker re-emit above
-/// would be a card the reader was told they would not get. Saying nothing at all was worse, because
-/// no card at the scheduled time reads as the run having been dropped.
+/// <see cref="Silent"/> marks a run that uses background progress instead of a card.
+/// <see cref="Hidden"/> marks a run that never enters notification state. Both wait exactly like
+/// visible runs, and the visibility fields remain stable when the blocker changes.
 /// </summary>
 public record OperationWaitingNotification(
     Guid OperationId,
@@ -23,6 +21,7 @@ public record OperationWaitingNotification(
     string Name,
     string? BlockedByName = null,
     bool Silent = false,
+    bool Hidden = false,
     bool? Acknowledge = null);
 
 /// <summary>
@@ -43,6 +42,9 @@ public sealed class RunNotice(NotificationMode mode, RunTrigger trigger)
     public NotificationMode Mode { get; } = mode;
     public RunTrigger Trigger { get; internal set; } = trigger;
     public bool ShowNotification => Mode.AllowsTrigger(Trigger);
+    public bool HideNotification =>
+        Mode == NotificationMode.Hidden ||
+        (Mode == NotificationMode.Manual && Trigger != RunTrigger.Manual);
     public bool TryAcknowledge() => Interlocked.Exchange(ref _acknowledged, 1) == 0;
 
     public void Attach(IUnifiedOperationTracker tracker, Guid operationId)
@@ -107,4 +109,5 @@ public record OperationWaitingCompleteNotification(
     bool Promoted = false,
     bool Skipped = false,
     Guid? NextOperationId = null,
-    string? NextStatus = null);
+    string? NextStatus = null,
+    bool Hidden = false);

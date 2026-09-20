@@ -64,12 +64,12 @@ interface OperationIdEvent {
 }
 
 /**
- * Carries the run-stable display flag. Lifecycle events are ALWAYS emitted; a
- * silent run streams them and renders no card, so the gate is `!== false` - an
- * event that omits the flag is visible.
+ * Carries the run-stable visibility flags. Lifecycle events are always emitted.
+ * Silent runs use background progress, while Hidden runs never enter notification state.
  */
 interface SilentRunEvent {
   showNotification?: boolean;
+  hideNotification?: boolean;
   context?: Record<string, unknown>;
 }
 
@@ -115,12 +115,9 @@ function standardGetStatus(event: OperationStatusEvent): string | undefined {
   return undefined;
 }
 
-/** Display gate for services whose runs can be configured silent. */
+/** Hidden runs never enter notification state. Silent runs remain as background progress. */
 export function visibleWhenNotSilent(event: SilentRunEvent): boolean {
-  return (
-    event.showNotification !== false ||
-    (typeof event.context?.detectionError === 'string' && !!event.context.detectionError.trim())
-  );
+  return event.hideNotification !== true;
 }
 
 /**
@@ -199,8 +196,8 @@ interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
   allowsDeferredCancel?: boolean;
   recovery: RecoveryConfig;
   /**
-   * Applies the silent-run display gate to all three lifecycle phases. Set it for
-   * services whose runs can be configured to render no card. A phase that passes
+   * Applies the visibility gate to all three lifecycle phases. Set it for
+   * services whose runs can be hidden. A phase that passes
    * its own `shouldDisplay` keeps it.
    */
   silentRunGate?: boolean;
@@ -249,7 +246,7 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
   };
   const completeConfig: RegistryCompleteConfig | undefined = complete ? { ...complete } : undefined;
 
-  // Only set the gate where one applies, so a non-silent entry keeps exactly the
+  // Only set the gate where one applies, so an ungated entry keeps exactly the
   // config shape it had when it was written out by hand.
   if (silentRunGate) {
     startedConfig.shouldDisplay ??= visibleWhenNotSilent;
@@ -290,6 +287,7 @@ interface MappingRunStatusResponse {
   stageKey?: string | null;
   context?: StageContext | null;
   showNotification: boolean;
+  hideNotification?: boolean;
 }
 
 interface MappingOperationEntryOptions {
@@ -344,6 +342,7 @@ export function buildMappingOperationEntry<
       translationValidation: { kind: 'stageKey', cases: recoveryCases },
       apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
       isProcessing: (data: MappingRunStatusResponse) => data.isRunning,
+      shouldSkip: (status: MappingRunStatusResponse) => status.hideNotification === true,
       createNotification: (data: MappingRunStatusResponse) => ({
         controlOnly: !data.showNotification,
         message: translateRecoveryStage(
@@ -389,10 +388,10 @@ export function buildMappingOperationEntry<
 // ============================================================================
 // Each of these services runs on a schedule (or via Run Now) and emits a
 // per-service lifecycle event triple carrying a run-stable `showNotification`
-// flag. Lifecycle events are ALWAYS emitted; the frontend honours the flag
-// through shouldDisplay gates, so a silent run streams events but renders no
-// card. Card identity is per service (per-type singleton id) because several of
-// these can run concurrently.
+// and `hideNotification` flags. Lifecycle events are always emitted. Silent runs
+// use background progress, while Hidden runs never enter notification state.
+// Card identity is per service (per-type singleton id) because several of these
+// can run concurrently.
 
 /** GET /api/system/schedules/{serviceKey}/run-status - ScheduleRunStatus */
 interface ScheduledRunStatusResponse {
@@ -403,6 +402,7 @@ interface ScheduledRunStatusResponse {
   stageKey?: string;
   context?: StageContext | null;
   showNotification: boolean;
+  hideNotification?: boolean;
 }
 
 interface ScheduledRunEntryOptions {
@@ -463,11 +463,10 @@ export function buildScheduledRunEntry(
       },
       apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
       isProcessing: (data: ScheduledRunStatusResponse) => data.isRunning,
-      // A silent run must not resurrect a card when the page reloads mid-run. Only skip an ACTIVE
-      // silent run: an idle service reports showNotification=true so a persisted running card is
-      // stale-completed on reconnect, never deleted, after a missed terminal (mirrors scheduledPrefill).
-      shouldSkip: (data: ScheduledRunStatusResponse) =>
-        !options.cancellable && data.isRunning && !data.showNotification,
+      // A Hidden run must not enter notification state when the page reloads mid-run. An idle
+      // service reports hideNotification=false so a persisted card is stale-completed after a
+      // missed terminal instead of being deleted during recovery.
+      shouldSkip: (status: ScheduledRunStatusResponse) => status.hideNotification === true,
       createNotification: (data: ScheduledRunStatusResponse) => ({
         controlOnly: !data.showNotification,
         status: data.status === 'cancelling' ? 'cancelling' : 'running',

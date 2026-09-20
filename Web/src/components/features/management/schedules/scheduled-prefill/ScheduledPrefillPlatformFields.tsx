@@ -413,6 +413,12 @@ export function ScheduledPrefillNotificationFields({
                 label: t('management.schedules.notificationMode.silent'),
                 tooltip: t('management.schedules.notificationMode.silentDescription'),
                 disabled
+              },
+              {
+                value: 'hidden',
+                label: t('management.schedules.notificationMode.hidden'),
+                tooltip: t('management.schedules.notificationMode.hiddenDescription'),
+                disabled
               }
             ]}
             value={config.notificationMode ?? 'all'}
@@ -425,8 +431,8 @@ export function ScheduledPrefillNotificationFields({
         </div>
       </div>
 
-      {/* How the notification looks once the mode above has let it through. Disabled while the mode
-          is silent, because there is no notification left to style. */}
+      {/* Silent always uses the background strip, while Hidden renders nothing. Neither uses the
+          full/compact card style below. */}
       <div
         className="scheduled-prefill-config-modal__setting-row"
         role="group"
@@ -451,13 +457,19 @@ export function ScheduledPrefillNotificationFields({
                 value: 'full',
                 label: t('management.schedules.notificationStyle.full'),
                 tooltip: t('management.schedules.notificationStyle.fullDescription'),
-                disabled: disabled || config.notificationMode === 'silent'
+                disabled:
+                  disabled ||
+                  config.notificationMode === 'silent' ||
+                  config.notificationMode === 'hidden'
               },
               {
                 value: 'condensed',
                 label: t('management.schedules.notificationStyle.condensed'),
                 tooltip: t('management.schedules.notificationStyle.condensedDescription'),
-                disabled: disabled || config.notificationMode === 'silent'
+                disabled:
+                  disabled ||
+                  config.notificationMode === 'silent' ||
+                  config.notificationMode === 'hidden'
               }
             ]}
             value={config.notificationDisplayMode ?? 'full'}

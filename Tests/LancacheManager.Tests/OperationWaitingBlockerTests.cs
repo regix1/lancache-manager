@@ -283,16 +283,24 @@ public sealed class OperationWaitingBlockerTests
     }
 
     [Theory]
-    [InlineData(NotificationMode.All, RunTrigger.Manual, true, false)]
-    [InlineData(NotificationMode.All, RunTrigger.Scheduled, true, false)]
-    [InlineData(NotificationMode.All, RunTrigger.Startup, true, false)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Manual, true, false)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, false)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Startup, false, false)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Manual, false, true)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, false, true)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Startup, false, true)]
-    public async Task QueuedRun_UsesAdmittedModeAndTrigger(NotificationMode mode, RunTrigger trigger, bool visible, bool acknowledge)
+    [InlineData(NotificationMode.All, RunTrigger.Manual, true, false, false)]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, true, false, false)]
+    [InlineData(NotificationMode.All, RunTrigger.Startup, true, false, false)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, true, false, false)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, false, true)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Startup, false, false, true)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, false, true, false)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, false, true, false)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Startup, false, true, false)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, false, false, true)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, false, false, true)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Startup, false, false, true)]
+    public async Task QueuedRun_UsesAdmittedModeAndTrigger(
+        NotificationMode mode,
+        RunTrigger trigger,
+        bool visible,
+        bool acknowledge,
+        bool hidden)
     {
         var tracker = CreateTracker();
         var events = new List<OperationWaitingNotification>();
@@ -316,8 +324,10 @@ public sealed class OperationWaitingBlockerTests
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
         Assert.Equal(queued.OperationId, duplicate.OperationId);
         Assert.Equal(!visible, queue.IsWaiterSilent(queued.OperationId));
+        Assert.Equal(hidden, queue.IsWaiterHidden(queued.OperationId));
         Assert.Single(events);
         Assert.Equal(!visible, events[0].Silent);
+        Assert.Equal(hidden, events[0].Hidden);
         Assert.Equal(acknowledge, events[0].Acknowledge);
         if (acknowledge) Assert.False(notice.TryAcknowledge());
     }

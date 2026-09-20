@@ -9,8 +9,8 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Covers the ScheduledRunReporter invariants the pipeline-less scheduled services depend on:
-/// monotonic percent, a single terminal even under a racing completion, a run-stable showNotification
-/// flag stamped into every payload, an awaited run-started ordering, and the success-100 /
+/// monotonic percent, a single terminal even under a racing completion, run-stable notification
+/// flags stamped into every payload, an awaited run-started ordering, and the success-100 /
 /// failure-highest terminal percent.
 /// </summary>
 public class ScheduledRunReporterTests
@@ -112,7 +112,8 @@ public class ScheduledRunReporterTests
         bool showNotification = true,
         CancellationToken stoppingToken = default,
         Action? onTerminalCleanup = null,
-        RunNotice? notice = null)
+        RunNotice? notice = null,
+        bool hideNotification = false)
         => new(
             notifications,
             tracker,
@@ -123,7 +124,8 @@ public class ScheduledRunReporterTests
             showNotification,
             stoppingToken,
             onTerminalCleanup: onTerminalCleanup,
-            notice: notice);
+            notice: notice,
+            hideNotification: hideNotification);
 
     [Theory]
     [InlineData(true)]
@@ -177,13 +179,14 @@ public class ScheduledRunReporterTests
     {
         var tracker = CreateTracker();
         var notifications = new CapturingNotificationService();
-        var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled);
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
         await using var reporter = CreateReporter(notifications, tracker, showNotification: true, notice: notice);
         await reporter.StartAsync("probe.starting");
         Assert.Same(notice, RunNotice.ReadRunNotice(tracker.GetOperation(reporter.OperationId)!.Metadata));
         await reporter.CompleteAsync(success: false, error: "Connection closed");
         var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
         Assert.False(terminal.ShowNotification);
+        Assert.True(terminal.HideNotification);
         Assert.Equal("Connection closed", terminal.Error);
         Assert.Equal(OperationStatus.Failed, terminal.Status);
     }
@@ -363,8 +366,30 @@ public class ScheduledRunReporterTests
         var operation = tracker.GetActiveOperations(OperationType.GameDetection).Single();
         var metadata = Assert.IsType<Dictionary<string, object?>>(operation.Metadata);
         Assert.Equal(showNotification, Assert.IsType<bool>(metadata["showNotification"]));
+        Assert.False(Assert.IsType<bool>(metadata["hideNotification"]));
 
         await reporter.CompleteAsync(success: true);
+    }
+
+    [Fact]
+    public async Task HiddenNoticePersistsAcrossEveryLifecycleEventAsync()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
+        await using var reporter = CreateReporter(notifications, tracker, notice: notice);
+
+        await reporter.StartAsync("probe.starting");
+        await reporter.ReportAsync(25, "probe.running");
+
+        var operation = tracker.GetActiveOperations(OperationType.GameDetection).Single();
+        var state = Assert.IsType<Dictionary<string, object?>>(operation.Metadata);
+        Assert.True(Assert.IsType<bool>(state["hideNotification"]));
+        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName)).HideNotification);
+        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunProgressEvent>(ProgressEventName)).HideNotification);
+
+        await reporter.CompleteAsync(success: true);
+        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName)).HideNotification);
     }
 
     [Fact]

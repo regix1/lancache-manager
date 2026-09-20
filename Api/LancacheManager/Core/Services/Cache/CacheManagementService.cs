@@ -1835,7 +1835,11 @@ public partial class CacheManagementService
     /// skipped: the Rust binary overwrites the progress file with the final result JSON (no
     /// stageKey) when it finishes, and the poller may read that before it stops.
     /// </summary>
-    private async Task ReportProgressAsync(Guid operationId, CacheSizeScanProgressData progress, bool showNotification = true)
+    private async Task ReportProgressAsync(
+        Guid operationId,
+        CacheSizeScanProgressData progress,
+        bool showNotification = true,
+        bool hideNotification = false)
     {
         if (string.IsNullOrEmpty(progress.StageKey))
         {
@@ -1886,7 +1890,8 @@ public partial class CacheManagementService
             TotalFiles: progress.TotalFiles,
             TotalBytes: progress.TotalBytes,
             Context: context,
-            ShowNotification: showNotification));
+            ShowNotification: showNotification,
+            HideNotification: hideNotification));
     }
 
     /// <summary>
@@ -1906,6 +1911,7 @@ public partial class CacheManagementService
         bool showNotification = true,
         RunNotice? notice = null)
     {
+        var hideNotification = notice?.HideNotification == true;
         // Heavy data ops run one at a time (OperationConflictChecker section 1a). Both scan
         // entry points (the queued manual refresh and the scheduled service) funnel through
         // here before the Rust walker spawns, so this final guard also closes start races.
@@ -1934,7 +1940,13 @@ public partial class CacheManagementService
             OperationType.CacheSizeScan,
             "Cache File Scan",
             cts,
-            metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = showNotification, ["previousOperationId"] = previousOperationId },
+            metadata: new Dictionary<string, object?>
+            {
+                ["runNotice"] = notice,
+                ["showNotification"] = showNotification,
+                ["hideNotification"] = hideNotification,
+                ["previousOperationId"] = previousOperationId
+            },
             onTerminalCleanup: () =>
             {
                 lock (_scanCacheLock)
@@ -1958,7 +1970,8 @@ public partial class CacheManagementService
                         TotalFiles: 0,
                         TotalBytes: 0,
                         ShowNotification: showNotification,
-                        Cancelled: true));
+                        Cancelled: true,
+                        HideNotification: hideNotification));
                 }
 
                 if (info.Success)
@@ -1975,7 +1988,8 @@ public partial class CacheManagementService
                             ["totalFiles"] = terminalFiles,
                             ["totalSize"] = terminalFormattedSize ?? FormatBytes(terminalBytes)
                         },
-                        ShowNotification: showNotification));
+                        ShowNotification: showNotification,
+                        HideNotification: hideNotification));
                 }
 
                 return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
@@ -1985,7 +1999,8 @@ public partial class CacheManagementService
                     TotalFiles: 0,
                     TotalBytes: 0,
                     Error: info.Error ?? "Rust cache size binary returned failure",
-                    ShowNotification: showNotification));
+                    ShowNotification: showNotification,
+                    HideNotification: hideNotification));
             });
 
         _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheSizeScan.starting", _ =>
@@ -2010,7 +2025,8 @@ public partial class CacheManagementService
                 StageKey: "signalr.cacheSizeScan.starting",
                 OperationId: operationId,
                 ShowNotification: showNotification,
-                PreviousOperationId: previousOperationId));
+                PreviousOperationId: previousOperationId,
+                HideNotification: hideNotification));
             // Info-level on purpose: NotifyAllAsync logs success only at Debug, so without this
             // line production logs cannot distinguish "Started was emitted but the browser runs a
             // stale bundle" from "Started was never emitted".
@@ -2044,7 +2060,7 @@ public partial class CacheManagementService
                         CalibrationStep = progress.CalibrationStep,
                         CalibrationTotalSteps = progress.CalibrationTotalSteps
                     };
-                    await ReportProgressAsync(operationId, overallProgress, showNotification);
+                    await ReportProgressAsync(operationId, overallProgress, showNotification, hideNotification);
                 }
 
                 var datasourceResult = await RunCacheSizeScanAsync(

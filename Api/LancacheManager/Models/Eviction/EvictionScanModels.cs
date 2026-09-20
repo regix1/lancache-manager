@@ -7,7 +7,12 @@ namespace LancacheManager.Models;
 /// progress stay coherent, and the frontend gates whether the card is shown. A silent scan (schedule
 /// notification mode) sends the same events with the flag false.
 /// </summary>
-public record EvictionScanStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, bool ShowNotification = true);
+public record EvictionScanStarted(
+    string StageKey,
+    Guid OperationId,
+    Dictionary<string, object?>? Context = null,
+    bool ShowNotification = true,
+    bool HideNotification = false);
 
 /// <summary>
 /// SignalR event payload emitted after each batch during an eviction scan.
@@ -23,7 +28,8 @@ public record EvictionScanProgress(
     int Evicted,
     int UnEvicted,
     Dictionary<string, object?>? Context = null,
-    bool ShowNotification = true);
+    bool ShowNotification = true,
+    bool HideNotification = false);
 
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation completes.
@@ -44,7 +50,8 @@ public record EvictionScanComplete(
     Dictionary<string, object?>? Context = null,
     bool ShowNotification = true,
     bool Cancelled = false,
-    bool Skipped = false) : IOperationComplete
+    bool Skipped = false,
+    bool HideNotification = false) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
 

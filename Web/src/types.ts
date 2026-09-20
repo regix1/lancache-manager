@@ -76,6 +76,7 @@ export interface CacheSizeScanStartInfo {
  */
 export interface QueuedOperationResponse {
   showNotification?: boolean | null;
+  hideNotification?: boolean | null;
   operationId: string;
   queued: boolean;
   alreadyRunning: boolean;
