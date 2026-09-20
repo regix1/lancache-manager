@@ -851,6 +851,145 @@ const keyboardOpen = (runner, key = 'Enter') => {
   runner.toggle(0);
 };
 
+test('scheduled visibility omission keeps classification, keys, siblings and disclosure stable', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  globalThis.sessionStorage = new MemoryStorage();
+  const modules = await loadNotificationModules();
+  const entry = modules.NOTIFICATION_REGISTRY.find((item) => item.type === 'scheduled_prefill');
+  const entityTypes = new Set(
+    modules.NOTIFICATION_REGISTRY.filter((item) => item.getId).map((item) => item.type)
+  );
+  const unrelated = notice('unrelated');
+  const mapping = {
+    ...notice('mapping'),
+    type: 'riot_game_mapping',
+    controlOnly: true,
+    details: { operationId: 'mapping' }
+  };
+  const modes = [
+    ['absent', {}],
+    ['condensed', { 'scheduledPrefill:Steam': 'condensed' }],
+    ['full', { 'scheduledPrefill:Steam': 'full' }]
+  ];
+
+  for (const [mode, displayModes] of modes) {
+    let notifications = [unrelated, mapping];
+    const bar = makeBar(
+      notifications,
+      displayModes,
+      modules.SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
+      entityTypes
+    );
+    let tree = bar.render();
+    const setNotifications = (update) => {
+      notifications = typeof update === 'function' ? update(notifications) : update;
+      tree = bar.setNotifications(notifications);
+    };
+    const onProgress = modules.buildProgressHandler(
+      entry,
+      entry.progress,
+      setNotifications,
+      () => undefined,
+      () => undefined,
+      notificationEvents().current
+    );
+    const event = {
+      operationId: 'prefill-operation',
+      serviceId: 'Steam',
+      stage: 'running',
+      message: 'Downloading',
+      percentComplete: 10,
+      showNotification: false
+    };
+    const summarize = () => {
+      const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
+      const stripNodes = new Set(elements(strip));
+      const groups = elements(tree).filter((node) => node.type === 'BackgroundTaskControls');
+      const idsIn = (root) =>
+        elements(root)
+          .filter((node) => node.type === 'UnifiedNotificationItem')
+          .map((node) => node.props.notification.id);
+      const compactIds = groups.filter((group) => stripNodes.has(group)).flatMap(idsIn);
+      const fullControlIds = groups.filter((group) => !stripNodes.has(group)).flatMap(idsIn);
+      const scheduled = notifications.find(
+        (card) => card.details?.operationId === event.operationId
+      );
+      const stripIds = idsIn(strip);
+      const branch = compactIds.includes(scheduled.id)
+        ? 'compact-control'
+        : fullControlIds.includes(scheduled.id)
+          ? 'full-control'
+          : stripIds.includes(scheduled.id)
+            ? 'condensed-card'
+            : 'full-card';
+      return {
+        branch,
+        scheduled,
+        segments: strip.props.segments,
+        segmentKeys: strip.props.segments.map((item) => item.key)
+      };
+    };
+
+    onProgress(event);
+    const snapshots = [summarize()];
+    const strip = makeStrip();
+    strip.props.segments = snapshots[0].segments;
+    strip.start();
+    strip.toggle();
+    assertOpen(strip);
+
+    for (const update of [
+      { message: 'Scanning', percentComplete: 25 },
+      { message: 'Downloading', percentComplete: 50, showNotification: false },
+      { message: 'Finishing', percentComplete: 75 }
+    ]) {
+      const next = { ...event, ...update };
+      if (!Object.hasOwn(update, 'showNotification')) delete next.showNotification;
+      onProgress(next);
+      const snapshot = summarize();
+      snapshots.push(snapshot);
+      strip.segments(snapshot.segments);
+      assertOpen(strip);
+      assert.ok(
+        elements(strip.tree)
+          .filter((node) => node.type === 'StripSegment')
+          .every((node) => !node.props.leaving),
+        `${mode} updates retain every strip segment`
+      );
+    }
+
+    const expectedBranch = mode === 'condensed' ? 'compact-control' : 'full-control';
+    assert.deepEqual(
+      snapshots.map((snapshot) => snapshot.branch),
+      [expectedBranch, expectedBranch, expectedBranch, expectedBranch],
+      `${mode} keeps the scheduled card in one render branch`
+    );
+    assert.deepEqual(
+      snapshots.map((snapshot) => snapshot.segmentKeys),
+      snapshots.map(() => ['background-controls']),
+      `${mode} keeps the singleton mapping segment key`
+    );
+    const first = snapshots[0].scheduled;
+    for (const snapshot of snapshots) {
+      assert.equal(snapshot.scheduled.id, first.id);
+      assert.equal(snapshot.scheduled.startedAt, first.startedAt);
+      assert.equal(snapshot.scheduled.instanceVersion, first.instanceVersion);
+      assert.equal(snapshot.scheduled.controlOnly, true);
+      assert.equal(
+        notifications.find((card) => card.id === unrelated.id),
+        unrelated
+      );
+      assert.equal(
+        notifications.find((card) => card.id === mapping.id),
+        mapping
+      );
+    }
+
+    strip.dispose();
+    bar.dispose();
+  }
+});
+
 test('native keyboard activation stays open through four pointer rechecks', () => {
   for (const key of ['Enter', ' ']) {
     const runner = makeStrip(true);

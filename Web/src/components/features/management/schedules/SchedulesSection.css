@@ -1432,10 +1432,6 @@
   border-top: 1px solid var(--theme-border-secondary);
 }
 
-.scheduled-prefill-focused-dialog .scheduled-prefill-config-modal__actions {
-  justify-content: flex-start;
-}
-
 .scheduled-prefill-config-modal__actions > button {
   min-width: 8.5rem;
   white-space: normal;

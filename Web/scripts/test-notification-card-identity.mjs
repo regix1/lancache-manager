@@ -185,12 +185,12 @@ const liftScheduledPrefillEntry = async () => {
 
 /** A card list plus the setState and dismiss hooks the handlers are called with. */
 const newCardList = () => {
-  const cards = { state: [], dismissals: [] };
+  const cards = { state: [], dismissals: [], timerCancellations: [] };
   cards.setNotifications = (updater) => {
     cards.state = updater(cards.state);
   };
   cards.scheduleAutoDismiss = (id, delayMs) => cards.dismissals.push([id, delayMs]);
-  cards.cancelAutoDismissTimer = () => undefined;
+  cards.cancelAutoDismissTimer = (id) => cards.timerCancellations.push(id);
   cards.events = notificationEvents();
   return cards;
 };
@@ -249,6 +249,122 @@ const driveScheduledPrefill = async () => {
 };
 
 const persisted = (storageKey) => JSON.parse(globalThis.localStorage.getItem(storageKey) ?? 'null');
+
+test('omitted scheduled progress inherits the matching hidden operation presentation', async () => {
+  const { cards, onProgress, storageKey } = await driveScheduledPrefill();
+  const unrelated = {
+    id: 'unrelated',
+    type: 'generic',
+    status: 'running',
+    message: 'Unrelated work',
+    startedAt: new Date('2026-09-20T00:00:00Z'),
+    instanceVersion: 7
+  };
+  cards.state = [unrelated];
+  const first = {
+    ...progressEvent('Steam', 'operation-steam', 'Starting'),
+    percentComplete: 1,
+    showNotification: false
+  };
+  onProgress(first);
+  const initial = cards.state[1];
+  assert.equal(initial.controlOnly, true);
+  assert.equal(persisted(storageKey), null, 'control-only progress stays out of persistence');
+  assert.deepEqual(cards.timerCancellations, [initial.id]);
+
+  const omitted = { ...first, message: 'Downloading', percentComplete: 25 };
+  delete omitted.showNotification;
+  onProgress(omitted);
+  const afterOmitted = cards.state[1];
+  assert.equal(afterOmitted.controlOnly, true);
+  assert.equal(afterOmitted.id, initial.id);
+  assert.equal(afterOmitted.startedAt, initial.startedAt);
+  assert.equal(afterOmitted.instanceVersion, initial.instanceVersion);
+  assert.equal(afterOmitted.progress, 25);
+  assert.equal(cards.state[0], unrelated, 'an unrelated sibling keeps its object and order');
+  assert.deepEqual(cards.timerCancellations, [initial.id], 'updates do not reset a dismiss timer');
+
+  onProgress({ ...first, message: 'Still hidden', percentComplete: 50 });
+  const secondOmitted = { ...first, message: 'Almost done', percentComplete: 75 };
+  delete secondOmitted.showNotification;
+  onProgress(secondOmitted);
+  const final = cards.state[1];
+  assert.equal(final.controlOnly, true);
+  assert.equal(final.id, initial.id);
+  assert.equal(final.startedAt, initial.startedAt);
+  assert.equal(final.instanceVersion, initial.instanceVersion);
+  assert.equal(final.progress, 75);
+  assert.equal(cards.state[0], unrelated);
+
+  cards.state[1] = {
+    ...cards.state[1],
+    details: { ...cards.state[1].details, cancelRequested: true }
+  };
+  onProgress(secondOmitted);
+  assert.equal(cards.state[1].status, 'cancelling');
+  assert.equal(cards.state[1].controlOnly, true);
+});
+
+test('explicit scheduled visibility remains authoritative before later omission', async () => {
+  const { cards, onProgress, storageKey } = await driveScheduledPrefill();
+  const event = {
+    ...progressEvent('Steam', 'operation-steam', 'Starting'),
+    showNotification: false
+  };
+  onProgress(event);
+  const identity = cards.state[0];
+  assert.equal(identity.controlOnly, true);
+
+  onProgress({ ...event, message: 'Visible', showNotification: true, percentComplete: 20 });
+  assert.equal(cards.state[0].controlOnly, undefined);
+  assert.deepEqual(Object.keys(persisted(storageKey)), [identity.id]);
+
+  const omitted = { ...event, message: 'Still visible', percentComplete: 40 };
+  delete omitted.showNotification;
+  onProgress(omitted);
+  assert.equal(cards.state[0].controlOnly, undefined);
+  assert.equal(cards.state[0].id, identity.id);
+  assert.equal(cards.state[0].startedAt, identity.startedAt);
+  assert.equal(cards.state[0].instanceVersion, identity.instanceVersion);
+
+  onProgress({ ...event, message: 'Hidden again', showNotification: false, percentComplete: 60 });
+  assert.equal(cards.state[0].controlOnly, true);
+});
+
+test('omitted-first progress is visible and never borrows another operation presentation', async () => {
+  const { cards, onProgress } = await driveScheduledPrefill();
+  const omittedFirst = progressEvent('Steam', 'operation-first', 'First operation');
+  delete omittedFirst.showNotification;
+  onProgress(omittedFirst);
+  assert.equal(cards.state[0].controlOnly, undefined);
+
+  onProgress({ ...omittedFirst, showNotification: true, percentComplete: 20 });
+  const sameOperation = { ...omittedFirst, percentComplete: 40 };
+  delete sameOperation.showNotification;
+  onProgress(sameOperation);
+  assert.equal(cards.state[0].controlOnly, undefined);
+
+  const hidden = {
+    ...progressEvent('Epic', 'operation-hidden', 'Hidden operation'),
+    showNotification: false
+  };
+  onProgress(hidden);
+  assert.equal(
+    cards.state.find((card) => card.details.operationId === hidden.operationId).controlOnly,
+    true
+  );
+  const different = {
+    ...progressEvent('Epic', 'operation-next', 'Different operation'),
+    percentComplete: 10
+  };
+  delete different.showNotification;
+  onProgress(different);
+  assert.equal(
+    cards.state.find((card) => card.details.operationId === different.operationId).controlOnly,
+    undefined,
+    'a new operation uses the registry default instead of a slot-only match'
+  );
+});
 
 test('same-platform overlap completes its own named attempt without changing the active card', async () => {
   const { cards, onStarted, onProgress, onComplete, storageKey } = await driveScheduledPrefill();

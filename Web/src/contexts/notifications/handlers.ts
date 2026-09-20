@@ -1002,7 +1002,10 @@ export function createStatusAwareProgressHandler<T>(
       const slot = prev.find((n) => n.id === notificationId);
       const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
       if (existing && isTerminalNotificationStatus(existing.status)) return prev;
-      const hidden = config.shouldDisplay?.(event) === false;
+      const hidden =
+        exact && (event as { showNotification?: boolean }).showNotification === undefined
+          ? exact.controlOnly === true
+          : config.shouldDisplay?.(event) === false;
       if (!existing && slot && !hidden) return prev;
       if (hidden && !config.canControl?.(event)) {
         if (!existing) return prev;

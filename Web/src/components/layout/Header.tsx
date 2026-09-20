@@ -118,7 +118,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
               </div>
             </div>
 
-            <div className="header-controls flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <div className="header-controls flex items-center gap-2 flex-shrink-0">
               <ThemePreviewBanner />
               <GitHubProjectsDropdown />
               <LanguageSelector />

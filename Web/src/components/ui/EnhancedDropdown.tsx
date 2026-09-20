@@ -307,19 +307,21 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     }
   }, [isOpen]);
 
-  // Every composite focus owner names a real row while its list is open. Search keeps its
-  // established first-match fallback; a trigger-owned list starts on the selected row so arrow
+  // Every composite focus owner names a real row while its list is open. An unfiltered list starts
+  // on the selected row; once a filter is entered it starts on the first matching row. Arrow
   // movement is preview-only until Enter, Space, or a click commits it.
   useEffect(() => {
     if (!isOpen) return;
     const fallback =
-      !searchable && selectedValue !== null && selectableValues.includes(selectedValue)
+      searchTerm.trim().length === 0 &&
+      selectedValue !== null &&
+      selectableValues.includes(selectedValue)
         ? selectedValue
         : (selectableValues[0] ?? null);
     setActiveValue((current) =>
       current !== null && selectableValues.includes(current) ? current : fallback
     );
-  }, [isOpen, searchable, selectableValues, selectedValue]);
+  }, [isOpen, searchTerm, searchable, selectableValues, selectedValue]);
 
   // A row arrowed past the bottom of the panel has to be brought back, and the panel is its own
   // scroll box rather than the page's, so the row asks its nearest scrolling ancestor.
@@ -693,7 +695,10 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                   type="text"
                   role="searchbox"
                   value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
+                  onChange={(event) => {
+                    setActiveValue(null);
+                    setSearchTerm(event.target.value);
+                  }}
                   onKeyDown={handleSearchKeyDown}
                   placeholder={t('common.search')}
                   aria-label={t('common.search')}

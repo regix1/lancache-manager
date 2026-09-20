@@ -62,7 +62,6 @@ function CalendarNavigation({
           variant="button"
           size="md"
           maxHeight="200px"
-          dropdownWidth="w-40"
           className="calendar-nav__month"
         />
 
@@ -74,7 +73,6 @@ function CalendarNavigation({
           size="md"
           alignRight
           maxHeight="200px"
-          dropdownWidth="w-28"
           className="calendar-nav__year"
         />
 
