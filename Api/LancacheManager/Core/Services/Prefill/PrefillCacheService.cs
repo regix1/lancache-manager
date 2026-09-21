@@ -206,47 +206,52 @@ public class PrefillCacheService
         CancellationToken cancellationToken = default)
     {
         var requested = appIds.Distinct().Order().ToArray();
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await context.Database.BeginTransactionAsync(
-            IsolationLevel.RepeatableRead,
-            cancellationToken);
         var requestedText = requested.Select(appId => appId.ToString()).ToArray();
-        var receipts = await context.PrefillCachedApps
-            .AsNoTracking()
-            .Where(app => app.Platform == PrefillPlatform.Steam && requestedText.Contains(app.AppId))
-            .Select(app => new { app.AppId, app.CacheRevision })
-            .ToDictionaryAsync(
-                app => app.AppId,
-                app => app.CacheRevision,
-                StringComparer.Ordinal,
-                cancellationToken);
-        var depots = await context.PrefillCachedDepots
-            .AsNoTracking()
-            .OrderBy(depot => depot.DepotId)
-            .ThenBy(depot => depot.ManifestId)
-            .Select(depot => new CachedDepotInput
-            {
-                AppId = depot.AppId,
-                DepotId = depot.DepotId,
-                ManifestId = depot.ManifestId
-            })
-            .ToListAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        return new PrefillCacheSnapshot
+        await using var retryContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var execution = retryContext.Database.CreateExecutionStrategy();
+        return await execution.ExecuteAsync(async attemptToken =>
         {
-            Depots = depots,
-            Scope = requested.Select(appId =>
+            await using var context = await _contextFactory.CreateDbContextAsync(attemptToken);
+            await using var transaction = await context.Database.BeginTransactionAsync(
+                IsolationLevel.RepeatableRead,
+                attemptToken);
+            var receipts = await context.PrefillCachedApps
+                .AsNoTracking()
+                .Where(app => app.Platform == PrefillPlatform.Steam && requestedText.Contains(app.AppId))
+                .Select(app => new { app.AppId, app.CacheRevision })
+                .ToDictionaryAsync(
+                    app => app.AppId,
+                    app => app.CacheRevision,
+                    StringComparer.Ordinal,
+                    attemptToken);
+            var depots = await context.PrefillCachedDepots
+                .AsNoTracking()
+                .OrderBy(depot => depot.DepotId)
+                .ThenBy(depot => depot.ManifestId)
+                .Select(depot => new CachedDepotInput
+                {
+                    AppId = depot.AppId,
+                    DepotId = depot.DepotId,
+                    ManifestId = depot.ManifestId
+                })
+                .ToListAsync(attemptToken);
+            await transaction.CommitAsync(attemptToken);
+
+            return new PrefillCacheSnapshot
             {
-                var text = appId.ToString();
-                var authority = !receipts.TryGetValue(text, out var receipt)
-                    ? CacheAuthority.Empty
-                    : StringComparer.Ordinal.Equals(receipt, SteamCacheReceipt)
-                        ? CacheAuthority.Snapshot
-                        : CacheAuthority.Absent;
-                return new CacheAppScope { AppId = appId, Authority = authority };
-            }).ToList()
-        };
+                Depots = depots,
+                Scope = requested.Select(appId =>
+                {
+                    var text = appId.ToString();
+                    var authority = !receipts.TryGetValue(text, out var receipt)
+                        ? CacheAuthority.Empty
+                        : StringComparer.Ordinal.Equals(receipt, SteamCacheReceipt)
+                            ? CacheAuthority.Snapshot
+                            : CacheAuthority.Absent;
+                    return new CacheAppScope { AppId = appId, Authority = authority };
+                }).ToList()
+            };
+        }, cancellationToken);
     }
 
     public async Task<bool> RecordSteamCacheAsync(

@@ -64,6 +64,28 @@ public class PrefillCachedAppTests
     }
 
     [Fact]
+    public async Task SteamSnapshot_ReadsWithTransientRetriesEnabled()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        string connectionString;
+        await using (var context = new AppDbContext(database.Options))
+        {
+            connectionString = context.Database.GetConnectionString()!;
+        }
+
+        var retryOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connectionString, options => options.EnableRetryOnFailure(3, TimeSpan.Zero, null))
+            .Options;
+        var service = new PrefillCacheService(new TestDbContextFactory(retryOptions),
+            NullLogger<PrefillCacheService>.Instance);
+
+        var snapshot = await service.GetCacheSnapshotAsync([10]);
+
+        Assert.Equal(CacheAuthority.Empty, Assert.Single(snapshot.Scope).Authority);
+        Assert.Empty(snapshot.Depots);
+    }
+
+    [Fact]
     public async Task SteamCache_CompleteEvidenceCommitsReceiptAndDepots()
     {
         await using var database = await TestDatabase.CreateAsync();
