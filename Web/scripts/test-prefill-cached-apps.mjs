@@ -16,6 +16,46 @@ const { completeCacheApps, groupCacheApps, markCacheAppsUnknown, CACHE_REASON_KE
   await compileToUrl('../src/components/features/prefill/cacheStatus.ts')
 );
 
+const steamCacheReply = {
+  games: [
+    { appId: 251570, name: '7 Days to Die' },
+    { appId: 945360, name: 'Among Us' },
+    { appId: 306020, name: 'Bloons TD5' }
+  ],
+  cachedAppIds: ['251570', '945360', '306020'],
+  outdatedAppIds: ['945360'],
+  unknownAppIds: ['306020'],
+  apps: [
+    { appId: 251570, name: '7 Days to Die', isUpToDate: true, outcome: 'Current', downloadSize: 0 },
+    { appId: 945360, name: 'Among Us', isUpToDate: false, outcome: 'Outdated', downloadSize: 10 },
+    {
+      appId: 306020,
+      name: 'Bloons TD5',
+      outcome: 'Unknown',
+      reason: 'ManifestUnavailable',
+      downloadSize: 0
+    }
+  ]
+};
+
+test('numeric Steam cache IDs normalize before classification', () => {
+  const apps = completeCacheApps(
+    steamCacheReply.cachedAppIds,
+    steamCacheReply.apps,
+    steamCacheReply.games.map((game) => ({ ...game, appId: String(game.appId) }))
+  );
+  assert.deepEqual(
+    apps.map((app) => app.appId),
+    steamCacheReply.cachedAppIds
+  );
+  assert.deepEqual(groupCacheApps(apps), {
+    current: ['251570'],
+    outdated: ['945360'],
+    unknown: ['306020']
+  });
+  assert.equal(apps[2].reason, 'ManifestUnavailable');
+});
+
 test('cache status precedence is unknown, outdated, cached, then not cached', () => {
   const id = 'Mixed/Case';
   const cached = new Set(['mixed/case']);
@@ -223,6 +263,29 @@ const panel = (
     load: bindLifted(liftHookCallback(panelPath, 'useCallback', 'const gamesCache ='), bindings)
   };
 };
+
+test('ordinary picker accepts numeric Steam cache IDs without reporting a daemon failure', async () => {
+  const picker = panel([], async () => steamCacheReply, steamCacheReply.cachedAppIds);
+  let loadError = null;
+  picker.bindings.setGameLoadError = (value) => {
+    loadError = value;
+  };
+  picker.bindings.serviceId = 'steam';
+  picker.bindings.serviceBasePath = 'steam-prefill';
+  picker.bindings.gamesKeyRef.current = 'steam:session-a';
+  picker.bindings.fetch = async () => ({ ok: true, json: async () => steamCacheReply.games });
+  await bindLifted(
+    liftHookCallback(panelPath, 'useCallback', 'const gamesCache ='),
+    picker.bindings
+  )();
+  assert.equal(loadError, null);
+  assert.deepEqual(
+    picker.apps().map((app) => app.appId),
+    steamCacheReply.cachedAppIds
+  );
+  assert.deepEqual(picker.outdated(), ['945360']);
+  assert.deepEqual(picker.unknown(), ['306020']);
+});
 
 test('a current shared-depot result stays cached without an update badge', async () => {
   const picker = panel(
@@ -783,6 +846,26 @@ const scheduled = (fetchGames) => {
     state: () => ({ selection, loadError, actionError, loading, loaded })
   };
 };
+
+test('scheduled picker accepts numeric Steam cache IDs without discarding its library', async () => {
+  const picker = scheduled(async () => steamCacheReply);
+  picker.bindings.setGameSelection((selection) => ({
+    ...selection,
+    games: [],
+    cachedAppIds: [],
+    apps: []
+  }));
+  await picker.load('steam', 's1');
+  const result = picker.state();
+  assert.equal(result.loadError, null);
+  assert.equal(result.selection.games.length, 3);
+  assert.deepEqual(
+    result.selection.apps.map((app) => app.appId),
+    steamCacheReply.cachedAppIds
+  );
+  assert.deepEqual(result.selection.outdatedAppIds, ['945360']);
+  assert.deepEqual(result.selection.unknownAppIds, ['306020']);
+});
 
 test('scheduled picker request checks the current container before auth effects can run', async () => {
   for (const container of [

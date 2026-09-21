@@ -89,7 +89,7 @@ import type {
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
 import type { PrefillRun } from '../components/features/prefill/hooks/prefillTypes';
-import type { AppCacheStatus } from '../components/features/prefill/cacheStatus';
+import type { CacheAppResponse } from '../components/features/prefill/cacheStatus';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto,
@@ -4562,7 +4562,7 @@ interface PrefillCacheStatusDto {
   upToDateAppIds: string[];
   outdatedAppIds: string[];
   unknownAppIds: string[];
-  apps?: AppCacheStatus[];
+  apps?: CacheAppResponse[];
   message?: string;
 }
 
@@ -4576,7 +4576,7 @@ interface PersistentPrefillGamesDto {
   cachedAppIds: string[];
   outdatedAppIds: string[];
   unknownAppIds: string[];
-  apps?: AppCacheStatus[];
+  apps?: CacheAppResponse[];
   message?: string;
 }
 

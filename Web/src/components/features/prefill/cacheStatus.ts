@@ -26,6 +26,10 @@ export interface AppCacheStatus {
   downloadSize: number;
 }
 
+export type CacheAppResponse = Omit<AppCacheStatus, 'appId'> & {
+  appId: string | number;
+};
+
 export const CACHE_REASON_KEYS: Record<CacheReason, string> = {
   UnsupportedDaemon: 'prefill.gameSelection.cacheReasons.unsupportedDaemon',
   Disconnected: 'prefill.gameSelection.cacheReasons.disconnected',
@@ -46,10 +50,10 @@ export const CACHE_REASON_KEYS: Record<CacheReason, string> = {
 
 export function completeCacheApps(
   cachedAppIds: readonly string[],
-  apps: readonly AppCacheStatus[],
+  apps: readonly CacheAppResponse[],
   games: readonly { appId: string; name: string }[]
 ): AppCacheStatus[] {
-  const appById = new Map(apps.map((app) => [app.appId.toLowerCase(), app]));
+  const appById = new Map(apps.map((app) => [String(app.appId).toLowerCase(), app]));
   const gameById = new Map(games.map((game) => [game.appId.toLowerCase(), game]));
 
   return cachedAppIds.map((appId) => {

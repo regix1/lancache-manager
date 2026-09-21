@@ -611,11 +611,7 @@ function ServicePrefillPanel({
             );
             const eligibleKeys = new Set(eligible.map((id) => id.toLowerCase()));
             if (cacheStatus.apps) {
-              nextCacheApps = completeCacheApps(
-                eligible,
-                cacheStatus.apps.filter((app) => eligibleKeys.has(app.appId.toLowerCase())),
-                normalizedGames
-              );
+              nextCacheApps = completeCacheApps(eligible, cacheStatus.apps, normalizedGames);
               const groups = groupCacheApps(nextCacheApps);
               outdatedIds = groups.outdated;
               unknownIds = groups.unknown;

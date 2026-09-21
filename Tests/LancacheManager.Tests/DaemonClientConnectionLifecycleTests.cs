@@ -1388,6 +1388,50 @@ public sealed class DaemonClientConnectionLifecycleTests
         await server;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnedGamesAcceptSteamLibrary(bool useTcp)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var games = Enumerable.Range(0, 208).Select(index => new
+        {
+            appId = (uint)(251570 + index),
+            name = $"Game {index} \"Edition\" ®",
+            minutesPlayedLast2Weeks = index,
+            releaseDate = index % 2 == 0 ? new DateOnly(2024, 7, 25) : (DateOnly?)null
+        }).ToList();
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var request = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("get-owned-games", request.Type);
+            await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(games));
+            await release.Task.WaitAsync(timeout.Token);
+        }, timeout.Token);
+
+        try
+        {
+            var result = await client.GetOwnedGamesAsync(timeout.Token);
+            Assert.Equal(games.Count, result.Count);
+            for (var index = 0; index < games.Count; index++)
+            {
+                Assert.Equal(games[index].appId.ToString(System.Globalization.CultureInfo.InvariantCulture), result[index].AppId);
+                Assert.Equal(games[index].name, result[index].Name);
+            }
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        await server;
+    }
+
     private static Task QueryAsync(IDaemonClient client, string command, CancellationToken cancellationToken)
         => command switch
         {
