@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import ts from 'typescript';
@@ -25,6 +26,10 @@ import {
 
 const modalPath = 'src/components/features/prefill/GameSelectionModal.tsx';
 const modalFile = parseSource(modalPath, ts.ScriptKind.TSX);
+const modalCss = readFileSync(
+  new URL('../src/components/features/prefill/GameSelectionModal.css', import.meta.url),
+  'utf8'
+);
 const { resolveCacheStatus } = await import(
   await compileToUrl('../src/components/features/prefill/cachedApps.ts')
 );
@@ -329,6 +334,41 @@ test('all three pane headers carry their own count', () => {
     '{availableGames.length}',
     '{selectedInLibrary.length}'
   ]);
+});
+
+test('phone layout puts selected first and cached last without changing desktop source order', () => {
+  const paneClasses = collectNodes(
+    modalFile,
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(modalFile) === 'section' &&
+      node.openingElement.attributes.properties.some(
+        (attribute) =>
+          ts.isJsxAttribute(attribute) &&
+          attribute.name.getText(modalFile) === 'className' &&
+          attribute.initializer !== undefined &&
+          ts.isStringLiteral(attribute.initializer) &&
+          attribute.initializer.text.includes('game-selection-modal__pane--')
+      )
+  ).map((pane) =>
+    pane.openingElement.attributes.properties
+      .find(
+        (attribute) =>
+          ts.isJsxAttribute(attribute) && attribute.name.getText(modalFile) === 'className'
+      )
+      .initializer.text.split(/\s+/)
+      .find((className) => className.startsWith('game-selection-modal__pane--'))
+  );
+
+  assert.deepEqual(paneClasses, [
+    'game-selection-modal__pane--cached',
+    'game-selection-modal__pane--games',
+    'game-selection-modal__pane--selected'
+  ]);
+  assert.match(
+    modalCss,
+    /@media \(max-width: 639\.98px\)[\s\S]*?\.game-selection-modal__pane--selected\s*{\s*order: 1;[\s\S]*?\.game-selection-modal__pane--games\s*{\s*order: 2;[\s\S]*?\.game-selection-modal__pane--cached\s*{\s*order: 3;/
+  );
 });
 
 test('the wider three-pane layout keeps focus tied to a moved game row', () => {

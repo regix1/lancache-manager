@@ -50,6 +50,17 @@ const schedulesCss = readFileSync(
   new URL('../src/components/features/management/schedules/SchedulesSection.css', import.meta.url),
   'utf8'
 );
+
+test('phone download actions use equal columns until the labels need equal stacked widths', () => {
+  assert.match(
+    schedulesCss,
+    /@media \(max-width: 639px\)[\s\S]*?\.scheduled-prefill-record-games\s*{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?gap: 0\.5rem;/
+  );
+  assert.match(
+    schedulesCss,
+    /@media \(max-width: 339px\)[\s\S]*?\.scheduled-prefill-record-games\s*{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/
+  );
+});
 const prefillCss = readFileSync(
   new URL('../src/styles/features/prefill.css', import.meta.url),
   'utf8'

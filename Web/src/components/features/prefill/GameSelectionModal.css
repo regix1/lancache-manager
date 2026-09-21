@@ -208,4 +208,16 @@
     max-height: 14rem;
     overflow: hidden;
   }
+
+  .game-selection-modal__pane--selected {
+    order: 1;
+  }
+
+  .game-selection-modal__pane--games {
+    order: 2;
+  }
+
+  .game-selection-modal__pane--cached {
+    order: 3;
+  }
 }

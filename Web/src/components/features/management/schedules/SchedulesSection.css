@@ -2191,12 +2191,11 @@
   .scheduled-prefill-container-settings__toggle {
     min-height: 2.75rem;
   }
-}
 
-@media (max-width: 399px) {
   .scheduled-prefill-record-games {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
     width: 100%;
   }
 
@@ -2204,8 +2203,11 @@
   .scheduled-prefill-record-games__select-help > span,
   .scheduled-prefill-record-games button {
     width: 100%;
+    min-width: 0;
   }
+}
 
+@media (max-width: 399px) {
   .scheduled-prefill-platform-block--notifications
     .scheduled-prefill-config-modal__settings-list
     .segmented-control-container {
@@ -2224,6 +2226,12 @@
     width: 100%;
     min-height: 2.75rem;
     white-space: normal;
+  }
+}
+
+@media (max-width: 339px) {
+  .scheduled-prefill-record-games {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

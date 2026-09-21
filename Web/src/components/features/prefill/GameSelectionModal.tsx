@@ -707,7 +707,7 @@ export function GameSelectionModal({
               >
                 <div className="game-selection-modal__panes">
                   <section
-                    className="game-selection-modal__pane"
+                    className="game-selection-modal__pane game-selection-modal__pane--cached"
                     aria-label={t('prefill.gameSelection.cachedBadge')}
                   >
                     <div className="game-selection-modal__pane-header">
@@ -740,7 +740,7 @@ export function GameSelectionModal({
                   </section>
 
                   <section
-                    className="game-selection-modal__pane"
+                    className="game-selection-modal__pane game-selection-modal__pane--games"
                     aria-label={t('prefill.gameSelection.games')}
                   >
                     <div className="game-selection-modal__pane-header">
@@ -769,7 +769,7 @@ export function GameSelectionModal({
                   </section>
 
                   <section
-                    className="game-selection-modal__pane"
+                    className="game-selection-modal__pane game-selection-modal__pane--selected"
                     aria-label={t('prefill.gameSelection.selected')}
                   >
                     <div className="game-selection-modal__pane-header game-selection-modal__pane-header--selected">
