@@ -43,21 +43,52 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     /// <param name="force">If true, kills the container immediately without graceful shutdown</param>
     public Task TerminateSessionAsync(string sessionId, string reason = "User requested", bool force = false, string? terminatedBy = null)
+        => StartTermination(sessionId, reason, force, terminatedBy, imageChange: null).Work;
+
+    private (bool Claimed, Task Work) TryStartImageTermination(PersistentImageChange change)
+        => StartTermination(
+            change.Session.Id,
+            "Persistent container image updated",
+            force: true,
+            terminatedBy: "system",
+            change);
+
+    private (bool Claimed, Task Work) StartTermination(
+        string sessionId,
+        string reason,
+        bool force,
+        string? terminatedBy,
+        PersistentImageChange? imageChange)
     {
         SessionTermination termination;
         TaskCompletionSource? completion = null;
         Task work;
+        var claimed = false;
         lock (_terminationSync)
         {
             if (!_terminations.TryGetValue(sessionId, out termination!))
             {
-                if (!_sessions.TryRemove(sessionId, out var session))
-                    return Task.CompletedTask;
-                termination = new SessionTermination { Session = session, Reason = reason, TerminatedBy = terminatedBy };
+                if (!_sessions.TryGetValue(sessionId, out var current)
+                    || (imageChange is not null && !ReferenceEquals(current, imageChange.Session))
+                    || !_sessions.TryRemove(sessionId, out var session)
+                    || !ReferenceEquals(current, session))
+                {
+                    return (false, Task.CompletedTask);
+                }
+                termination = new SessionTermination
+                {
+                    Session = session,
+                    Reason = reason,
+                    TerminatedBy = terminatedBy,
+                    ImageChange = imageChange
+                };
                 _terminations[sessionId] = termination;
+                claimed = true;
             }
+            else if (imageChange is not null && ReferenceEquals(termination.ImageChange, imageChange))
+                claimed = true;
             if (termination.Complete)
-                return Task.CompletedTask;
+                return (claimed, Task.CompletedTask);
             if (termination.Work is not { IsCompleted: false })
             {
                 if (!termination.Removed && termination.Removal is { IsCompleted: true, IsCompletedSuccessfully: false })
@@ -71,7 +102,7 @@ public abstract partial class PrefillDaemonServiceBase
             _ = RemoveContainerAsync(termination);
         if (completion != null)
             _ = FinishTerminationAsync(termination, force, completion);
-        return work;
+        return (claimed, work);
     }
 
     private async Task FinishTerminationAsync(SessionTermination termination, bool force, TaskCompletionSource completion)
@@ -89,6 +120,8 @@ public abstract partial class PrefillDaemonServiceBase
             CompleteLoginOperation(session);
             await removal;
             termination.Removed = true;
+            if (termination.ImageChange is { } imageChange)
+                imageChange.ContainerRemoved = true;
             await cancellation;
             foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
             {
@@ -115,7 +148,7 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             await DrainSessionEventsAsync(session);
-            if (!termination.HistoryClosed)
+            if (termination.ImageChange is null && !termination.HistoryClosed)
             {
                 using var workCts = new CancellationTokenSource(_eventDrainTimeout);
                 await session.PrefillWork.WaitAsync(workCts.Token);
@@ -142,7 +175,7 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 finally { session.PrefillWork.Release(); }
             }
-            if (!termination.Persisted)
+            if (termination.ImageChange is null && !termination.Persisted)
             {
                 await _sessionService.TerminateSessionAsync(session.Id, termination.Reason, termination.TerminatedBy);
                 termination.Persisted = true;
@@ -150,12 +183,12 @@ public abstract partial class PrefillDaemonServiceBase
             session.Status = DaemonSessionStatus.Terminated;
             session.EndedAt ??= DateTime.UtcNow;
             session.ErrorMessage = null;
-            if (!termination.GlobalSent)
+            if (termination.ImageChange is null && !termination.GlobalSent)
             {
                 await NotifyHubAsync(EventSessionTerminated, new { sessionId = session.Id, reason = termination.Reason });
                 termination.GlobalSent = true;
             }
-            if (!termination.OwnerSent)
+            if (termination.ImageChange is null && !termination.OwnerSent)
             {
                 foreach (var connection in session.SubscribedConnections.ToArray())
                 {
@@ -227,7 +260,7 @@ public abstract partial class PrefillDaemonServiceBase
     private async Task StopContainerAsync(SessionTermination termination, bool force)
     {
         var session = termination.Session;
-        if (session.IsPersistent)
+        if (session.IsPersistent && termination.ImageChange is null)
             await TryBestEffortLogoutAsync(session, "session stop/teardown");
         if (string.IsNullOrEmpty(session.ContainerId))
             return;

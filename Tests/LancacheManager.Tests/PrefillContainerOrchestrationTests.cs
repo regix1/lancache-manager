@@ -1175,7 +1175,8 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
 
     private DaemonDeps MakeDeps(
         IDbContextFactory<AppDbContext> dbFactory, PrefillSessionService sessionService, ScheduledPrefillConfigDto config, int validityDays = 90,
-        ISignalRNotificationService? notifications = null)
+        ISignalRNotificationService? notifications = null,
+        string? image = null)
     {
         notifications ??= FakeInterface<ISignalRNotificationService>();
         var stateService = OrchestrationStateService.New(config, validityDays);
@@ -1183,7 +1184,11 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         // A non-"auto" NetworkMode keeps the create path from probing Docker for lancache-dns.
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Prefill:NetworkMode"] = "bridge" })
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Prefill:NetworkMode"] = "bridge",
+                ["Prefill:SteamDockerImage"] = image
+            })
             .Build();
         var networkOptions = new StaticOptionsMonitor(new PrefillNetworkOptions { NetworkMode = "bridge" });
         return new DaemonDeps(notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator());

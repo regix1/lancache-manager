@@ -53,13 +53,53 @@ public abstract partial class PrefillDaemonServiceBase
             // Ensure image is available
             if (_containerGateway.IsAvailable)
             {
-                await EnsureImageExistsAsync(cancellationToken);
+                string? startupImageId = null;
+                try
+                {
+                    startupImageId = await EnsureImageExistsAsync(cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Could not resolve the current {ServiceName} image during startup; existing containers remain eligible for adoption",
+                        ServiceName);
+                }
 
                 // Cleanup orphaned containers from previous runs
                 await CleanupOrphanedContainersAsync(cancellationToken);
 
                 // Re-adopt persistent containers that survived this restart (reconnect, don't recreate)
-                await ReadoptPersistentContainersAsync(cancellationToken);
+                _startupImageId = startupImageId;
+                try
+                {
+                    await ReadoptPersistentContainersAsync(cancellationToken);
+                }
+                finally
+                {
+                    _startupImageId = null;
+                }
+
+                if (!string.IsNullOrWhiteSpace(startupImageId))
+                {
+                    try
+                    {
+                        await ReconcilePersistentImageAsync(ResolveImageName(), startupImageId, cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Persistent {ServiceName} image replacement failed during startup; the scheduled image check will retry",
+                            ServiceName);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -81,35 +121,50 @@ public abstract partial class PrefillDaemonServiceBase
         // is rejected at (or pulled back out by) its registration re-check.
         _stopping = true;
 
-        // Read the effective persistence policy once for this shutdown pass. GetScheduledPrefillConfig
-        // is synchronous and lock-safe on StateService (no IO, no cache to go stale), so it is safe to
-        // call while the host is tearing this hosted service down.
-        var config = _stateService.GetScheduledPrefillConfig();
-
-        var sessions = _sessions.Values.ToList();
-
-        // Detach KeepAcrossRestart / FullPersistence persistent sessions CONCURRENTLY: each detach is an
-        // independent bounded drain + local-handle release (no shared mutable state, container untouched),
-        // so several stuck drains share one shutdown-wide budget instead of costing the timeout x N
-        // sequentially. The host cancellation token is threaded in so a cancelled shutdown cuts each drain
-        // short. Guest / KillOnRestart terminates run sequentially - each stops/removes a container and
-        // flips DB rows.
-        var detachTasks = new List<Task>();
-        foreach (var session in sessions)
+        await _persistentStartLock.WaitAsync(cancellationToken);
+        try
         {
-            if (ShouldDetachOnShutdown(session, config))
+            // Read the effective persistence policy once for this shutdown pass. GetScheduledPrefillConfig
+            // is synchronous and lock-safe on StateService (no IO, no cache to go stale), so it is safe to
+            // call while the host is tearing this hosted service down.
+            var config = _stateService.GetScheduledPrefillConfig();
+            if (GetPendingImageChange() is { } pendingImageChange
+                && !ShouldDetachOnShutdown(pendingImageChange.Session, config))
             {
-                detachTasks.Add(DetachPersistentSessionForShutdownAsync(session, cancellationToken));
+                await CancelPendingImageChangeAsync(
+                    pendingImageChange,
+                    terminatedBy: "system",
+                    cancellationToken);
             }
-            else
+            var sessions = _sessions.Values.ToList();
+
+            // Detach KeepAcrossRestart / FullPersistence persistent sessions CONCURRENTLY: each detach is an
+            // independent bounded drain + local-handle release (no shared mutable state, container untouched),
+            // so several stuck drains share one shutdown-wide budget instead of costing the timeout x N
+            // sequentially. The host cancellation token is threaded in so a cancelled shutdown cuts each drain
+            // short. Guest / KillOnRestart terminates run sequentially - each stops/removes a container and
+            // flips DB rows.
+            var detachTasks = new List<Task>();
+            foreach (var session in sessions)
             {
-                await TerminateSessionAsync(session.Id, "Service shutdown");
+                if (ShouldDetachOnShutdown(session, config))
+                {
+                    detachTasks.Add(DetachPersistentSessionForShutdownAsync(session, cancellationToken));
+                }
+                else
+                {
+                    await TerminateSessionAsync(session.Id, "Service shutdown");
+                }
+            }
+
+            if (detachTasks.Count > 0)
+            {
+                await Task.WhenAll(detachTasks);
             }
         }
-
-        if (detachTasks.Count > 0)
+        finally
         {
-            await Task.WhenAll(detachTasks);
+            _persistentStartLock.Release();
         }
 
         _logger.LogInformation("{ServiceName}PrefillDaemonService stopped", ServiceName);
@@ -356,10 +411,26 @@ public abstract partial class PrefillDaemonServiceBase
         // container (leak M3): the second caller blocks here, then its reuse-check inside
         // CreateSessionCoreAsync finds the session the first caller just created/adopted. Guest
         // sessions take no lock - multiple concurrent guest sessions are expected.
+        var persistentImageId = await EnsureImageExistsAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(persistentImageId))
+        {
+            throw new InvalidOperationException($"Docker returned no immutable image ID for {ResolveImageName()}.");
+        }
+
         await _persistentStartLock.WaitAsync(cancellationToken);
         try
         {
-            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, persistentExpiresAtOverrideUtc, involuntaryRecreate, cancellationToken);
+            return await CreateSessionCoreAsync(
+                userId,
+                ipAddress,
+                userAgent,
+                sessionType,
+                isPersistent,
+                reuseExistingSession,
+                persistentExpiresAtOverrideUtc,
+                involuntaryRecreate,
+                cancellationToken,
+                resolvedImageId: persistentImageId);
         }
         finally
         {
@@ -380,8 +451,15 @@ public abstract partial class PrefillDaemonServiceBase
         CancellationToken cancellationToken,
         Action<bool>? persistentCreationResult = null,
         Action<string, string>? persistentContainerCreated = null,
-        GuestPrefillStart? guestStart = null)
+        GuestPrefillStart? guestStart = null,
+        PersistentImageChange? imageChange = null,
+        string? resolvedImageId = null)
     {
+        if (isPersistent && imageChange is null && !string.IsNullOrWhiteSpace(resolvedImageId))
+        {
+            await ReconcilePersistentImageUnderStartLockAsync(ResolveImageName(), resolvedImageId, cancellationToken);
+        }
+
         // Check if user already has an active session - return it instead of creating a new one.
         // This match is userId-keyed and only safe because every persistent create path derives userId
         // via DeriveSystemUserId (a single stable system-user id) and always passes
@@ -411,8 +489,11 @@ public abstract partial class PrefillDaemonServiceBase
             };
         }
 
-        // Always pull latest image before creating session
-        await EnsureImageExistsAsync(cancellationToken);
+        resolvedImageId ??= await EnsureImageExistsAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(resolvedImageId))
+        {
+            throw new InvalidOperationException($"Docker returned no immutable image ID for {ResolveImageName()}.");
+        }
 
         // Whether the fresh-login guard should preserve a FullPersistence volume login: true for a
         // caller-declared involuntary recreate (startup outage-recreate) OR an in-place error-state
@@ -443,6 +524,24 @@ public abstract partial class PrefillDaemonServiceBase
             // deterministic name is free.
             var decision = await ResolvePersistentContainerDecisionAsync(cancellationToken);
 
+            if (imageChange?.CreatedContainerId is { Length: > 0 } pendingContainerId)
+            {
+                var candidates = decision.ExtrasToRemove
+                    .Append(decision.Target)
+                    .Where(container => container is not null)
+                    .Cast<ContainerListResponse>()
+                    .ToArray();
+                if (candidates.Any(container => !string.Equals(container.ID, pendingContainerId, StringComparison.Ordinal)))
+                {
+                    throw new ConflictException(
+                        $"A different persistent {ServiceName} container appeared while an image update was pending.")
+                    {
+                        StageKey = "errors.prefill.sessionReplaced",
+                        Context = new() { ["sessionId"] = imageChange.Session.Id }
+                    };
+                }
+            }
+
             foreach (var extra in decision.ExtrasToRemove)
             {
                 _logger.LogInformation(
@@ -456,7 +555,7 @@ public abstract partial class PrefillDaemonServiceBase
                 var target = decision.Target!;
                 try
                 {
-                    await ReconnectPersistentSessionAsync(target, cancellationToken);
+                    await ReconnectPersistentSessionAsync(target, cancellationToken, imageChange);
                 }
                 catch (Exception ex)
                 {
@@ -548,7 +647,7 @@ public abstract partial class PrefillDaemonServiceBase
         // pre-create adopt-or-replace check above somehow missed a concurrent creator; guest/temporary
         // containers keep the unique sessionId-based name so many can run at once.
         var containerName = isPersistent ? $"{ContainerPrefix}persistent" : $"{ContainerPrefix}{sessionId}";
-        var imageName = GetImageName();
+        var imageName = ResolveImageName();
 
         // Get network configuration for prefill container
         // Auto-detect from lancache-dns container if not explicitly configured
@@ -741,7 +840,7 @@ public abstract partial class PrefillDaemonServiceBase
         var createParameters = new CreateContainerParameters
         {
             Name = containerName,
-            Image = imageName,
+            Image = resolvedImageId,
             Cmd = cmd,
             Env = env,
             HostConfig = hostConfig,
@@ -887,7 +986,11 @@ public abstract partial class PrefillDaemonServiceBase
             networkDiagnostics,
             isReconnect: false,
             involuntaryRecreate: involuntaryRecreate || involuntaryReplacement,
-            cancellationToken, guestStart);
+            cancellationToken,
+            guestStart,
+            imageChange,
+            configuredImage: imageName,
+            imageId: resolvedImageId);
 
         persistentCreationResult?.Invoke(isPersistent);
         return session;
@@ -942,7 +1045,10 @@ public abstract partial class PrefillDaemonServiceBase
         bool isReconnect,
         bool involuntaryRecreate,
         CancellationToken cancellationToken,
-        GuestPrefillStart? guestStart = null)
+        GuestPrefillStart? guestStart = null,
+        PersistentImageChange? imageChange = null,
+        string? configuredImage = null,
+        string? imageId = null)
     {
         // Parse user agent for OS and browser info
         var (os, browser) = UserAgentParser.Parse(userAgent);
@@ -954,6 +1060,8 @@ public abstract partial class PrefillDaemonServiceBase
             AuthState = InitialAuthState,
             ContainerId = containerId,
             ContainerName = containerName,
+            ConfiguredImage = configuredImage ?? ResolveImageName(),
+            ImageId = imageId ?? string.Empty,
             CommandsDir = commandsDir,
             ResponsesDir = responsesDir,
             CreatedAt = createdAtUtc,
@@ -969,6 +1077,15 @@ public abstract partial class PrefillDaemonServiceBase
             NetworkDiagnostics = networkDiagnostics,
             SocketPath = useTcpMode ? null : socketPath
         };
+        if (isReconnect && InitialAuthState != DaemonAuthState.Authenticated)
+        {
+            session.LoginSettled = false;
+        }
+        if (imageChange is not null)
+        {
+            session.NeedsRelogin = imageChange.NeedsRelogin;
+            session.PreserveLoginExpiry = true;
+        }
 
         // Create daemon client with service-specific HKDF info for credential encryption
         IDaemonClient daemonClient = CreateDaemonClient(useTcpMode, tcpHostPort, socketPath, socketSecret);
@@ -1118,7 +1235,12 @@ public abstract partial class PrefillDaemonServiceBase
         // BEFORE the session is registered/persisted/broadcast below, so nothing - a SignalR listener
         // reacting to EventSessionCreated, a status poll - can ever observe this session (and therefore
         // attempt a login against it) until any stale login has already been erased.
-        var volumeLoginPreserved = await ApplyFreshPersistentLoginGuardAsync(session, isPersistent, isReconnect, involuntaryRecreate);
+        var volumeLoginPreserved = await ApplyFreshPersistentLoginGuardAsync(
+            session,
+            isPersistent,
+            isReconnect,
+            involuntaryRecreate,
+            imageChange);
 
         // Creation gate: if shutdown began after this create started, do NOT register the session -
         // StopAsync's one-time _sessions snapshot has already passed, so registering here would let the
@@ -1450,11 +1572,24 @@ public abstract partial class PrefillDaemonServiceBase
     /// (there is a stored login on the volume worth issuing a login command for).
     /// </summary>
     internal async Task<bool> ApplyFreshPersistentLoginGuardAsync(
-        DaemonSession session, bool isPersistent, bool isReconnect, bool involuntaryRecreate = false)
+        DaemonSession session,
+        bool isPersistent,
+        bool isReconnect,
+        bool involuntaryRecreate = false,
+        PersistentImageChange? imageChange = null)
     {
         if (!isPersistent || isReconnect)
         {
             return false;
+        }
+
+        if (imageChange is not null)
+        {
+            _logger.LogInformation(
+                "Preserving the named-volume login for persistent {ServiceName} session {SessionId} during a planned image update",
+                ServiceName,
+                session.Id);
+            return imageChange.Authenticated;
         }
 
         if (await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate))

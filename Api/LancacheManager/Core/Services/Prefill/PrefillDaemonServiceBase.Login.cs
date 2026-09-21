@@ -57,6 +57,9 @@ public abstract partial class PrefillDaemonServiceBase
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
         try
         {
+            EnsureCurrentSession(session);
+            session.LoginSettled = false;
+
             // A cached challenge means an interactive login is mid-flow (paused/reopened modal);
             // never cancel it out from under the user.
             if (session.PendingLoginChallenge is not null)
@@ -152,6 +155,7 @@ public abstract partial class PrefillDaemonServiceBase
         if (cancelConfirmed)
         {
             session.AuthState = DaemonAuthState.NotAuthenticated;
+            session.LoginSettled = true;
             await NotifyAuthStateChangeAsync(session);
 
             if (result.Outcome == LoginAttemptOutcome.ChallengeIssued)
@@ -174,6 +178,7 @@ public abstract partial class PrefillDaemonServiceBase
             "Headless self-auth for persistent {ServiceName} session {SessionId} could not confirm daemon-side login cancellation; marking the session errored so the next start replaces the daemon cleanly",
             ServiceName, session.Id);
         session.Status = DaemonSessionStatus.Error;
+        session.LoginSettled = false;
         session.ErrorMessage = "Automatic sign-in could not be cancelled cleanly. Start the session again to recover.";
         try
         {
@@ -296,13 +301,18 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     protected void EnsureCurrentSession(DaemonSession session)
     {
-        if (!_sessions.TryGetValue(session.Id, out var current) || !ReferenceEquals(current, session))
+        lock (session.PrefillLock)
         {
-            throw new ConflictException($"Persistent session {session.Id} was replaced.")
+            if (!_sessions.TryGetValue(session.Id, out var current)
+                || !ReferenceEquals(current, session)
+                || session.AdmissionClosed)
             {
-                StageKey = "errors.prefill.sessionReplaced",
-                Context = new() { ["sessionId"] = session.Id }
-            };
+                throw new ConflictException($"Persistent session {session.Id} was replaced.")
+                {
+                    StageKey = "errors.prefill.sessionReplaced",
+                    Context = new() { ["sessionId"] = session.Id }
+                };
+            }
         }
     }
 
@@ -412,6 +422,9 @@ public abstract partial class PrefillDaemonServiceBase
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
         try
         {
+            EnsureCurrentSession(session);
+            session.PreserveLoginExpiry = false;
+            session.LoginSettled = false;
             RegisterLoginOperation(session);
 
             CredentialChallenge? challenge;
@@ -988,8 +1001,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     protected async Task<CredentialChallenge?> FailLoginFastAsync(DaemonSession session, string sessionId, string failureMessage)
     {
+        EnsureCurrentSession(session);
         session.LastLoginFailureMessage = failureMessage;
         session.AuthState = DaemonAuthState.NotAuthenticated;
+        session.LoginSettled = true;
         // A stale pending challenge must never be handed to a resume after the daemon has reported a
         // failure for this attempt.
         ClearPendingLoginChallenge(session);
@@ -1027,6 +1042,8 @@ public abstract partial class PrefillDaemonServiceBase
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        EnsureCurrentSession(session);
+
         // The caller is answering the session's current pending challenge - drop the cache here so
         // no concurrent resume/poll (GET /challenge, the reopen reconcile, a SignalR-down poll
         // fallback) can serve this now-consumed challenge as if it were still live. If the daemon
@@ -1047,6 +1064,7 @@ public abstract partial class PrefillDaemonServiceBase
         // If this is the username credential, capture it
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
         {
+            EnsureCurrentSession(session);
             session.AccountUsername = credential;
             session.Username = credential;
 
@@ -1080,6 +1098,8 @@ public abstract partial class PrefillDaemonServiceBase
         {
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
+
+        EnsureCurrentSession(session);
 
         // Serve a cached resume challenge immediately - no need to make the poller wait on the
         // daemon when we already know the answer.
@@ -1125,6 +1145,13 @@ public abstract partial class PrefillDaemonServiceBase
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        var client = session.Client;
+        lock (session.PrefillLock)
+        {
+            EnsureCurrentSession(session);
+            session.LoginSettled = false;
+        }
+
         _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
 
         // Clear the resume cache and any queued daemon-side challenge FIRST, before the (possibly
@@ -1148,13 +1175,28 @@ public abstract partial class PrefillDaemonServiceBase
             // racing a brand-new daemon login against the one that was never actually cancelled - the
             // exact duplicate-login race the resume cache exists to prevent - and surface the failure
             // to the caller instead of silently proceeding as if the cancel had succeeded.
-            session.PendingLoginChallenge = capturedPendingChallenge;
+            if (IsSessionLive(session)
+                && ReferenceEquals(session.Client, client)
+                && !session.AdmissionClosed)
+            {
+                session.PendingLoginChallenge = capturedPendingChallenge;
+            }
             _logger.LogWarning(ex, "Error sending cancel-login to daemon for session {SessionId}; login was not cancelled", sessionId);
             throw;
         }
 
         // Reset auth state to allow a new login attempt
+        EnsureCurrentSession(session);
+        if (!ReferenceEquals(session.Client, client))
+        {
+            throw new ConflictException($"Persistent session {session.Id} was replaced.")
+            {
+                StageKey = "errors.prefill.sessionReplaced",
+                Context = new() { ["sessionId"] = session.Id }
+            };
+        }
         session.AuthState = DaemonAuthState.NotAuthenticated;
+        session.LoginSettled = true;
         await NotifyAuthStateChangeAsync(session);
 
         _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
@@ -1193,6 +1235,13 @@ public abstract partial class PrefillDaemonServiceBase
             return new PersistentLogoutResult(false);
         }
 
+        var client = session.Client;
+        lock (session.PrefillLock)
+        {
+            EnsureCurrentSession(session);
+            session.LoginSettled = false;
+        }
+
         if (!session.Runs.IsEmpty)
         {
             lock (session.PrefillLock) session.AdmissionClosed = true;
@@ -1223,13 +1272,19 @@ public abstract partial class PrefillDaemonServiceBase
             _logger.LogInformation(ex,
                 "Daemon logout command failed for persistent session {SessionId}; caller should fall back to a stop+restart",
                 sessionId);
-            session.AdmissionClosed = false;
+            if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
+            {
+                session.AdmissionClosed = false;
+            }
             return new PersistentLogoutResult(false);
         }
 
         if (!outcome.Success)
         {
-            session.AdmissionClosed = false;
+            if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
+            {
+                session.AdmissionClosed = false;
+            }
             if (outcome.RequiresLogin)
             {
                 // Older daemon image's pre-login command gate rejected "logout" outright because this
@@ -1250,9 +1305,15 @@ public abstract partial class PrefillDaemonServiceBase
             return new PersistentLogoutResult(false);
         }
 
+        EnsureCurrentSession(session);
+        if (!ReferenceEquals(session.Client, client))
+        {
+            return new PersistentLogoutResult(false);
+        }
         session.AuthState = DaemonAuthState.NotAuthenticated;
         session.AdmissionClosed = false;
         session.NeedsRelogin = false;
+        session.LoginSettled = true;
         await NotifyAuthStateChangeAsync(session);
 
         _logger.LogInformation("Session {SessionId} logged out in place; daemon forgot its stored account", sessionId);

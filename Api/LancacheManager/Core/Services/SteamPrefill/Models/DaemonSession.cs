@@ -9,6 +9,8 @@ public class DaemonSession
     public DaemonStatus? Capabilities { get; set; }
     public bool Recovering { get; set; }
     public bool AdmissionClosed { get; set; }
+    public bool LoginSettled { get; set; } = true;
+    public bool PreserveLoginExpiry { get; set; }
     public SemaphoreSlim RecoveryWork { get; } = new(1, 1);
     public DateTime NextRecoveryAtUtc { get; set; }
     public DaemonRun? CurrentRun => Runs.Values.Where(run => run.TerminalCompletedFlag != 2)
@@ -18,6 +20,8 @@ public class DaemonSession
     public Guid UserId { get; init; }
     public string ContainerId { get; set; } = string.Empty;
     public string ContainerName { get; set; } = string.Empty;
+    public string ConfiguredImage { get; set; } = string.Empty;
+    public string ImageId { get; set; } = string.Empty;
     public string CommandsDir { get; init; } = string.Empty;
     public string ResponsesDir { get; init; } = string.Empty;
     public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;

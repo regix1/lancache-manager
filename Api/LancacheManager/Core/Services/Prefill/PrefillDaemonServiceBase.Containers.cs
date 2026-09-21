@@ -128,6 +128,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     private async Task ReadoptPersistentContainersAsync(CancellationToken cancellationToken)
     {
+        var startupImageId = _startupImageId;
         if (!_containerGateway.IsAvailable) return;
 
         try
@@ -165,7 +166,7 @@ public abstract partial class PrefillDaemonServiceBase
                     _logger.LogInformation(
                         "Startup re-adopt: no persistent {ServiceName} container exists but the last session ended involuntarily under FullPersistence; recreating from the saved volume login",
                         ServiceName);
-                    await RecreatePersistentContainerAsync(latestRow, targetToRemove: null, cancellationToken);
+                    await RecreatePersistentContainerAsync(latestRow, targetToRemove: null, startupImageId, cancellationToken);
                 }
                 return;
             }
@@ -204,7 +205,7 @@ public abstract partial class PrefillDaemonServiceBase
                     _logger.LogInformation(
                         "Startup re-adopt: persistent {ServiceName} container {Id} died while the manager was down; FullPersistence is enabled and the last session ended involuntarily, so removing it and recreating from the saved volume login",
                         ServiceName, ShortContainerId(decision.Target!.ID));
-                    await RecreatePersistentContainerAsync(latestRow, targetToRemove: decision.Target, cancellationToken);
+                    await RecreatePersistentContainerAsync(latestRow, targetToRemove: decision.Target, startupImageId, cancellationToken);
                     return;
 
                 case PersistentContainerAction.Adopt:
@@ -312,7 +313,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// row stays non-Terminated, so the next startup's retry arm attempts the recreate again.
     /// </summary>
     private async Task RecreatePersistentContainerAsync(
-        PrefillSession? latestRow, ContainerListResponse? targetToRemove, CancellationToken cancellationToken)
+        PrefillSession? latestRow,
+        ContainerListResponse? targetToRemove,
+        string? startupImageId,
+        CancellationToken cancellationToken)
     {
         var anchoredExpiresAt = ResolveRecreatedPersistentExpiry(
             latestRow?.ExpiresAtUtc, DateTime.UtcNow, _stateService.GetAdminPersistentLoginValidityDays());
@@ -329,12 +333,37 @@ public abstract partial class PrefillDaemonServiceBase
             // service's named auth volume so the recreated daemon self-authenticates.
             if (latestRow is not null)
                 await _sessionService.InterruptRunsAsync(latestRow.SessionId, "instance-changed", cancellationToken);
-            await CreateSessionAsync(
-                ScheduledPrefillConstants.DeriveSystemUserId(),
-                isPersistent: true,
-                persistentExpiresAtOverrideUtc: anchoredExpiresAt,
-                involuntaryRecreate: true,
-                cancellationToken: cancellationToken);
+            if (string.IsNullOrWhiteSpace(startupImageId))
+            {
+                await CreateSessionAsync(
+                    ScheduledPrefillConstants.DeriveSystemUserId(),
+                    isPersistent: true,
+                    persistentExpiresAtOverrideUtc: anchoredExpiresAt,
+                    involuntaryRecreate: true,
+                    cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await _persistentStartLock.WaitAsync(cancellationToken);
+                try
+                {
+                    await CreateSessionCoreAsync(
+                        ScheduledPrefillConstants.DeriveSystemUserId(),
+                        ipAddress: null,
+                        userAgent: null,
+                        SessionType.Admin,
+                        isPersistent: true,
+                        reuseExistingSession: true,
+                        persistentExpiresAtOverrideUtc: anchoredExpiresAt,
+                        involuntaryRecreate: true,
+                        cancellationToken,
+                        resolvedImageId: startupImageId);
+                }
+                finally
+                {
+                    _persistentStartLock.Release();
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -354,7 +383,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// command/response/socket paths from the session id, and delegates the connect+register to
     /// <see cref="ConnectAndRegisterSessionAsync"/> with <c>isReconnect:true</c>. Never creates a container.
     /// </summary>
-    private async Task ReconnectPersistentSessionAsync(ContainerListResponse container, CancellationToken cancellationToken)
+    private async Task ReconnectPersistentSessionAsync(
+        ContainerListResponse container,
+        CancellationToken cancellationToken,
+        PersistentImageChange? imageChange = null)
     {
         if (!_containerGateway.IsAvailable) return;
 
@@ -422,9 +454,9 @@ public abstract partial class PrefillDaemonServiceBase
         // from the admin-configured persistent login validity.
         var dbRecord = await _sessionService.GetSessionAsync(sessionId);
         var createdAtUtc = dbRecord?.CreatedAtUtc ?? DateTime.UtcNow;
-        var expiresAt = dbRecord != null && dbRecord.ExpiresAtUtc > DateTime.UtcNow
+        var expiresAt = imageChange?.ExpiresAt ?? (dbRecord != null && dbRecord.ExpiresAtUtc > DateTime.UtcNow
             ? dbRecord.ExpiresAtUtc
-            : DateTime.UtcNow.AddDays(_stateService.GetAdminPersistentLoginValidityDays());
+            : DateTime.UtcNow.AddDays(_stateService.GetAdminPersistentLoginValidityDays()));
 
         _logger.LogInformation(
             "Re-adopting persistent {ServiceName} session {SessionId} from running container {Id}",
@@ -448,9 +480,12 @@ public abstract partial class PrefillDaemonServiceBase
             ipAddress: null,
             userAgent: null,
             networkDiagnostics: null,
-            isReconnect: true,
+            isReconnect: imageChange is null,
             involuntaryRecreate: false,
-            cancellationToken);
+            cancellationToken,
+            imageChange: imageChange,
+            configuredImage: imageChange?.ConfiguredImage ?? ResolveImageName(),
+            imageId: inspect.Image);
     }
 
 
@@ -696,76 +731,6 @@ public abstract partial class PrefillDaemonServiceBase
     {
         // 32 bytes -> 64 hex chars, stable ASCII
         return Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-    }
-
-    private async Task EnsureImageExistsAsync(CancellationToken cancellationToken)
-    {
-        if (!_containerGateway.IsAvailable) return;
-
-        var imageName = GetImageName();
-        _logger.LogInformation("Pulling latest prefill daemon image: {ImageName}", imageName);
-
-        try
-        {
-            const int maxAttempts = 3;
-            for (var attempt = 1; ; attempt++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    await _containerGateway.CreateImageAsync(
-                        new ImagesCreateParameters
-                        {
-                            FromImage = imageName.Split(':')[0],
-                            Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
-                        },
-                        null,
-                        new Progress<JSONMessage>(msg =>
-                        {
-                            if (!string.IsNullOrEmpty(msg.Status)
-                                && (msg.Status.Contains("Pulling") || msg.Status.Contains("Downloaded") || msg.Status.Contains("up to date")))
-                            {
-                                _logger.LogInformation("Pull: {Status}", msg.Status);
-                            }
-                            if (!string.IsNullOrEmpty(msg.ErrorMessage))
-                            {
-                                _logger.LogError("Pull error: {Error}", msg.ErrorMessage);
-                            }
-                        }),
-                        cancellationToken);
-                    cancellationToken.ThrowIfCancellationRequested();
-                    break;
-                }
-                catch (Exception ex) when (attempt < maxAttempts && IsImagePullTransient(ex))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    _logger.LogWarning(ex,
-                        "Prefill image pull failed for {ImageName}; retrying in {DelaySeconds}s (attempt {Attempt}/{MaxAttempts})",
-                        imageName, attempt, attempt, maxAttempts);
-                    await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken);
-                }
-            }
-
-            var imageInfo = await _containerGateway.InspectImageAsync(imageName, cancellationToken);
-            _logger.LogInformation("Image ready: {ImageName} (ID: {ImageId})", imageName, imageInfo.ID[..12]);
-        }
-        catch (Exception ex)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            // Check if we have a local copy we can use
-            try
-            {
-                var imageInfo = await _containerGateway.InspectImageAsync(imageName, cancellationToken);
-                _logger.LogWarning(ex, "Failed to pull latest image, using cached version: {ImageId}", imageInfo.ID[..12]);
-            }
-            catch (DockerImageNotFoundException)
-            {
-                _logger.LogError(ex, "Failed to pull image {ImageName} and no cached version available. " +
-                    "The {ServiceName} Prefill feature requires this image.",
-                    imageName, ServiceName);
-                throw;
-            }
-        }
     }
 
     private static bool IsImagePullTransient(Exception exception) => exception switch

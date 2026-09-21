@@ -229,7 +229,7 @@ public abstract partial class PrefillDaemonServiceBase
             throw new DaemonCommandException("outcome-unknown");
         lock (session.PrefillLock)
         {
-            if (session.IsPrefilling || session.TerminalCompletedFlag == 1)
+            if (session.AdmissionClosed || session.IsPrefilling || session.TerminalCompletedFlag == 1)
                 throw new PrefillAlreadyRunningException($"A prefill is already in progress for session {sessionId}");
         }
 
@@ -249,6 +249,7 @@ public abstract partial class PrefillDaemonServiceBase
                 lock (session.PrefillLock)
                 {
                     if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active
+                        || session.AdmissionClosed
                         || session.CancellationTokenSource.IsCancellationRequested)
                         throw new DaemonCommandException();
                     if (session.IsPrefilling || session.TerminalCompletedFlag == 1)
@@ -278,9 +279,9 @@ public abstract partial class PrefillDaemonServiceBase
                     session.LastProgressBytes = 0;
                 }
                 await NotifyPrefillStartedAsync(session);
-                if (!IsSessionLive(session)) throw new DaemonCommandException();
+                if (!IsSessionLive(session) || session.AdmissionClosed) throw new DaemonCommandException();
                 await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
-                if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active)
+                if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active || session.AdmissionClosed)
                     throw new DaemonCommandException();
 
                 var dispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

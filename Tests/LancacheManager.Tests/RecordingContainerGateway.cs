@@ -15,14 +15,17 @@ internal sealed class FakeContainer
     public required string Id { get; init; }
     public required string Name { get; set; }
     public bool Running { get; set; }
+    public string ImageId { get; set; } = "sha256:testimageid0000";
     public Dictionary<string, string> Labels { get; init; } = new();
     public List<string> Env { get; init; } = new();
+    public HostConfig HostConfig { get; init; } = new();
 
     public ContainerListResponse ToListResponse() => new()
     {
         ID = Id,
         Names = new List<string> { Name.StartsWith('/') ? Name : "/" + Name },
         Image = "test-image",
+        ImageID = ImageId,
         State = Running ? "running" : "exited",
         Status = Running ? "Up 1 minute" : "Exited (0)",
         Labels = new Dictionary<string, string>(Labels)
@@ -31,11 +34,12 @@ internal sealed class FakeContainer
     public ContainerInspectResponse ToInspectResponse() => new()
     {
         ID = Id,
+        Image = ImageId,
         Name = Name.StartsWith('/') ? Name : "/" + Name,
         State = new ContainerState { Running = Running, Status = Running ? "running" : "exited", ExitCode = 0 },
         Config = new Config { Env = new List<string>(Env), Labels = new Dictionary<string, string>(Labels) },
-        HostConfig = new HostConfig(),
-        NetworkSettings = new NetworkSettings()
+        HostConfig = HostConfig,
+        NetworkSettings = new NetworkSettings { Ports = HostConfig.PortBindings }
     };
 }
 
@@ -50,6 +54,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     private readonly List<FakeContainer> _containers = new();
     private readonly object _sync = new();
     private Exception? _pendingCreateFailure;
+    private Exception? _pendingStartFailure;
     private Exception? _pendingRemoveFailure;
     private Exception? _pendingKillFailure;
     private Exception? _createdFailure;
@@ -66,13 +71,20 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     public bool Disposed { get; private set; }
     public Queue<Exception> ImagePullFailures { get; } = new();
     public bool ImageExists { get; set; } = true;
+    public string ResolvedImageId { get; set; } = "sha256:testimageid0000";
     public Action? OnImagePull { get; set; }
+    public Action? OnImageInspect { get; set; }
+    public bool HoldImageInspect { get; set; }
+    public TaskCompletionSource ImageInspectEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseImageInspect { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool HoldStartContainer { get; set; }
     public bool CompleteStartAfterCancellation { get; set; }
     public bool HoldCreateContainer { get; set; }
     public TaskCompletionSource CreateContainerEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseCreateContainer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public List<(string Id, ContainerRemoveParameters Parameters)> Removals { get; } = new();
+    public List<CreateContainerParameters> CreatedParameters { get; } = new();
+    public List<ImagesCreateParameters> ImagePulls { get; } = new();
     public TaskCompletionSource StartContainerEntered { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseStartContainer { get; } =
@@ -105,6 +117,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     /// <summary>Injects a failure on the next <see cref="CreateContainerAsync"/> call (cleared after it fires).</summary>
     public void FailNextCreateContainer(Exception failure) { lock (_sync) _pendingCreateFailure = failure; }
+    public void FailNextStartContainer(Exception failure) { lock (_sync) _pendingStartFailure = failure; }
     public void FailCreatedContainer(Exception failure) { lock (_sync) _createdFailure = failure; }
     public void FailNextKillContainer(Exception failure) { lock (_sync) _pendingKillFailure = failure; }
 
@@ -170,6 +183,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         lock (_sync)
         {
             Calls.Add($"Create:{parameters.Name}");
+            CreatedParameters.Add(parameters);
             if (_pendingCreateFailure != null)
             {
                 var rejected = _pendingCreateFailure;
@@ -182,8 +196,10 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
                 Id = id,
                 Name = parameters.Name ?? id,
                 Running = false,
+                ImageId = parameters.Image,
                 Labels = parameters.Labels != null ? new Dictionary<string, string>(parameters.Labels) : new(),
-                Env = parameters.Env != null ? new List<string>(parameters.Env) : new()
+                Env = parameters.Env != null ? new List<string>(parameters.Env) : new(),
+                HostConfig = parameters.HostConfig
             });
             failure = _createdFailure;
             _createdFailure = null;
@@ -202,6 +218,12 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         lock (_sync)
         {
             Calls.Add($"Start:{id}");
+            if (_pendingStartFailure is not null)
+            {
+                var failure = _pendingStartFailure;
+                _pendingStartFailure = null;
+                throw failure;
+            }
             if (!CompleteStartAfterCancellation)
             {
                 var container = _containers.FirstOrDefault(c => c.Id == id);
@@ -310,6 +332,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         lock (_sync)
         {
             Calls.Add("CreateImage");
+            ImagePulls.Add(parameters);
             ImagePullFailures.TryDequeue(out failure);
         }
         OnImagePull?.Invoke();
@@ -318,11 +341,22 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         return Task.CompletedTask;
     }
 
-    public Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken)
+    public async Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken)
     {
-        lock (_sync) Calls.Add($"InspectImage:{name}");
+        string imageId;
+        lock (_sync)
+        {
+            Calls.Add($"InspectImage:{name}");
+            imageId = ResolvedImageId;
+        }
         if (!ImageExists) throw new DockerImageNotFoundException(System.Net.HttpStatusCode.NotFound, "Image is not cached");
-        return Task.FromResult(new ImageInspectResponse { ID = "sha256:testimageid0000" });
+        ImageInspectEntered.TrySetResult();
+        if (HoldImageInspect)
+        {
+            await ReleaseImageInspect.Task.WaitAsync(cancellationToken);
+        }
+        OnImageInspect?.Invoke();
+        return new ImageInspectResponse { ID = imageId };
     }
 
     public Task<ContainerExecCreateResponse> ExecCreateContainerAsync(string id, ContainerExecCreateParameters parameters, CancellationToken cancellationToken)
@@ -370,14 +404,27 @@ internal sealed class UnavailableContainerGatewayFactory : IPrefillContainerGate
 /// </summary>
 internal sealed class FakeReconnectDaemonClient : IDaemonClient
 {
-    public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
-    public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
-    public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
-    public event Func<string, Task>? OnError { add { } remove { } }
     private Func<Task>? _disconnected;
+
+    public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
+    public event Func<DaemonStatus, Task>? OnStatusUpdate;
+    public event Func<SocketPrefillProgress, Task>? OnProgressUpdate;
+    public event Func<string, Task>? OnError;
     public event Func<Task>? OnDisconnected { add => _disconnected += value; remove => _disconnected -= value; }
 
     public Task DisconnectAsync() => _disconnected?.Invoke() ?? Task.CompletedTask;
+
+    public Task RaiseCredentialChallengeAsync(CredentialChallenge challenge)
+        => OnCredentialChallenge?.Invoke(challenge) ?? Task.CompletedTask;
+
+    public Task RaiseStatusAsync(DaemonStatus status)
+        => OnStatusUpdate?.Invoke(status) ?? Task.CompletedTask;
+
+    public Task RaiseProgressAsync(SocketPrefillProgress progress)
+        => OnProgressUpdate?.Invoke(progress) ?? Task.CompletedTask;
+
+    public Task RaiseErrorAsync(string message)
+        => OnError?.Invoke(message) ?? Task.CompletedTask;
 
     public bool Connected { get; private set; }
     public bool Disposed { get; private set; }
@@ -390,13 +437,17 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public Func<Action?, CancellationToken, Task<PrefillResult>>? DispatchHandler { get; set; }
     public Func<List<string>, CancellationToken, Task>? SelectionHandler { get; set; }
     public Func<CancellationToken, Task>? ShutdownHandler { get; set; }
+    public Func<CancellationToken, Task>? ConnectHandler { get; set; }
     public int PrefillCount { get; private set; }
     public int SelectionCount { get; private set; }
 
-    public Task ConnectAsync(CancellationToken cancellationToken = default)
+    public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
+        if (ConnectHandler is not null)
+        {
+            await ConnectHandler(cancellationToken);
+        }
         Connected = true;
-        return Task.CompletedTask;
     }
 
     // The reconnect flow reconciles once with live status; returning null leaves the conservative default.
@@ -497,6 +548,8 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
     public int GetStatusCallCount { get; private set; }
     public int LogoutCount { get; private set; }
     public bool Disposed { get; private set; }
+    public DaemonStatus? StatusOverride { get; set; }
+    public Func<CancellationToken, Task<DaemonStatus?>>? StatusHandler { get; set; }
 
     /// <summary>Whether the daemon acknowledges a cancel-login command (the outcome the service reads).</summary>
     public bool CancelAcknowledged { get; set; } = true;
@@ -561,15 +614,23 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
 
     public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         GetStatusCallCount++;
-        return Task.FromResult<DaemonStatus?>(new DaemonStatus
+        if (StatusHandler is not null)
+        {
+            return await StatusHandler(cancellationToken);
+        }
+        if (StatusOverride is not null)
+        {
+            return StatusOverride;
+        }
+        return new DaemonStatus
         {
             Type = "status",
             Status = _alreadyLoggedIn || _selfAuthenticated ? "logged-in" : "awaiting-login",
             Timestamp = DateTime.UtcNow
-        });
+        };
     }
 
     public async Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)

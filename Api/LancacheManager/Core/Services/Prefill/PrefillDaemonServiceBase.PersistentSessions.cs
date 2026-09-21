@@ -61,6 +61,12 @@ public abstract partial class PrefillDaemonServiceBase
             };
         }
 
+        var persistentImageId = await EnsureImageExistsAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(persistentImageId))
+        {
+            throw new InvalidOperationException($"Docker returned no immutable image ID for {ResolveImageName()}.");
+        }
+
         await _persistentStartLock.WaitAsync(cancellationToken);
         try
         {
@@ -89,7 +95,8 @@ public abstract partial class PrefillDaemonServiceBase
                     {
                         createdSessionId = sessionId;
                         createdContainerId = containerId;
-                    });
+                    },
+                    resolvedImageId: persistentImageId);
 
                 return (session, createdByEditSession);
             }
@@ -214,20 +221,21 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         var session = GetSession(sessionId);
-        if (session == null)
-        {
-            _logger.LogWarning("StopPersistentSessionAsync: session {SessionId} not found", sessionId);
-            return Task.CompletedTask;
-        }
-
-        if (!session.IsPersistent)
+        if (session is not null && !session.IsPersistent)
         {
             _logger.LogWarning(
                 "StopPersistentSessionAsync called for non-persistent session {SessionId}; its volume will be removed on teardown",
                 sessionId);
         }
 
-        return StopPersistentSessionCoreAsync(sessionId, terminatedBy);
+        var requestedChange = GetPendingImageChange();
+        if (requestedChange is not null
+            && !string.Equals(requestedChange.Session.Id, sessionId, StringComparison.Ordinal))
+        {
+            requestedChange = null;
+        }
+
+        return StopPersistentSessionCoreAsync(sessionId, terminatedBy, session, requestedChange);
     }
 
     /// <summary>
@@ -241,13 +249,41 @@ public abstract partial class PrefillDaemonServiceBase
     /// (this one and the persistent branch of <c>CreateSessionAsync</c>) do, so there is no reentrant
     /// self-deadlock.
     /// </summary>
-    private async Task StopPersistentSessionCoreAsync(string sessionId, string? terminatedBy)
+    private async Task StopPersistentSessionCoreAsync(
+        string sessionId,
+        string? terminatedBy,
+        DaemonSession? requestedSession,
+        PersistentImageChange? requestedChange)
     {
         await _persistentStartLock.WaitAsync();
         try
         {
+            if (GetPendingImageChange() is { } pending
+                && string.Equals(pending.Session.Id, sessionId, StringComparison.Ordinal))
+            {
+                await CancelPendingImageChangeAsync(
+                    pending,
+                    terminatedBy,
+                    CancellationToken.None);
+                return;
+            }
+
+            var session = GetSession(sessionId);
+            if (session is null
+                && ((requestedSession is { IsPersistent: true } && !IsSessionLive(requestedSession))
+                    || requestedChange is not null))
+            {
+                session = GetActivePersistentSession();
+            }
+
+            if (session is null)
+            {
+                _logger.LogWarning("StopPersistentSessionAsync: session {SessionId} not found", sessionId);
+                return;
+            }
+
             // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so the daemon's auth survives.
-            await TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
+            await TerminateSessionAsync(session.Id, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
         }
         finally
         {

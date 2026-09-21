@@ -7,6 +7,7 @@ internal sealed class SessionTermination
     public required DaemonSession Session { get; init; }
     public required string Reason { get; init; }
     public string? TerminatedBy { get; init; }
+    public PersistentImageChange? ImageChange { get; init; }
     public Task? Work { get; set; }
     public Task? Removal { get; set; }
     public bool Removed { get; set; }

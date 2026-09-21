@@ -834,6 +834,7 @@ builder.Services.AddDatabaseBackedHostedService<ScheduledPrefillService>(databas
 // prefill daemon platforms, replacing 5 independent per-daemon Timers. Hardcoded 1-minute cadence
 // (infra polling, not user-facing), not on the Schedules page (matches the prior mechanism).
 builder.Services.AddDatabaseBackedHostedService<PersistentSessionExpiryService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<PersistentContainerImageService>(databaseAvailable);
 
 // Register OperationStateService
 builder.Services.AddSingletonHostedService<OperationStateService>();

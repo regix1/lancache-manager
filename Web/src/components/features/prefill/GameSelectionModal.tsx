@@ -451,335 +451,349 @@ export function GameSelectionModal({
       size="2xl"
       bodyFlexLayout
     >
-      <div className="flex h-[calc(100dvh-8rem)] min-h-[34rem] max-h-[calc(100dvh-8rem)] sm:max-h-[40rem] flex-col">
-        {/* Search and actions */}
-        {error && <Alert color="red">{error}</Alert>}
-        {unknownAppIds.length > 0 && (
-          <Alert color="yellow">{t('prefill.gameSelection.cacheStatusUnknown')}</Alert>
-        )}
-        <div className="game-selection-modal__search">
-          <SearchInput
-            ref={searchInputRef}
-            placeholder={t('prefill.placeholders.searchGames')}
-            value={search}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            onClear={clearSearch}
-          />
-          <div className="game-selection-modal__toolbar">
-            {canImportAppIds && (
-              <Button
-                variant="filled"
-                color={showImport ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setShowImport(!showImport)}
-                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
-              >
-                <Import className="h-4 w-4" />
-                {t('prefill.gameSelection.importAppIds')}
-              </Button>
-            )}
-            {cachedCount > 0 && (
-              <Button
-                variant="filled"
-                color={hideCached ? 'secondary' : 'primary'}
-                size="sm"
-                onClick={() => setHideCached(!hideCached)}
-                aria-pressed={!hideCached}
-                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
-              >
-                {t('prefill.gameSelection.showCached')}
-              </Button>
-            )}
-            {cachedCount > 0 && onClearAllCache && (
-              <Button
-                variant="filled"
-                color="secondary"
-                size="sm"
-                onClick={() => setClearCacheConfirmOpen(true)}
-                loading={isClearingAllCache}
-                disabled={isClearingAllCache}
-                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
-              >
-                {t('prefill.gameSelection.clearAllCached')}
-              </Button>
-            )}
-            {onRescan && (
-              <Button
-                variant="filled"
-                color="run"
-                size="sm"
-                onClick={onRescan}
-                disabled={isLoading}
-                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
-              >
-                {t('prefill.gameSelection.rescan')}
-              </Button>
-            )}
-            <Button
-              variant="filled"
-              color="secondary"
-              size="sm"
-              onClick={selectAll}
-              className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
-            >
-              {t('common.selectAll')}
-            </Button>
-            <Button
-              variant="filled"
-              color="secondary"
-              size="sm"
-              onClick={selectNone}
-              className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
-            >
-              {t('common.clear')}
-            </Button>
-          </div>
-        </div>
-
-        {/* Import Section - Expandable */}
-        <CollapsibleRegion open={canImportAppIds && showImport}>
-          <div className="mb-2 p-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-dashed border-[var(--theme-primary)]">
-            <p className="text-xs mb-1 text-[var(--theme-text-muted)]">
-              {t('prefill.gameSelection.importHelp')}
-            </p>
-            <textarea
-              {...noAutofill}
-              value={importText}
-              onChange={(e) => {
-                setImportText(e.target.value);
-                setImportResult(null);
-              }}
-              placeholder={t('prefill.placeholders.bulkInput')}
-              className="themed-input w-full px-3 py-2 text-sm resize-none transition-[border-color] duration-150 ease-out min-h-[52px]"
+      <div className="game-selection-modal">
+        <CustomScrollbar
+          maxHeight="none"
+          className="game-selection-modal__content"
+          paddingMode="none"
+          radius="none"
+          variant="float"
+        >
+          {/* Search and actions */}
+          {error && (
+            <Alert color="red" className="game-selection-modal__alert">
+              {error}
+            </Alert>
+          )}
+          {unknownAppIds.length > 0 && (
+            <Alert color="yellow" className="game-selection-modal__alert">
+              {t('prefill.gameSelection.cacheStatusUnknown')}
+            </Alert>
+          )}
+          <div className="game-selection-modal__search">
+            <SearchInput
+              ref={searchInputRef}
+              placeholder={t('prefill.placeholders.searchGames')}
+              value={search}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+              onClear={clearSearch}
             />
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-1">
+            <div className="game-selection-modal__toolbar">
+              {canImportAppIds && (
+                <Button
+                  variant="filled"
+                  color={showImport ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => setShowImport(!showImport)}
+                  className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
+                >
+                  <Import className="h-4 w-4" />
+                  {t('prefill.gameSelection.importAppIds')}
+                </Button>
+              )}
+              {cachedCount > 0 && (
+                <Button
+                  variant="filled"
+                  color={hideCached ? 'secondary' : 'primary'}
+                  size="sm"
+                  onClick={() => setHideCached(!hideCached)}
+                  aria-pressed={!hideCached}
+                  className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
+                >
+                  {t('prefill.gameSelection.showCached')}
+                </Button>
+              )}
+              {cachedCount > 0 && onClearAllCache && (
+                <Button
+                  variant="filled"
+                  color="secondary"
+                  size="sm"
+                  onClick={() => setClearCacheConfirmOpen(true)}
+                  loading={isClearingAllCache}
+                  disabled={isClearingAllCache}
+                  className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
+                >
+                  {t('prefill.gameSelection.clearAllCached')}
+                </Button>
+              )}
+              {onRescan && (
+                <Button
+                  variant="filled"
+                  color="run"
+                  size="sm"
+                  onClick={onRescan}
+                  disabled={isLoading}
+                  className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
+                >
+                  {t('prefill.gameSelection.rescan')}
+                </Button>
+              )}
               <Button
                 variant="filled"
-                color="run"
+                color="secondary"
                 size="sm"
-                onClick={handleImport}
-                disabled={!importText.trim()}
+                onClick={selectAll}
+                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
               >
-                <Import className="h-3.5 w-3.5" />
-                {t('prefill.gameSelection.import')}
+                {t('common.selectAll')}
               </Button>
               <Button
                 variant="filled"
                 color="secondary"
                 size="sm"
-                onClick={() => {
-                  setShowImport(false);
-                  setImportText('');
+                onClick={selectNone}
+                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
+              >
+                {t('common.clear')}
+              </Button>
+            </div>
+          </div>
+
+          {/* Import Section - Expandable */}
+          <CollapsibleRegion open={canImportAppIds && showImport}>
+            <div className="mb-2 p-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-dashed border-[var(--theme-primary)]">
+              <p className="text-xs mb-1 text-[var(--theme-text-muted)]">
+                {t('prefill.gameSelection.importHelp')}
+              </p>
+              <textarea
+                {...noAutofill}
+                value={importText}
+                onChange={(e) => {
+                  setImportText(e.target.value);
                   setImportResult(null);
                 }}
-              >
-                {t('common.cancel')}
-              </Button>
-              {importResult && (
-                <span className="text-xs sm:ml-auto text-[var(--theme-text-muted)]">
-                  {importResult.added > 0 && (
-                    <span className="text-[var(--theme-success)]">
-                      {t('prefill.gameSelection.importAdded', { count: importResult.added })}
-                    </span>
-                  )}
-                  {importResult.alreadySelected > 0 && (
-                    <span>
-                      {importResult.added > 0 ? ', ' : ''}
-                      {t('prefill.gameSelection.importAlreadySelected', {
-                        count: importResult.alreadySelected
-                      })}
-                    </span>
-                  )}
-                  {importResult.notInLibrary.length > 0 && (
-                    <span className="text-[var(--theme-warning)]">
-                      {importResult.added > 0 || importResult.alreadySelected > 0 ? ', ' : ''}
-                      {t('prefill.gameSelection.importNotInLibrary', {
-                        count: importResult.notInLibrary.length
-                      })}
-                    </span>
-                  )}
-                  {importResult.added === 0 &&
-                    importResult.alreadySelected === 0 &&
-                    importResult.notInLibrary.length === 0 && (
-                      <span className="text-[var(--theme-error)]">
-                        {t('prefill.gameSelection.noValidAppIds')}
+                placeholder={t('prefill.placeholders.bulkInput')}
+                className="themed-input w-full px-3 py-2 text-sm resize-none transition-[border-color] duration-150 ease-out min-h-[52px]"
+              />
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-1">
+                <Button
+                  variant="filled"
+                  color="run"
+                  size="sm"
+                  onClick={handleImport}
+                  disabled={!importText.trim()}
+                >
+                  <Import className="h-3.5 w-3.5" />
+                  {t('prefill.gameSelection.import')}
+                </Button>
+                <Button
+                  variant="filled"
+                  color="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setShowImport(false);
+                    setImportText('');
+                    setImportResult(null);
+                  }}
+                >
+                  {t('common.cancel')}
+                </Button>
+                {importResult && (
+                  <span className="text-xs sm:ml-auto text-[var(--theme-text-muted)]">
+                    {importResult.added > 0 && (
+                      <span className="text-[var(--theme-success)]">
+                        {t('prefill.gameSelection.importAdded', { count: importResult.added })}
                       </span>
                     )}
-                </span>
-              )}
-            </div>
-          </div>
-        </CollapsibleRegion>
-
-        {/* Library/filter facts only. The selected count lives once, in the Selected section
-            header below, so it is not repeated here. */}
-        <div className="text-sm mb-3 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
-          {isUsingCache && (
-            <span className="inline-flex items-center gap-1 text-xs">
-              <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
-              {t('prefill.gameSelection.usingCached')}
-            </span>
-          )}
-          {shownGamesCount !== games.length ? (
-            <span className="tabular-nums">
-              {t('prefill.gameSelection.showingOfTotal', {
-                count: shownGamesCount,
-                total: games.length
-              })}
-            </span>
-          ) : (
-            <span className="tabular-nums">
-              {t('prefill.gameSelection.libraryTotal', { count: games.length })}
-            </span>
-          )}
-        </div>
-
-        {/* Game list */}
-        <div
-          ref={gameListRef}
-          className="game-selection-modal__list relative min-h-40 sm:min-h-[15rem] flex-1 overflow-hidden"
-        >
-          {isLoading && games.length === 0 ? (
-            <div
-              className="game-selection-modal__loading p-3 space-y-2 rounded-lg border border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]"
-              aria-busy="true"
-            >
-              {[0, 1, 2, 3, 4].map((row) => (
-                <div key={row} className="flex items-center gap-3 px-4 py-3">
-                  <div className="flex-shrink-0 w-5 h-5 rounded skeleton-shimmer" />
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="skeleton-shimmer h-4 rounded w-2/5" />
-                    <div className="skeleton-shimmer h-3 rounded w-1/5" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : games.length === 0 || shownGamesCount === 0 ? (
-            <div className="game-selection-modal__whole-empty">
-              <EmptyState
-                variant="panel"
-                icon={Gamepad2}
-                title={emptyState.title}
-                subtitle={emptyState.subtitle}
-              />
-            </div>
-          ) : (
-            <CustomScrollbar
-              maxHeight="100%"
-              className="game-selection-modal__panes-scroll"
-              paddingMode="none"
-              radius="none"
-              variant="float"
-            >
-              <div className="game-selection-modal__panes">
-                <section
-                  className="game-selection-modal__pane"
-                  aria-label={t('prefill.gameSelection.cachedBadge')}
-                >
-                  <div className="game-selection-modal__pane-header">
-                    <h3>{t('prefill.gameSelection.cachedBadge')}</h3>
-                    <Badge variant="neutral" className="badge-count">
-                      {cachedGames.length}
-                    </Badge>
-                  </div>
-                  <CustomScrollbar
-                    maxHeight="100%"
-                    className="game-selection-modal__pane-scroll"
-                    paddingMode="compact"
-                    radius="none"
-                    variant="float"
-                  >
-                    {cachedGames.length > 0 ? (
-                      <div className="game-selection-modal__rows">
-                        {cachedGames.map((game) => renderGameRow(game, false))}
-                      </div>
-                    ) : (
-                      <p className="game-selection-modal__pane-empty">
-                        {t(
-                          hideCached
-                            ? 'prefill.gameSelection.cachedGamesHidden'
-                            : 'prefill.gameSelection.noCachedGames'
-                        )}
-                      </p>
-                    )}
-                  </CustomScrollbar>
-                </section>
-
-                <section
-                  className="game-selection-modal__pane"
-                  aria-label={t('prefill.gameSelection.games')}
-                >
-                  <div className="game-selection-modal__pane-header">
-                    <h3>{t('prefill.gameSelection.games')}</h3>
-                    <Badge variant="neutral" className="badge-count">
-                      {availableGames.length}
-                    </Badge>
-                  </div>
-                  <CustomScrollbar
-                    maxHeight="100%"
-                    className="game-selection-modal__pane-scroll"
-                    paddingMode="compact"
-                    radius="none"
-                    variant="float"
-                  >
-                    {availableGames.length > 0 ? (
-                      <div className="game-selection-modal__rows">
-                        {availableGames.map((game) => renderGameRow(game, false))}
-                      </div>
-                    ) : (
-                      <p className="game-selection-modal__pane-empty">
-                        {t('prefill.gameSelection.noGamesAvailable')}
-                      </p>
-                    )}
-                  </CustomScrollbar>
-                </section>
-
-                <section
-                  className="game-selection-modal__pane"
-                  aria-label={t('prefill.gameSelection.selected')}
-                >
-                  <div className="game-selection-modal__pane-header game-selection-modal__pane-header--selected">
-                    <h3>{t('prefill.gameSelection.selected')}</h3>
-                    <Badge variant="neutral" className="badge-count">
-                      {selectedInLibrary.length}
-                    </Badge>
-                    {cachedSelectedCount > 0 && (
-                      <span className="game-selection-modal__selected-summary">
-                        {t('prefill.gameSelection.willDownload', {
-                          count: selectedInLibrary.length - cachedSelectedCount
-                        })}{' '}
-                        ·{' '}
-                        {t('prefill.gameSelection.alreadyCachedCount', {
-                          count: cachedSelectedCount
+                    {importResult.alreadySelected > 0 && (
+                      <span>
+                        {importResult.added > 0 ? ', ' : ''}
+                        {t('prefill.gameSelection.importAlreadySelected', {
+                          count: importResult.alreadySelected
                         })}
                       </span>
                     )}
-                  </div>
-                  <CustomScrollbar
-                    maxHeight="100%"
-                    className="game-selection-modal__pane-scroll"
-                    paddingMode="compact"
-                    radius="none"
-                    variant="float"
-                  >
-                    {selectedGames.length > 0 ? (
-                      <div className="game-selection-modal__rows">
-                        {selectedGames.map((game) => renderGameRow(game, true))}
-                      </div>
-                    ) : (
-                      <p className="game-selection-modal__pane-empty">
-                        {t('prefill.gameSelection.noSelectedGames')}
-                      </p>
+                    {importResult.notInLibrary.length > 0 && (
+                      <span className="text-[var(--theme-warning)]">
+                        {importResult.added > 0 || importResult.alreadySelected > 0 ? ', ' : ''}
+                        {t('prefill.gameSelection.importNotInLibrary', {
+                          count: importResult.notInLibrary.length
+                        })}
+                      </span>
                     )}
-                  </CustomScrollbar>
-                </section>
+                    {importResult.added === 0 &&
+                      importResult.alreadySelected === 0 &&
+                      importResult.notInLibrary.length === 0 && (
+                        <span className="text-[var(--theme-error)]">
+                          {t('prefill.gameSelection.noValidAppIds')}
+                        </span>
+                      )}
+                  </span>
+                )}
               </div>
-            </CustomScrollbar>
-          )}
-        </div>
+            </div>
+          </CollapsibleRegion>
+
+          {/* Library/filter facts only. The selected count lives once, in the Selected section
+            header below, so it is not repeated here. */}
+          <div className="text-sm mb-3 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
+            {isUsingCache && (
+              <span className="inline-flex items-center gap-1 text-xs">
+                <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
+                {t('prefill.gameSelection.usingCached')}
+              </span>
+            )}
+            {shownGamesCount !== games.length ? (
+              <span className="tabular-nums">
+                {t('prefill.gameSelection.showingOfTotal', {
+                  count: shownGamesCount,
+                  total: games.length
+                })}
+              </span>
+            ) : (
+              <span className="tabular-nums">
+                {t('prefill.gameSelection.libraryTotal', { count: games.length })}
+              </span>
+            )}
+          </div>
+
+          {/* Game list */}
+          <div
+            ref={gameListRef}
+            className="game-selection-modal__list relative min-h-40 sm:min-h-[15rem] flex-1 overflow-hidden"
+          >
+            {isLoading && games.length === 0 ? (
+              <div
+                className="game-selection-modal__loading p-3 space-y-2 rounded-lg border border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]"
+                aria-busy="true"
+              >
+                {[0, 1, 2, 3, 4].map((row) => (
+                  <div key={row} className="flex items-center gap-3 px-4 py-3">
+                    <div className="flex-shrink-0 w-5 h-5 rounded skeleton-shimmer" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="skeleton-shimmer h-4 rounded w-2/5" />
+                      <div className="skeleton-shimmer h-3 rounded w-1/5" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : games.length === 0 || shownGamesCount === 0 ? (
+              <div className="game-selection-modal__whole-empty">
+                <EmptyState
+                  variant="panel"
+                  icon={Gamepad2}
+                  title={emptyState.title}
+                  subtitle={emptyState.subtitle}
+                />
+              </div>
+            ) : (
+              <CustomScrollbar
+                maxHeight="100%"
+                className="game-selection-modal__panes-scroll"
+                paddingMode="none"
+                radius="none"
+                variant="float"
+              >
+                <div className="game-selection-modal__panes">
+                  <section
+                    className="game-selection-modal__pane"
+                    aria-label={t('prefill.gameSelection.cachedBadge')}
+                  >
+                    <div className="game-selection-modal__pane-header">
+                      <h3>{t('prefill.gameSelection.cachedBadge')}</h3>
+                      <Badge variant="neutral" className="badge-count">
+                        {cachedGames.length}
+                      </Badge>
+                    </div>
+                    <CustomScrollbar
+                      maxHeight="100%"
+                      className="game-selection-modal__pane-scroll"
+                      paddingMode="compact"
+                      radius="none"
+                      variant="float"
+                    >
+                      {cachedGames.length > 0 ? (
+                        <div className="game-selection-modal__rows">
+                          {cachedGames.map((game) => renderGameRow(game, false))}
+                        </div>
+                      ) : (
+                        <p className="game-selection-modal__pane-empty">
+                          {t(
+                            hideCached
+                              ? 'prefill.gameSelection.cachedGamesHidden'
+                              : 'prefill.gameSelection.noCachedGames'
+                          )}
+                        </p>
+                      )}
+                    </CustomScrollbar>
+                  </section>
+
+                  <section
+                    className="game-selection-modal__pane"
+                    aria-label={t('prefill.gameSelection.games')}
+                  >
+                    <div className="game-selection-modal__pane-header">
+                      <h3>{t('prefill.gameSelection.games')}</h3>
+                      <Badge variant="neutral" className="badge-count">
+                        {availableGames.length}
+                      </Badge>
+                    </div>
+                    <CustomScrollbar
+                      maxHeight="100%"
+                      className="game-selection-modal__pane-scroll"
+                      paddingMode="compact"
+                      radius="none"
+                      variant="float"
+                    >
+                      {availableGames.length > 0 ? (
+                        <div className="game-selection-modal__rows">
+                          {availableGames.map((game) => renderGameRow(game, false))}
+                        </div>
+                      ) : (
+                        <p className="game-selection-modal__pane-empty">
+                          {t('prefill.gameSelection.noGamesAvailable')}
+                        </p>
+                      )}
+                    </CustomScrollbar>
+                  </section>
+
+                  <section
+                    className="game-selection-modal__pane"
+                    aria-label={t('prefill.gameSelection.selected')}
+                  >
+                    <div className="game-selection-modal__pane-header game-selection-modal__pane-header--selected">
+                      <h3>{t('prefill.gameSelection.selected')}</h3>
+                      <Badge variant="neutral" className="badge-count">
+                        {selectedInLibrary.length}
+                      </Badge>
+                      {cachedSelectedCount > 0 && (
+                        <span className="game-selection-modal__selected-summary">
+                          {t('prefill.gameSelection.willDownload', {
+                            count: selectedInLibrary.length - cachedSelectedCount
+                          })}{' '}
+                          ·{' '}
+                          {t('prefill.gameSelection.alreadyCachedCount', {
+                            count: cachedSelectedCount
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <CustomScrollbar
+                      maxHeight="100%"
+                      className="game-selection-modal__pane-scroll"
+                      paddingMode="compact"
+                      radius="none"
+                      variant="float"
+                    >
+                      {selectedGames.length > 0 ? (
+                        <div className="game-selection-modal__rows">
+                          {selectedGames.map((game) => renderGameRow(game, true))}
+                        </div>
+                      ) : (
+                        <p className="game-selection-modal__pane-empty">
+                          {t('prefill.gameSelection.noSelectedGames')}
+                        </p>
+                      )}
+                    </CustomScrollbar>
+                  </section>
+                </div>
+              </CustomScrollbar>
+            )}
+          </div>
+        </CustomScrollbar>
 
         {/* Actions */}
-        <div className="flex flex-row justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
+        <div className="game-selection-modal__actions flex flex-row justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
           <Button
             variant="filled"
             color="secondary"

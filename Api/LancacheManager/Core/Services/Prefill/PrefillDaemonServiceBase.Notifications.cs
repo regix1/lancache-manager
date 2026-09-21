@@ -29,13 +29,23 @@ public abstract partial class PrefillDaemonServiceBase
             // Ignore any challenge whose session is no longer the live, Active session under its id.
             if (!_sessions.TryGetValue(session.Id, out var liveSession)
                 || !ReferenceEquals(liveSession, session)
-                || session.Status != DaemonSessionStatus.Active)
+                || session.Status != DaemonSessionStatus.Active
+                || session.AdmissionClosed)
             {
                 _logger.LogWarning(
                     "Ignoring credential challenge {ChallengeId} ({CredentialType}) for session {SessionId}: " +
                     "session is no longer the active live session (status {Status})",
                     challenge.ChallengeId, challenge.CredentialType, session.Id, session.Status);
                 return;
+            }
+
+            lock (session.PrefillLock)
+            {
+                if (!IsSessionLive(session) || session.AdmissionClosed)
+                {
+                    return;
+                }
+                session.LoginSettled = false;
             }
 
             // A headless manager-initiated login currently owns this session's login flow (it holds
@@ -119,23 +129,44 @@ public abstract partial class PrefillDaemonServiceBase
             // the live registered instance for its id. Re-checked after each await below so a callback that
             // escaped the bounded teardown drain (took longer than the timeout) cannot resurrect teardown
             // state (mirrors the OnCredentialChallengeAsync guard above).
-            if (!IsSessionLive(session))
+            if (!IsSessionLive(session) || session.AdmissionClosed)
             {
                 return;
             }
 
-            var previousAuthState = session.AuthState;
-
-            // Update auth state based on status
-            var newAuthState = status.Status switch
+            DaemonAuthState previousAuthState;
+            DaemonAuthState newAuthState;
+            lock (session.PrefillLock)
             {
-                "awaiting-login" => DaemonAuthState.NotAuthenticated,
-                "not-logged-in" when status.SupportsConcurrentPrefill && Platform.RequiresLogin() => DaemonAuthState.NotAuthenticated,
-                "logged-in" => DaemonAuthState.Authenticated,
-                _ => session.AuthState
-            };
+                if (!IsSessionLive(session) || session.AdmissionClosed)
+                {
+                    return;
+                }
 
-            session.AuthState = newAuthState;
+                previousAuthState = session.AuthState;
+                newAuthState = status.Status switch
+                {
+                    "awaiting-login" => DaemonAuthState.NotAuthenticated,
+                    "not-logged-in" when status.SupportsConcurrentPrefill && Platform.RequiresLogin() => DaemonAuthState.NotAuthenticated,
+                    "logged-in" => DaemonAuthState.Authenticated,
+                    _ => session.AuthState
+                };
+
+                session.AuthState = newAuthState;
+                if (newAuthState == DaemonAuthState.Authenticated
+                    && session.LoginOperationId is null
+                    && !session.SuppressLoginChallengePublication)
+                {
+                    session.LoginSettled = true;
+                }
+                else if (newAuthState == DaemonAuthState.NotAuthenticated
+                    && session.LoginOperationId is null
+                    && session.PendingLoginChallenge is null
+                    && !session.SuppressLoginChallengePublication)
+                {
+                    session.LoginSettled = true;
+                }
+            }
 
             // Capture the resolved account display name from either ingest field (GetStatus
             // AccountDisplayName or AuthState DisplayName). No platform string gate: any authenticated
@@ -366,6 +397,11 @@ public abstract partial class PrefillDaemonServiceBase
 
     protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
+        if (!IsSessionLive(session) || session.AdmissionClosed)
+        {
+            return;
+        }
+
         var authState = session.AuthState;
         // Every ending of a login comes through here - the daemon's own success broadcast, a fail-fast,
         // the user cancelling, a logout, a login command that never reached the daemon, and the headless
@@ -384,7 +420,10 @@ public abstract partial class PrefillDaemonServiceBase
         // that challenge is stale and must never be served to a later resume.
         if (session.AuthState == DaemonAuthState.Authenticated)
         {
-            session.NeedsRelogin = false;
+            if (!session.PreserveLoginExpiry)
+            {
+                session.NeedsRelogin = false;
+            }
             ClearPendingLoginChallenge(session);
         }
 
