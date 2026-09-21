@@ -38,6 +38,7 @@ public abstract class DaemonClientBase : IDaemonClient
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly object _transportSync = new();
     private readonly DaemonClientConnectionLifecycle _connectionLifecycle = new();
+    internal TimeProvider CacheStatusClock { get; set; } = TimeProvider.System;
 
     // Tracks fire-and-forget ProcessEventAsync tasks so teardown can drain in-flight event callbacks
     // before disposal (see DaemonEventDrainTracker / DrainEventsAsync).
@@ -596,8 +597,22 @@ public abstract class DaemonClientBase : IDaemonClient
         TimeSpan? timeout,
         CancellationToken cancellationToken,
         Action? onCommandDispatched = null,
-        string? commandId = null, long? expectedGeneration = null)
+        string? commandId = null,
+        long? expectedGeneration = null,
+        DateTimeOffset? expiresAtUtc = null)
     {
+        var remaining = expiresAtUtc.HasValue
+            ? expiresAtUtc.Value - CacheStatusClock.GetUtcNow()
+            : Timeout.InfiniteTimeSpan;
+        if (expiresAtUtc.HasValue && remaining <= TimeSpan.Zero)
+            throw new OperationCanceledException("The cache-status deadline has been reached.");
+        using var deadline = expiresAtUtc.HasValue
+            ? new CancellationTokenSource(remaining, CacheStatusClock)
+            : null;
+        using var operation = deadline is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        var operationToken = operation?.Token ?? cancellationToken;
         var command = new CommandRequest
         {
             Id = commandId ?? Guid.NewGuid().ToString(),
@@ -621,7 +636,7 @@ public abstract class DaemonClientBase : IDaemonClient
             var json = JsonSerializer.Serialize(command, _jsonOptions);
             var bytes = Encoding.UTF8.GetBytes(json);
 
-            await _sendLock.WaitAsync(cancellationToken);
+            await _sendLock.WaitAsync(operationToken);
             try
             {
                 NetworkStream stream;
@@ -636,10 +651,10 @@ public abstract class DaemonClientBase : IDaemonClient
                 }
 
                 // Send length prefix (4 bytes, little-endian)
-                await stream.WriteAsync(BitConverter.GetBytes(bytes.Length), cancellationToken);
+                await stream.WriteAsync(BitConverter.GetBytes(bytes.Length), operationToken);
                 // Send message body
-                await stream.WriteAsync(bytes, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
+                await stream.WriteAsync(bytes, operationToken);
+                await stream.FlushAsync(operationToken);
                 onCommandDispatched?.Invoke();
 
                 _logger?.LogDebug("Sent command: {Type} ({Id})", type, command.Id);
@@ -649,11 +664,15 @@ public abstract class DaemonClientBase : IDaemonClient
                 _sendLock.Release();
             }
 
-            // Wait for response with timeout
-            using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            using var reg = linkedCts.Token.Register(
-                () => pending.Completion.TrySetCanceled(linkedCts.Token));
+            using var timeoutCts = expiresAtUtc.HasValue
+                ? null
+                : new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
+            using var response = timeoutCts is null
+                ? null
+                : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            var responseToken = response?.Token ?? operationToken;
+            using var reg = responseToken.Register(
+                () => pending.Completion.TrySetCanceled(responseToken));
 
             return await pending.Completion.Task;
         }
@@ -670,14 +689,35 @@ public abstract class DaemonClientBase : IDaemonClient
     /// Null both when the daemon answered with no status and when the call to it failed. The two
     /// are the same answer to a caller: we do not know what the daemon is doing.
     /// </returns>
-    public async Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
+    public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
+        => GetStatusAsync(expiresAtUtc: null, cancellationToken);
+
+    private async Task<DaemonStatus?> GetStatusAsync(
+        DateTimeOffset? expiresAtUtc,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await EnsureConnectedAsync(cancellationToken);
+            var remaining = expiresAtUtc.HasValue
+                ? expiresAtUtc.Value - CacheStatusClock.GetUtcNow()
+                : Timeout.InfiniteTimeSpan;
+            if (expiresAtUtc.HasValue && remaining <= TimeSpan.Zero)
+                throw new OperationCanceledException("The cache-status deadline has been reached.");
+            using var deadline = expiresAtUtc.HasValue
+                ? new CancellationTokenSource(remaining, CacheStatusClock)
+                : null;
+            using var operation = deadline is null
+                ? null
+                : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+            await EnsureConnectedAsync(operation?.Token ?? cancellationToken);
             var generation = _connectionLifecycle.CurrentGeneration;
-            var response = await SendCoreAsync("status", null, TimeSpan.FromSeconds(10), cancellationToken,
-                expectedGeneration: generation);
+            var response = await SendCoreAsync(
+                "status",
+                null,
+                expiresAtUtc.HasValue ? null : TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken,
+                expectedGeneration: generation,
+                expiresAtUtc: expiresAtUtc);
             if (response.Success && response.Data is JsonElement element)
             {
                 // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
@@ -712,6 +752,15 @@ public abstract class DaemonClientBase : IDaemonClient
                 return status;
             }
             return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (expiresAtUtc.HasValue
+            && CacheStatusClock.GetUtcNow() >= expiresAtUtc.Value)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1386,34 +1435,283 @@ public abstract class DaemonClientBase : IDaemonClient
         List<CachedDepotInput> cachedDepots,
         CancellationToken cancellationToken = default)
     {
-        if (appIds == null || appIds.Count == 0)
+        var scope = appIds.Distinct().Select(appId => new CacheAppScope
         {
-            return new CacheStatusResult { Apps = [] };
+            AppId = appId,
+            Authority = cachedDepots.Any(depot => depot.AppId == appId)
+                ? CacheAuthority.Snapshot
+                : CacheAuthority.Empty
+        }).ToList();
+        return await CheckCacheStatusAsync(appIds, cachedDepots, scope, expiresAtUtc: null, cancellationToken);
+    }
+
+    public Task<CacheStatusResult> CheckCacheStatusAsync(
+        IReadOnlyList<uint> appIds,
+        IReadOnlyList<CachedDepotInput> cachedDepots,
+        IReadOnlyList<CacheAppScope> scope,
+        DateTimeOffset expiresAtUtc,
+        CancellationToken cancellationToken = default)
+        => CheckCacheStatusAsync(appIds, cachedDepots, scope, (DateTimeOffset?)expiresAtUtc, cancellationToken);
+
+    private async Task<CacheStatusResult> CheckCacheStatusAsync(
+        IReadOnlyList<uint> appIds,
+        IReadOnlyList<CachedDepotInput> cachedDepots,
+        IReadOnlyList<CacheAppScope> scope,
+        DateTimeOffset? expiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var requested = appIds.Distinct().Select(appId => appId.ToString()).ToList();
+        if (requested.Count == 0)
+            return new CacheStatusResult { Version = 2, Apps = [] };
+        if (expiresAtUtc.HasValue && CacheStatusClock.GetUtcNow() >= expiresAtUtc.Value)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+
+        long generation;
+        DaemonStatus? status;
+        try
+        {
+            status = await GetStatusAsync(expiresAtUtc, cancellationToken);
+            generation = _statusGeneration;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (expiresAtUtc.HasValue
+            && CacheStatusClock.GetUtcNow() >= expiresAtUtc.Value)
+        {
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException)
+        {
+            return CacheStatusResult.Unknown(requested, CacheReason.Disconnected);
         }
 
-        await EnsureConnectedAsync(cancellationToken);
-        var generation = _connectionLifecycle.CurrentGeneration;
-        var status = await GetStatusAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
+        if (expiresAtUtc.HasValue && CacheStatusClock.GetUtcNow() >= expiresAtUtc.Value)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
         if (status is null)
+            return CacheStatusResult.Unknown(requested, CacheReason.StatusUnavailable);
+        if (generation == 0 || generation != _connectionLifecycle.CurrentGeneration || _statusGeneration != generation)
+            return CacheStatusResult.Unknown(requested, CacheReason.ConnectionChanged);
+        if (status.Features?.Contains("cacheStatusAppIds", StringComparer.Ordinal) != true)
         {
-            throw new DaemonCommandException();
+            var unsupported = CacheStatusResult.Unknown(requested, CacheReason.UnsupportedDaemon);
+            unsupported.StopReason = CacheReason.UnsupportedDaemon;
+            return unsupported;
         }
-        if (generation == 0 || generation != _connectionLifecycle.CurrentGeneration
-            || _statusGeneration != generation
-            || status.Features?.Contains("cacheStatusAppIds", StringComparer.Ordinal) != true)
+
+        var statusV2 = expiresAtUtc.HasValue
+            && status.Features.Contains("cacheStatusV2", StringComparer.Ordinal);
+        var requestedIds = appIds.Distinct().ToHashSet();
+        var sentScope = scope.Where(item => requestedIds.Contains(item.AppId)).ToList();
+        if (sentScope.Count != requested.Count
+            || sentScope.GroupBy(item => item.AppId).Any(group => group.Count() != 1))
+            return CacheStatusResult.Unknown(requested, CacheReason.InvalidResult);
+
+        var completed = new Dictionary<string, AppCacheStatus>(StringComparer.OrdinalIgnoreCase);
+        var sendIds = appIds.Distinct().ToList();
+        if (!statusV2)
         {
-            return new CacheStatusResult { Apps = [] };
+            var unsupported = sentScope.Where(item => item.Authority == CacheAuthority.Absent)
+                .Select(item => item.AppId).ToHashSet();
+            foreach (var appId in unsupported)
+                completed[appId.ToString()] = AppCacheStatus.Unknown(appId.ToString(), CacheReason.UnsupportedDaemon);
+            sendIds = sendIds.Where(appId => !unsupported.Contains(appId)).ToList();
+            if (sendIds.Count == 0)
+                return new CacheStatusResult { Version = 2, Apps = requested.Select(appId => completed[appId]).ToList() };
         }
 
         var parameters = new Dictionary<string, string>
         {
-            ["appIds"] = JsonSerializer.Serialize(appIds, _jsonOptions),
-            ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions)
+            ["appIds"] = JsonSerializer.Serialize(sendIds, _jsonOptions),
+            ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots
+                .GroupBy(depot => (depot.DepotId, depot.ManifestId))
+                .Select(group => group.First())
+                .OrderBy(depot => depot.DepotId)
+                .ThenBy(depot => depot.ManifestId), _jsonOptions)
         };
+        if (statusV2)
+        {
+            parameters["cacheStatusVersion"] = "2";
+            parameters["scope"] = JsonSerializer.Serialize(sentScope, _jsonOptions);
+            parameters["expiresAtUtc"] = expiresAtUtc!.Value.ToString("O");
+        }
 
-        return await ReadResultAsync<CacheStatusResult>("check-cache-status", parameters,
-            TimeSpan.FromMinutes(10), cancellationToken, generation);
+        if (expiresAtUtc.HasValue && CacheStatusClock.GetUtcNow() >= expiresAtUtc.Value)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+
+        CacheStatusResult result;
+        try
+        {
+            var response = await SendCoreAsync(
+                "check-cache-status",
+                parameters,
+                expiresAtUtc.HasValue ? null : TimeSpan.FromMinutes(10),
+                cancellationToken: cancellationToken,
+                expectedGeneration: generation,
+                expiresAtUtc: expiresAtUtc);
+            result = NormalizeCacheStatus(response, sendIds.Select(appId => appId.ToString()), statusV2);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (expiresAtUtc.HasValue
+            && CacheStatusClock.GetUtcNow() >= expiresAtUtc.Value)
+        {
+            result = CacheStatusResult.Unknown(sendIds.Select(appId => appId.ToString()), CacheReason.DeadlineReached);
+        }
+        catch (DaemonCommandException ex) when (!ex.RequiresLogin)
+        {
+            result = CacheStatusResult.Unknown(sendIds.Select(appId => appId.ToString()),
+                IsConnected ? CacheReason.StatusUnavailable : CacheReason.Disconnected);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException)
+        {
+            result = CacheStatusResult.Unknown(sendIds.Select(appId => appId.ToString()),
+                _connectionLifecycle.CurrentGeneration == generation
+                    ? CacheReason.Disconnected
+                    : CacheReason.ConnectionChanged);
+        }
+
+        if (_connectionLifecycle.CurrentGeneration != generation || _statusGeneration != generation)
+            result = CacheStatusResult.Unknown(sendIds.Select(appId => appId.ToString()), CacheReason.ConnectionChanged);
+        foreach (var row in result.Apps ?? [])
+            completed[row.AppId] = row;
+
+        return new CacheStatusResult
+        {
+            Version = 2,
+            Apps = requested.Select(appId => completed.TryGetValue(appId, out var row)
+                ? row
+                : AppCacheStatus.Unknown(appId, statusV2 ? CacheReason.InvalidResult : CacheReason.UnsupportedDaemon))
+                .ToList(),
+            Message = result.Message
+        };
+    }
+
+    public async Task<CacheStatusResult> CheckCacheStatusAsync(
+        IReadOnlyList<CachedAppInput> cachedApps,
+        DateTimeOffset expiresAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var requestedApps = cachedApps
+            .Where(app => !string.IsNullOrWhiteSpace(app.AppId))
+            .DistinctBy(app => app.AppId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var requested = requestedApps.Select(app => app.AppId).ToList();
+        if (requested.Count == 0)
+            return new CacheStatusResult { Version = 2, Apps = [] };
+        if (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+
+        long generation;
+        DaemonStatus? status;
+        try
+        {
+            status = await GetStatusAsync(expiresAtUtc, cancellationToken);
+            generation = _statusGeneration;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+        {
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException)
+        {
+            return CacheStatusResult.Unknown(requested, CacheReason.Disconnected);
+        }
+
+        if (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        if (status is null)
+            return CacheStatusResult.Unknown(requested, CacheReason.StatusUnavailable);
+        if (generation == 0 || generation != _connectionLifecycle.CurrentGeneration || _statusGeneration != generation)
+            return CacheStatusResult.Unknown(requested, CacheReason.ConnectionChanged);
+
+        var statusV2 = status.Features?.Contains("cacheStatusV2", StringComparer.Ordinal) == true;
+        var parameters = new Dictionary<string, string>
+        {
+            ["cachedApps"] = JsonSerializer.Serialize(requestedApps.Select(app => new
+            {
+                appId = app.AppId,
+                revision = app.Revision
+            }), _jsonOptions)
+        };
+        if (statusV2)
+        {
+            parameters["cacheStatusVersion"] = "2";
+            parameters["expiresAtUtc"] = expiresAtUtc.ToString("O");
+        }
+
+        CacheStatusResult result;
+        try
+        {
+            var response = await SendCoreAsync(
+                "check-cache-status",
+                parameters,
+                timeout: null,
+                cancellationToken: cancellationToken,
+                expectedGeneration: generation,
+                expiresAtUtc: expiresAtUtc);
+            result = NormalizeCacheStatus(response, requested, statusV2);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+        {
+            result = CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        }
+        catch (DaemonCommandException ex) when (!ex.RequiresLogin)
+        {
+            result = CacheStatusResult.Unknown(requested,
+                IsConnected ? CacheReason.StatusUnavailable : CacheReason.Disconnected);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException)
+        {
+            result = CacheStatusResult.Unknown(requested,
+                _connectionLifecycle.CurrentGeneration == generation
+                    ? CacheReason.Disconnected
+                    : CacheReason.ConnectionChanged);
+        }
+
+        if (_connectionLifecycle.CurrentGeneration != generation || _statusGeneration != generation)
+            return CacheStatusResult.Unknown(requested, CacheReason.ConnectionChanged);
+        return result;
+    }
+
+    private static CacheStatusResult NormalizeCacheStatus(
+        CommandResponse response,
+        IEnumerable<string> requested,
+        bool statusV2)
+    {
+        var ids = requested.ToList();
+        if (!response.Success || response.RequiresLogin == true)
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+        if (response.Data is not JsonElement element)
+            return CacheStatusResult.Unknown(ids,
+                statusV2 ? CacheReason.InvalidResult : CacheReason.UnsupportedDaemon);
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText(), _jsonOptions);
+            if (parsed is null || statusV2 && parsed.Version != 2)
+                return CacheStatusResult.Unknown(ids, CacheReason.InvalidResult);
+            return parsed.Normalize(
+                ids,
+                statusV2 ? CacheReason.InvalidResult : CacheReason.UnsupportedDaemon,
+                acceptLegacyOutdated: statusV2);
+        }
+        catch (JsonException)
+        {
+            return CacheStatusResult.Unknown(ids,
+                statusV2 ? CacheReason.InvalidResult : CacheReason.UnsupportedDaemon);
+        }
     }
 
     public async Task<DaemonRunSnapshot> CancelPrefillAsync(Guid runId, string daemonInstanceId,

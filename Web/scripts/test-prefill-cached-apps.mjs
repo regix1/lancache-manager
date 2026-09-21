@@ -9,9 +9,47 @@ import {
   parseSource
 } from './transpile-module.mjs';
 
-const { resolveCachedAppIds } = await import(
+const { resolveCachedAppIds, resolveCacheStatus } = await import(
   await compileToUrl('../src/components/features/prefill/cachedApps.ts')
 );
+const { completeCacheApps, groupCacheApps, markCacheAppsUnknown, CACHE_REASON_KEYS } = await import(
+  await compileToUrl('../src/components/features/prefill/cacheStatus.ts')
+);
+
+test('cache status precedence is unknown, outdated, cached, then not cached', () => {
+  const id = 'Mixed/Case';
+  const cached = new Set(['mixed/case']);
+  const outdated = new Set(['mixed/case']);
+  const unknown = new Set(['mixed/case']);
+  assert.equal(resolveCacheStatus(id, cached, outdated, unknown), 'unknown');
+  assert.equal(resolveCacheStatus(id, cached, outdated, new Set()), 'outdated');
+  assert.equal(resolveCacheStatus(id, cached, new Set(), new Set()), 'cached');
+  assert.equal(resolveCacheStatus(id, new Set(), new Set(), new Set()), 'notCached');
+});
+
+test('every cache reason has an explicit localization key', () => {
+  assert.deepEqual(
+    Object.keys(CACHE_REASON_KEYS).sort(),
+    [
+      'AuthenticationRequired',
+      'ConnectionChanged',
+      'DeadlineReached',
+      'Disconnected',
+      'InspectionFailed',
+      'InvalidAppId',
+      'InvalidResult',
+      'LinkedDepotUnavailable',
+      'ManifestUnavailable',
+      'MissingApp',
+      'NoCacheEvidence',
+      'NoContent',
+      'StatusUnavailable',
+      'UnsupportedDaemon',
+      'UnsupportedOs'
+    ].sort()
+  );
+  assert.equal(new Set(Object.values(CACHE_REASON_KEYS)).size, 15);
+});
 
 test('verified apps appear and explicit negative apps disappear', () => {
   assert.deepEqual(resolveCachedAppIds(['A', 'B'], ['A'], ['C']), ['A']);
@@ -75,6 +113,9 @@ const pickerRow = ({ cached = [], outdated = [], unknown = [], selected = false 
       cachedAppIdsSet: new Set(cached.map((id) => id.toLowerCase())),
       outdatedAppIdsSet: new Set(outdated.map((id) => id.toLowerCase())),
       unknownAppIdsSet: new Set(unknown.map((id) => id.toLowerCase())),
+      cacheReasonByAppId: new Map(),
+      resolveCacheStatus,
+      CACHE_REASON_KEYS,
       toggleGame: (appId) => toggled.push(appId),
       t: (key) => key,
       Button: 'Button',
@@ -106,7 +147,12 @@ const panel = (
   let badges = previous;
   let outdated = [];
   let unknown = [];
+  let cacheApps = [];
+  let cacheMessage = null;
   const calls = [];
+  const cachedAppIdsRef = { current: badges };
+  const cacheAppsRef = { current: cacheApps };
+  const cacheMessageRef = { current: cacheMessage };
   const bindings = {
     signalR: { session: { id: 'session-a' } },
     gamesKeyRef: { current: 'epic:session-a' },
@@ -122,9 +168,20 @@ const panel = (
     setUnknownAppIds: (value) => {
       unknown = value;
     },
+    setCacheApps: (value) => {
+      cacheApps = value;
+      cacheAppsRef.current = value;
+    },
+    setCacheMessage: (value) => {
+      cacheMessage = value;
+      cacheMessageRef.current = value;
+    },
     setGameLoadError: () => undefined,
     gamesRequestRef: { current: null },
     gamesCacheRef: { current: null },
+    cachedAppIdsRef,
+    cacheAppsRef,
+    cacheMessageRef,
     gamesCacheWindowMs: 300000,
     serviceId: 'epic',
     serviceBasePath: 'epic-prefill',
@@ -142,6 +199,7 @@ const panel = (
     },
     setCachedAppIds: (update) => {
       badges = typeof update === 'function' ? update(badges) : update;
+      cachedAppIdsRef.current = badges;
     },
     setIsLoadingGames: () => undefined,
     setOwnedGames: () => undefined,
@@ -149,7 +207,10 @@ const panel = (
     setIsUsingGamesCache: () => undefined,
     addLog: () => undefined,
     t: (key) => key,
-    resolveCachedAppIds
+    resolveCachedAppIds,
+    completeCacheApps,
+    groupCacheApps,
+    markCacheAppsUnknown
   };
   return {
     bindings,
@@ -157,6 +218,8 @@ const panel = (
     badges: () => badges,
     outdated: () => outdated,
     unknown: () => unknown,
+    apps: () => cacheApps,
+    message: () => cacheMessage,
     load: bindLifted(liftHookCallback(panelPath, 'useCallback', 'const gamesCache ='), bindings)
   };
 };
@@ -182,7 +245,7 @@ test('a current shared-depot result stays cached without an update badge', async
   assert.equal(row.badges.includes('prefill.gameSelection.updateAvailable'), false);
 });
 
-test('a truly outdated cached game keeps both badges and stays selectable', async () => {
+test('a truly outdated cached game shows only update status and stays selectable', async () => {
   const picker = panel(
     ['251570'],
     async () => ({
@@ -198,10 +261,7 @@ test('a truly outdated cached game keeps both badges and stays selectable', asyn
     outdated: picker.outdated(),
     unknown: picker.unknown()
   });
-  assert.deepEqual(row.badges, [
-    'prefill.gameSelection.cachedBadge',
-    'prefill.gameSelection.updateAvailable'
-  ]);
+  assert.deepEqual(row.badges, ['prefill.gameSelection.updateAvailable']);
   assert.equal(row.button.props['aria-pressed'], false);
   row.button.props.onClick();
   assert.deepEqual(row.toggled, ['251570']);
@@ -224,10 +284,54 @@ test('an unsupported daemon result preserves manager membership as unknown', asy
     unknown: picker.unknown()
   });
   assert.deepEqual(picker.badges(), ['251570']);
-  assert.deepEqual(row.badges, [
-    'prefill.gameSelection.cachedBadge',
-    'prefill.gameSelection.statusUnknown'
-  ]);
+  assert.deepEqual(row.badges, ['prefill.gameSelection.statusUnknown']);
+});
+
+test('a partial typed result retains membership, message, and row reason for another refresh', async () => {
+  const picker = panel(
+    ['B'],
+    async () => ({
+      upToDateAppIds: [],
+      outdatedAppIds: [],
+      unknownAppIds: [],
+      apps: [
+        {
+          appId: 'A',
+          name: 'Alpha',
+          isUpToDate: true,
+          outcome: 'Current',
+          reason: null,
+          downloadSize: 10
+        },
+        {
+          appId: 'B',
+          name: 'Beta',
+          isUpToDate: null,
+          outcome: 'Unknown',
+          reason: 'DeadlineReached',
+          downloadSize: 20
+        }
+      ],
+      message: 'One cache row did not finish.'
+    }),
+    ['A', 'B']
+  );
+  await picker.load();
+  assert.deepEqual(picker.badges(), ['A', 'B']);
+  assert.deepEqual(picker.outdated(), []);
+  assert.deepEqual(picker.unknown(), ['B']);
+  assert.equal(picker.apps()[1].reason, 'DeadlineReached');
+  assert.equal(picker.message(), 'One cache row did not finish.');
+  assert.equal(picker.bindings.gamesCacheRef.current.hasData, false);
+});
+
+test('an authoritative empty manager membership clears the pane and settles the empty snapshot', async () => {
+  const picker = panel(['A'], async () => assert.fail('no status request is needed'), []);
+  await picker.load();
+  assert.deepEqual(picker.badges(), []);
+  assert.deepEqual(picker.apps(), []);
+  assert.equal(picker.message(), null);
+  assert.equal(picker.bindings.gamesCacheRef.current.hasData, true);
 });
 
 test('normal selection and Force retain their existing request options', async () => {
@@ -272,7 +376,7 @@ test('ordinary picker consumes explicit unknowns and filters unsolicited positiv
   assert.deepEqual(picker.badges(), ['A', 'B']);
   assert.deepEqual(picker.unknown(), ['B']);
   assert.deepEqual(picker.calls, ['epic']);
-  assert.equal(picker.bindings.gamesCacheRef.current.hasData, true);
+  assert.equal(picker.bindings.gamesCacheRef.current.hasData, false);
 });
 
 test('ordinary picker timeout keeps manager membership and marks it unknown', async () => {
@@ -411,7 +515,9 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
     sessionId: 's1',
     cachedAppIds: ['B', 'C'],
     outdatedAppIds: [],
-    unknownAppIds: []
+    unknownAppIds: [],
+    apps: [],
+    message: null
   };
   let release;
   let calls = 0;
@@ -442,6 +548,9 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
     getErrorMessage: String,
     ApiError: Error,
     resolveCachedAppIds,
+    completeCacheApps,
+    groupCacheApps,
+    markCacheAppsUnknown,
     ApiService: {
       getPersistentPrefillGames: async () => {
         if (++calls === 1)
@@ -474,7 +583,9 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
     sessionId: 's2',
     cachedAppIds: [],
     outdatedAppIds: [],
-    unknownAppIds: []
+    unknownAppIds: [],
+    apps: [],
+    message: null
   };
   bindings.gameSelectionRef.current = selection;
   bindings.gameAuthRef.current = { key: 'xbox:s2', authenticated: true };
@@ -510,6 +621,102 @@ test('scheduled picker refreshes from an external cache-change event without cac
   assert.deepEqual(picker.state().selection.unknownAppIds, []);
 });
 
+test('scheduled picker consumes typed partial status and clears only on an accepted empty snapshot', async () => {
+  let attempt = 0;
+  const picker = scheduled(async () => {
+    attempt += 1;
+    if (attempt === 1)
+      return {
+        games: [
+          { appId: 'A', name: 'Alpha' },
+          { appId: 'B', name: 'Beta' }
+        ],
+        cachedAppIds: ['A', 'B'],
+        outdatedAppIds: [],
+        unknownAppIds: [],
+        apps: [
+          {
+            appId: 'A',
+            name: 'Alpha',
+            isUpToDate: false,
+            outcome: 'Outdated',
+            reason: 'ManifestUnavailable',
+            downloadSize: 10
+          },
+          {
+            appId: 'B',
+            name: 'Beta',
+            isUpToDate: null,
+            outcome: 'Unknown',
+            reason: 'DeadlineReached',
+            downloadSize: 20
+          }
+        ],
+        message: 'One cache row did not finish.'
+      };
+    return {
+      games: [],
+      cachedAppIds: [],
+      outdatedAppIds: [],
+      unknownAppIds: [],
+      apps: []
+    };
+  });
+
+  await picker.load('steam', 's1');
+  assert.deepEqual(picker.state().selection.cachedAppIds, ['A', 'B']);
+  assert.deepEqual(picker.state().selection.outdatedAppIds, ['A']);
+  assert.deepEqual(picker.state().selection.unknownAppIds, ['B']);
+  assert.equal(picker.state().selection.apps[1].reason, 'DeadlineReached');
+  assert.equal(picker.state().selection.message, 'One cache row did not finish.');
+
+  await picker.load('steam', 's1');
+  assert.deepEqual(picker.state().selection.games, []);
+  assert.deepEqual(picker.state().selection.cachedAppIds, []);
+  assert.deepEqual(picker.state().selection.apps, []);
+  assert.equal(picker.state().selection.message, null);
+  assert.equal(picker.state().loaded, true);
+});
+
+test('a held scheduled refresh retains mounted library and status until replacement', async () => {
+  let release;
+  const picker = scheduled(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      })
+  );
+  picker.bindings.setGameSelection((current) => ({
+    ...current,
+    message: 'Retained status message',
+    apps: markCacheAppsUnknown(current.cachedAppIds, [], current.games, 'NoCacheEvidence')
+  }));
+  const before = picker.state().selection;
+  const pending = picker.load('steam', 's1');
+  assert.strictEqual(picker.state().selection, before);
+  assert.equal(picker.state().selection.games[0].name, 'Alpha');
+  assert.equal(picker.state().selection.message, 'Retained status message');
+  release({
+    games: [{ appId: 'A', name: 'Alpha' }],
+    cachedAppIds: ['A'],
+    outdatedAppIds: [],
+    unknownAppIds: [],
+    apps: [
+      {
+        appId: 'A',
+        name: 'Alpha',
+        isUpToDate: true,
+        outcome: 'Current',
+        reason: null,
+        downloadSize: 10
+      }
+    ]
+  });
+  await pending;
+  assert.equal(picker.state().selection.message, null);
+  assert.equal(picker.state().selection.apps[0].outcome, 'Current');
+});
+
 const scheduled = (fetchGames) => {
   let selection = {
     serviceKey: 'steam',
@@ -518,7 +725,9 @@ const scheduled = (fetchGames) => {
     games: [{ appId: 'A', name: 'Alpha' }],
     cachedAppIds: ['A'],
     outdatedAppIds: [],
-    unknownAppIds: []
+    unknownAppIds: [],
+    apps: [],
+    message: null
   };
   let loadError = 'previous load failure';
   let actionError = 'cache removal failed';
@@ -560,6 +769,9 @@ const scheduled = (fetchGames) => {
     t: (key) => key,
     ApiError: Error,
     resolveCachedAppIds,
+    completeCacheApps,
+    groupCacheApps,
+    markCacheAppsUnknown,
     ApiService: { getPersistentPrefillGames: fetchGames }
   };
   return {
@@ -632,7 +844,9 @@ test('scheduled picker accepts only the current session cache result', async () 
     games: [{ appId: 'B', name: 'Beta' }],
     cachedAppIds: ['B'],
     outdatedAppIds: [],
-    unknownAppIds: []
+    unknownAppIds: [],
+    apps: [],
+    message: null
   }));
   picker.bindings.containerRef.current = {
     sessionId: 's2',
@@ -646,7 +860,9 @@ test('scheduled picker accepts only the current session cache result', async () 
     games: [{ appId: 'A', name: 'Alpha' }],
     cachedAppIds: ['A'],
     outdatedAppIds: [],
-    unknownAppIds: []
+    unknownAppIds: [],
+    apps: [],
+    message: 'Retained status message'
   });
   await older;
   assert.deepEqual(picker.state().selection.games, [{ appId: 'B', name: 'Beta' }]);
@@ -831,7 +1047,9 @@ test('scheduled picker retains choices through auth loss, reloads on recovery, a
     games: [{ appId: 'A', name: 'Alpha' }],
     cachedAppIds: ['A'],
     outdatedAppIds: [],
-    unknownAppIds: []
+    unknownAppIds: [],
+    apps: [],
+    message: 'Retained status message'
   };
   const calls = [];
   const gameSelectionRef = { current: selection };
@@ -858,7 +1076,8 @@ test('scheduled picker retains choices through auth loss, reloads on recovery, a
     },
     setLoadingGameSelectionService: (value) => loading.push(value),
     setGameLoaded: () => undefined,
-    isScheduledPrefillAnonymousService: () => false
+    isScheduledPrefillAnonymousService: () => false,
+    markCacheAppsUnknown
   };
   const source = liftHookCallback(modalPath, 'useEffect', 'const authenticated =');
   bindLifted(source, bindings)();
@@ -866,6 +1085,8 @@ test('scheduled picker retains choices through auth loss, reloads on recovery, a
   assert.equal(selection.games[0].appId, 'A');
   assert.deepEqual(selection.cachedAppIds, ['A']);
   assert.deepEqual(selection.unknownAppIds, ['A']);
+  assert.equal(selection.apps[0].reason, 'AuthenticationRequired');
+  assert.equal(selection.message, 'Retained status message');
   assert.deepEqual(calls, []);
 
   bindLifted(source, {

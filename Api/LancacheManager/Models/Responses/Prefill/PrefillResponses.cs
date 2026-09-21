@@ -9,6 +9,7 @@ namespace LancacheManager.Models;
 /// </summary>
 public class PrefillCacheStatusResponse
 {
+    public List<AppCacheStatus> Apps { get; set; } = [];
     public List<string> UpToDateAppIds { get; set; } = new();
     public List<string> OutdatedAppIds { get; set; } = new();
     public List<string> UnknownAppIds { get; set; } = new();

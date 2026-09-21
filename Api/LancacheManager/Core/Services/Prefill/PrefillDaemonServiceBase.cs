@@ -22,6 +22,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected readonly IStateService _stateService;
     protected readonly PrefillSessionService _sessionService;
     protected readonly PrefillCacheService _cacheService;
+    internal TimeProvider CacheStatusClock { get; }
     protected readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     internal static GuestPrefillGate GuestGate { get; } = new();
     private readonly object _terminationSync = new();
@@ -411,7 +412,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         ILancacheServerLocator locator,
         IPrefillContainerGatewayFactory containerGatewayFactory,
         IActivityRegistry? activityRegistry = null,
-        IUnifiedOperationTracker? operationTracker = null)
+        IUnifiedOperationTracker? operationTracker = null,
+        TimeProvider? cacheStatusClock = null)
     {
         _logger = logger;
         _notifications = notifications;
@@ -420,6 +422,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _stateService = stateService;
         _sessionService = sessionService;
         _cacheService = cacheService;
+        CacheStatusClock = cacheStatusClock ?? TimeProvider.System;
         _networkOptions = networkOptions;
         _locator = locator;
         _containerGateway = containerGatewayFactory.Create();

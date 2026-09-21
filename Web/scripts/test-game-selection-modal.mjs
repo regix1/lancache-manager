@@ -5,6 +5,7 @@ import ts from 'typescript';
 import {
   bindLifted,
   collectNodes,
+  compileToUrl,
   findSoleNode,
   liftHookCallback,
   parseSource
@@ -24,6 +25,12 @@ import {
 
 const modalPath = 'src/components/features/prefill/GameSelectionModal.tsx';
 const modalFile = parseSource(modalPath, ts.ScriptKind.TSX);
+const { resolveCacheStatus } = await import(
+  await compileToUrl('../src/components/features/prefill/cachedApps.ts')
+);
+const { CACHE_REASON_KEYS } = await import(
+  await compileToUrl('../src/components/features/prefill/cacheStatus.ts')
+);
 
 /** Source text of the arrow in `const <name> = useMemo(() => ..., [deps])`. */
 const liftMemo = (name) => {
@@ -281,7 +288,8 @@ test('the header splits the selection into what will download and what is alread
     selectedInLibrary,
     cachedAppIdsSet: new Set(['2', '3', '4']),
     outdatedAppIdsSet: new Set(['3']),
-    unknownAppIdsSet: new Set(['4'])
+    unknownAppIdsSet: new Set(['4']),
+    resolveCacheStatus
   });
   const willDownload = selectedInLibrary.length - cachedSelectedCount;
 
@@ -427,7 +435,7 @@ test('the shared game row keeps selection and status without a delete action', (
       cached: ['mixedcase-id'],
       outdated: ['MIXEDCASE-ID'],
       unknown: [],
-      badges: ['prefill.gameSelection.cachedBadge', 'prefill.gameSelection.updateAvailable']
+      badges: ['prefill.gameSelection.updateAvailable']
     },
     {
       game: {
@@ -438,7 +446,8 @@ test('the shared game row keeps selection and status without a delete action', (
       cached: ['9nblggh4r315'],
       outdated: [],
       unknown: ['9NBLGGH4R315'],
-      badges: ['prefill.gameSelection.cachedBadge', 'prefill.gameSelection.statusUnknown']
+      badges: ['prefill.gameSelection.statusUnknown'],
+      reason: 'DeadlineReached'
     },
     {
       game: { appId: 'ordinary/id', name: 'Ordinary available game' },
@@ -447,6 +456,41 @@ test('the shared game row keeps selection and status without a delete action', (
       outdated: [],
       unknown: [],
       badges: []
+    },
+    {
+      game: { appId: 'Case/Outdated', name: 'Outdated without cached membership' },
+      selected: false,
+      cached: [],
+      outdated: ['case/outdated'],
+      unknown: [],
+      badges: ['prefill.gameSelection.updateAvailable']
+    },
+    {
+      game: { appId: 'Case/Unknown', name: 'Unknown without cached membership' },
+      selected: false,
+      cached: [],
+      outdated: [],
+      unknown: ['CASE/UNKNOWN'],
+      badges: ['prefill.gameSelection.statusUnknown'],
+      reason: 'InvalidResult'
+    },
+    {
+      game: { appId: 'All/States', name: 'All contradictory states' },
+      selected: false,
+      cached: ['all/states'],
+      outdated: ['ALL/STATES'],
+      unknown: ['All/States'],
+      badges: ['prefill.gameSelection.statusUnknown'],
+      reason: 'InspectionFailed'
+    },
+    {
+      game: { appId: 'Unknown/Outdated', name: 'Unknown and outdated' },
+      selected: false,
+      cached: [],
+      outdated: ['unknown/outdated'],
+      unknown: ['UNKNOWN/OUTDATED'],
+      badges: ['prefill.gameSelection.statusUnknown'],
+      reason: 'NoCacheEvidence'
     }
   ];
 
@@ -464,6 +508,11 @@ test('the shared game row keeps selection and status without a delete action', (
         cachedAppIdsSet: new Set(fixture.cached.map((id) => id.toLowerCase())),
         outdatedAppIdsSet: new Set(fixture.outdated.map((id) => id.toLowerCase())),
         unknownAppIdsSet: new Set(fixture.unknown.map((id) => id.toLowerCase())),
+        cacheReasonByAppId: new Map(
+          fixture.reason ? [[fixture.game.appId.toLowerCase(), fixture.reason]] : []
+        ),
+        resolveCacheStatus,
+        CACHE_REASON_KEYS,
         toggleGame: (appId) => toggled.push(appId),
         t: (key) => key,
         onRemoveFromCache: () => assert.fail('the picker must not expose row deletion'),
@@ -495,6 +544,14 @@ test('the shared game row keeps selection and status without a delete action', (
     assert.deepEqual(
       elements.filter((element) => element.type === Badge).map((element) => element.props.children),
       fixture.badges
+    );
+    assert.ok(
+      elements.filter((element) => element.type === Badge).length <= 1,
+      `${fixture.game.appId} must render at most one cache-status badge`
+    );
+    assert.equal(
+      rowActions[0].props['aria-describedby'] !== undefined,
+      fixture.reason !== undefined
     );
 
     rowActions[0].props.onClick();

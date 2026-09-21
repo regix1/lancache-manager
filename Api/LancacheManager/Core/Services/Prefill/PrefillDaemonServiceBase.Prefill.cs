@@ -1,4 +1,3 @@
-using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 
@@ -67,6 +66,7 @@ public abstract partial class PrefillDaemonServiceBase
     public virtual async Task<CacheStatusResult> GetCacheStatusAsync(
         string sessionId,
         List<string> appIds,
+        DateTimeOffset expiresAtUtc,
         CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
@@ -74,31 +74,110 @@ public abstract partial class PrefillDaemonServiceBase
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
-        if (appIds == null || appIds.Count == 0)
-        {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
-        }
-
-        var numericAppIds = appIds
-            .Select(id => uint.TryParse(id, out var appId) ? appId : (uint?)null)
-            .Where(appId => appId.HasValue)
-            .Select(appId => appId!.Value)
-            .Distinct()
+        var requested = appIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var numeric = requested
+            .Select(appId => (AppId: appId, Parsed: uint.TryParse(appId, out var value), Value: value))
             .ToList();
-        if (numericAppIds.Count == 0)
+        var numericAppIds = numeric.Where(app => app.Parsed).Select(app => app.Value).Distinct().ToArray();
+        var completed = numeric.Where(app => !app.Parsed)
+            .ToDictionary(app => app.AppId, app => AppCacheStatus.Unknown(app.AppId, CacheReason.InvalidAppId),
+                StringComparer.OrdinalIgnoreCase);
+        if (numericAppIds.Length == 0)
+            return new CacheStatusResult { Version = 2, Apps = requested.Select(appId => completed[appId]).ToList() };
+
+        if (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+
+        PrefillCacheSnapshot snapshot;
+        var snapshotRemaining = expiresAtUtc - CacheStatusClock.GetUtcNow();
+        if (snapshotRemaining <= TimeSpan.Zero)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        using (var snapshotDeadline = new CancellationTokenSource(snapshotRemaining, CacheStatusClock))
+        using (var snapshotToken = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            snapshotDeadline.Token))
         {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
+            try
+            {
+                snapshot = await _cacheService.GetCacheSnapshotAsync(numericAppIds, snapshotToken.Token);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (snapshotDeadline.IsCancellationRequested)
+            {
+                return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+            }
         }
 
-        var cachedData = await _cacheService.GetAllCachedDepotsAsync();
-        var cachedDepots = cachedData.Select(d => new CachedDepotInput
+        if (session.Client is not DaemonClientBase client)
         {
-            AppId = d.AppId,
-            DepotId = d.DepotId,
-            ManifestId = d.ManifestId
-        }).ToList();
+            foreach (var app in numeric.Where(app => app.Parsed))
+                completed[app.AppId] = AppCacheStatus.Unknown(app.AppId, CacheReason.UnsupportedDaemon);
+            return new CacheStatusResult { Version = 2, Apps = requested.Select(appId => completed[appId]).ToList() };
+        }
+        client.CacheStatusClock = CacheStatusClock;
+        string? message = null;
+        CacheReason? stopReason = null;
+        foreach (var batch in numericAppIds.Chunk(16))
+        {
+            if (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            {
+                stopReason = CacheReason.DeadlineReached;
+                break;
+            }
 
-        return await session.Client.CheckCacheStatusAsync(numericAppIds, cachedDepots, cancellationToken);
+            CacheStatusResult status;
+            try
+            {
+                var scope = snapshot.Scope.Where(item => batch.Contains(item.AppId)).ToList();
+                status = await client.CheckCacheStatusAsync(
+                    batch,
+                    snapshot.Depots,
+                    scope,
+                    expiresAtUtc,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            {
+                status = CacheStatusResult.Unknown(batch.Select(value => value.ToString()), CacheReason.DeadlineReached);
+            }
+            catch (DaemonCommandException ex) when (!ex.RequiresLogin)
+            {
+                status = CacheStatusResult.Unknown(batch.Select(value => value.ToString()),
+                    session.Client is DaemonClientBase { IsConnected: false }
+                        ? CacheReason.Disconnected
+                        : CacheReason.StatusUnavailable);
+            }
+
+            message ??= status.Message;
+            var normalized = status.Normalize(batch.Select(value => value.ToString()));
+            foreach (var value in batch)
+            {
+                var row = normalized.Apps.SingleOrDefault(app => uint.TryParse(app.AppId, out var parsed) && parsed == value)
+                    ?? AppCacheStatus.Unknown(value.ToString(), CacheReason.InvalidResult);
+                foreach (var appId in numeric.Where(app => app.Parsed && app.Value == value).Select(app => app.AppId))
+                    completed[appId] = row.Copy(appId);
+            }
+            stopReason = status.StopReason ?? GetStopReason(normalized.Apps);
+            if (stopReason.HasValue)
+                break;
+        }
+
+        stopReason ??= CacheStatusClock.GetUtcNow() >= expiresAtUtc ? CacheReason.DeadlineReached : null;
+        return new CacheStatusResult
+        {
+            Version = 2,
+            Apps = requested.Select(appId => completed.TryGetValue(appId, out var row)
+                ? row
+                : AppCacheStatus.Unknown(appId, stopReason ?? CacheReason.InvalidResult)).ToList(),
+            Message = message
+        };
     }
 
     /// <summary>
@@ -108,6 +187,7 @@ public abstract partial class PrefillDaemonServiceBase
     protected async Task<CacheStatusResult> GetStringAppCacheStatusAsync(
         string sessionId,
         List<string> appIds,
+        DateTimeOffset expiresAtUtc,
         CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
@@ -115,44 +195,108 @@ public abstract partial class PrefillDaemonServiceBase
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
-        if (appIds == null || appIds.Count == 0)
-        {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
-        }
         var requested = appIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var requestedSet = requested.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var cachedApps = (await _cacheService.GetCachedAppsAsync(Platform, cancellationToken))
-            .Where(app => requestedSet.Contains(app.AppId))
-            .Select(app => new CachedAppInput { AppId = app.AppId, Revision = app.CacheRevision })
-            .ToList();
-        if (cachedApps.Count == 0)
+        if (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        Dictionary<string, CachedAppInfo> cachedApps;
+        var readRemaining = expiresAtUtc - CacheStatusClock.GetUtcNow();
+        if (readRemaining <= TimeSpan.Zero)
+            return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+        using (var readDeadline = new CancellationTokenSource(readRemaining, CacheStatusClock))
+        using (var readToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readDeadline.Token))
         {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No cached apps found" };
+            try
+            {
+                cachedApps = (await _cacheService.GetCachedAppsAsync(Platform, readToken.Token))
+                    .Where(app => requestedSet.Contains(app.AppId))
+                    .ToDictionary(app => app.AppId, StringComparer.OrdinalIgnoreCase);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (readDeadline.IsCancellationRequested)
+            {
+                return CacheStatusResult.Unknown(requested, CacheReason.DeadlineReached);
+            }
         }
 
-        var parameters = new Dictionary<string, string>
+        var completed = new Dictionary<string, AppCacheStatus>(StringComparer.OrdinalIgnoreCase);
+        if (session.Client is not DaemonClientBase client)
+            return CacheStatusResult.Unknown(requested, CacheReason.UnsupportedDaemon);
+        client.CacheStatusClock = CacheStatusClock;
+        string? message = null;
+        CacheReason? stopReason = null;
+        foreach (var batch in requested.Chunk(16))
         {
-            ["cachedApps"] = JsonSerializer.Serialize(cachedApps, JsonSerializerOptions.Web)
+            if (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            {
+                stopReason = CacheReason.DeadlineReached;
+                break;
+            }
+
+            var batchApps = batch.Select(appId => new CachedAppInput
+            {
+                AppId = appId,
+                Revision = cachedApps.TryGetValue(appId, out var cached) ? cached.CacheRevision : null
+            }).ToList();
+            CacheStatusResult status;
+            try
+            {
+                status = await client.CheckCacheStatusAsync(batchApps, expiresAtUtc, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (CacheStatusClock.GetUtcNow() >= expiresAtUtc)
+            {
+                status = CacheStatusResult.Unknown(batchApps.Select(app => app.AppId), CacheReason.DeadlineReached);
+            }
+            catch (DaemonCommandException ex) when (!ex.RequiresLogin)
+            {
+                status = CacheStatusResult.Unknown(batchApps.Select(app => app.AppId),
+                    session.Client is DaemonClientBase { IsConnected: false }
+                        ? CacheReason.Disconnected
+                        : CacheReason.StatusUnavailable);
+            }
+
+            message ??= status.Message;
+            var normalized = status.Normalize(batch);
+            foreach (var row in normalized.Apps)
+                completed[row.AppId] = row;
+            stopReason = status.StopReason ?? GetStopReason(normalized.Apps);
+            if (stopReason.HasValue)
+                break;
+        }
+
+        stopReason ??= CacheStatusClock.GetUtcNow() >= expiresAtUtc ? CacheReason.DeadlineReached : null;
+        return new CacheStatusResult
+        {
+            Version = 2,
+            Apps = requested.Select(appId => completed.TryGetValue(appId, out var row)
+                ? row
+                : AppCacheStatus.Unknown(appId, stopReason ?? CacheReason.InvalidResult)).ToList(),
+            Message = message
         };
+    }
 
-        var response = await session.Client.SendCommandAsync(
-            "check-cache-status",
-            parameters,
-            timeout: TimeSpan.FromMinutes(5),
-            cancellationToken: cancellationToken);
-
-        if (!response.Success)
+    private static CacheReason? GetStopReason(IEnumerable<AppCacheStatus> apps)
+    {
+        foreach (var reason in apps.Select(app => app.Reason))
         {
-            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+            if (reason is CacheReason.DeadlineReached
+                or CacheReason.Disconnected
+                or CacheReason.ConnectionChanged
+                or CacheReason.StatusUnavailable
+                or CacheReason.InvalidResult
+                or CacheReason.AuthenticationRequired)
+            {
+                return reason;
+            }
         }
-
-        if (response.Data is JsonElement element)
-        {
-            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText())
-                ?? throw new JsonException("Required cache status result is null.");
-        }
-
-        throw new JsonException("Required cache status result is absent.");
+        return null;
     }
 
     /// <summary>

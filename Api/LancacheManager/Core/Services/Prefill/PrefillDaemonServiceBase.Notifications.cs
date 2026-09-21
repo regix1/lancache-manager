@@ -857,17 +857,9 @@ public abstract partial class PrefillDaemonServiceBase
                     {
                         try
                         {
-                            var recorded = await _cacheService.RecordCachedAppAsync(
-                                Platform, appId!, appName, totalBytes, account, progress.CacheRevision);
+                            var recorded = await RecordCacheAsync(
+                                appId!, appName, totalBytes, account, progress.CacheRevision, progress.Depots);
                             if (!IsSessionLive(session)) return;
-                            if (!session.CancellationTokenSource.IsCancellationRequested
-                                && Platform == PrefillPlatform.Steam
-                                && progress.Depots is { Count: > 0 }
-                                && uint.TryParse(appId, out var numericAppId))
-                            {
-                                recorded |= await _cacheService.RecordCachedDepotsAsync(numericAppId, appName,
-                                    progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)), account);
-                            }
                             if (!IsSessionLive(session)) return;
                             if (recorded && !session.CancellationTokenSource.IsCancellationRequested)
                                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
@@ -1253,12 +1245,8 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 try
                 {
-                    var recorded = await _cacheService.RecordCachedAppAsync(Platform, item.AppId, item.Name,
-                        item.TotalBytes ?? 0, session.AccountUsername, item.CacheRevision);
-                    if (Platform == PrefillPlatform.Steam && item.Depots is { Count: > 0 }
-                        && uint.TryParse(item.AppId, out var appId))
-                        recorded |= await _cacheService.RecordCachedDepotsAsync(appId, item.Name,
-                            item.Depots.Select(depot => (depot.DepotId, depot.ManifestId, depot.TotalBytes)), session.AccountUsername);
+                    var recorded = await RecordCacheAsync(item.AppId, item.Name, item.TotalBytes ?? 0,
+                        session.AccountUsername, item.CacheRevision, item.Depots);
                     if (recorded) await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
                 }
                 catch (Exception ex)
@@ -1287,6 +1275,21 @@ public abstract partial class PrefillDaemonServiceBase
         }
         await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session)).WaitAsync(TimeSpan.FromSeconds(5));
         await ReportSessionActivityAsync(session, present: true);
+    }
+
+    private Task<bool> RecordCacheAsync(
+        string appId,
+        string? appName,
+        long totalBytes,
+        string? cachedBy,
+        string? cacheRevision,
+        IReadOnlyList<DepotManifestProgressInfo>? depots)
+    {
+        if (Platform != PrefillPlatform.Steam)
+            return _cacheService.RecordCachedAppAsync(Platform, appId, appName, totalBytes, cachedBy, cacheRevision);
+        return long.TryParse(appId, out var numericAppId)
+            ? _cacheService.RecordSteamCacheAsync(numericAppId, appName, totalBytes, cachedBy, depots)
+            : Task.FromResult(false);
     }
 
 }

@@ -254,7 +254,7 @@ public sealed class PrefillCacheChangeTests
     }
 
     internal static (TestableSteamDaemonService Daemon, DaemonSession Session, RecordingNotificationProxy Recorder)
-        NewDaemon(DbContextOptions<AppDbContext> options)
+        NewDaemon(DbContextOptions<AppDbContext> options, TimeProvider? cacheStatusClock = null)
     {
         var factory = new TestDbContextFactory(options);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
@@ -267,7 +267,8 @@ public sealed class PrefillCacheChangeTests
             (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>(),
             new PrefillSessionService(factory, NullLogger<PrefillSessionService>.Instance),
             new PrefillCacheService(factory, NullLogger<PrefillCacheService>.Instance),
-            new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions()));
+            new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions()),
+            cacheStatusClock);
 
         var session = new DaemonSession
         {

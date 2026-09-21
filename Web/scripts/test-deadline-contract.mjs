@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -435,6 +436,31 @@ if (invoked && process.argv.includes('--reject-control')) {
       );
     console.log('Deadline source counts:', result.counts);
     assertClean(result.violations);
+  });
+
+  test('cache checks use only their owner abort signal', () => {
+    const apiSource = readFileSync(
+      path.join(repository, 'Web/src/services/api.service.ts'),
+      'utf8'
+    );
+    const panelSource = readFileSync(
+      path.join(repository, 'Web/src/components/features/prefill/PrefillPanel.tsx'),
+      'utf8'
+    );
+    const cacheStatusMethod = apiSource.slice(
+      apiSource.indexOf('static async getPrefillCacheStatus'),
+      apiSource.indexOf('static async clearAllPrefillCache')
+    );
+    const persistentGamesMethod = apiSource.slice(
+      apiSource.indexOf('static async getPersistentPrefillGames'),
+      apiSource.indexOf('static async startPersistentLogin')
+    );
+    assert.doesNotMatch(cacheStatusMethod, /AbortSignal\.timeout/);
+    assert.doesNotMatch(persistentGamesMethod, /AbortSignal\.timeout/);
+    assert.doesNotMatch(panelSource, /AbortSignal\.timeout\(45000\)/);
+    assert.match(cacheStatusMethod, /signal/);
+    assert.match(persistentGamesMethod, /signal/);
+    assert.match(panelSource, /const signal = controller\.signal/);
   });
 
   const failures = [

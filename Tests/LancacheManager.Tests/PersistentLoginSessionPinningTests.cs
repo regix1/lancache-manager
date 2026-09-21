@@ -86,20 +86,19 @@ public class PersistentLoginSessionPinningTests
             .GetField("_cacheService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)!;
         await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
 
-        foreach (var failure in new Exception[]
-        {
-            new InvalidOperationException("Cache status is unavailable."),
-            new DaemonCommandException("game-details-unavailable")
-        })
-        {
-            daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(failure);
-            var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
-            var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
-            Assert.Equal(["10"], body.CachedAppIds);
-            Assert.Equal(["10"], body.UnknownAppIds);
-            Assert.Empty(body.OutdatedAppIds);
-            Assert.Single(body.Games);
-        }
+        var readFailure = new InvalidOperationException("Cache status is unavailable.");
+        daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(readFailure);
+        Assert.Same(readFailure, await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A")));
+
+        daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(
+            new DaemonCommandException("game-details-unavailable"));
+        var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+        var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(["10"], body.CachedAppIds);
+        Assert.Equal(["10"], body.UnknownAppIds);
+        Assert.Empty(body.OutdatedAppIds);
+        Assert.Single(body.Games);
 
         foreach (var failure in new[]
         {
@@ -119,6 +118,105 @@ public class PersistentLoginSessionPinningTests
         daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(cancellation);
         Assert.Same(cancellation, await Assert.ThrowsAsync<OperationCanceledException>(() =>
             controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A")));
+    }
+
+    [Fact]
+    public async Task GetGames_ForwardsOneExpiryAndNormalizedStatus()
+    {
+        var now = new DateTimeOffset(2026, 9, 21, 1, 0, 0, TimeSpan.Zero);
+        var clock = new CacheStatusClock(now);
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-A", cacheStatusClock: clock);
+        client.Games = () => Task.FromResult(new List<OwnedGame> { new() { AppId = "10", Name = "Game" } });
+        var cache = (PrefillCacheService)typeof(PersistentPrefillController)
+            .GetField("_cacheService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)!;
+        await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
+        daemon.CacheStatus = () => Task.FromResult(new CacheStatusResult
+        {
+            Version = 2,
+            Apps = [AppCacheStatus.Current("10")],
+            Message = "partial inspection"
+        });
+
+        var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+        var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(now.AddSeconds(120), daemon.CacheStatusExpiresAtUtc);
+        Assert.Equal(CacheOutcome.Current, Assert.Single(body.Apps).Outcome);
+        Assert.Equal("partial inspection", body.Message);
+    }
+
+    [Fact]
+    public async Task GetGames_ExpiryCancelsOwnedGamesReadWithoutCancellingCaller()
+    {
+        var now = new DateTimeOffset(2026, 9, 21, 1, 0, 0, TimeSpan.Zero);
+        var clock = new CacheStatusClock(now);
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A", cacheStatusClock: clock);
+        using var caller = new CancellationTokenSource();
+        var entered = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.GamesWithToken = async token =>
+        {
+            entered.TrySetResult(token);
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return [];
+        };
+
+        var pending = controller.GetGamesAsync(PrefillPlatform.Steam, caller.Token, "session-A");
+        var dependencyToken = await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        clock.Advance(TimeSpan.FromSeconds(120));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(dependencyToken.IsCancellationRequested);
+        Assert.False(caller.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task GetGames_ExpiryCancelsCachedAppReadWithoutCancellingCaller()
+    {
+        var now = new DateTimeOffset(2026, 9, 21, 1, 0, 0, TimeSpan.Zero);
+        var clock = new CacheStatusClock(now);
+        var entered = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (controller, _, client) = CreateControllerWithActiveSession(
+            "session-A",
+            cacheStatusClock: clock,
+            configureCache: cache => cache.BeforeCreateAsync = async token =>
+            {
+                entered.TrySetResult(token);
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            });
+        client.Games = () => Task.FromResult(new List<OwnedGame> { new() { AppId = "10", Name = "Game" } });
+        using var caller = new CancellationTokenSource();
+
+        var pending = controller.GetGamesAsync(PrefillPlatform.Steam, caller.Token, "session-A");
+        var dependencyToken = await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        clock.Advance(TimeSpan.FromSeconds(120));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(dependencyToken.IsCancellationRequested);
+        Assert.False(caller.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task GetGames_CallerCancellationCancelsOwnedGamesRead()
+    {
+        var now = new DateTimeOffset(2026, 9, 21, 1, 0, 0, TimeSpan.Zero);
+        var clock = new CacheStatusClock(now);
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A", cacheStatusClock: clock);
+        using var caller = new CancellationTokenSource();
+        var entered = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.GamesWithToken = async token =>
+        {
+            entered.TrySetResult(token);
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return [];
+        };
+
+        var pending = controller.GetGamesAsync(PrefillPlatform.Steam, caller.Token, "session-A");
+        var dependencyToken = await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await caller.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(dependencyToken.IsCancellationRequested);
+        Assert.True(caller.IsCancellationRequested);
+        Assert.Equal(now, clock.GetUtcNow());
     }
 
     // ---- RC3: controller pinning ---------------------------------------------------------------
@@ -864,9 +962,11 @@ public class PersistentLoginSessionPinningTests
         CreateControllerWithActiveSession(
             string activeSessionId,
             Guid? accountId = null,
-            bool authenticationEnabled = true)
+            bool authenticationEnabled = true,
+            TimeProvider? cacheStatusClock = null,
+            Action<InMemoryDbContextFactory>? configureCache = null)
     {
-        var daemon = CreateDaemon();
+        var daemon = CreateDaemon(cacheStatusClock);
 
         var client = DispatchProxy.Create<IDaemonClient, RecordingDaemonClientProxy>();
         var recorder = (RecordingDaemonClientProxy)client;
@@ -880,6 +980,7 @@ public class PersistentLoginSessionPinningTests
             .UseInMemoryDatabase($"session_pinning_{Guid.NewGuid():N}")
             .Options;
         var dbFactory = new InMemoryDbContextFactory(dbOptions);
+        configureCache?.Invoke(dbFactory);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         var provider = new SingleDaemonServiceProvider(daemon);
         var configuration = new ConfigurationBuilder()
@@ -932,7 +1033,7 @@ public class PersistentLoginSessionPinningTests
         ]
         };
 
-    private static TestableSteamDaemonService CreateDaemon()
+    private static TestableSteamDaemonService CreateDaemon(TimeProvider? cacheStatusClock = null)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"session_pinning_daemon_{Guid.NewGuid():N}")
@@ -948,7 +1049,7 @@ public class PersistentLoginSessionPinningTests
 
         return new TestableSteamDaemonService(
             NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
-            stateService, sessionService, cacheService, networkOptions);
+            stateService, sessionService, cacheService, networkOptions, cacheStatusClock);
     }
 
     private static DaemonSession CreatePersistentSession(string sessionId) => new()
@@ -973,18 +1074,28 @@ public class PersistentLoginSessionPinningTests
             IStateService stateService,
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
-            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
+            IOptionsMonitor<PrefillNetworkOptions> networkOptions,
+            TimeProvider? cacheStatusClock = null)
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService,
+                networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory(),
+                cacheStatusClock: cacheStatusClock)
         {
         }
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
 
         public Func<Task<CacheStatusResult>>? CacheStatus { get; set; }
+        public DateTimeOffset? CacheStatusExpiresAtUtc { get; private set; }
 
         public override Task<CacheStatusResult> GetCacheStatusAsync(string sessionId, List<string> appIds,
+            DateTimeOffset expiresAtUtc,
             CancellationToken cancellationToken = default)
-            => CacheStatus is null ? base.GetCacheStatusAsync(sessionId, appIds, cancellationToken) : CacheStatus();
+        {
+            CacheStatusExpiresAtUtc = expiresAtUtc;
+            return CacheStatus is null
+                ? base.GetCacheStatusAsync(sessionId, appIds, expiresAtUtc, cancellationToken)
+                : CacheStatus();
+        }
 
         public Guid? AvailabilityAccountId { get; private set; }
         public Guid? ReuseAccountId { get; private set; }
@@ -1076,6 +1187,7 @@ public class PersistentLoginSessionPinningTests
         public bool AcknowledgeLoginCancel { get; set; } = true;
         public string LiveStatus { get; set; } = "awaiting-login";
         public Func<Task<List<OwnedGame>>>? Games { get; set; }
+        public Func<CancellationToken, Task<List<OwnedGame>>>? GamesWithToken { get; set; }
         private Func<DaemonStatus, Task>? StatusChanged { get; set; }
         public int StatusSubscribers => StatusChanged?.GetInvocationList().Length ?? 0;
 
@@ -1129,8 +1241,13 @@ public class PersistentLoginSessionPinningTests
                 return Task.FromResult(AcknowledgeLoginCancel);
             }
 
-            if (targetMethod?.Name == nameof(IDaemonClient.GetOwnedGamesAsync) && Games is not null)
-                return Games();
+            if (targetMethod?.Name == nameof(IDaemonClient.GetOwnedGamesAsync))
+            {
+                if (GamesWithToken is not null)
+                    return GamesWithToken((CancellationToken)args![0]!);
+                if (Games is not null)
+                    return Games();
+            }
 
             return DefaultReturnValue(targetMethod);
         }
@@ -1147,8 +1264,14 @@ public class PersistentLoginSessionPinningTests
 
         public AppDbContext CreateDbContext() => new(_options);
 
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
+        public Func<CancellationToken, Task>? BeforeCreateAsync { get; set; }
+
+        public async Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            if (BeforeCreateAsync is not null)
+                await BeforeCreateAsync(cancellationToken);
+            return new AppDbContext(_options);
+        }
     }
 
     private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>

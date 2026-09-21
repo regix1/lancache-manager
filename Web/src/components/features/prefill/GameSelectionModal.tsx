@@ -14,6 +14,8 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { CACHE_REASON_KEYS, type AppCacheStatus } from './cacheStatus';
+import { resolveCacheStatus } from './cachedApps';
 import './GameSelectionModal.css';
 
 export interface OwnedGame {
@@ -35,6 +37,8 @@ interface GameSelectionModalProps {
   cachedAppIds?: string[];
   outdatedAppIds?: string[];
   unknownAppIds?: string[];
+  cacheApps?: readonly AppCacheStatus[];
+  cacheMessage?: string | null;
   error?: string | null;
   isUsingCache?: boolean;
   onRescan?: () => Promise<void>;
@@ -55,6 +59,8 @@ export function GameSelectionModal({
   cachedAppIds = [],
   outdatedAppIds = [],
   unknownAppIds = [],
+  cacheApps = [],
+  cacheMessage = null,
   error = null,
   isUsingCache = false,
   onRescan,
@@ -88,6 +94,10 @@ export function GameSelectionModal({
   const unknownAppIdsSet = useMemo(
     () => new Set(unknownAppIds.map((id) => id.toLowerCase())),
     [unknownAppIds]
+  );
+  const cacheReasonByAppId = useMemo(
+    () => new Map(cacheApps.map((app) => [app.appId.toLowerCase(), app.reason])),
+    [cacheApps]
   );
   const gameIdSet = useMemo(() => new Set(games.map((g) => g.appId)), [games]);
 
@@ -243,12 +253,10 @@ export function GameSelectionModal({
 
   const cachedSelectedCount = useMemo(
     () =>
-      selectedInLibrary.filter((id) => {
-        const key = id.toLowerCase();
-        return (
-          cachedAppIdsSet.has(key) && !outdatedAppIdsSet.has(key) && !unknownAppIdsSet.has(key)
-        );
-      }).length,
+      selectedInLibrary.filter(
+        (id) =>
+          resolveCacheStatus(id, cachedAppIdsSet, outdatedAppIdsSet, unknownAppIdsSet) === 'cached'
+      ).length,
     [selectedInLibrary, cachedAppIdsSet, outdatedAppIdsSet, unknownAppIdsSet]
   );
 
@@ -387,9 +395,24 @@ export function GameSelectionModal({
 
   const renderGameRow = (game: OwnedGame, selected: boolean) => {
     const appKey = game.appId.toLowerCase();
-    const isCached = cachedAppIdsSet.has(appKey);
-    const isOutdated = outdatedAppIdsSet.has(appKey);
-    const isUnknown = unknownAppIdsSet.has(appKey);
+    const cacheState = resolveCacheStatus(
+      game.appId,
+      cachedAppIdsSet,
+      outdatedAppIdsSet,
+      unknownAppIdsSet
+    );
+    const cacheReason = cacheState === 'unknown' ? cacheReasonByAppId.get(appKey) : null;
+    const cacheReasonId = cacheReason
+      ? `game-cache-reason-${encodeURIComponent(game.appId)}`
+      : undefined;
+    const cacheBadge =
+      cacheState === 'cached'
+        ? { variant: 'success' as const, label: t('prefill.gameSelection.cachedBadge') }
+        : cacheState === 'outdated'
+          ? { variant: 'warning' as const, label: t('prefill.gameSelection.updateAvailable') }
+          : cacheState === 'unknown'
+            ? { variant: 'warning' as const, label: t('prefill.gameSelection.statusUnknown') }
+            : null;
 
     return (
       <div
@@ -405,6 +428,7 @@ export function GameSelectionModal({
           variant="transparent"
           data-game-app-id={game.appId}
           aria-pressed={selected}
+          aria-describedby={cacheReasonId}
           onClick={() => toggleGame(game.appId)}
           className="game-selection-modal__row-select flex-1 min-w-0 !rounded-none flex items-center gap-3 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
         >
@@ -427,14 +451,11 @@ export function GameSelectionModal({
               <span className="min-w-0 truncate">
                 {t('prefill.gameSelection.appId', { id: game.appId })}
               </span>
-              {isCached && (
-                <Badge variant="success">{t('prefill.gameSelection.cachedBadge')}</Badge>
-              )}
-              {isOutdated && (
-                <Badge variant="warning">{t('prefill.gameSelection.updateAvailable')}</Badge>
-              )}
-              {isUnknown && (
-                <Badge variant="warning">{t('prefill.gameSelection.statusUnknown')}</Badge>
+              {cacheBadge && <Badge variant={cacheBadge.variant}>{cacheBadge.label}</Badge>}
+              {cacheReason && (
+                <span id={cacheReasonId} className="sr-only">
+                  {t(CACHE_REASON_KEYS[cacheReason])}
+                </span>
               )}
             </div>
           </div>
@@ -465,9 +486,9 @@ export function GameSelectionModal({
               {error}
             </Alert>
           )}
-          {unknownAppIds.length > 0 && (
+          {cacheMessage && (
             <Alert color="yellow" className="game-selection-modal__alert">
-              {t('prefill.gameSelection.cacheStatusUnknown')}
+              {cacheMessage}
             </Alert>
           )}
           <div className="game-selection-modal__search">

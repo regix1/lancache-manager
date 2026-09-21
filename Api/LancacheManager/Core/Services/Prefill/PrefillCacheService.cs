@@ -1,3 +1,5 @@
+using System.Data;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +12,7 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class PrefillCacheService
 {
+    internal const string SteamCacheReceipt = "steam-depots-v1";
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<PrefillCacheService> _logger;
 
@@ -196,6 +199,204 @@ public class PrefillCacheService
         }
 
         return recorded;
+    }
+
+    public async Task<PrefillCacheSnapshot> GetCacheSnapshotAsync(
+        IReadOnlyCollection<uint> appIds,
+        CancellationToken cancellationToken = default)
+    {
+        var requested = appIds.Distinct().Order().ToArray();
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(
+            IsolationLevel.RepeatableRead,
+            cancellationToken);
+        var requestedText = requested.Select(appId => appId.ToString()).ToArray();
+        var receipts = await context.PrefillCachedApps
+            .AsNoTracking()
+            .Where(app => app.Platform == PrefillPlatform.Steam && requestedText.Contains(app.AppId))
+            .Select(app => new { app.AppId, app.CacheRevision })
+            .ToDictionaryAsync(
+                app => app.AppId,
+                app => app.CacheRevision,
+                StringComparer.Ordinal,
+                cancellationToken);
+        var depots = await context.PrefillCachedDepots
+            .AsNoTracking()
+            .OrderBy(depot => depot.DepotId)
+            .ThenBy(depot => depot.ManifestId)
+            .Select(depot => new CachedDepotInput
+            {
+                AppId = depot.AppId,
+                DepotId = depot.DepotId,
+                ManifestId = depot.ManifestId
+            })
+            .ToListAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new PrefillCacheSnapshot
+        {
+            Depots = depots,
+            Scope = requested.Select(appId =>
+            {
+                var text = appId.ToString();
+                var authority = !receipts.TryGetValue(text, out var receipt)
+                    ? CacheAuthority.Empty
+                    : StringComparer.Ordinal.Equals(receipt, SteamCacheReceipt)
+                        ? CacheAuthority.Snapshot
+                        : CacheAuthority.Absent;
+                return new CacheAppScope { AppId = appId, Authority = authority };
+            }).ToList()
+        };
+    }
+
+    public async Task<bool> RecordSteamCacheAsync(
+        long appId,
+        string? appName,
+        long totalBytes,
+        string? cachedBy,
+        IReadOnlyList<DepotManifestProgressInfo>? depots,
+        CancellationToken cancellationToken = default)
+    {
+        if (appId is <= 0 or > uint.MaxValue || totalBytes < 0 || depots is not { Count: > 0 })
+            return false;
+
+        var accepted = new List<DepotManifestProgressInfo>();
+        foreach (var group in depots.GroupBy(depot => depot.DepotId).OrderBy(group => group.Key))
+        {
+            if (group.Key is <= 0 or > uint.MaxValue
+                || group.Any(depot => depot.ManifestId == 0 || depot.TotalBytes < 0)
+                || group.Select(depot => depot.ManifestId).Distinct().Skip(1).Any())
+            {
+                return false;
+            }
+
+            var first = group.First();
+            accepted.Add(new DepotManifestProgressInfo
+            {
+                DepotId = first.DepotId,
+                ManifestId = first.ManifestId,
+                TotalBytes = group.Max(depot => depot.TotalBytes)
+            });
+        }
+
+        var appIdText = appId.ToString();
+        var now = DateTime.UtcNow;
+        await using var retryContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var execution = retryContext.Database.CreateExecutionStrategy();
+        var changed = await execution.ExecuteAsync(async attemptToken =>
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync(attemptToken);
+            var relational = context.Database.IsRelational();
+            await using var transaction = relational
+                ? await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, attemptToken)
+                : null;
+            if (relational)
+            {
+                var cacheLock = unchecked((long)0x4C434D0000000000UL | (uint)appId);
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({cacheLock})",
+                    attemptToken);
+            }
+
+            var existingApp = await context.PrefillCachedApps
+                .SingleOrDefaultAsync(app => app.Platform == PrefillPlatform.Steam && app.AppId == appIdText,
+                    attemptToken);
+            var depotIds = accepted.Select(depot => depot.DepotId).ToArray();
+            var existingDepots = await context.PrefillCachedDepots
+                .Where(depot => depotIds.Contains(depot.DepotId))
+                .ToListAsync(attemptToken);
+            var cacheChanged = existingApp?.CacheRevision != SteamCacheReceipt
+                || accepted.Any(depot => !existingDepots.Any(existing =>
+                    existing.DepotId == depot.DepotId && existing.ManifestId == depot.ManifestId))
+                || existingDepots.Any(existing => accepted.Any(depot =>
+                    depot.DepotId == existing.DepotId && depot.ManifestId != existing.ManifestId));
+
+            if (!relational)
+            {
+                var app = existingApp ?? new PrefillCachedApp
+                {
+                    Platform = PrefillPlatform.Steam,
+                    AppId = appIdText
+                };
+                app.AppName = appName ?? app.AppName;
+                app.TotalBytes = totalBytes;
+                app.CachedAtUtc = now;
+                app.CachedBy = cachedBy ?? app.CachedBy;
+                app.CacheRevision = SteamCacheReceipt;
+                if (existingApp is null) context.PrefillCachedApps.Add(app);
+                foreach (var depot in accepted)
+                {
+                    context.PrefillCachedDepots.RemoveRange(existingDepots.Where(existing =>
+                        existing.DepotId == depot.DepotId && existing.ManifestId != depot.ManifestId));
+                    var existing = existingDepots.SingleOrDefault(row =>
+                        row.DepotId == depot.DepotId && row.ManifestId == depot.ManifestId);
+                    if (existing is null)
+                    {
+                        context.PrefillCachedDepots.Add(new PrefillCachedDepot
+                        {
+                            AppId = appId,
+                            DepotId = depot.DepotId,
+                            ManifestId = depot.ManifestId,
+                            AppName = appName,
+                            TotalBytes = depot.TotalBytes,
+                            CachedAtUtc = now,
+                            CachedBy = cachedBy
+                        });
+                    }
+                    else
+                    {
+                        existing.CachedAtUtc = now;
+                        existing.CachedBy = cachedBy;
+                    }
+                }
+                await context.SaveChangesAsync(attemptToken);
+                return cacheChanged;
+            }
+
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "PrefillCachedApps"
+                    ("Platform", "AppId", "AppName", "CachedAtUtc", "CachedBy", "TotalBytes", "CacheRevision")
+                VALUES ({PrefillPlatform.Steam.ToString()}, {appIdText}, {appName}, {now}, {cachedBy}, {totalBytes}, {SteamCacheReceipt})
+                ON CONFLICT ("Platform", "AppId") DO UPDATE SET
+                    "AppName" = COALESCE(EXCLUDED."AppName", "PrefillCachedApps"."AppName"),
+                    "CachedAtUtc" = EXCLUDED."CachedAtUtc",
+                    "CachedBy" = COALESCE(EXCLUDED."CachedBy", "PrefillCachedApps"."CachedBy"),
+                    "TotalBytes" = EXCLUDED."TotalBytes",
+                    "CacheRevision" = EXCLUDED."CacheRevision"
+                """, attemptToken);
+            foreach (var depot in accepted)
+            {
+                var manifestId = (decimal)depot.ManifestId;
+                await context.Database.ExecuteSqlInterpolatedAsync($"""
+                    DELETE FROM "PrefillCachedDepots"
+                    WHERE "DepotId" = {depot.DepotId} AND "ManifestId" <> {manifestId}
+                    """, attemptToken);
+                await context.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO "PrefillCachedDepots"
+                        ("AppId", "DepotId", "ManifestId", "AppName", "CachedAtUtc", "CachedBy", "TotalBytes")
+                    VALUES ({appId}, {depot.DepotId}, {manifestId}, {appName}, {now}, {cachedBy}, {depot.TotalBytes})
+                    ON CONFLICT ("DepotId", "ManifestId") DO UPDATE SET
+                        "CachedAtUtc" = EXCLUDED."CachedAtUtc",
+                        "CachedBy" = EXCLUDED."CachedBy"
+                    """, attemptToken);
+            }
+            await transaction!.CommitAsync(attemptToken);
+            return cacheChanged;
+        }, cancellationToken);
+
+        try
+        {
+            await using var mappingContext = await _contextFactory.CreateDbContextAsync(CancellationToken.None);
+            foreach (var depot in accepted)
+            {
+                await EnsureDepotMappingExistsAsync(mappingContext, appId, depot.DepotId, appName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update depot mappings for app {AppId}", appId);
+        }
+        return changed;
     }
 
     /// <summary>

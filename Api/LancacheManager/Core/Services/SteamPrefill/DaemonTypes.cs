@@ -504,45 +504,6 @@ public class SelectedAppsStatus
     public string? Message { get; set; }
 }
 
-public class CacheStatusResult
-{
-    public (List<string> UpToDateAppIds, List<string> OutdatedAppIds, List<string> UnknownAppIds) ResolveAppIds(IEnumerable<string> requested)
-    {
-        var ids = requested.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var outdated = Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var verified = Apps.Where(a => a.IsUpToDate && !outdated.Contains(a.AppId))
-            .Select(a => a.AppId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return (ids.Where(verified.Contains).ToList(), ids.Where(outdated.Contains).ToList(),
-            ids.Where(id => !verified.Contains(id) && !outdated.Contains(id)).ToList());
-    }
-
-    [JsonPropertyName("apps")]
-    public List<AppCacheStatus> Apps { get; set; } = new();
-
-    /// <summary>
-    /// A note about the cache check as a whole, such as apps it could not inspect. Null when every
-    /// requested app was checked without incident.
-    /// </summary>
-    [JsonPropertyName("message")]
-    public string? Message { get; set; }
-}
-
-public class AppCacheStatus
-{
-    [JsonPropertyName("appId")]
-    [JsonConverter(typeof(FlexibleStringConverter))]
-    public string AppId { get; set; } = string.Empty;
-
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    [JsonPropertyName("isUpToDate")]
-    public bool IsUpToDate { get; set; }
-
-    [JsonPropertyName("downloadSize")]
-    public long DownloadSize { get; set; }
-}
-
 /// <summary>
 /// Input for cached depot manifest info to send to daemon.
 /// Format matches daemon's CachedDepotInput class.

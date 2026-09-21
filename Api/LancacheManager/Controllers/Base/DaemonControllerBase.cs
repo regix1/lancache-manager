@@ -93,25 +93,22 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
             return BadRequest(ApiResponse.Error("No app IDs provided"));
         }
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
-        CacheStatusResult status;
-        try
-        {
-            status = await _daemonService.GetCacheStatusAsync(sessionId, request.AppIds, timeout.Token);
-        }
-        catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
-        {
-            return Ok(new PrefillCacheStatusResponse { UnknownAppIds = request.AppIds.Distinct(StringComparer.Ordinal).ToList() });
-        }
-        var (upToDate, outdated, unknown) = status.ResolveAppIds(request.AppIds);
+        var expiresAtUtc = _daemonService.CacheStatusClock.GetUtcNow().AddSeconds(120);
+        var status = await _daemonService.GetCacheStatusAsync(
+            sessionId,
+            request.AppIds,
+            expiresAtUtc,
+            HttpContext.RequestAborted);
+        var normalized = status.Normalize(request.AppIds);
+        var (upToDate, outdated, unknown) = normalized.ResolveAppIds(request.AppIds);
 
         return Ok(new PrefillCacheStatusResponse
         {
+            Apps = normalized.Apps,
             UpToDateAppIds = upToDate,
             OutdatedAppIds = outdated,
             UnknownAppIds = unknown,
-            Message = status.Message
+            Message = normalized.Message
         });
     }
 

@@ -232,8 +232,11 @@ public sealed class PersistentPrefillGamesDto
     /// <summary>Owned games for the persistent session (same payload as the user games route).</summary>
     public required List<OwnedGame> Games { get; init; }
 
+    public List<AppCacheStatus> Apps { get; init; } = [];
+
     /// <summary>App ids whose cached content is up to date for the session.</summary>
     public required List<string> CachedAppIds { get; init; }
     public List<string> OutdatedAppIds { get; init; } = [];
     public List<string> UnknownAppIds { get; init; } = [];
+    public string? Message { get; init; }
 }

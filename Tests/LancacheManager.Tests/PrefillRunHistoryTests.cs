@@ -91,7 +91,7 @@ public sealed class PrefillRunHistoryTests
         var row = await context.PrefillHistoryEntries.SingleAsync(entry => entry.RunId == run.PrefillRunId);
         Assert.Equal(100, row.BytesDownloaded);
         Assert.Equal(PrefillHistoryEntryStatus.Completed, row.Status);
-        Assert.Single(await context.PrefillCachedApps.ToListAsync());
+        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
     }
 
     [Fact]

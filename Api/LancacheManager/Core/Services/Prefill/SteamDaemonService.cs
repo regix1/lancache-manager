@@ -31,8 +31,9 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         IPrefillContainerGatewayFactory containerGatewayFactory,
         IActivityRegistry? activityRegistry = null,
         IUnifiedOperationTracker? operationTracker = null,
-        SteamAuthStorageService? authStorage = null)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker)
+        SteamAuthStorageService? authStorage = null,
+        TimeProvider? cacheStatusClock = null)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker, cacheStatusClock)
     {
         _authStorage = authStorage;
     }

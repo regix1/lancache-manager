@@ -31,8 +31,9 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         ILancacheServerLocator locator,
         IPrefillContainerGatewayFactory containerGatewayFactory,
         IActivityRegistry? activityRegistry = null,
-        IUnifiedOperationTracker? operationTracker = null)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker)
+        IUnifiedOperationTracker? operationTracker = null,
+        TimeProvider? cacheStatusClock = null)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker, cacheStatusClock)
     {
         _mappingService = mappingService;
     }
@@ -210,6 +211,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     public override Task<CacheStatusResult> GetCacheStatusAsync(
         string sessionId,
         List<string> appIds,
+        DateTimeOffset expiresAtUtc,
         CancellationToken cancellationToken = default)
-        => GetStringAppCacheStatusAsync(sessionId, appIds, cancellationToken);
+        => GetStringAppCacheStatusAsync(sessionId, appIds, expiresAtUtc, cancellationToken);
 }

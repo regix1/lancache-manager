@@ -89,6 +89,7 @@ import type {
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
 import type { PrefillRun } from '../components/features/prefill/hooks/prefillTypes';
+import type { AppCacheStatus } from '../components/features/prefill/cacheStatus';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto,
@@ -2692,9 +2693,7 @@ class ApiService {
           { appIds },
           {
             method: 'POST',
-            signal: signal
-              ? AbortSignal.any([signal, AbortSignal.timeout(45000)])
-              : AbortSignal.timeout(45000)
+            signal
           }
         )
       );
@@ -3657,9 +3656,7 @@ class ApiService {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/games?service=${encodeURIComponent(service)}${expectedSessionId ? `&expectedSessionId=${encodeURIComponent(expectedSessionId)}` : ''}`,
         this.getFetchOptions({
-          signal: signal
-            ? AbortSignal.any([signal, AbortSignal.timeout(45000)])
-            : AbortSignal.timeout(45000)
+          signal
         })
       );
       return await this.handleResponse<PersistentPrefillGamesDto>(res);
@@ -4565,6 +4562,7 @@ interface PrefillCacheStatusDto {
   upToDateAppIds: string[];
   outdatedAppIds: string[];
   unknownAppIds: string[];
+  apps?: AppCacheStatus[];
   message?: string;
 }
 
@@ -4578,6 +4576,8 @@ interface PersistentPrefillGamesDto {
   cachedAppIds: string[];
   outdatedAppIds: string[];
   unknownAppIds: string[];
+  apps?: AppCacheStatus[];
+  message?: string;
 }
 
 export default ApiService;

@@ -1,9 +1,11 @@
+using System.Data.Common;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using LancacheManager.Infrastructure.Data.Migrations;
 using Microsoft.Extensions.Logging.Abstractions;
 using LancacheManager.Controllers;
@@ -15,6 +17,153 @@ namespace LancacheManager.Tests;
 
 public class PrefillCachedAppTests
 {
+    [Fact]
+    public async Task SteamSnapshot_DistinguishesEmptySnapshotAndAbsentAuthority()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var context = new AppDbContext(database.Options))
+        {
+            context.PrefillCachedApps.AddRange(
+                new PrefillCachedApp
+                {
+                    Platform = PrefillPlatform.Steam,
+                    AppId = "20",
+                    CacheRevision = PrefillCacheService.SteamCacheReceipt,
+                    CachedAtUtc = DateTime.UtcNow
+                },
+                new PrefillCachedApp
+                {
+                    Platform = PrefillPlatform.Steam,
+                    AppId = "30",
+                    CacheRevision = "legacy-receipt",
+                    CachedAtUtc = DateTime.UtcNow
+                });
+            context.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 99,
+                DepotId = 100,
+                ManifestId = 1000,
+                CachedAtUtc = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var service = new PrefillCacheService(new TestDbContextFactory(database.Options),
+            NullLogger<PrefillCacheService>.Instance);
+        await using (var verify = new AppDbContext(database.Options))
+        {
+            Assert.Equal(PrefillCacheService.SteamCacheReceipt,
+                (await verify.PrefillCachedApps.SingleAsync(app => app.AppId == "20")).CacheRevision);
+        }
+        var snapshot = await service.GetCacheSnapshotAsync([10, 20, 30]);
+
+        Assert.Equal(CacheAuthority.Empty, Assert.Single(snapshot.Scope, app => app.AppId == 10U).Authority);
+        Assert.Equal(CacheAuthority.Snapshot, Assert.Single(snapshot.Scope, app => app.AppId == 20U).Authority);
+        Assert.Equal(CacheAuthority.Absent, Assert.Single(snapshot.Scope, app => app.AppId == 30U).Authority);
+        Assert.Equal(100, Assert.Single(snapshot.Depots).DepotId);
+    }
+
+    [Fact]
+    public async Task SteamCache_CompleteEvidenceCommitsReceiptAndDepots()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new PrefillCacheService(new TestDbContextFactory(database.Options),
+            NullLogger<PrefillCacheService>.Instance);
+
+        var changed = await service.RecordSteamCacheAsync(20, "Game", 30, "user",
+        [
+            new DepotManifestProgressInfo { DepotId = 200, ManifestId = 2000, TotalBytes = 10 },
+            new DepotManifestProgressInfo { DepotId = 100, ManifestId = 1000, TotalBytes = 20 }
+        ]);
+
+        Assert.True(changed);
+        await using var context = new AppDbContext(database.Options);
+        var app = Assert.Single(await context.PrefillCachedApps.ToListAsync());
+        Assert.Equal(PrefillCacheService.SteamCacheReceipt, app.CacheRevision);
+        Assert.Equal([100L, 200L], await context.PrefillCachedDepots.OrderBy(depot => depot.DepotId)
+            .Select(depot => depot.DepotId).ToListAsync());
+    }
+
+    [Fact]
+    public async Task SteamCache_MissingOrConflictingEvidencePreservesPriorRows()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.PrefillCachedApps.Add(new PrefillCachedApp
+            {
+                Platform = PrefillPlatform.Steam,
+                AppId = "20",
+                CacheRevision = "prior",
+                CachedAtUtc = DateTime.UtcNow
+            });
+            seed.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 20,
+                DepotId = 100,
+                ManifestId = 1000,
+                CachedAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+        var service = new PrefillCacheService(new TestDbContextFactory(database.Options),
+            NullLogger<PrefillCacheService>.Instance);
+
+        Assert.False(await service.RecordSteamCacheAsync(20, "Game", 1, null, null));
+        Assert.False(await service.RecordSteamCacheAsync(20, "Game", 1, null,
+        [
+            new DepotManifestProgressInfo { DepotId = 100, ManifestId = 1000, TotalBytes = 1 },
+            new DepotManifestProgressInfo { DepotId = 100, ManifestId = 2000, TotalBytes = 1 }
+        ]));
+
+        await using var context = new AppDbContext(database.Options);
+        Assert.Equal("prior", (await context.PrefillCachedApps.SingleAsync()).CacheRevision);
+        Assert.Equal(1000UL, (await context.PrefillCachedDepots.SingleAsync()).ManifestId);
+    }
+
+    [Fact]
+    public async Task SteamCache_DepotWriteFailureRollsBackReceipt()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>(database.Options)
+            .AddInterceptors(new FailingDepotCommandInterceptor())
+            .Options;
+        var service = new PrefillCacheService(new TestDbContextFactory(options),
+            NullLogger<PrefillCacheService>.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RecordSteamCacheAsync(
+            20,
+            "Game",
+            1,
+            null,
+            [new DepotManifestProgressInfo { DepotId = 100, ManifestId = 1000, TotalBytes = 1 }]));
+
+        await using var context = new AppDbContext(database.Options);
+        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
+        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
+    }
+
+    [Fact]
+    public async Task SteamCache_ConcurrentWritersKeepOneReceiptAndPhysicalPair()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new PrefillCacheService(new TestDbContextFactory(database.Options),
+            NullLogger<PrefillCacheService>.Instance);
+        var evidence = new[]
+        {
+            new DepotManifestProgressInfo { DepotId = 100, ManifestId = 1000, TotalBytes = 1 }
+        };
+
+        var changes = await Task.WhenAll(
+            service.RecordSteamCacheAsync(20, "Game", 1, "one", evidence),
+            service.RecordSteamCacheAsync(20, "Game", 1, "two", evidence));
+
+        Assert.Single(changes, changed => changed);
+        await using var context = new AppDbContext(database.Options);
+        Assert.Single(await context.PrefillCachedApps.ToListAsync());
+        Assert.Single(await context.PrefillCachedDepots.ToListAsync());
+    }
+
     [Fact]
     public void CachedApp_RunOptionsRetainStoredNames()
     {
@@ -108,6 +257,50 @@ public class PrefillCachedAppTests
         Assert.Equal(["A"], verified);
         Assert.Equal(["B"], outdated);
         Assert.Equal(["C"], unknown);
+    }
+
+    [Fact]
+    public void CacheStatus_NormalizesTypedRowsIntoExclusiveBuckets()
+    {
+        var status = new CacheStatusResult
+        {
+            Version = 2,
+            Apps =
+            [
+                AppCacheStatus.Current("A"),
+                AppCacheStatus.Outdated("B"),
+                AppCacheStatus.Unknown("C", CacheReason.ManifestUnavailable)
+            ]
+        };
+
+        var normalized = status.Normalize(["A", "B", "C"]);
+        var (current, outdated, unknown) = normalized.ResolveAppIds(["A", "B", "C"]);
+        Assert.Equal(["A"], current);
+        Assert.Equal(["B"], outdated);
+        Assert.Equal(["C"], unknown);
+        Assert.Equal(3, current.Concat(outdated).Concat(unknown).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void CacheStatus_InvalidTypedSetDoesNotAcceptPartialClaims()
+    {
+        var status = new CacheStatusResult
+        {
+            Version = 2,
+            Apps =
+            [
+                AppCacheStatus.Current("A"),
+                AppCacheStatus.Outdated("A"),
+                AppCacheStatus.Current("extra")
+            ]
+        };
+
+        var normalized = status.Normalize(["A", "B"]);
+        Assert.All(normalized.Apps, app =>
+        {
+            Assert.Equal(CacheOutcome.Unknown, app.Outcome);
+            Assert.Equal(CacheReason.InvalidResult, app.Reason);
+        });
     }
 
     [Fact]
@@ -242,5 +435,19 @@ public class PrefillCachedAppTests
         Assert.Equal(platform, service.ToPrefillPlatform());
         Assert.Equal(platform, platform.ToService().ToPrefillPlatform());
         Assert.Null("unrelated".ToPrefillPlatform());
+    }
+
+    private sealed class FailingDepotCommandInterceptor : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData commandEvent,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("INSERT INTO \"PrefillCachedDepots\"", StringComparison.Ordinal))
+                throw new InvalidOperationException("Injected depot write failure.");
+            return ValueTask.FromResult(result);
+        }
     }
 }

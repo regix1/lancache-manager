@@ -305,8 +305,16 @@ public class PersistentPrefillController : ControllerBase
     {
         var (daemon, session, error) = ResolveRunningPersistentSession(service, expectedSessionId);
         if (error is not null) return error;
+        var expiresAtUtc = daemon!.CacheStatusClock.GetUtcNow().AddSeconds(120);
 
-        var games = await daemon!.GetOwnedGamesAsync(session!.Id, cancellationToken);
+        using var prerequisiteDeadline = new CancellationTokenSource(
+            expiresAtUtc - daemon.CacheStatusClock.GetUtcNow(),
+            daemon.CacheStatusClock);
+        using var prerequisite = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            prerequisiteDeadline.Token);
+
+        var games = await daemon.GetOwnedGamesAsync(session!.Id, prerequisite.Token);
 
         var ownedAppIds = games
             .Select(g => g.AppId.ToString())
@@ -315,20 +323,25 @@ public class PersistentPrefillController : ControllerBase
             .ToList();
 
         var cachedAppIds = await ResolveCachedAppIdsForGamePickerAsync(
-            service, ownedAppIds, cancellationToken);
+            service, ownedAppIds, prerequisite.Token);
         List<string> outdatedAppIds = [];
         List<string> unknownAppIds = [];
+        List<AppCacheStatus> apps = [];
+        string? message = null;
         if (cachedAppIds.Count > 0)
         {
             try
             {
-                var status = await daemon!.GetCacheStatusAsync(session.Id, cachedAppIds, cancellationToken);
-                (_, outdatedAppIds, unknownAppIds) = status.ResolveAppIds(cachedAppIds);
+                var status = await daemon.GetCacheStatusAsync(session.Id, cachedAppIds, expiresAtUtc, cancellationToken);
+                var normalized = status.Normalize(cachedAppIds);
+                apps = normalized.Apps;
+                message = normalized.Message;
+                (_, outdatedAppIds, unknownAppIds) = normalized.ResolveAppIds(cachedAppIds);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException
-                and not DaemonCommandException { RequiresLogin: true })
+            catch (DaemonCommandException ex) when (!ex.RequiresLogin)
             {
                 _logger.LogWarning(ex, "Could not verify cached games for {Service}", service);
+                apps = CacheStatusResult.Unknown(cachedAppIds, CacheReason.StatusUnavailable).Apps;
                 unknownAppIds = cachedAppIds.ToList();
             }
         }
@@ -341,9 +354,11 @@ public class PersistentPrefillController : ControllerBase
         return Ok(new PersistentPrefillGamesDto
         {
             Games = games,
+            Apps = apps,
             CachedAppIds = cachedAppIds,
             OutdatedAppIds = outdatedAppIds,
-            UnknownAppIds = unknownAppIds
+            UnknownAppIds = unknownAppIds,
+            Message = message
         });
     }
 

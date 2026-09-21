@@ -62,6 +62,10 @@ const zh = JSON.parse(
 );
 const focusUrl = await compileToUrl('../src/utils/focus.ts');
 const { getFocusable } = await import(focusUrl);
+const cachedAppsUrl = await compileToUrl('../src/components/features/prefill/cachedApps.ts');
+const { resolveCacheStatus } = await import(cachedAppsUrl);
+const cacheStatusUrl = await compileToUrl('../src/components/features/prefill/cacheStatus.ts');
+const { completeCacheApps, groupCacheApps, markCacheAppsUnknown } = await import(cacheStatusUrl);
 globalThis.HTMLInputElement = class HTMLInputElement {};
 
 test('Run Now clears only optimistic state when no follow-up was queued, including silent responses', async () => {
@@ -892,7 +896,8 @@ function createGamePicker(overrides = {}) {
     Database: 'Database',
     LoadingSpinner: 'LoadingSpinner',
     ConfirmationModal: 'ConfirmationModal',
-    EmptyState: 'EmptyState'
+    EmptyState: 'EmptyState',
+    resolveCacheStatus
   });
   const props = {
     opened: true,
@@ -2517,6 +2522,9 @@ test('outer editor composes record controls and selection save and clear remain 
     getPersistentServiceId: () => 'Steam',
     isScheduledPrefillAnonymousService: () => false,
     resolveCachedAppIds: (_previous, current) => current,
+    completeCacheApps,
+    groupCacheApps,
+    markCacheAppsUnknown,
     validateServiceConfig: () => null
   });
   const props = {

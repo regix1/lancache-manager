@@ -10,6 +10,11 @@ import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import { resolveCachedAppIds } from '@components/features/prefill/cachedApps';
+import {
+  completeCacheApps,
+  groupCacheApps,
+  markCacheAppsUnknown
+} from '@components/features/prefill/cacheStatus';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
 import {
@@ -295,20 +300,24 @@ export function ScheduledPrefillConfigModal({
           do {
             request.again = false;
             try {
-              const { games, cachedAppIds, outdatedAppIds, unknownAppIds } =
-                await ApiService.getPersistentPrefillGames(
-                  getPersistentServiceId(serviceKey),
-                  controller.signal,
-                  sessionId
-                );
+              const response = await ApiService.getPersistentPrefillGames(
+                getPersistentServiceId(serviceKey),
+                controller.signal,
+                sessionId
+              );
               if (!isCurrent()) return;
 
-              const normalizedGames: ScheduledPrefillGameSelectionState['games'] = games.map(
-                (game) => ({
+              const normalizedGames: ScheduledPrefillGameSelectionState['games'] =
+                response.games.map((game) => ({
                   name: game.name,
                   appId: String(game.appId)
-                })
-              );
+                }));
+              const apps = response.apps
+                ? completeCacheApps(response.cachedAppIds, response.apps, normalizedGames)
+                : [];
+              const groups = response.apps ? groupCacheApps(apps) : null;
+              const outdatedAppIds = groups ? groups.outdated : response.outdatedAppIds;
+              const unknownAppIds = groups ? groups.unknown : response.unknownAppIds;
 
               setGameLoaded(true);
               setGameSelection((current) =>
@@ -320,9 +329,11 @@ export function ScheduledPrefillConfigModal({
                       unknownAppIds,
                       cachedAppIds: resolveCachedAppIds(
                         current.cachedAppIds,
-                        cachedAppIds,
+                        response.cachedAppIds,
                         unknownAppIds
-                      )
+                      ),
+                      apps,
+                      message: response.message === undefined ? null : response.message
                     }
                   : current
               );
@@ -336,6 +347,21 @@ export function ScheduledPrefillConfigModal({
                   : stageKey === 'errors.steam.gameDetailsUnavailable'
                     ? t('errors.steam.gameDetailsUnavailable')
                     : t('errors.prefill.requestFailed')
+              );
+              setGameSelection((current) =>
+                current?.serviceKey === serviceKey && current.sessionId === sessionId
+                  ? {
+                      ...current,
+                      outdatedAppIds: [],
+                      unknownAppIds: current.cachedAppIds,
+                      apps: markCacheAppsUnknown(
+                        current.cachedAppIds,
+                        current.apps,
+                        current.games,
+                        'StatusUnavailable'
+                      )
+                    }
+                  : current
               );
             }
           } while (request.again && isCurrent());
@@ -385,7 +411,17 @@ export function ScheduledPrefillConfigModal({
       setGameSelection((current) =>
         current?.serviceKey === gameSelection.serviceKey &&
         current.sessionId === gameSelection.sessionId
-          ? { ...current, outdatedAppIds: [], unknownAppIds: current.cachedAppIds }
+          ? {
+              ...current,
+              outdatedAppIds: [],
+              unknownAppIds: current.cachedAppIds,
+              apps: markCacheAppsUnknown(
+                current.cachedAppIds,
+                current.apps,
+                current.games,
+                'AuthenticationRequired'
+              )
+            }
           : current
       );
     } else if (authenticated && previous?.key === key && !previous.authenticated) {
@@ -427,7 +463,9 @@ export function ScheduledPrefillConfigModal({
       games: [],
       cachedAppIds: [],
       outdatedAppIds: [],
-      unknownAppIds: []
+      unknownAppIds: [],
+      apps: [],
+      message: null
     };
     setError(null);
     setGameLoadError(null);
@@ -535,6 +573,8 @@ export function ScheduledPrefillConfigModal({
         cachedAppIds={gameSelection?.cachedAppIds ?? []}
         outdatedAppIds={gameSelection?.outdatedAppIds ?? []}
         unknownAppIds={gameSelection?.unknownAppIds ?? []}
+        cacheApps={gameSelection?.apps ?? []}
+        cacheMessage={gameSelection?.message ?? null}
         error={gameLoadError}
       />
       <ConfirmationModal

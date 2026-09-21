@@ -1,5 +1,6 @@
 import type { CustomSchedule } from '../custom-schedule/types';
 import type { NotificationDisplayMode, NotificationMode } from '../types';
+import type { AppCacheStatus } from '../../../prefill/cacheStatus';
 
 export type ScheduledPrefillServiceKey = 'steam' | 'epic' | 'xbox' | 'battleNet' | 'riot';
 
@@ -173,4 +174,6 @@ export interface ScheduledPrefillGameSelectionState {
   cachedAppIds: string[];
   outdatedAppIds: string[];
   unknownAppIds: string[];
+  apps: AppCacheStatus[];
+  message: string | null;
 }

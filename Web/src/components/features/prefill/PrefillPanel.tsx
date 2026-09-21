@@ -1,6 +1,12 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { resolveCachedAppIds } from './cachedApps';
+import {
+  completeCacheApps,
+  groupCacheApps,
+  markCacheAppsUnknown,
+  type AppCacheStatus
+} from './cacheStatus';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
@@ -114,6 +120,8 @@ function ServicePrefillPanel({
     cachedAppIds: string[];
     outdatedAppIds: string[];
     unknownAppIds: string[];
+    cacheApps: AppCacheStatus[];
+    cacheMessage: string | null;
     hasData: boolean;
   } | null>(null);
   const gamesCacheWindowMs = 5 * 60 * 1000;
@@ -164,9 +172,17 @@ function ServicePrefillPanel({
   const [cachedAppIds, setCachedAppIds] = useState<string[]>([]);
   const [outdatedAppIds, setOutdatedAppIds] = useState<string[]>([]);
   const [unknownAppIds, setUnknownAppIds] = useState<string[]>([]);
+  const [cacheApps, setCacheApps] = useState<AppCacheStatus[]>([]);
+  const [cacheMessage, setCacheMessage] = useState<string | null>(null);
   const [gameLoadError, setGameLoadError] = useState<string | null>(null);
   const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
   const [isClearingAllCache, setIsClearingAllCache] = useState(false);
+  const cachedAppIdsRef = useRef(cachedAppIds);
+  cachedAppIdsRef.current = cachedAppIds;
+  const cacheAppsRef = useRef(cacheApps);
+  cacheAppsRef.current = cacheApps;
+  const cacheMessageRef = useRef(cacheMessage);
+  cacheMessageRef.current = cacheMessage;
 
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
@@ -494,6 +510,8 @@ function ServicePrefillPanel({
     setCachedAppIds([]);
     setOutdatedAppIds([]);
     setUnknownAppIds([]);
+    setCacheApps([]);
+    setCacheMessage(null);
     setGameLoadError(null);
     setOwnedGames([]);
     setShowGameSelection(false);
@@ -517,7 +535,7 @@ function ServicePrefillPanel({
       gamesRequestRef.current?.abort();
       const controller = new AbortController();
       gamesRequestRef.current = controller;
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]);
+      const signal = controller.signal;
       const isCurrent = () =>
         gamesRequestRef.current === controller &&
         !controller.signal.aborted &&
@@ -537,13 +555,13 @@ function ServicePrefillPanel({
           setCachedAppIds(gamesCache.cachedAppIds);
           setOutdatedAppIds(gamesCache.outdatedAppIds);
           setUnknownAppIds(gamesCache.unknownAppIds);
+          setCacheApps(gamesCache.cacheApps);
+          setCacheMessage(gamesCache.cacheMessage);
           setIsUsingGamesCache(true);
           return;
         }
 
         setIsUsingGamesCache(false);
-        setOutdatedAppIds([]);
-        setUnknownAppIds(ownedGames.map((game) => game.appId));
 
         // Fetch owned games via direct API call
         const gamesResponse = await fetch(
@@ -575,6 +593,8 @@ function ServicePrefillPanel({
         let cachedIds: string[] = eligible;
         let outdatedIds: string[] = [];
         let unknownIds = eligible;
+        let nextCacheApps: AppCacheStatus[] = [];
+        let nextCacheMessage = cacheMessageRef.current;
         // Tracks whether the cached-status verification produced an authoritative answer. A
         // transient failure here must not be persisted as "nothing is cached" for the whole
         // cache window (that showed wrong cached badges until expiry) - mark the snapshot
@@ -590,13 +610,25 @@ function ServicePrefillPanel({
               signal
             );
             const eligibleKeys = new Set(eligible.map((id) => id.toLowerCase()));
-            outdatedIds = cacheStatus.outdatedAppIds.filter((id) =>
-              eligibleKeys.has(id.toLowerCase())
-            );
-            unknownIds = cacheStatus.unknownAppIds.filter((id) =>
-              eligibleKeys.has(id.toLowerCase())
-            );
-            cacheStatusResolved = true;
+            if (cacheStatus.apps) {
+              nextCacheApps = completeCacheApps(
+                eligible,
+                cacheStatus.apps.filter((app) => eligibleKeys.has(app.appId.toLowerCase())),
+                normalizedGames
+              );
+              const groups = groupCacheApps(nextCacheApps);
+              outdatedIds = groups.outdated;
+              unknownIds = groups.unknown;
+            } else {
+              outdatedIds = cacheStatus.outdatedAppIds.filter((id) =>
+                eligibleKeys.has(id.toLowerCase())
+              );
+              unknownIds = cacheStatus.unknownAppIds.filter((id) =>
+                eligibleKeys.has(id.toLowerCase())
+              );
+            }
+            nextCacheMessage = cacheStatus.message === undefined ? null : cacheStatus.message;
+            cacheStatusResolved = unknownIds.length === 0;
           } catch (error: unknown) {
             if (!isCurrent()) return;
             const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
@@ -610,8 +642,16 @@ function ServicePrefillPanel({
             cachedIds = eligible;
             outdatedIds = [];
             unknownIds = eligible;
+            nextCacheApps = markCacheAppsUnknown(
+              eligible,
+              cacheAppsRef.current,
+              normalizedGames,
+              'StatusUnavailable'
+            );
             cacheStatusResolved = false;
           }
+        } else {
+          nextCacheMessage = null;
         }
 
         // Same reason the snapshot is withheld: a failed check is not proof nothing is cached, so
@@ -620,10 +660,11 @@ function ServicePrefillPanel({
         setCachedAppIds((previous) => resolveCachedAppIds(previous, cachedIds, unknownIds));
         setOutdatedAppIds(outdatedIds);
         setUnknownAppIds(unknownIds);
+        setCacheApps(nextCacheApps);
+        setCacheMessage(nextCacheMessage);
         if (cacheStatusResolved) setGameLoadError(null);
-        // Only persist an authoritative snapshot: the cached-status check resolved AND the
-        // library actually came back. An empty/failed transient is left uncached (hasData:false)
-        // so a later load retries instead of reusing a wrong-empty library until cache expiry.
+        // A settled empty library is a valid snapshot. Unknown cache rows keep the snapshot
+        // refreshable so the next open checks them again instead of waiting for cache expiry.
         gamesCacheRef.current = {
           sessionId: signalR.session.id,
           fetchedAt: Date.now(),
@@ -631,7 +672,9 @@ function ServicePrefillPanel({
           cachedAppIds: cachedIds,
           outdatedAppIds: outdatedIds,
           unknownAppIds: unknownIds,
-          hasData: cacheStatusResolved && normalizedGames.length > 0
+          cacheApps: nextCacheApps,
+          cacheMessage: nextCacheMessage,
+          hasData: cacheStatusResolved
         };
         if (cachedIds.length > 0) {
           addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
@@ -639,8 +682,17 @@ function ServicePrefillPanel({
       } catch (error: unknown) {
         if (!isCurrent()) return;
         gamesCacheRef.current = null;
+        const affectedAppIds = cachedAppIdsRef.current;
         setOutdatedAppIds([]);
-        setUnknownAppIds(ownedGames.map((game) => game.appId));
+        setUnknownAppIds(affectedAppIds);
+        setCacheApps(
+          markCacheAppsUnknown(
+            affectedAppIds,
+            cacheAppsRef.current,
+            ownedGames,
+            'StatusUnavailable'
+          )
+        );
         const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
         setGameLoadError(
           stageKey === 'errors.steam.signInLost'
@@ -702,7 +754,15 @@ function ServicePrefillPanel({
       gamesRequestRef.current?.abort();
       setIsLoadingGames(false);
       setOutdatedAppIds([]);
-      setUnknownAppIds(ownedGames.map((game) => game.appId));
+      setUnknownAppIds(cachedAppIdsRef.current);
+      setCacheApps(
+        markCacheAppsUnknown(
+          cachedAppIdsRef.current,
+          cacheAppsRef.current,
+          ownedGames,
+          'AuthenticationRequired'
+        )
+      );
     } else if (showGameSelection) {
       void reloadGamesOnce();
     }
@@ -754,6 +814,8 @@ function ServicePrefillPanel({
       setCachedAppIds([]);
       setOutdatedAppIds([]);
       setUnknownAppIds([]);
+      setCacheApps([]);
+      setCacheMessage(null);
       addLog('info', t('prefill.log.clearedAllFromCache'));
       // Re-read rather than waiting for the broadcast so the badges are right even with the socket
       // down. The forced reload also rewrites gamesCacheRef; blanking only the React state leaves
@@ -1206,6 +1268,8 @@ function ServicePrefillPanel({
     setCachedAppIds([]);
     setOutdatedAppIds([]);
     setUnknownAppIds([]);
+    setCacheApps([]);
+    setCacheMessage(null);
     setSelectedAppIds([]);
     setIsUsingGamesCache(false);
     gamesCacheRef.current = null;
@@ -1387,6 +1451,8 @@ function ServicePrefillPanel({
         cachedAppIds={cachedAppIds}
         outdatedAppIds={outdatedAppIds}
         unknownAppIds={unknownAppIds}
+        cacheApps={cacheApps}
+        cacheMessage={cacheMessage}
         error={gameLoadError}
         isUsingCache={isUsingGamesCache}
         onRescan={reloadGamesOnce}

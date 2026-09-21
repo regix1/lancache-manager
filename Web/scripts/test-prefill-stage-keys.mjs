@@ -27,6 +27,8 @@ const localeFile = (name) =>
 
 const en = localeFile('en');
 const zh = localeFile('zh');
+const cacheStatusUrl = await compileToUrl('../src/components/features/prefill/cacheStatus.ts');
+const { markCacheAppsUnknown } = await import(cacheStatusUrl);
 
 const recoveryMessages = {
   'errors.steam.signInLost': 'Steam is no longer signed in. Sign in again, then retry the prefill.',
@@ -34,8 +36,6 @@ const recoveryMessages = {
   'errors.prefill.requestFailed': 'The prefill daemon could not complete the request. Try again.',
   'signalr.steamSession.savedSignInPreserved':
     'Steam ended the current connection. Your saved sign-in is still available. Retry the operation.',
-  'prefill.gameSelection.cacheStatusUnknown':
-    'Some cached games could not be checked against the current service version.',
   'prefill.gameSelection.lastKnownCached': 'Previously cached'
 };
 
@@ -80,7 +80,7 @@ test('recovery keys exist in both locales and production translations do not hid
       }
     }
   }
-  assert.equal(affectedCalls, 10);
+  assert.equal(affectedCalls, 9);
 });
 
 const translator = i18next.createInstance();
@@ -306,6 +306,8 @@ test('both picker load failures translate typed reasons and expose missing requi
         cachedAppIds: [],
         outdatedAppIds: [],
         unknownAppIds: [],
+        apps: [],
+        message: null,
         games: []
       };
       await bindLifted(scheduledSource, {
@@ -324,6 +326,7 @@ test('both picker load failures translate typed reasons and expose missing requi
         gameAuthRef: { current: { key: 'steam:s1', authenticated: true } },
         gameSelectionRef: { current: selection },
         gameRequestRef: { current: null },
+        markCacheAppsUnknown,
         setLoadingGameSelectionService: () => undefined,
         setGameSelection: (update) => update(selection),
         setGameLoadError: (message) => {
@@ -349,12 +352,16 @@ test('both picker load failures translate typed reasons and expose missing requi
         gamesKeyRef: { current: 'steam:s1' },
         gamesRequestRef: { current: null },
         gamesCacheRef: { current: null },
+        cachedAppIdsRef: { current: [] },
+        cacheAppsRef: { current: [] },
         gamesCacheWindowMs: 300000,
         ownedGames: [],
+        markCacheAppsUnknown,
         setIsLoadingGames: () => undefined,
         setIsUsingGamesCache: () => undefined,
         setOutdatedAppIds: () => undefined,
         setUnknownAppIds: () => undefined,
+        setCacheApps: () => undefined,
         setGameLoadError: (message) => {
           ordinaryMessage = message;
         },
