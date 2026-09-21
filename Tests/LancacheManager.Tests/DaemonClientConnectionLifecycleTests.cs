@@ -656,6 +656,7 @@ public sealed class DaemonClientConnectionLifecycleTests
                 session.Id,
                 ["20", "020", "invalid"],
                 DateTimeOffset.UtcNow.AddMinutes(2),
+                ["windows"],
                 timeout.Token);
         }
         finally
@@ -665,6 +666,7 @@ public sealed class DaemonClientConnectionLifecycleTests
         var command = await server;
         Assert.Equal("check-cache-status", command.GetProperty("type").GetString());
         var parameters = command.GetProperty("parameters");
+        Assert.Equal("windows", parameters.GetProperty("os").GetString());
         using var appIds = JsonDocument.Parse(parameters.GetProperty("appIds").GetString()!);
         Assert.Equal(20U, Assert.Single(appIds.RootElement.EnumerateArray()).GetUInt32());
         using var cachedDepots = JsonDocument.Parse(parameters.GetProperty("cachedDepots").GetString()!);

@@ -98,6 +98,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
             sessionId,
             request.AppIds,
             expiresAtUtc,
+            request.OperatingSystems,
             HttpContext.RequestAborted);
         var normalized = status.Normalize(request.AppIds);
         var (upToDate, outdated, unknown) = normalized.ResolveAppIds(request.AppIds);

@@ -225,6 +225,7 @@ const panel = (
     gamesCacheWindowMs: 300000,
     serviceId: 'epic',
     serviceBasePath: 'epic-prefill',
+    selectedOS: ['windows'],
     API_BASE: '/api',
     fetch: async () => ({
       ok: true,
@@ -265,7 +266,15 @@ const panel = (
 };
 
 test('ordinary picker accepts numeric Steam cache IDs without reporting a daemon failure', async () => {
-  const picker = panel([], async () => steamCacheReply, steamCacheReply.cachedAppIds);
+  let statusRequest;
+  const picker = panel(
+    [],
+    async (...args) => {
+      statusRequest = args;
+      return steamCacheReply;
+    },
+    steamCacheReply.cachedAppIds
+  );
   let loadError = null;
   picker.bindings.setGameLoadError = (value) => {
     loadError = value;
@@ -285,6 +294,12 @@ test('ordinary picker accepts numeric Steam cache IDs without reporting a daemon
   );
   assert.deepEqual(picker.outdated(), ['945360']);
   assert.deepEqual(picker.unknown(), ['306020']);
+  assert.deepEqual(statusRequest.slice(0, 4), [
+    'session-a',
+    steamCacheReply.cachedAppIds,
+    'steam-prefill',
+    ['windows']
+  ]);
 });
 
 test('a current shared-depot result stays cached without an update badge', async () => {
@@ -596,6 +611,7 @@ test('scheduled picker merges unknowns, coalesces bursts and rejects old-session
       }
     },
     gameAuthRef: { current: { key: 'epic:s1', authenticated: true } },
+    configRef: { current: { operatingSystems: ['Windows'] } },
     gameRequestRef: { current: null },
     gameSelectionRef: { current: selection },
     setGameLoadError: () => undefined,
@@ -810,6 +826,7 @@ const scheduled = (fetchGames) => {
     },
     gameAuthRef: { current: { key: 'steam:s1', authenticated: true } },
     gameSelectionRef,
+    configRef: { current: { operatingSystems: ['Windows'] } },
     gameRequestRef: { current: null },
     setLoadingGameSelectionService: (value) => {
       loading = value;
@@ -848,7 +865,11 @@ const scheduled = (fetchGames) => {
 };
 
 test('scheduled picker accepts numeric Steam cache IDs without discarding its library', async () => {
-  const picker = scheduled(async () => steamCacheReply);
+  let gameRequest;
+  const picker = scheduled(async (...args) => {
+    gameRequest = args;
+    return steamCacheReply;
+  });
   picker.bindings.setGameSelection((selection) => ({
     ...selection,
     games: [],
@@ -865,6 +886,7 @@ test('scheduled picker accepts numeric Steam cache IDs without discarding its li
   );
   assert.deepEqual(result.selection.outdatedAppIds, ['945360']);
   assert.deepEqual(result.selection.unknownAppIds, ['306020']);
+  assert.deepEqual(gameRequest.slice(0, 4), ['steam', gameRequest[1], 's1', ['Windows']]);
 });
 
 test('scheduled picker request checks the current container before auth effects can run', async () => {
@@ -1226,11 +1248,11 @@ test('persistent games request pins the session and retains the unpinned client 
       unknownAppIds: []
     })
   };
-  await request.call(receiver, 'steam', undefined, 'session / one');
+  await request.call(receiver, 'steam', undefined, 'session / one', ['Windows', 'Linux']);
   await request.call(receiver, 'steam');
   assert.equal(
     urls[0],
-    '/api/system/prefill/persistent/games?service=steam&expectedSessionId=session%20%2F%20one'
+    '/api/system/prefill/persistent/games?service=steam&expectedSessionId=session+%2F+one&operatingSystems=Windows&operatingSystems=Linux'
   );
   assert.equal(urls[1], '/api/system/prefill/persistent/games?service=steam');
 });

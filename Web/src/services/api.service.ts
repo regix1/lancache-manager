@@ -2684,13 +2684,14 @@ class ApiService {
     sessionId: string,
     appIds: string[],
     serviceBasePath = 'steam-daemon',
+    operatingSystems?: string[],
     signal?: AbortSignal
   ): Promise<PrefillCacheStatusDto> {
     try {
       const res = await fetch(
         `${API_BASE}/${serviceBasePath}/sessions/${sessionId}/cache-status`,
         this.getJsonFetchOptions(
-          { appIds },
+          { appIds, operatingSystems },
           {
             method: 'POST',
             signal
@@ -3650,11 +3651,16 @@ class ApiService {
   static async getPersistentPrefillGames(
     service: PersistentPrefillServiceId,
     signal?: AbortSignal,
-    expectedSessionId?: string
+    expectedSessionId?: string,
+    operatingSystems?: string[]
   ): Promise<PersistentPrefillGamesDto> {
     try {
+      const query = new URLSearchParams({ service });
+      if (expectedSessionId) query.set('expectedSessionId', expectedSessionId);
+      for (const operatingSystem of operatingSystems ?? [])
+        query.append('operatingSystems', operatingSystem);
       const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/games?service=${encodeURIComponent(service)}${expectedSessionId ? `&expectedSessionId=${encodeURIComponent(expectedSessionId)}` : ''}`,
+        `${API_BASE}/system/prefill/persistent/games?${query}`,
         this.getFetchOptions({
           signal
         })

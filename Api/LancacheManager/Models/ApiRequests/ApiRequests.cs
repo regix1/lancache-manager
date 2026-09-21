@@ -99,6 +99,7 @@ public class SetSelectedAppsRequest
 public class PrefillCacheStatusRequest
 {
     public List<string>? AppIds { get; set; }
+    public List<string>? OperatingSystems { get; set; }
 }
 
 public class StartPrefillRequest

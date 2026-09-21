@@ -100,6 +100,8 @@ export function ScheduledPrefillConfigModal({
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const [config, setConfig] = useState<ScheduledPrefillSchedule | null>(null);
+  const configRef = useRef(config);
+  configRef.current = config;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -303,7 +305,8 @@ export function ScheduledPrefillConfigModal({
               const response = await ApiService.getPersistentPrefillGames(
                 getPersistentServiceId(serviceKey),
                 controller.signal,
-                sessionId
+                sessionId,
+                configRef.current?.operatingSystems
               );
               if (!isCurrent()) return;
 

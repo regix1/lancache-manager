@@ -1374,7 +1374,7 @@ public abstract class DaemonClientBase : IDaemonClient
         return new PrefillResult { Success = true };
     }
 
-    private static string FormatOperatingSystems(List<string>? operatingSystems)
+    private static string FormatOperatingSystems(IReadOnlyList<string>? operatingSystems)
         => operatingSystems != null && operatingSystems.Count > 0
             ? string.Join(",", operatingSystems)
             : "windows,linux,macos";
@@ -1442,7 +1442,13 @@ public abstract class DaemonClientBase : IDaemonClient
                 ? CacheAuthority.Snapshot
                 : CacheAuthority.Empty
         }).ToList();
-        return await CheckCacheStatusAsync(appIds, cachedDepots, scope, expiresAtUtc: null, cancellationToken);
+        return await CheckCacheStatusAsync(
+            appIds,
+            cachedDepots,
+            scope,
+            expiresAtUtc: null,
+            operatingSystems: null,
+            cancellationToken);
     }
 
     public Task<CacheStatusResult> CheckCacheStatusAsync(
@@ -1451,13 +1457,29 @@ public abstract class DaemonClientBase : IDaemonClient
         IReadOnlyList<CacheAppScope> scope,
         DateTimeOffset expiresAtUtc,
         CancellationToken cancellationToken = default)
-        => CheckCacheStatusAsync(appIds, cachedDepots, scope, (DateTimeOffset?)expiresAtUtc, cancellationToken);
+        => CheckCacheStatusAsync(appIds, cachedDepots, scope, (DateTimeOffset?)expiresAtUtc, null, cancellationToken);
+
+    public Task<CacheStatusResult> CheckCacheStatusAsync(
+        IReadOnlyList<uint> appIds,
+        IReadOnlyList<CachedDepotInput> cachedDepots,
+        IReadOnlyList<CacheAppScope> scope,
+        DateTimeOffset expiresAtUtc,
+        IReadOnlyList<string>? operatingSystems,
+        CancellationToken cancellationToken = default)
+        => CheckCacheStatusAsync(
+            appIds,
+            cachedDepots,
+            scope,
+            (DateTimeOffset?)expiresAtUtc,
+            operatingSystems,
+            cancellationToken);
 
     private async Task<CacheStatusResult> CheckCacheStatusAsync(
         IReadOnlyList<uint> appIds,
         IReadOnlyList<CachedDepotInput> cachedDepots,
         IReadOnlyList<CacheAppScope> scope,
         DateTimeOffset? expiresAtUtc,
+        IReadOnlyList<string>? operatingSystems,
         CancellationToken cancellationToken)
     {
         var requested = appIds.Distinct().Select(appId => appId.ToString()).ToList();
@@ -1529,7 +1551,8 @@ public abstract class DaemonClientBase : IDaemonClient
                 .GroupBy(depot => (depot.DepotId, depot.ManifestId))
                 .Select(group => group.First())
                 .OrderBy(depot => depot.DepotId)
-                .ThenBy(depot => depot.ManifestId), _jsonOptions)
+                .ThenBy(depot => depot.ManifestId), _jsonOptions),
+            ["os"] = FormatOperatingSystems(operatingSystems)
         };
         if (statusV2)
         {

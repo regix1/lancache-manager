@@ -301,7 +301,8 @@ public class PersistentPrefillController : ControllerBase
     public async Task<ActionResult<PersistentPrefillGamesDto>> GetGamesAsync(
         [FromQuery] PrefillPlatform service,
         CancellationToken cancellationToken,
-        [FromQuery] string? expectedSessionId = null)
+        [FromQuery] string? expectedSessionId = null,
+        [FromQuery] List<string>? operatingSystems = null)
     {
         var (daemon, session, error) = ResolveRunningPersistentSession(service, expectedSessionId);
         if (error is not null) return error;
@@ -332,7 +333,12 @@ public class PersistentPrefillController : ControllerBase
         {
             try
             {
-                var status = await daemon.GetCacheStatusAsync(session.Id, cachedAppIds, expiresAtUtc, cancellationToken);
+                var status = await daemon.GetCacheStatusAsync(
+                    session.Id,
+                    cachedAppIds,
+                    expiresAtUtc,
+                    operatingSystems,
+                    cancellationToken);
                 var normalized = status.Normalize(cachedAppIds);
                 apps = normalized.Apps;
                 message = normalized.Message;

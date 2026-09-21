@@ -15,6 +15,31 @@ namespace LancacheManager.Tests;
 public sealed class ScheduledPrefillConfigControllerTests
 {
     [Fact]
+    public async Task ScheduleWritePreservesEverySelectedOperatingSystem()
+    {
+        using var test = new Harness();
+        var id = test.State.GetScheduledPrefillConfig().Steam.Schedules[0].Id;
+        var schedule = new ScheduledPrefillSchedule
+        {
+            Id = id,
+            Name = "Default",
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.All,
+            OperatingSystems =
+            [
+                ScheduledPrefillOperatingSystem.Windows,
+                ScheduledPrefillOperatingSystem.Linux,
+                ScheduledPrefillOperatingSystem.Macos
+            ]
+        };
+
+        await test.Controller.SetScheduleAsync(PrefillPlatform.Steam, id, schedule);
+
+        Assert.Equal(schedule.OperatingSystems,
+            test.State.GetScheduledPrefillConfig().Steam.Schedules[0].OperatingSystems);
+    }
+
+    [Fact]
     public async Task NarrowWritesPreserveOtherServicesAndRootSettings()
     {
         using var test = new Harness();

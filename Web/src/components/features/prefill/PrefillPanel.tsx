@@ -607,6 +607,7 @@ function ServicePrefillPanel({
               signalR.session.id,
               eligible,
               serviceBasePath,
+              selectedOS,
               signal
             );
             const eligibleKeys = new Set(eligible.map((id) => id.toLowerCase()));
@@ -702,7 +703,16 @@ function ServicePrefillPanel({
         if (isCurrent()) setIsLoadingGames(false);
       }
     },
-    [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId, ownedGames]
+    [
+      signalR.session,
+      addLog,
+      t,
+      serviceBasePath,
+      gamesCacheWindowMs,
+      serviceId,
+      ownedGames,
+      selectedOS
+    ]
   );
   const loadGamesRef = useRef(loadGames);
   loadGamesRef.current = loadGames;

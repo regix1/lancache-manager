@@ -323,6 +323,7 @@ test('both picker load failures translate typed reasons and expose missing requi
             needsRelogin: false
           }
         },
+        configRef: { current: { operatingSystems: ['Windows'] } },
         gameAuthRef: { current: { key: 'steam:s1', authenticated: true } },
         gameSelectionRef: { current: selection },
         gameRequestRef: { current: null },

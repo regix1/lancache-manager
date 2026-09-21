@@ -63,11 +63,29 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Checks cache status by comparing cached depots against manifests.
     /// </summary>
-    public virtual async Task<CacheStatusResult> GetCacheStatusAsync(
+    public virtual Task<CacheStatusResult> GetCacheStatusAsync(
         string sessionId,
         List<string> appIds,
         DateTimeOffset expiresAtUtc,
         CancellationToken cancellationToken = default)
+        => GetSteamCacheStatusAsync(sessionId, appIds, expiresAtUtc, null, cancellationToken);
+
+    public Task<CacheStatusResult> GetCacheStatusAsync(
+        string sessionId,
+        List<string> appIds,
+        DateTimeOffset expiresAtUtc,
+        List<string>? operatingSystems,
+        CancellationToken cancellationToken = default)
+        => Platform == PrefillPlatform.Steam && operatingSystems is { Count: > 0 }
+            ? GetSteamCacheStatusAsync(sessionId, appIds, expiresAtUtc, operatingSystems, cancellationToken)
+            : GetCacheStatusAsync(sessionId, appIds, expiresAtUtc, cancellationToken);
+
+    private async Task<CacheStatusResult> GetSteamCacheStatusAsync(
+        string sessionId,
+        List<string> appIds,
+        DateTimeOffset expiresAtUtc,
+        List<string>? operatingSystems,
+        CancellationToken cancellationToken)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -137,6 +155,7 @@ public abstract partial class PrefillDaemonServiceBase
                     snapshot.Depots,
                     scope,
                     expiresAtUtc,
+                    operatingSystems,
                     cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
