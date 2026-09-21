@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { MemoryStorage, transpile } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback, MemoryStorage, transpile } from './transpile-module.mjs';
 
 const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
@@ -28,6 +28,108 @@ const scanBlockedHook = readWebSource('src/hooks/useCacheScanBlocked.ts');
 const errorUtils = readWebSource('src/utils/error.ts');
 const en = JSON.parse(readWebSource('src/i18n/locales/en.json'));
 const zh = JSON.parse(readWebSource('src/i18n/locales/zh.json'));
+
+const readInitializer = (source, name) => {
+  const sourceFile = ts.createSourceFile(
+    `${name}.tsx`,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  let initializer;
+
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+      initializer = node.initializer?.getText(sourceFile);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  assert.ok(initializer, `missing ${name} initializer`);
+  return new Function(
+    'filteredGames',
+    'filteredServices',
+    'unmappedServices',
+    'isLoadingInitialCache',
+    `return ${initializer};`
+  );
+};
+
+const parseTsx = (name, source) =>
+  ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+
+const collectNodes = (sourceFile, matches) => {
+  const found = [];
+  const visit = (node) => {
+    if (matches(node)) found.push(node);
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return found;
+};
+
+const soleNode = (sourceFile, label, matches) => {
+  const found = collectNodes(sourceFile, matches);
+  assert.equal(found.length, 1, `expected exactly one ${label}, found ${found.length}`);
+  return found[0];
+};
+
+const evalExpression = (expression, bindings) => {
+  const names = Object.keys(bindings);
+  return new Function(...names, `return (${expression});`)(...names.map((name) => bindings[name]));
+};
+
+const elementOpening = (element) =>
+  ts.isJsxSelfClosingElement(element) ? element : element.openingElement;
+
+const jsxAttributeExpression = (sourceFile, element, attributeName) => {
+  const attribute = elementOpening(element).attributes.properties.find(
+    (property) => ts.isJsxAttribute(property) && property.name.getText(sourceFile) === attributeName
+  );
+  assert.ok(attribute, `missing ${attributeName}`);
+  assert.ok(ts.isJsxExpression(attribute.initializer), `${attributeName} is not an expression`);
+  return attribute.initializer.expression.getText(sourceFile);
+};
+
+const jsxGuardExpression = (element) => {
+  let current = element.parent;
+  while (current && !ts.isBinaryExpression(current)) current = current.parent;
+  assert.ok(current, 'missing JSX guard');
+  return current.left.getText(element.getSourceFile());
+};
+
+const loadOrphanedFetch = () => {
+  const orphanedFetchIdRef = { current: 0 };
+  const writes = [];
+  const pending = [];
+  const fetchOrphanedDownloads = bindLifted(
+    liftHookCallback(
+      'src/components/features/management/sections/StorageSection.tsx',
+      'useCallback',
+      'getOrphanedDownloads'
+    ),
+    {
+      orphanedFetchIdRef,
+      mockMode: false,
+      setOrphanedLoading: (value) => writes.push(['loading', value]),
+      setOrphanedGroups: (value) => writes.push(['groups', value]),
+      onError: (message) => writes.push(['error', message]),
+      t: (key) => key,
+      isAbortError: (error) => error instanceof Error && error.name === 'AbortError',
+      ApiService: {
+        getOrphanedDownloads() {
+          return new Promise((resolve, reject) => {
+            pending.push({ resolve, reject });
+          });
+        }
+      }
+    }
+  );
+  return { orphanedFetchIdRef, writes, pending, fetchOrphanedDownloads };
+};
 
 const mappingPlatforms = [
   ['Depot', 'depotMapping'],
@@ -247,6 +349,380 @@ test('successful eviction scan and removal force all-range dashboard refresh lik
   assert.match(
     dashboardContext,
     /handleEvictionRemovalComplete[\s\S]*?if \(!event\.success \|\| event\.cancelled\) return;[\s\S]*?clearDetectionState\(\);[\s\S]*?handleForcedRefreshEvent\('EvictionRemovalComplete'\)/
+  );
+});
+
+test('records without log history refresh after every event that can change their backing logs', () => {
+  const orphanedFetchIdRef = { current: 0 };
+  const calls = [];
+  const registered = [];
+  const unregistered = [];
+  const start = bindLifted(
+    liftHookCallback(
+      'src/components/features/management/sections/StorageSection.tsx',
+      'useEffect',
+      'DownloadsRefresh'
+    ),
+    {
+      orphanedFetchIdRef,
+      fetchOrphanedDownloads: () => {
+        calls.push('fetch');
+      },
+      on: (event, handler) => registered.push([event, handler]),
+      off: (event, handler) => unregistered.push([event, handler])
+    }
+  );
+  const cleanup = start();
+  for (const [, handler] of registered) handler();
+  assert.deepEqual(
+    registered.map(([event]) => event),
+    ['EvictionScanComplete', 'LogRemovalComplete', 'LogProcessingComplete', 'DownloadsRefresh']
+  );
+  assert.equal(calls.length, 4);
+  cleanup();
+  assert.deepEqual(unregistered, registered);
+});
+
+test('an older orphan response cannot replace a newer one, fail after it, or publish after cleanup', async () => {
+  const newer = loadOrphanedFetch();
+  const first = newer.fetchOrphanedDownloads();
+  const second = newer.fetchOrphanedDownloads();
+  newer.pending[1].resolve({ groups: ['newer'] });
+  await second;
+  newer.pending[0].resolve({ groups: ['older'] });
+  await first;
+  assert.deepEqual(newer.writes, [
+    ['groups', ['newer']],
+    ['loading', false]
+  ]);
+
+  const staleFailure = loadOrphanedFetch();
+  const older = staleFailure.fetchOrphanedDownloads();
+  const newerRequest = staleFailure.fetchOrphanedDownloads();
+  staleFailure.pending[1].resolve({ groups: ['current'] });
+  await newerRequest;
+  staleFailure.pending[0].reject(new Error('outdated'));
+  await older;
+  assert.deepEqual(
+    staleFailure.writes.filter(([kind]) => kind === 'error'),
+    []
+  );
+  assert.deepEqual(
+    staleFailure.writes.filter(([kind]) => kind === 'groups'),
+    [['groups', ['current']]]
+  );
+
+  const currentFailure = loadOrphanedFetch();
+  const confirmed = currentFailure.fetchOrphanedDownloads();
+  currentFailure.pending[0].resolve({ groups: ['kept'] });
+  await confirmed;
+  const failed = currentFailure.fetchOrphanedDownloads();
+  currentFailure.pending[1].reject(new Error('load failed'));
+  await failed;
+  assert.deepEqual(
+    currentFailure.writes.filter(([kind]) => kind === 'groups'),
+    [['groups', ['kept']]]
+  );
+  assert.deepEqual(
+    currentFailure.writes.filter(([kind]) => kind === 'error'),
+    [['error', 'management.sections.data.orphanedDownloadsLoadError']]
+  );
+
+  const cancelled = loadOrphanedFetch();
+  const serverCancelled = cancelled.fetchOrphanedDownloads();
+  const abortError = new Error('Request cancelled');
+  abortError.name = 'AbortError';
+  cancelled.pending[0].reject(abortError);
+  await serverCancelled;
+  const browserCancelled = cancelled.fetchOrphanedDownloads();
+  cancelled.pending[1].reject(new DOMException('aborted', 'AbortError'));
+  await browserCancelled;
+  assert.deepEqual(
+    cancelled.writes.filter(([kind]) => kind === 'error'),
+    []
+  );
+
+  const afterSubscriptionCleanup = loadOrphanedFetch();
+  const subscribed = [];
+  const inflight = afterSubscriptionCleanup.fetchOrphanedDownloads();
+  const stopSubscription = bindLifted(
+    liftHookCallback(
+      'src/components/features/management/sections/StorageSection.tsx',
+      'useEffect',
+      'DownloadsRefresh'
+    ),
+    {
+      orphanedFetchIdRef: afterSubscriptionCleanup.orphanedFetchIdRef,
+      fetchOrphanedDownloads: afterSubscriptionCleanup.fetchOrphanedDownloads,
+      on: (event, handler) => {
+        subscribed.push([event, handler]);
+      },
+      off: (event, handler) => {
+        subscribed.push([event, handler]);
+      }
+    }
+  );
+  stopSubscription()();
+  afterSubscriptionCleanup.pending[0].resolve({ groups: ['late'] });
+  await inflight;
+  assert.deepEqual(afterSubscriptionCleanup.writes, []);
+
+  const afterInitialCleanup = loadOrphanedFetch();
+  const started = [];
+  const startInitial = bindLifted(
+    liftHookCallback(
+      'src/components/features/management/sections/StorageSection.tsx',
+      'useEffect',
+      'fetchOrphanedDownloads(controller.signal)'
+    ),
+    {
+      orphanedFetchIdRef: afterInitialCleanup.orphanedFetchIdRef,
+      fetchOrphanedDownloads: (...args) => {
+        const request = afterInitialCleanup.fetchOrphanedDownloads(...args);
+        started.push(request);
+        return request;
+      }
+    }
+  );
+  startInitial()();
+  afterInitialCleanup.pending[0].resolve({ groups: ['late'] });
+  await started[0];
+  assert.deepEqual(afterInitialCleanup.writes, []);
+});
+
+test('unmapped-only detection is a visible result without enabling mapped removal actions', () => {
+  const hasResults = readInitializer(gameCacheDetector, 'hasResults');
+  const actionsPending = readInitializer(gameCacheDetector, 'actionsPending');
+
+  assert.equal(hasResults([], [], [{ service: 'wsus' }]), true);
+  assert.equal(hasResults([], [], []), false);
+  assert.equal(hasResults([{}], [], null), true);
+  assert.equal(hasResults([], [{}], null), true);
+  assert.equal(actionsPending([], [], [{ service: 'wsus' }], false), true);
+  assert.equal(actionsPending([{}], [], null, false), false);
+});
+
+test('unmapped groups count, summarize, and stay visible without mapped removal or the datasource banner', () => {
+  const sourceFile = parseTsx('GameCacheDetector.tsx', gameCacheDetector);
+  const hasResults = readInitializer(gameCacheDetector, 'hasResults');
+  const actionsPending = readInitializer(gameCacheDetector, 'actionsPending');
+  const unmappedOnly = hasResults([], [], [{ total_bytes: 10 }]);
+  const openingElement = (tagName, needle) => {
+    const found = collectNodes(sourceFile, (node) => {
+      if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false;
+      return (
+        elementOpening(node).tagName.getText(sourceFile) === tagName &&
+        node.getText(sourceFile).includes(needle)
+      );
+    });
+    assert.ok(found.length > 0, `missing ${tagName} containing ${needle}`);
+    found.sort((left, right) => left.getWidth() - right.getWidth());
+    return found[0];
+  };
+
+  const outerCount = jsxAttributeExpression(
+    sourceFile,
+    openingElement('AccordionSection', "management.gameDetection.title')"),
+    'count'
+  );
+  assert.equal(
+    evalExpression(outerCount, {
+      hasResults: true,
+      filteredGames: [{}, {}],
+      filteredServices: [{}],
+      unmappedServices: [{}, {}, {}]
+    }),
+    6
+  );
+  assert.equal(
+    evalExpression(outerCount, {
+      hasResults: unmappedOnly,
+      filteredGames: [],
+      filteredServices: [],
+      unmappedServices: [{ total_bytes: 10 }]
+    }),
+    1
+  );
+  assert.equal(
+    evalExpression(outerCount, {
+      hasResults: false,
+      filteredGames: [],
+      filteredServices: [],
+      unmappedServices: []
+    }),
+    undefined
+  );
+
+  const summaryGuard = soleNode(
+    sourceFile,
+    'previous scan guard',
+    (node) =>
+      ts.isBinaryExpression(node) &&
+      node.left.getText(sourceFile) === 'lastDetectionTime' &&
+      node.right.getText(sourceFile) === 'hasResults'
+  ).getText(sourceFile);
+  assert.equal(
+    Boolean(
+      evalExpression(summaryGuard, {
+        lastDetectionTime: '2026-09-21T00:00:00Z',
+        hasResults: unmappedOnly
+      })
+    ),
+    true
+  );
+  assert.equal(
+    Boolean(evalExpression(summaryGuard, { lastDetectionTime: null, hasResults: unmappedOnly })),
+    false
+  );
+
+  const unmappedStat = openingElement('div', 'unmappedSection');
+  const unmappedCounts = collectNodes(
+    sourceFile,
+    (node) => ts.isJsxExpression(node) && node.getText(sourceFile) === '{unmappedServices.length}'
+  );
+  assert.equal(unmappedCounts.length, 2);
+  for (const unmappedCount of unmappedCounts) {
+    assert.equal(
+      evalExpression(unmappedCount.expression.getText(sourceFile), {
+        unmappedServices: [{ total_bytes: 10 }, { total_bytes: 25 }, { total_bytes: 5 }]
+      }),
+      3
+    );
+  }
+  const byteTotal = soleNode(
+    sourceFile,
+    'unmapped byte total',
+    (node) =>
+      ts.isCallExpression(node) &&
+      node.expression.getText(sourceFile).endsWith('reduce') &&
+      node.getText(sourceFile).includes('total_bytes')
+  );
+  assert.equal(
+    evalExpression(byteTotal.getText(sourceFile), {
+      unmappedServices: [{ total_bytes: 10 }, { total_bytes: 25 }]
+    }),
+    35
+  );
+  assert.equal(jsxGuardExpression(unmappedStat), 'unmappedServices !== null');
+  assert.equal(
+    evalExpression(jsxGuardExpression(openingElement('AccordionSection', 'unmappedSection')), {
+      unmappedServices: []
+    }),
+    true
+  );
+  assert.equal(
+    evalExpression(jsxGuardExpression(openingElement('AccordionSection', 'unmappedSection')), {
+      unmappedServices: null
+    }),
+    false
+  );
+
+  const bannerGuard = jsxGuardExpression(
+    openingElement('Alert', 'management.gameDetection.filteredBy')
+  );
+  assert.equal(
+    Boolean(
+      evalExpression(bannerGuard, {
+        selectedDatasource: 'steam',
+        filteredGames: [],
+        filteredServices: []
+      })
+    ),
+    false
+  );
+  assert.equal(
+    Boolean(
+      evalExpression(bannerGuard, {
+        selectedDatasource: 'steam',
+        filteredGames: [{}],
+        filteredServices: []
+      })
+    ),
+    true
+  );
+
+  const emptyGuard = jsxGuardExpression(openingElement('EmptyState', 'emptyState.noGamesServices'));
+  assert.equal(
+    evalExpression(emptyGuard, {
+      hasResults: unmappedOnly,
+      loading: false,
+      initialLoadError: null
+    }),
+    false
+  );
+  assert.equal(
+    evalExpression(emptyGuard, {
+      hasResults: hasResults([], [], []),
+      loading: false,
+      initialLoadError: null
+    }),
+    true
+  );
+  assert.equal(
+    evalExpression(emptyGuard, { hasResults: false, loading: true, initialLoadError: null }),
+    false
+  );
+  assert.equal(
+    evalExpression(emptyGuard, { hasResults: false, loading: false, initialLoadError: 'failed' }),
+    false
+  );
+
+  const disclosureDisabled = jsxAttributeExpression(
+    sourceFile,
+    openingElement('ActionMenuItem', 'management.gameDetection.expandAll'),
+    'disabled'
+  );
+  const removalDisabled = jsxAttributeExpression(
+    sourceFile,
+    openingElement('ActionMenuDangerItem', 'management.sections.data.gameCacheRemoveAll'),
+    'disabled'
+  );
+  const openLoadedSection = {
+    isLoadingInitialCache: false,
+    hasResults: unmappedOnly,
+    sectionExpanded: true,
+    actionsPending: actionsPending([], [], [{ total_bytes: 10 }], false)
+  };
+  assert.equal(evalExpression(disclosureDisabled, openLoadedSection), false);
+  assert.equal(
+    evalExpression(disclosureDisabled, { ...openLoadedSection, isLoadingInitialCache: true }),
+    true
+  );
+  assert.equal(
+    evalExpression(disclosureDisabled, { ...openLoadedSection, hasResults: false }),
+    true
+  );
+  assert.equal(
+    evalExpression(disclosureDisabled, { ...openLoadedSection, sectionExpanded: false }),
+    true
+  );
+  assert.equal(
+    evalExpression(removalDisabled, {
+      actionsPending: openLoadedSection.actionsPending,
+      loading: false,
+      mockMode: false,
+      diskActionBlocked: false,
+      checkingPermissions: false,
+      isCacheRemovalActive: false,
+      removeAllRunning: false,
+      diskObjectsAvailable: true,
+      allNginxReopenGate: { available: true }
+    }),
+    true
+  );
+  assert.equal(
+    evalExpression(removalDisabled, {
+      actionsPending: actionsPending([{}], [], null, false),
+      loading: false,
+      mockMode: false,
+      diskActionBlocked: false,
+      checkingPermissions: false,
+      isCacheRemovalActive: false,
+      removeAllRunning: false,
+      diskObjectsAvailable: true,
+      allNginxReopenGate: { available: true }
+    }),
+    false
   );
 });
 

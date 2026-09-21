@@ -787,8 +787,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setUnmappedExpanded(!allExpanded);
   };
 
-  const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
-  const actionsPending = isLoadingInitialCache || !hasResults;
+  const hasResults =
+    filteredGames.length > 0 || filteredServices.length > 0 || (unmappedServices?.length ?? 0) > 0;
+  const actionsPending =
+    isLoadingInitialCache || (filteredGames.length === 0 && filteredServices.length === 0);
   const showBlockingLoader =
     isDetectionFromNotification || isStartingDetection || (isLoadingData && !hasResults);
   const allExpanded = servicesExpanded && gamesExpanded && unmappedExpanded;
@@ -985,7 +987,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <ChevronsUpDown className="w-3.5 h-3.5" />
                 )
               }
-              disabled={actionsPending || !sectionExpanded}
+              disabled={isLoadingInitialCache || !hasResults || !sectionExpanded}
               onClick={() => {
                 handleExpandCollapseAll();
                 close();
@@ -1162,7 +1164,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         title={t('management.gameDetection.title')}
         shortTitle={t('management.gameDetection.titleShort')}
         titleAccessory={helpAccessory}
-        count={hasResults ? filteredGames.length + filteredServices.length : undefined}
+        count={
+          hasResults
+            ? filteredGames.length + filteredServices.length + (unmappedServices?.length ?? 0)
+            : undefined
+        }
         icon={HardDrive}
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
@@ -1267,7 +1273,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               )}
 
               {/* Filter indicator */}
-              {selectedDatasource && hasResults && (
+              {selectedDatasource && (filteredGames.length > 0 || filteredServices.length > 0) && (
                 <Alert color="blue">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">
@@ -1346,38 +1352,35 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 </AccordionSection>
               )}
 
-              {/* Empty State - shown only when no scan results (games/services) exist */}
-              {filteredGames.length === 0 &&
-                filteredServices.length === 0 &&
-                !loading &&
-                !initialLoadError && (
-                  <EmptyState
-                    title={
-                      selectedDatasource
-                        ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
-                            datasource: selectedDatasource
-                          })
-                        : t('management.gameDetection.emptyState.noGamesServices')
-                    }
-                    subtitle={
-                      noProcessedLogs
-                        ? t('management.gameDetection.emptyState.processLogsFirst')
-                        : t('management.gameDetection.emptyState.clickFullScan')
-                    }
-                    action={
-                      selectedDatasource ? (
-                        <Button
-                          variant="filled"
-                          color="secondary"
-                          size="sm"
-                          onClick={() => setSelectedDatasource(null)}
-                        >
-                          {t('management.gameDetection.clearFilter')}
-                        </Button>
-                      ) : undefined
-                    }
-                  />
-                )}
+              {/* Empty State - shown only when the scan has no mapped or unmapped results */}
+              {!hasResults && !loading && !initialLoadError && (
+                <EmptyState
+                  title={
+                    selectedDatasource
+                      ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
+                          datasource: selectedDatasource
+                        })
+                      : t('management.gameDetection.emptyState.noGamesServices')
+                  }
+                  subtitle={
+                    noProcessedLogs
+                      ? t('management.gameDetection.emptyState.processLogsFirst')
+                      : t('management.gameDetection.emptyState.clickFullScan')
+                  }
+                  action={
+                    selectedDatasource ? (
+                      <Button
+                        variant="filled"
+                        color="secondary"
+                        size="sm"
+                        onClick={() => setSelectedDatasource(null)}
+                      >
+                        {t('management.gameDetection.clearFilter')}
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )}
             </>
           )}
         </div>

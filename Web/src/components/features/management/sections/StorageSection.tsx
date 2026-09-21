@@ -31,7 +31,7 @@ import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import { getErrorMessage, isAbortError } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
@@ -585,20 +585,28 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     [orphanedSelection]
   );
 
+  // The id moves forward for every fetch and when these effects clean up. A response,
+  // error, or loading write from an older id is dropped, including one that finishes after
+  // unmount. A failed current fetch keeps the rows already shown.
+  const orphanedFetchIdRef = useRef(0);
+
   const fetchOrphanedDownloads = useCallback(
     async (signal?: AbortSignal) => {
+      const fetchId = ++orphanedFetchIdRef.current;
+      const isCurrentFetch = () => fetchId === orphanedFetchIdRef.current;
       if (mockMode) {
-        setOrphanedLoading(false);
+        if (isCurrentFetch()) setOrphanedLoading(false);
         return;
       }
       try {
         const response = await ApiService.getOrphanedDownloads(signal);
+        if (!isCurrentFetch()) return;
         setOrphanedGroups(response.groups);
       } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (!isCurrentFetch() || isAbortError(err)) return;
         onError(t('management.sections.data.orphanedDownloadsLoadError'));
       } finally {
-        setOrphanedLoading(false);
+        if (isCurrentFetch()) setOrphanedLoading(false);
       }
     },
     [mockMode, onError, t]
@@ -607,17 +615,27 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   useEffect(() => {
     const controller = new AbortController();
     void fetchOrphanedDownloads(controller.signal);
-    return () => controller.abort();
+    return () => {
+      orphanedFetchIdRef.current += 1;
+      controller.abort();
+    };
   }, [fetchOrphanedDownloads]);
 
-  // A scan or a log removal changes which records still have history behind them.
+  // A scan, log removal, or completed log import can change which records still have history
+  // behind them. Interactive imports emit LogProcessingComplete; silent imports and mapping
+  // follow-ups emit DownloadsRefresh.
   useEffect(() => {
     const handleRefreshed = () => void fetchOrphanedDownloads();
     on('EvictionScanComplete', handleRefreshed);
     on('LogRemovalComplete', handleRefreshed);
+    on('LogProcessingComplete', handleRefreshed);
+    on('DownloadsRefresh', handleRefreshed);
     return () => {
+      orphanedFetchIdRef.current += 1;
       off('EvictionScanComplete', handleRefreshed);
       off('LogRemovalComplete', handleRefreshed);
+      off('LogProcessingComplete', handleRefreshed);
+      off('DownloadsRefresh', handleRefreshed);
     };
   }, [on, off, fetchOrphanedDownloads]);
 
