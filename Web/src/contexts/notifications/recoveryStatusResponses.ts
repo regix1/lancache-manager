@@ -185,6 +185,19 @@ export interface EvictionScanStatusResponse {
   context?: StageContext;
 }
 
+/** Row of GET /api/operations/waiting - one operation parked in the wait queue. */
+export interface WaitingOperationRow {
+  operationId: string;
+  operationType: string;
+  name: string;
+  showNotification?: boolean;
+  hideNotification?: boolean;
+  status?: string;
+  /** Display name of the operation this one is parked behind; null when unknown. */
+  blockedByName?: string | null;
+  startedAt?: string;
+}
+
 /** GET /api/operations/{operationId}, including an exact waiter successor. */
 export interface OperationStatusResponse {
   id: string;

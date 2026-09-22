@@ -14,6 +14,7 @@ import {
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { LoadingState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
@@ -32,6 +33,13 @@ import { useConfig } from '@contexts/useConfig';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { getErrorMessage, isAbortError } from '@utils/error';
+import { ApiError } from '@services/apiError';
+import { isConfirmedScanRefusalStatus, readScanAdmission } from '../game-detection/scanAdmission';
+import {
+  followAdmittedScan,
+  recoverScanHold,
+  watchScanHold
+} from '../game-detection/scanHoldRecovery';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
@@ -145,11 +153,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictionSaving, setEvictionSaving] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
+  const [evictionAdmissionHeld, setEvictionAdmissionHeld] = useState(false);
+  const [evictionHoldUnknown, setEvictionHoldUnknown] = useState(false);
   const evictionScanInFlightRef = useRef(false);
+  const evictionAttemptAbortRef = useRef<AbortController | null>(null);
+  const evictionHeldOperationIdRef = useRef<string | null>(null);
   const [resettingEvictions, setResettingEvictions] = useState(false);
   const isEvictionDirty = evictionMode !== savedEvictionMode;
 
-  const { notifications, addNotification } = useNotifications();
+  const { notifications, addNotification, events } = useNotifications();
   const { notifyError } = useErrorHandler();
 
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
@@ -267,12 +279,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       off('GameDetectionComplete', handleScanDone);
     };
   }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning, scheduleEvictedItemsRefresh]);
-
-  // A dropped socket can swallow a scan/clear completion event that flipped
-  // IsEvicted while it was down; resync the evicted-items list on reconnect.
-  useReconnectRefetch(isConnected, () => {
-    if (!isAnyEvictedRemovalRunning) void fetchEvictedItems();
-  });
 
   // Track the eviction target so we know which item to filter on eviction_removal completion
   const removalTargetRef = useRef<CacheRemovalTarget | null>(null);
@@ -436,7 +442,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
   // queues behind it - purple card feedback). Same-op only: scan already running or the
   // kick-off request in flight.
-  const isEvictionScanRunning = isEvictionScanNotificationRunning || isStartingEvictionScan;
+  const isEvictionScanRunning =
+    isEvictionScanNotificationRunning || isStartingEvictionScan || evictionAdmissionHeld;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useSectionExpanded(
     MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED,
@@ -746,21 +753,74 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      evictionAttemptAbortRef.current?.abort();
     };
   }, []);
 
+  const releaseEvictionAdmission = useCallback((attempt: AbortController) => {
+    if (evictionAttemptAbortRef.current !== attempt || !isMountedRef.current) return;
+    attempt.abort();
+    setIsStartingEvictionScan(false);
+    setEvictionAdmissionHeld(false);
+    setEvictionHoldUnknown(false);
+    evictionScanInFlightRef.current = false;
+    evictionHeldOperationIdRef.current = null;
+    evictionAttemptAbortRef.current = null;
+  }, []);
+
+  const recoverEvictionAdmission = useCallback(async () => {
+    const attempt = new AbortController();
+    evictionAttemptAbortRef.current?.abort();
+    evictionAttemptAbortRef.current = attempt;
+    evictionScanInFlightRef.current = true;
+    setIsStartingEvictionScan(false);
+    setEvictionAdmissionHeld(true);
+    setEvictionHoldUnknown(false);
+
+    const hold = await watchScanHold({
+      operationId: evictionHeldOperationIdRef.current,
+      kind: 'evictionScan',
+      abortSignal: attempt.signal
+    });
+    if (hold.decision === 'aborted' || attempt.signal.aborted || !isMountedRef.current) return;
+    evictionHeldOperationIdRef.current = hold.operationId;
+    if (hold.decision === 'unknown') {
+      setEvictionHoldUnknown(true);
+      return;
+    }
+    releaseEvictionAdmission(attempt);
+  }, [releaseEvictionAdmission]);
+
+  useEffect(() => {
+    void recoverEvictionAdmission();
+  }, [recoverEvictionAdmission]);
+
+  // A dropped socket can swallow a scan/clear completion event or a hidden scan lifecycle.
+  // Refresh both the data and the authoritative scan hold when the connection returns.
+  useReconnectRefetch(isConnected, () => {
+    if (!isAnyEvictedRemovalRunning) void fetchEvictedItems();
+    void recoverEvictionAdmission();
+  });
+
   const handleStartEvictionScan = async () => {
-    if (evictionScanInFlightRef.current) return;
+    if (evictionScanInFlightRef.current || evictionAdmissionHeld) return;
     evictionScanInFlightRef.current = true;
     setIsStartingEvictionScan(true);
+    const attempt = new AbortController();
+    evictionAttemptAbortRef.current?.abort();
+    evictionAttemptAbortRef.current = attempt;
+    const releaseAdmission = () => releaseEvictionAdmission(attempt);
 
-    const attemptScan = async (): Promise<void> => {
+    try {
       const result = await ApiService.startEvictionScan();
-      // Wait-queue model: a queued/already-running response means the backend parked or
-      // deduplicated the request - the OperationWaiting SignalR event (or the existing
-      // card) owns the UI, so do NOT seed a running card over it. Evicted-data mode does not
-      // hide the scan card; schedule notification mode is the only display gate.
-      if (result.showNotification !== false && shouldPinOperationIdFromResponse(result)) {
+      if (attempt.signal.aborted) return;
+      const admission = readScanAdmission(result);
+      evictionHeldOperationIdRef.current = result.operationId;
+      if (
+        admission === 'started' &&
+        result.showNotification !== false &&
+        shouldPinOperationIdFromResponse(result)
+      ) {
         addNotification(
           buildSeededRunningNotification(
             'eviction_scan',
@@ -769,19 +829,49 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           )
         );
       }
-    };
-
-    try {
-      await attemptScan();
-    } catch (err: unknown) {
-      // This route answers the same 400 for a refused scan and for a fleet with unusable
-      // cache-key evidence, so neither can be softened without hiding the other.
-      onError(getErrorMessage(err));
-    } finally {
       if (isMountedRef.current) {
-        setIsStartingEvictionScan(false);
+        setEvictionAdmissionHeld(true);
       }
-      evictionScanInFlightRef.current = false;
+      const follow = followAdmittedScan({
+        signalR: { on, off },
+        events,
+        abortSignal: attempt.signal,
+        operationId: result.operationId,
+        admission,
+        completeEvent: 'EvictionScanComplete',
+        kind: 'evictionScan'
+      });
+
+      const confirmation = await recoverScanHold(result.operationId, 'evictionScan');
+      if (attempt.signal.aborted || !isMountedRef.current) return;
+      evictionHeldOperationIdRef.current = confirmation.operationId;
+      setIsStartingEvictionScan(false);
+      if (confirmation.decision === 'release') {
+        releaseAdmission();
+        return;
+      }
+      setEvictionHoldUnknown(confirmation.decision === 'unknown');
+
+      const decision = await follow;
+      if (decision === 'aborted' || attempt.signal.aborted) return;
+      if (decision === 'release') releaseAdmission();
+      else if (isMountedRef.current) {
+        setEvictionAdmissionHeld(true);
+        setEvictionHoldUnknown(decision === 'unknown');
+      }
+    } catch (err: unknown) {
+      if (attempt.signal.aborted) return;
+      if (err instanceof ApiError && isConfirmedScanRefusalStatus(err.status)) {
+        onError(getErrorMessage(err));
+        releaseAdmission();
+        return;
+      }
+      if (!isAbortError(err)) onError(getErrorMessage(err));
+      if (!isMountedRef.current) return;
+      setIsStartingEvictionScan(false);
+      setEvictionAdmissionHeld(true);
+      evictionHeldOperationIdRef.current = null;
+      await recoverEvictionAdmission();
     }
   };
 
@@ -832,6 +922,17 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       {/* Recheck-permissions action. Only rendered when a directory is actually read-only -
           otherwise this wrapper left an empty margin-box above the first group header, so
           Storage sat lower than the other sections. */}
+      {evictionHoldUnknown && (
+        <ErrorBlock
+          title={t('management.gameDetection.errors.scanHoldUnknownTitle')}
+          message={t('management.gameDetection.errors.scanHoldUnknown')}
+          retryLabel={t('common.retry')}
+          onRetry={() => {
+            void recoverEvictionAdmission();
+          }}
+        />
+      )}
+
       {hasPermissionIssues && (
         <div className="mb-4 sm:mb-6">
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -951,7 +1052,13 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           className="block w-full"
                         >
                           <ActionMenuItem
-                            icon={<Search className="w-3.5 h-3.5" />}
+                            icon={
+                              isStartingEvictionScan ? (
+                                <LoadingSpinner inline size="xs" />
+                              ) : (
+                                <Search className="w-3.5 h-3.5" />
+                              )
+                            }
                             disabled={
                               isEvictionScanRunning || resettingEvictions || !scanGate.available
                             }

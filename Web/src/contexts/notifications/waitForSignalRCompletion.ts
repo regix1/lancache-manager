@@ -20,12 +20,15 @@ interface WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress = unkn
   onProgress?: (event: TProgress) => void;
   timeoutMs?: number;
   requestId?: string;
+  /** Unmount aborts the wait and drops a late HTTP result. A request timeout is not this signal. */
+  abortSignal?: AbortSignal;
 }
 
 interface WaitForSignalRCompletionResult<TCompleted> {
   event?: TCompleted;
   terminal?: NotificationTerminal;
   timedOut?: boolean;
+  aborted?: boolean;
   dequeued?: OperationWaitingCompleteEvent;
 }
 
@@ -45,7 +48,8 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     onOperationIdCaptured,
     progressEvent,
     onProgress,
-    timeoutMs = 120_000
+    timeoutMs = 120_000,
+    abortSignal
   } = opts;
   const startedRevision = events.current.revision;
   let captureOperationId: (operationId: string | null | undefined, status?: string) => void = () =>
@@ -84,8 +88,10 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
         clearTimeout(timeoutHandle);
         timeoutHandle = null;
       }
+      abortSignal?.removeEventListener('abort', onAbort);
       release();
     };
+    const onAbort = () => finish({ aborted: true });
     const finish = (result: WaitForSignalRCompletionResult<TCompleted>) => {
       if (settled) return;
       settled = true;
@@ -229,6 +235,10 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     if (startedEvent) signalR.on(startedEvent, startedHandler);
     if (progressEvent) signalR.on(progressEvent, progressHandler);
     timeoutHandle = setTimeout(() => finish({ timedOut: true }), timeoutMs);
+    if (abortSignal) {
+      if (abortSignal.aborted) queueMicrotask(onAbort);
+      else abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
   });
   return Object.assign(promise, {
     captureOperationId: (operationId: string | null | undefined, status?: string) =>

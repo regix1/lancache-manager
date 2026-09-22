@@ -641,12 +641,20 @@ test('hidden immediate Storage scan response creates no running seed', async () 
   );
   let result = { operationId: 'scan', showNotification: false };
   let seeded = false;
+  const inFlight = { current: false };
   const handler = bindLifted(source, {
-    evictionScanInFlightRef: { current: false },
+    evictionScanInFlightRef: inFlight,
+    evictionAdmissionHeld: false,
+    evictionAttemptAbortRef: { current: null },
+    evictionHeldOperationIdRef: { current: null },
     setIsStartingEvictionScan: () => undefined,
+    setEvictionAdmissionHeld: () => undefined,
+    setEvictionHoldUnknown: () => undefined,
     ApiService: {
       startEvictionScan: async () => result
     },
+    readScanAdmission: (response) =>
+      response.queued ? 'queued' : response.alreadyRunning ? 'alreadyRunning' : 'started',
     shouldPinOperationIdFromResponse,
     addNotification: () => {
       seeded = true;
@@ -657,7 +665,19 @@ test('hidden immediate Storage scan response creates no running seed', async () 
       throw new Error(error);
     },
     getErrorMessage: String,
-    isMountedRef: { current: true }
+    isMountedRef: { current: true },
+    releaseEvictionAdmission: () => {
+      inFlight.current = false;
+    },
+    followAdmittedScan: async () => 'release',
+    recoverScanHold: async (operationId) => ({ decision: 'hold', operationId }),
+    on: () => undefined,
+    off: () => undefined,
+    events: { current: {} },
+    ApiError: Error,
+    isConfirmedScanRefusalStatus: () => false,
+    isAbortError: () => false,
+    recoverEvictionAdmission: async () => undefined
   });
   await handler();
   assert.equal(seeded, false);

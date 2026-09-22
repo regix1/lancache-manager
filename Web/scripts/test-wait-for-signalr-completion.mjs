@@ -240,3 +240,21 @@ test('promotion is not a dequeue - the wait stays open for the real completion',
   assert.ok(result.event, 'a promoted operation still emits its own completion');
   assert.equal(result.dequeued, undefined);
 });
+
+test('unmount abort settles the wait and detaches listeners', async () => {
+  const { waitForSignalRCompletion } = await loadWaitHelper();
+  const signalR = createFakeSignalR();
+  const abort = new AbortController();
+  const waitPromise = waitForSignalRCompletion({
+    signalR,
+    events: signalR.events,
+    completeEvent: 'GameRemovalComplete',
+    match: () => true,
+    abortSignal: abort.signal,
+    timeoutMs: 5000
+  });
+  abort.abort();
+  const result = await waitPromise;
+  assert.equal(result.aborted, true);
+  assert.equal(signalR.listenerCount('GameRemovalComplete'), 0);
+});

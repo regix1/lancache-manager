@@ -6,6 +6,12 @@ import { getEffectiveTimezone } from '../utils/timezone';
 import { hasRecentUserInteraction } from '../utils/userInteractionTracker';
 import { ApiError, assertOk, buildApiError } from './apiError';
 import type {
+  EvictionScanStatusResponse,
+  GameDetectionStatusResponse,
+  OperationStatusResponse,
+  WaitingOperationRow
+} from '@contexts/notifications/recoveryStatusResponses';
+import type {
   OperationStatus,
   PrefillSessionStatus,
   DaemonSessionStatus,
@@ -870,6 +876,29 @@ class ApiService {
       console.error('removeOrphanedDownloads error:', error);
       throw error;
     }
+  }
+
+  static async getTrackedOperation(operationId: string): Promise<OperationStatusResponse> {
+    const res = await fetch(
+      `${API_BASE}/operations/${encodeURIComponent(operationId)}`,
+      this.getFetchOptions()
+    );
+    return this.handleResponse<OperationStatusResponse>(res);
+  }
+
+  static async getWaitingOperations(): Promise<WaitingOperationRow[]> {
+    const res = await fetch(`${API_BASE}/operations/waiting`, this.getFetchOptions());
+    return this.handleResponse<WaitingOperationRow[]>(res);
+  }
+
+  static async getActiveGameDetection(): Promise<GameDetectionStatusResponse> {
+    const res = await fetch(`${API_BASE}/games/detect/active`, this.getFetchOptions());
+    return this.handleResponse<GameDetectionStatusResponse>(res);
+  }
+
+  static async getEvictionScanStatus(): Promise<EvictionScanStatusResponse> {
+    const res = await fetch(`${API_BASE}/stats/eviction/scan/status`, this.getFetchOptions());
+    return this.handleResponse<EvictionScanStatusResponse>(res);
   }
 
   static async startEvictionScan(): Promise<{

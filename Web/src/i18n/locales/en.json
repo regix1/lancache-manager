@@ -3101,7 +3101,9 @@
       "unmappedFileCount_other": "{{formattedCount}} files",
       "unmappedFromScan": "Counted by the last full detection scan. The dashboard's Cache Size card works its unmapped figure out from a separate cache scan, so the two can differ.",
       "errors": {
-        "syncFailed": "Failed to refresh cached results"
+        "syncFailed": "Failed to refresh cached results",
+        "scanHoldUnknownTitle": "Scan status unavailable",
+        "scanHoldUnknown": "Could not confirm whether the scan is still running."
       },
       "placeholders": {
         "allDatasources": "All datasources",

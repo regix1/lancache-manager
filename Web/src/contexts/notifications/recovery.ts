@@ -36,7 +36,7 @@ import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './rem
 import i18n from '@/i18n';
 import type { CorruptionDetectionMethod } from '@/types';
 import type { RefObject } from 'react';
-import type { OperationStatusResponse } from './recoveryStatusResponses';
+import type { OperationStatusResponse, WaitingOperationRow } from './recoveryStatusResponses';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
 
@@ -192,19 +192,6 @@ function reconcileRecoveredCard(
     progressMode: recovered.progressMode ?? existing.progressMode,
     progressAriaValueText: recovered.progressAriaValueText ?? existing.progressAriaValueText
   };
-}
-
-/** Row shape of GET /api/operations/waiting (wait-queue recovery endpoint). */
-interface WaitingOperationRow {
-  showNotification?: boolean;
-  hideNotification?: boolean;
-  status?: string;
-  operationId: string;
-  operationType: string;
-  name: string;
-  /** Display name of the operation this one is parked behind; null when unknown. */
-  blockedByName?: string | null;
-  startedAt?: string;
 }
 
 /**

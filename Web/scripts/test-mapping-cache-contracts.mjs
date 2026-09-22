@@ -26,6 +26,12 @@ const corruptionManager = readWebSource(
 const cacheSizeContext = readWebSource('src/contexts/CacheSizeContext.tsx');
 const scanBlockedHook = readWebSource('src/hooks/useCacheScanBlocked.ts');
 const errorUtils = readWebSource('src/utils/error.ts');
+const scanHoldRecovery = readWebSource(
+  'src/components/features/management/game-detection/scanHoldRecovery.ts'
+);
+const waitForSignalRCompletion = readWebSource(
+  'src/contexts/notifications/waitForSignalRCompletion.ts'
+);
 const en = JSON.parse(readWebSource('src/i18n/locales/en.json'));
 const zh = JSON.parse(readWebSource('src/i18n/locales/zh.json'));
 
@@ -746,32 +752,25 @@ test('a declined run does not trigger a refetch in any completion listener', () 
 });
 
 test('a declined game detection releases the section instead of leaving it scanning', () => {
-  // The terminal filter that clears isStartingDetection and detectionInFlightRef must treat a
-  // declined run as terminal. Without it the card says skipped while the section stays in its
-  // loader with both scan buttons disabled, and only a reload frees it.
+  // The operation-id waiter owns terminal state. A skipped completion must settle that waiter and
+  // release the local guard; notification-card age is no longer a second state machine.
   assert.match(
-    gameCacheDetector,
-    /gameDetectionEndedNotifs = notifications\.filter\([\s\S]*?'skipped'[\s\S]*?\);[\s\S]*?detectionInFlightRef\.current = false;/
+    waitForSignalRCompletion,
+    /fields\.skipped \|\| fields\.status === 'skipped'[\s\S]*?\? 'skipped'/
   );
+  assert.match(scanHoldRecovery, /if \(outcome\.terminal\) return 'release';/);
+  assert.match(gameCacheDetector, /if \(decision === 'release'\) \{[\s\S]*?releaseAttempt\(\);/);
 });
 
 test('a terminal card from an earlier scan cannot end the one just started', () => {
-  // One card slot per type, so a leftover terminal card is still in the list when the next scan
-  // starts. Both terminal filters must age it out, or it clears the in-flight guard mid-request
-  // and a second click starts a second scan. This guards all four terminal states, not just one.
-  assert.match(gameCacheDetector, /scanStartedAtRef\.current = Date\.now\(\);/);
+  // The HTTP operation id is the owner. A stale singleton card never reaches the waiter because
+  // completion is matched by that exact id, and no notification-list effect clears the guard.
+  assert.match(gameCacheDetector, /heldOperationIdRef\.current = result\.operationId;/);
   assert.match(
-    gameCacheDetector,
-    /raisedByThisScan = \(n: UnifiedNotification\) =>[\s\S]*?n\.startedAt\.getTime\(\) >= scanStartedAtRef\.current/
+    waitForSignalRCompletion,
+    /fields\.operationId !== operationId \|\| !match\(event\)/
   );
-  assert.match(
-    gameCacheDetector,
-    /gameDetectionNotifs = notifications\.filter\([\s\S]*?'completed'[\s\S]*?raisedByThisScan\(n\)/
-  );
-  assert.match(
-    gameCacheDetector,
-    /gameDetectionEndedNotifs = notifications\.filter\([\s\S]*?raisedByThisScan\(n\)/
-  );
+  assert.doesNotMatch(gameCacheDetector, /gameDetectionEndedNotifs|raisedByThisScan/);
 });
 
 test('scan buttons gate on the unfiltered server answer, not the filtered snapshot', () => {

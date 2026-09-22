@@ -3101,7 +3101,9 @@
       "unmappedFileCount_other": "{{formattedCount}} 个文件",
       "unmappedFromScan": "由上次全面检测扫描统计得出。仪表板的缓存大小卡片是根据另一次缓存扫描算出未映射数值的，因此两者可能不同。",
       "errors": {
-        "syncFailed": "刷新已缓存的结果失败"
+        "syncFailed": "刷新已缓存的结果失败",
+        "scanHoldUnknownTitle": "无法获取扫描状态",
+        "scanHoldUnknown": "无法确认扫描是否仍在进行。"
       },
       "placeholders": {
         "allDatasources": "所有数据源",
