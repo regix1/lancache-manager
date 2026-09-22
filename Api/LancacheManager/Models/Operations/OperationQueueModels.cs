@@ -37,6 +37,11 @@ public sealed class RunNotice(NotificationMode mode, RunTrigger trigger)
     private readonly object _lock = new();
     public Guid? OperationId { get; private set; }
     public Guid? PendingId { get; internal set; }
+    /// <summary>
+    /// The operation this run was parked behind, recorded when the queue promotes it.
+    /// A scan uses it to reuse that operation's results instead of starting the same work again.
+    /// </summary>
+    public Guid? BlockedByOperationId { get; internal set; }
     public CancellationToken Token { get; internal set; }
     public bool Cancelled => Volatile.Read(ref _cancelled) != 0;
     public NotificationMode Mode { get; } = mode;

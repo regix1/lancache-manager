@@ -494,6 +494,8 @@ public sealed class OperationQueueService : IOperationQueue
                     {
                         if (!startedId.HasValue)
                         {
+                            if (waiter.Notice != null)
+                                waiter.Notice.BlockedByOperationId = waiter.LastBlockerId;
                             startedId = await waiter.Start();
                         }
                     }
