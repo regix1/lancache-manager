@@ -130,6 +130,37 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             fromOperationId, toOperationId);
     }
 
+    public bool BeginQueuedOperation(
+        Guid operationId,
+        object? state,
+        Action? onTerminalCleanup,
+        Func<OperationTerminalInfo, Task>? onTerminalEmit)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation))
+        {
+            return false;
+        }
+
+        lock (operation)
+        {
+            if (operation.CompletedFlag != 0 || operation.Status != OperationStatus.Waiting)
+            {
+                return false;
+            }
+
+            operation.Status = OperationStatus.Running;
+            operation.Message = $"Starting {operation.Name}...";
+            operation.Metadata = state;
+            operation.OnTerminalCleanup = onTerminalCleanup;
+            operation.OnTerminalEmit = onTerminalEmit;
+        }
+
+        _logger.LogInformation(
+            "Operation {Id} ({Type}: {Name}) left the queue and is running",
+            operationId, operation.Type, operation.Name);
+        return true;
+    }
+
     /// <summary>
     /// Follow any recorded handoff to the operation actually doing the work. Returns the id
     /// unchanged when nothing has taken over.

@@ -161,10 +161,21 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
       replay();
       return true;
     };
+    const resumeParked = (event: unknown): boolean => {
+      if (!parkedId) return true;
+      if (adoptPredecessor(event)) return true;
+      const sameOperation = (event as { operationId?: unknown }).operationId === parkedId;
+      if (!sameOperation) return false;
+      events.current.waiting.delete(parkedId);
+      parkedId = null;
+      followed = true;
+      replay();
+      return true;
+    };
     const startedHandler: EventHandler = (event: TStarted) => {
       if (settled || !captured || !onStartedCapture) return;
       if (parkedId) {
-        adoptPredecessor(event);
+        resumeParked(event);
         return;
       }
       if (operationId) return;
@@ -175,14 +186,14 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     };
     const progressHandler: EventHandler = (event: TProgress) => {
       if (settled || !captured) return;
-      if (parkedId && !adoptPredecessor(event)) return;
+      if (!resumeParked(event)) return;
       if (!operationId || parkedId) return;
       if ((event as { operationId?: string }).operationId !== operationId) return;
       onProgress?.(event);
     };
     const completeHandler: EventHandler = (event: TCompleted) => {
       if (settled || !captured) return;
-      if (parkedId && !adoptPredecessor(event)) return;
+      if (!resumeParked(event)) return;
       if (!operationId || parkedId) return;
       const fields = event as {
         operationId?: string;

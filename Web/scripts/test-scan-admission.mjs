@@ -394,6 +394,37 @@ for (const eventName of ['EvictionScanProgress', 'EvictionScanComplete']) {
   });
 }
 
+test('an eviction Started for the queued id follows that same operation', async () => {
+  const signalR = createSignalR();
+  globalThis.__scanApi = {
+    ...idleApi(),
+    getTrackedOperation: async (operationId) => ({
+      id: operationId,
+      active: true,
+      status: 'waiting'
+    }),
+    getWaitingOperations: async () => [
+      { operationId: 'eviction-waiting', operationType: 'evictionScan' }
+    ],
+    getEvictionScanStatus: async () => ({ isProcessing: false, operationId: null })
+  };
+
+  const resultPromise = followAdmittedScan({
+    signalR,
+    events: signalR.events,
+    abortSignal: new AbortController().signal,
+    operationId: 'eviction-waiting',
+    admission: 'queued',
+    completeEvent: 'EvictionScanComplete',
+    kind: 'evictionScan'
+  });
+  signalR.emit('EvictionScanStarted', { operationId: 'eviction-waiting' });
+  signalR.emit('EvictionScanComplete', { operationId: 'eviction-waiting', success: true });
+
+  assert.equal(await resultPromise, 'release');
+  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
+});
+
 test('a failed recovery read does not abandon the SignalR wait', async () => {
   const signalR = createSignalR();
   globalThis.__scanApi = {

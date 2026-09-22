@@ -147,13 +147,49 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationTokenSource? cts = null;
         Guid operationId = default;
         var operationRegistered = false;
+        var ownsToken = false;
         try
         {
-            // The operation is detached from the scheduler/HTTP request that launched it, but it
-            // must still stop with the host so its Rust child cannot outlive application shutdown.
-            cts = CancellationTokenSource.CreateLinkedTokenSource(
-                _applicationLifetime.ApplicationStopping);
+            // A scan that waited keeps the parked operation. A second registration is a second
+            // notification. The parked token is the one the waiting card already cancels.
+            var parked = notice?.OperationId is Guid parkedId
+                ? _operationTracker.GetOperation(parkedId)
+                : null;
+            var continueQueued = parked?.Status == OperationStatus.Waiting
+                && parked.Type == OperationType.EvictionScan
+                && parked.CancellationTokenSource != null;
+            if (continueQueued)
+            {
+                cts = parked!.CancellationTokenSource!;
+                _applicationLifetime.ApplicationStopping.Register(static source =>
+                {
+                    var tokenSource = (CancellationTokenSource)source!;
+                    try
+                    {
+                        if (!tokenSource.IsCancellationRequested) tokenSource.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The scan already finished and the tracker disposed its token.
+                    }
+                }, cts);
+            }
+            else
+            {
+                // The operation is detached from the scheduler/HTTP request that launched it, but it
+                // must still stop with the host so its Rust child cannot outlive application shutdown.
+                cts = CancellationTokenSource.CreateLinkedTokenSource(
+                    _applicationLifetime.ApplicationStopping);
+                ownsToken = true;
+            }
+
             operationId = RegisterEvictionScanOperation(name, cts, silent, notice);
+            if (operationId == Guid.Empty)
+            {
+                EndRun();
+                return null;
+            }
+
             operationRegistered = true;
 
             _ = Task.Run(async () =>
@@ -213,7 +249,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
             }
-            else
+            else if (ownsToken)
             {
                 cts?.Dispose();
             }
@@ -769,26 +805,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false, RunNotice? notice = null)
     {
-        var previousOperationId = notice?.OperationId;
+        var parked = notice?.OperationId is Guid parkedId ? _operationTracker.GetOperation(parkedId) : null;
+        var continueQueued = parked?.Status == OperationStatus.Waiting
+            && parked.Type == OperationType.EvictionScan
+            && parked.CancellationTokenSource == cts;
+        var previousOperationId = continueQueued ? null : notice?.OperationId;
         var terminalState = new EvictionScanTerminalState
         {
             Silent = silent,
             Hidden = notice?.HideNotification == true
         };
         Guid operationId = default;
-        operationId = _operationTracker.RegisterOperation(
-            OperationType.EvictionScan,
-            name,
-            cts,
-            metadata: new Dictionary<string, object?>
-            {
-                ["runNotice"] = notice,
-                ["showNotification"] = !silent,
-                ["hideNotification"] = terminalState.Hidden,
-                ["previousOperationId"] = previousOperationId
-            },
-            onTerminalCleanup: () =>
-            {
+        var scanState = new Dictionary<string, object?>
+        {
+            ["runNotice"] = notice,
+            ["showNotification"] = !silent,
+            ["hideNotification"] = terminalState.Hidden,
+            ["previousOperationId"] = previousOperationId
+        };
+        Action finish = () =>
+        {
                 _evictionScanTerminalStates.TryRemove(operationId, out _);
                 lock (_evictionScanTerminalStates)
                 {
@@ -798,8 +834,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         _currentScanOperationId = null;
                     }
                 }
-            },
-            onTerminalEmit: info =>
+            };
+        Func<OperationTerminalInfo, Task> emit = terminal =>
             {
                 var showNotification = !terminalState.Silent || terminalState.DetectionError != null;
                 var context = new Dictionary<string, object?>
@@ -810,7 +846,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 };
                 if (terminalState.DetectionError != null) context["detectionError"] = terminalState.DetectionError;
 
-                if (info.Cancelled)
+                if (terminal.Cancelled)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: false,
@@ -829,7 +865,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // Above the success branch: a refused run completes successfully because it did
                 // not fail, so without this it would announce itself as a finished scan that
                 // found nothing to evict.
-                if (info.Skipped)
+                if (terminal.Skipped)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: true,
@@ -843,7 +879,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Processed: 0,
                         Evicted: 0,
                         UnEvicted: 0,
-                        Error: info.Error,
+                        Error: terminal.Error,
                         Context: context,
                         ShowNotification: showNotification,
                         Skipped: true,
@@ -851,7 +887,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         PreviousOperationId: QueuedPredecessor(operationId)));
                 }
 
-                if (info.Success)
+                if (terminal.Success)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: true,
@@ -873,12 +909,32 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Processed: 0,
                     Evicted: 0,
                     UnEvicted: 0,
-                    Error: info.Error ?? "Rust eviction scan binary returned failure",
+                    Error: terminal.Error ?? "Rust eviction scan binary returned failure",
                     Context: context,
                     ShowNotification: showNotification,
                     HideNotification: terminalState.Hidden,
                     PreviousOperationId: QueuedPredecessor(operationId)));
-            });
+            };
+
+        if (continueQueued)
+        {
+            if (parked == null || !_operationTracker.BeginQueuedOperation(parked.Id, scanState, finish, emit))
+            {
+                return Guid.Empty;
+            }
+
+            operationId = parked.Id;
+        }
+        else
+        {
+            operationId = _operationTracker.RegisterOperation(
+                OperationType.EvictionScan,
+                name,
+                cts,
+                scanState,
+                finish,
+                emit);
+        }
 
         _evictionScanTerminalStates[operationId] = terminalState;
         lock (_evictionScanTerminalStates)

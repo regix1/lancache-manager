@@ -570,6 +570,26 @@ for (const silent of [true, false]) {
   });
 }
 
+test('eviction started for its waiting id keeps that card', async () => {
+  const f = await lifecycle();
+  f.waiting({ ...queued(), silent: true, acknowledge: false });
+  const original = f.state[0];
+
+  f.event(
+    'eviction_scan',
+    'started',
+    scan('W', {
+      showNotification: false,
+      stageKey: 'signalr.evictionScan.detectingGames'
+    })
+  );
+
+  assert.equal(f.state.length, 1, JSON.stringify(f.state));
+  assert.equal(f.state[0].id, original.id);
+  assert.equal(f.state[0].details.operationId, 'W');
+  assert.equal(f.state[0].status, 'running');
+});
+
 for (const phase of ['progress', 'complete']) {
   for (const silent of [true, false]) {
     test(`eviction ${phase} predecessor replaces its queued card without Started, silent=${silent}`, async () => {

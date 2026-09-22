@@ -75,6 +75,17 @@ public interface IUnifiedOperationTracker
     void RecordHandoff(Guid fromOperationId, Guid toOperationId);
 
     /// <summary>
+    /// Makes a parked operation the running one. Its id and cancellation token stay the same, so
+    /// the card that was waiting is the card that runs. Returns false when that operation is
+    /// missing or no longer waiting.
+    /// </summary>
+    bool BeginQueuedOperation(
+        Guid operationId,
+        object? state,
+        Action? onTerminalCleanup,
+        Func<OperationTerminalInfo, Task>? onTerminalEmit);
+
+    /// <summary>
     /// Associates a running OS process with an operation so cancel/force-kill can terminate it.
     /// </summary>
     void AssociateProcess(Guid operationId, Process process);

@@ -526,7 +526,19 @@ public sealed class OperationQueueService : IOperationQueue
                         _logger.LogError(ex, "Queued {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
                     }
 
-                    if (startedId.HasValue)
+                    if (startedId == waiter.WaitingId)
+                    {
+                        // The parked record itself is now running. Completing it here would finish
+                        // the work that just started and leave the card with nothing to follow.
+                        _logger.LogInformation(
+                            "Promoted queued {Type} '{Name}' in place ({Id})",
+                            waiter.Type, waiter.Name, waiter.WaitingId);
+                        if (_tracker.GetOperation(waiter.WaitingId)?.Cancelled == true)
+                        {
+                            _tracker.CancelOperation(waiter.WaitingId);
+                        }
+                    }
+                    else if (startedId.HasValue)
                     {
                         _logger.LogInformation(
                             "Promoted queued {Type} '{Name}': waiting op {WaitingId} -> running op {NewId}",

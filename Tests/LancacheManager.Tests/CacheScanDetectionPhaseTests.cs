@@ -230,6 +230,59 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task PromotionLeavesTheQueuedScanRunningWhenThatScanKeepsItsId()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var detectionId = tracker.RegisterOperation(
+            OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            (ISignalRNotificationService)(object)ctx.Notifications, NullLogger<OperationQueueService>.Instance);
+        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var continued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queued = await queue.EnqueueAsync(
+            OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () =>
+            {
+                var parkedId = notice.OperationId!.Value;
+                Assert.True(tracker.BeginQueuedOperation(parkedId, new Dictionary<string, object?>(), null, null));
+                continued.TrySetResult();
+                return Task.FromResult<Guid?>(parkedId);
+            },
+            CancellationToken.None,
+            notice: notice);
+
+        Assert.True(queued.Queued);
+        tracker.CompleteOperation(detectionId, success: true);
+        await continued.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(queued.OperationId)!.Status);
+    }
+
+    [Fact]
+    public void AQueuedEvictionScanContinuesTheParkedOperation()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var parkedToken = new CancellationTokenSource();
+        var parkedId = tracker.RegisterOperation(
+            OperationType.EvictionScan, "Eviction Scan", parkedToken, initialStatus: OperationStatus.Waiting);
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual);
+        notice.Attach(tracker, parkedId);
+
+        var continued = (Guid)typeof(CacheReconciliationService).GetMethod(
+            "RegisterEvictionScanOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(
+            ctx.Scan, ["Eviction Scan", parkedToken, true, notice])!;
+
+        Assert.Equal(parkedId, continued);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(parkedId)!.Status);
+        Assert.Equal(parkedId, Assert.Single(tracker.GetActiveOperations(OperationType.EvictionScan)).Id);
+    }
+
+    [Fact]
     public async Task CancellingTheScanCancelsTheDetectionItIsWaitingOn()
     {
         using var ctx = new PhaseContext();
