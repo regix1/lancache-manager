@@ -86,6 +86,13 @@ public interface IUnifiedOperationTracker
         Func<OperationTerminalInfo, Task>? onTerminalEmit);
 
     /// <summary>
+    /// Completes a parked operation as cancelled, because a queued operation has no worker to
+    /// unwind it. Does nothing once it runs under its own id: from that point its worker reports
+    /// the terminal itself. Returns whether this call completed it.
+    /// </summary>
+    bool CancelParkedOperation(Guid operationId);
+
+    /// <summary>
     /// Associates a running OS process with an operation so cancel/force-kill can terminate it.
     /// </summary>
     void AssociateProcess(Guid operationId, Process process);

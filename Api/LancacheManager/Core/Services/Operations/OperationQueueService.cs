@@ -264,11 +264,14 @@ public sealed class OperationQueueService : IOperationQueue
             // be cancelled by paths other than the cancel endpoint, and the card must read as
             // cancelled on all of them. No attribution — at this point the code cannot tell a person
             // clicking cancel from the app shutting down.
+            // A type that keeps its parked id when it starts running shares this token with the
+            // work, so the completion is asked for rather than taken: once the operation is
+            // running its worker owns the terminal and reports it after releasing its own gate.
             var capturedWaitingId = waitingId;
             cts.Token.Register(() =>
             {
                 notice?.Cancel(_tracker, capturedWaitingId);
-                _ = Task.Run(() => _tracker.CompleteOperation(capturedWaitingId, success: false, cancelled: true));
+                _ = Task.Run(() => _tracker.CancelParkedOperation(capturedWaitingId));
             });
 
             var blockerName = ResolveBlockerName(conflict);

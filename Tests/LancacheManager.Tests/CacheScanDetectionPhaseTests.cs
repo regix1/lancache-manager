@@ -261,6 +261,45 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public void ARunningScanKeepsItsTerminalWhenItsQueuedTokenIsCancelled()
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var token = new CancellationTokenSource();
+        var parkedId = tracker.RegisterOperation(
+            OperationType.EvictionScan, "Eviction Scan", token,
+            metadata: new Dictionary<string, object?> { ["waiting"] = true },
+            initialStatus: OperationStatus.Waiting);
+
+        // Still parked: the queue owns the terminal because no worker exists.
+        Assert.True(tracker.BeginQueuedOperation(parkedId, new Dictionary<string, object?>(), null, null));
+        Assert.False(tracker.CancelParkedOperation(parkedId));
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(parkedId)!.Status);
+
+        tracker.CompleteOperation(parkedId, success: true);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(parkedId)!.Status);
+    }
+
+    [Fact]
+    public void AParkedScanIsCancelledByTheQueueAndRefusesToStart()
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var parkedId = tracker.RegisterOperation(
+            OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            metadata: new Dictionary<string, object?> { ["waiting"] = true },
+            initialStatus: OperationStatus.Waiting);
+
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(parkedId));
+        // The cancel moved it to Cancelling without giving it a worker, so it is still the queue's.
+        Assert.Contains(parkedId, tracker.GetWaitingOperations().Select(operation => operation.Id));
+        Assert.False(tracker.BeginQueuedOperation(parkedId, new Dictionary<string, object?>(), null, null));
+        Assert.True(tracker.CancelParkedOperation(parkedId));
+        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(parkedId)!.Status);
+        Assert.False(tracker.CancelParkedOperation(parkedId));
+    }
+
+    [Fact]
     public void AQueuedEvictionScanContinuesTheParkedOperation()
     {
         using var ctx = new PhaseContext();

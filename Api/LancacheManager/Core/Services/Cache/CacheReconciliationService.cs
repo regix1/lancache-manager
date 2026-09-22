@@ -148,6 +148,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Guid operationId = default;
         var operationRegistered = false;
         var ownsToken = false;
+        // Disposed by whichever path ends this attempt. The host token outlives every scan, so a
+        // registration left on it would hold this scan's token source for the life of the process.
+        var stopScanOnShutdown = default(CancellationTokenRegistration);
         try
         {
             // A scan that waited keeps the parked operation. A second registration is a second
@@ -161,7 +164,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (continueQueued)
             {
                 cts = parked!.CancellationTokenSource!;
-                _applicationLifetime.ApplicationStopping.Register(static source =>
+                stopScanOnShutdown = _applicationLifetime.ApplicationStopping.Register(static source =>
                 {
                     var tokenSource = (CancellationTokenSource)source!;
                     try
@@ -186,6 +189,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             operationId = RegisterEvictionScanOperation(name, cts, silent, notice);
             if (operationId == Guid.Empty)
             {
+                stopScanOnShutdown.Dispose();
                 EndRun();
                 return null;
             }
@@ -216,6 +220,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
                 finally
                 {
+                    stopScanOnShutdown.Dispose();
                     // Single owner and strict ordering: release the service-local gate exactly once,
                     // then complete the tracker operation so queue promotion can safely acquire it.
                     EndRun();
@@ -244,6 +249,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (Exception ex)
         {
+            stopScanOnShutdown.Dispose();
             EndRun();
             if (operationRegistered)
             {

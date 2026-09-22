@@ -143,7 +143,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         lock (operation)
         {
-            if (operation.CompletedFlag != 0 || operation.Status != OperationStatus.Waiting)
+            // A cancel already claimed this operation, so refusing here leaves the queue's
+            // parked-cancel path to finish it rather than starting work that must stop at once.
+            if (operation.CompletedFlag != 0 || operation.Status != OperationStatus.Waiting || operation.Cancelled)
             {
                 return false;
             }
@@ -160,6 +162,40 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operationId, operation.Type, operation.Name);
         return true;
     }
+
+    public bool CancelParkedOperation(Guid operationId)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation))
+        {
+            return false;
+        }
+
+        lock (operation)
+        {
+            // Once an operation runs under its own id, its worker reports the terminal after
+            // releasing whatever gate it holds. Ending it here would close the card while the
+            // work is still unwinding and free the queue to promote into a held gate.
+            if (operation.CompletedFlag != 0 || !IsParked(operation))
+            {
+                return false;
+            }
+        }
+
+        CompleteOperation(operationId, success: false, cancelled: true);
+        return true;
+    }
+
+    /// <summary>
+    /// True while an operation is the wait-queue's to finish: parked with no worker behind it.
+    /// A cancel moves it to <see cref="OperationStatus.Cancelling"/> without giving it one, so
+    /// that state counts as parked while it still carries a queue marker.
+    /// </summary>
+    private static bool IsParked(OperationInfo operation) =>
+        operation.Status == OperationStatus.Waiting ||
+        (operation.Status == OperationStatus.Cancelling &&
+            (RunNotice.ReadRunNotice(operation.Metadata)?.PendingId == operation.Id ||
+                operation.Metadata is IReadOnlyDictionary<string, object?> values &&
+                values.TryGetValue("waiting", out var waiting) && waiting is true));
 
     /// <summary>
     /// Follow any recorded handoff to the operation actually doing the work. Returns the id
@@ -362,10 +398,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public IEnumerable<OperationInfo> GetWaitingOperations()
     {
-        return _operations.Values.Where(op => op.Status == OperationStatus.Waiting ||
-            op.Status == OperationStatus.Cancelling &&
-            (RunNotice.ReadRunNotice(op.Metadata)?.PendingId == op.Id ||
-             op.Metadata is IReadOnlyDictionary<string, object?> values && values.TryGetValue("waiting", out var waiting) && waiting is true)).ToList();
+        return _operations.Values.Where(IsParked).ToList();
     }
 
     public void CompleteOperation(
