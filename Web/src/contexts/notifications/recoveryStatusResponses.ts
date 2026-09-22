@@ -181,6 +181,7 @@ export interface EvictionScanStatusResponse {
   percentComplete: number;
   message: string;
   operationId: string | null;
+  previousOperationId?: string | null;
   stageKey?: string;
   context?: StageContext;
 }

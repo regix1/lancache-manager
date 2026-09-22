@@ -217,7 +217,8 @@ const driveScheduledPrefill = async () => {
   const cards = newCardList();
 
   const onProgress = liftHandlerBuilder('buildProgressHandler', {
-    createStatusAwareProgressHandler
+    createStatusAwareProgressHandler,
+    applyPredecessor
   })(
     entry,
     entry.progress,
@@ -238,12 +239,10 @@ const driveScheduledPrefill = async () => {
     cards.events.current
   );
 
-  const onComplete = liftHandlerBuilder('buildCompleteHandler', { createCompletionHandler })(
-    entry,
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events?.current
-  );
+  const onComplete = liftHandlerBuilder('buildCompleteHandler', {
+    createCompletionHandler,
+    applyPredecessor
+  })(entry, cards.setNotifications, cards.scheduleAutoDismiss, cards.events?.current);
 
   return { cards, entry, onStarted, onProgress, onComplete, scheduledPrefillCardId, storageKey };
 };

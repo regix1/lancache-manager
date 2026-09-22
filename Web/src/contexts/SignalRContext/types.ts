@@ -1179,6 +1179,7 @@ export interface XboxGameMappingsUpdatedEvent {
 export interface EvictionScanStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
+  previousOperationId?: string | null;
   showNotification?: boolean;
 }
 
@@ -1186,6 +1187,7 @@ export interface EvictionScanProgressEvent extends OperationEvent {
   status: OperationStatus;
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
+  previousOperationId?: string | null;
   percentComplete: number;
   processed: number;
   totalEstimate: number;
@@ -1208,6 +1210,7 @@ export interface EvictionScanCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
+  previousOperationId?: string | null;
   processed: number;
   evicted: number;
   unEvicted: number;

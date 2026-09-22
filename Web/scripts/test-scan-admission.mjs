@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { compileToUrl, moduleUrl } from './transpile-module.mjs';
+import { compileToUrl, moduleUrl, notificationEvents } from './transpile-module.mjs';
 
 const { decideScanHold, isConfirmedScanRefusalStatus, readScanAdmission } = await import(
   await compileToUrl('../src/components/features/management/game-detection/scanAdmission.ts', {
@@ -32,7 +32,7 @@ const apiErrorUrl = moduleUrl(`
     constructor(status) { super(String(status)); this.status = status; }
   }
 `);
-const { watchScanHold } = await import(
+const { followAdmittedScan, watchScanHold } = await import(
   await compileToUrl('../src/components/features/management/game-detection/scanHoldRecovery.ts', {
     '@services/api.service': apiUrl,
     '@services/apiError': apiErrorUrl,
@@ -47,6 +47,26 @@ const idleApi = () => ({
   getActiveGameDetection: async () => ({ isProcessing: false, operation: null }),
   getEvictionScanStatus: async () => ({ isProcessing: false, operationId: null })
 });
+
+const createSignalR = () => {
+  const handlers = new Map();
+  return {
+    events: notificationEvents(),
+    on(name, handler) {
+      if (!handlers.has(name)) handlers.set(name, new Set());
+      handlers.get(name).add(handler);
+    },
+    off(name, handler) {
+      handlers.get(name)?.delete(handler);
+    },
+    emit(name, event) {
+      for (const handler of handlers.get(name) ?? []) handler(event);
+    },
+    listenerCount(name) {
+      return handlers.get(name)?.size ?? 0;
+    }
+  };
+};
 
 test('a waiting status holds even when the active flag is false', () => {
   assert.equal(
@@ -69,6 +89,18 @@ test('a terminal status releases', () => {
       endpointFailed: false
     }),
     'release'
+  );
+});
+
+test('a terminal waiting record holds while its successor scan is active', () => {
+  assert.equal(
+    decideScanHold({
+      operation: { status: 'completed' },
+      waitingListed: false,
+      activeScanMatches: true,
+      endpointFailed: false
+    }),
+    'hold'
   );
 });
 
@@ -173,7 +205,74 @@ test('mount recovery adopts a hidden active scan before following it', async () 
   assert.equal(result.operationId, 'hidden-scan');
 });
 
-test('an uncertain recovery stops polling and leaves retry to the caller', async () => {
+test('eviction recovery adopts the running scan that replaced its waiting operation', async () => {
+  let operationReads = 0;
+  globalThis.__scanApi = {
+    ...idleApi(),
+    getTrackedOperation: async (operationId) => {
+      operationReads += 1;
+      return operationReads === 1
+        ? { id: operationId, active: false }
+        : { id: operationId, active: false, status: 'completed' };
+    },
+    getEvictionScanStatus: async () =>
+      operationReads === 1
+        ? {
+            isProcessing: true,
+            operationId: 'eviction-running',
+            previousOperationId: 'eviction-waiting'
+          }
+        : { isProcessing: false, operationId: null, previousOperationId: null }
+  };
+
+  const result = await watchScanHold({
+    operationId: 'eviction-waiting',
+    kind: 'evictionScan',
+    abortSignal: new AbortController().signal,
+    pollMs: 1
+  });
+
+  assert.equal(result.decision, 'release');
+  assert.equal(result.operationId, 'eviction-running');
+  assert.equal(operationReads, 2);
+});
+
+test('a completed waiting operation holds while its successor scan is running', async () => {
+  let reads = 0;
+  globalThis.__scanApi = {
+    ...idleApi(),
+    getTrackedOperation: async (operationId) => {
+      reads += 1;
+      if (operationId === 'eviction-waiting') {
+        return { id: operationId, active: false, status: 'completed' };
+      }
+      return reads < 4
+        ? { id: operationId, active: true, status: 'running' }
+        : { id: operationId, active: false, status: 'completed' };
+    },
+    getEvictionScanStatus: async () =>
+      reads < 4
+        ? {
+            isProcessing: true,
+            operationId: 'eviction-running',
+            previousOperationId: 'eviction-waiting'
+          }
+        : { isProcessing: false, operationId: null, previousOperationId: null }
+  };
+
+  const result = await watchScanHold({
+    operationId: 'eviction-waiting',
+    kind: 'evictionScan',
+    abortSignal: new AbortController().signal,
+    pollMs: 1
+  });
+
+  assert.equal(result.decision, 'release');
+  assert.equal(result.operationId, 'eviction-running');
+  assert.ok(reads > 1);
+});
+
+test('the page watcher stops on an uncertain read so its caller can retry', async () => {
   let reads = 0;
   globalThis.__scanApi = {
     ...idleApi(),
@@ -215,6 +314,141 @@ test('unmount aborts a recovery poll without another endpoint read', async () =>
   const result = await resultPromise;
   assert.equal(result.decision, 'aborted');
   assert.equal(reads, 1);
+});
+
+test('an eviction Started predecessor releases the queued hold without WaitingComplete', async () => {
+  const signalR = createSignalR();
+  globalThis.__scanApi = {
+    ...idleApi(),
+    getTrackedOperation: async (operationId) => ({
+      id: operationId,
+      active: false,
+      status: 'waiting'
+    }),
+    getWaitingOperations: async () => [
+      { operationId: 'eviction-waiting', operationType: 'evictionScan' }
+    ],
+    getEvictionScanStatus: async () => ({
+      isProcessing: true,
+      operationId: 'eviction-running'
+    })
+  };
+
+  const resultPromise = followAdmittedScan({
+    signalR,
+    events: signalR.events,
+    abortSignal: new AbortController().signal,
+    operationId: 'eviction-waiting',
+    admission: 'queued',
+    completeEvent: 'EvictionScanComplete',
+    kind: 'evictionScan'
+  });
+  signalR.emit('EvictionScanStarted', {
+    operationId: 'eviction-running',
+    previousOperationId: 'eviction-waiting'
+  });
+  signalR.emit('EvictionScanComplete', {
+    operationId: 'eviction-running',
+    success: true
+  });
+
+  assert.equal(await resultPromise, 'release');
+  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
+  assert.equal(signalR.listenerCount('EvictionScanStarted'), 0);
+  assert.equal(signalR.listenerCount('EvictionScanProgress'), 0);
+});
+
+for (const eventName of ['EvictionScanProgress', 'EvictionScanComplete']) {
+  test(`${eventName} rebinds a queued eviction hold without Started`, async () => {
+    const signalR = createSignalR();
+    globalThis.__scanApi = {
+      ...idleApi(),
+      getTrackedOperation: async () => {
+        throw new Error('offline');
+      }
+    };
+
+    const resultPromise = followAdmittedScan({
+      signalR,
+      events: signalR.events,
+      abortSignal: new AbortController().signal,
+      operationId: 'eviction-waiting',
+      admission: 'queued',
+      completeEvent: 'EvictionScanComplete',
+      kind: 'evictionScan'
+    });
+    signalR.emit(eventName, {
+      operationId: 'eviction-running',
+      previousOperationId: 'eviction-waiting',
+      success: true
+    });
+    if (eventName !== 'EvictionScanComplete') {
+      signalR.emit('EvictionScanComplete', {
+        operationId: 'eviction-running',
+        success: true
+      });
+    }
+
+    assert.equal(await resultPromise, 'release');
+    assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
+  });
+}
+
+test('a failed recovery read does not abandon the SignalR wait', async () => {
+  const signalR = createSignalR();
+  globalThis.__scanApi = {
+    ...idleApi(),
+    getTrackedOperation: async () => {
+      throw new Error('offline');
+    }
+  };
+
+  const resultPromise = followAdmittedScan({
+    signalR,
+    events: signalR.events,
+    abortSignal: new AbortController().signal,
+    operationId: 'eviction-running',
+    admission: 'started',
+    completeEvent: 'EvictionScanComplete',
+    kind: 'evictionScan'
+  });
+  signalR.emit('EvictionScanComplete', {
+    operationId: 'eviction-running',
+    success: true
+  });
+
+  assert.equal(await resultPromise, 'release');
+  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
+});
+
+test('authoritative recovery releases a scan without waiting for a SignalR timeout', async () => {
+  const signalR = createSignalR();
+  globalThis.__scanApi = {
+    ...idleApi(),
+    getTrackedOperation: async (operationId) => ({
+      id: operationId,
+      active: false,
+      status: 'completed'
+    })
+  };
+
+  const result = await Promise.race([
+    followAdmittedScan({
+      signalR,
+      events: signalR.events,
+      abortSignal: new AbortController().signal,
+      operationId: 'eviction-completed',
+      admission: 'started',
+      completeEvent: 'EvictionScanComplete',
+      kind: 'evictionScan'
+    }),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('recovery did not start with the SignalR wait')), 100)
+    )
+  ]);
+
+  assert.equal(result, 'release');
+  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
 });
 
 test('management components hydrate scan holds and show eviction kickoff progress', async () => {

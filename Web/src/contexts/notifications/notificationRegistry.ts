@@ -1024,7 +1024,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         progress: data.percentComplete,
         detailMessage: detectionErrorDetail(data),
         details: {
-          operationId: data.operationId ?? undefined
+          operationId: data.operationId ?? undefined,
+          previousOperationId: data.previousOperationId
         }
       }),
       staleMessageKey: 'signalr.evictionScan.stale'

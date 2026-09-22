@@ -2,9 +2,6 @@ import type { OperationStatus } from '@/types/operations';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import type { OperationStatusResponse } from '@contexts/notifications/recoveryStatusResponses';
 
-/** How long a scan may run before the waiter asks the recovery endpoints. */
-export const SCAN_WAIT_MS = 30 * 60 * 1000;
-
 export type ScanAdmission = 'started' | 'queued' | 'alreadyRunning';
 
 export type ScanHoldDecision = 'hold' | 'release' | 'unknown';
@@ -52,8 +49,10 @@ export function decideScanHold(input: {
   const status = input.operation?.status ?? null;
   if (isLive(status)) return 'hold';
   if (input.operation?.nextOperationId && isLive(input.operation.nextStatus)) return 'hold';
-  if (isTerminal(status)) return 'release';
+  // A promoted waiter is already terminal while its successor is the active scan.
+  // The active-scan match has to win, or the button releases while that scan runs.
   if (input.waitingListed || input.activeScanMatches) return 'hold';
+  if (isTerminal(status)) return 'release';
   if (status) return 'unknown';
   return 'release';
 }

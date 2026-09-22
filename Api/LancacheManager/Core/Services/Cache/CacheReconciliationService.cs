@@ -454,6 +454,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 StageKey: "signalr.evictionScan.detectingGames",
                 OperationId: operationId,
                 ShowNotification: !silent,
+                PreviousOperationId: QueuedPredecessor(operationId),
                 HideNotification: hideNotification));
 
             await RunFullDetectionPhaseAsync(
@@ -545,7 +546,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         UnEvicted: progress.UnEvicted,
                         Context: context,
                         ShowNotification: !silent || context.ContainsKey("detectionError"),
-                        HideNotification: hideNotification));
+                        HideNotification: hideNotification,
+                        PreviousOperationId: QueuedPredecessor(operationId)));
                 };
 
             // Execute the Rust binary
@@ -767,6 +769,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false, RunNotice? notice = null)
     {
+        var previousOperationId = notice?.OperationId;
         var terminalState = new EvictionScanTerminalState
         {
             Silent = silent,
@@ -781,7 +784,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 ["runNotice"] = notice,
                 ["showNotification"] = !silent,
-                ["hideNotification"] = terminalState.Hidden
+                ["hideNotification"] = terminalState.Hidden,
+                ["previousOperationId"] = previousOperationId
             },
             onTerminalCleanup: () =>
             {
@@ -818,7 +822,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Context: context,
                         ShowNotification: showNotification,
                         Cancelled: true,
-                        HideNotification: terminalState.Hidden));
+                        HideNotification: terminalState.Hidden,
+                        PreviousOperationId: QueuedPredecessor(operationId)));
                 }
 
                 // Above the success branch: a refused run completes successfully because it did
@@ -842,7 +847,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Context: context,
                         ShowNotification: showNotification,
                         Skipped: true,
-                        HideNotification: terminalState.Hidden));
+                        HideNotification: terminalState.Hidden,
+                        PreviousOperationId: QueuedPredecessor(operationId)));
                 }
 
                 if (info.Success)
@@ -856,7 +862,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         UnEvicted: terminalState.UnEvicted,
                         Context: context,
                         ShowNotification: showNotification,
-                        HideNotification: terminalState.Hidden));
+                        HideNotification: terminalState.Hidden,
+                        PreviousOperationId: QueuedPredecessor(operationId)));
                 }
 
                 return _notifications.NotifyOperationFailedAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
@@ -869,7 +876,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Error: info.Error ?? "Rust eviction scan binary returned failure",
                     Context: context,
                     ShowNotification: showNotification,
-                    HideNotification: terminalState.Hidden));
+                    HideNotification: terminalState.Hidden,
+                    PreviousOperationId: QueuedPredecessor(operationId)));
             });
 
         _evictionScanTerminalStates[operationId] = terminalState;
@@ -884,12 +892,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return operationId;
     }
 
+    private Guid? QueuedPredecessor(Guid operationId) =>
+        _operationTracker.GetOperation(operationId)?.Metadata is Dictionary<string, object?> scan &&
+        scan.GetValueOrDefault("previousOperationId") is Guid previousOperationId
+            ? previousOperationId
+            : null;
+
     /// <summary>
     /// Phase one of every scan: a full game detection under this scan's operation, so a game whose
     /// files came back since the last detection is re-sized before the scan zeroes what is gone.
     /// The detection runs with its own card hidden (its data events still fire), its percent is
     /// forwarded onto this scan's card, and cancelling the scan cancels it. A refused or failed
     /// detection is logged and the scan goes on, because the scan reports its own gates itself.
+    /// A scan promoted from behind a successful full detection reuses that detection when nothing
+    /// has invalidated it and no download is writing the cache.
     /// </summary>
     private async Task RunFullDetectionPhaseAsync(
         Guid operationId,
@@ -897,6 +913,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         bool hideNotification,
         CancellationToken stoppingToken)
     {
+        var blockedBy = RunNotice.ReadRunNotice(_operationTracker.GetOperation(operationId)?.Metadata)
+            ?.BlockedByOperationId;
+        if (blockedBy is Guid reusableDetectionId &&
+            _gameCacheDetectionService.HasReusableFullDetection(reusableDetectionId))
+        {
+            _logger.LogInformation(
+                "[EvictionScan] Reusing completed full detection {DetectionId}",
+                reusableDetectionId);
+            return;
+        }
+
         Guid? detectionId;
         try
         {
@@ -1024,7 +1051,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             UnEvicted: scanResult.UnEvicted,
             Context: context,
             ShowNotification: showNotification || context.ContainsKey("detectionError"),
-            HideNotification: hideNotification));
+            HideNotification: hideNotification,
+            PreviousOperationId: QueuedPredecessor(operationId)));
     }
 
     /// <summary>

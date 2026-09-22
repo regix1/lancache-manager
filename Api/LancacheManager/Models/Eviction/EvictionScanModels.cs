@@ -12,6 +12,7 @@ public record EvictionScanStarted(
     Guid OperationId,
     Dictionary<string, object?>? Context = null,
     bool ShowNotification = true,
+    Guid? PreviousOperationId = null,
     bool HideNotification = false);
 
 /// <summary>
@@ -29,7 +30,8 @@ public record EvictionScanProgress(
     int UnEvicted,
     Dictionary<string, object?>? Context = null,
     bool ShowNotification = true,
-    bool HideNotification = false);
+    bool HideNotification = false,
+    Guid? PreviousOperationId = null);
 
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation completes.
@@ -51,7 +53,8 @@ public record EvictionScanComplete(
     bool ShowNotification = true,
     bool Cancelled = false,
     bool Skipped = false,
-    bool HideNotification = false) : IOperationComplete
+    bool HideNotification = false,
+    Guid? PreviousOperationId = null) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
 

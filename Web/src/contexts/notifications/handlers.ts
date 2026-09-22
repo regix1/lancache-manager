@@ -1190,39 +1190,57 @@ function buildProgressHandler(
   events?: NotificationEvents,
   replay = false
 ): (event: unknown) => void {
-  return createStatusAwareProgressHandler(
-    {
-      type: entry.type,
-      events,
-      replay,
-      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
-      storageKey: entry.storageKey,
-      storesCardsById: entry.getId !== undefined,
-      shouldDisplay: progress.shouldDisplay,
-      eventName: entry.events?.progress,
-      getMessage: progress.getMessage,
-      getProgress: progress.getProgress,
-      getDetailMessage: progress.getDetailMessage,
-      getProgressMode: progress.getProgressMode,
-      getProgressAriaValueText: progress.getProgressAriaValueText,
-      getStatus: progress.getStatus,
-      getCompletedMessage: progress.getCompletedMessage,
-      getErrorMessage: progress.getErrorMessage,
-      supportFastCompletion: progress.supportFastCompletion,
-      getDetails: (event: unknown) => ({
-        ...progress.getDetails?.(event),
-        ...(entry.type === 'scheduled_prefill'
-          ? {
-              service: (event as { serviceId?: string }).serviceId,
-              operationId: (event as { operationId?: string }).operationId
-            }
-          : {})
-      })
-    },
-    setNotifications,
-    scheduleAutoDismiss,
-    cancelAutoDismissTimer
-  );
+  const create = (set: SetNotifications) =>
+    createStatusAwareProgressHandler(
+      {
+        type: entry.type,
+        events,
+        replay,
+        getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
+        storageKey: entry.storageKey,
+        storesCardsById: entry.getId !== undefined,
+        shouldDisplay: progress.shouldDisplay,
+        eventName: entry.events?.progress,
+        getMessage: progress.getMessage,
+        getProgress: progress.getProgress,
+        getDetailMessage: progress.getDetailMessage,
+        getProgressMode: progress.getProgressMode,
+        getProgressAriaValueText: progress.getProgressAriaValueText,
+        getStatus: progress.getStatus,
+        getCompletedMessage: progress.getCompletedMessage,
+        getErrorMessage: progress.getErrorMessage,
+        supportFastCompletion: progress.supportFastCompletion,
+        getDetails: (event: unknown) => ({
+          ...progress.getDetails?.(event),
+          ...(entry.type === 'scheduled_prefill'
+            ? {
+                service: (event as { serviceId?: string }).serviceId,
+                operationId: (event as { operationId?: string }).operationId
+              }
+            : {})
+        })
+      },
+      set,
+      scheduleAutoDismiss,
+      cancelAutoDismissTimer
+    );
+  if (replay || !events) return create(setNotifications);
+  return (event) => {
+    setNotifications((prev) => {
+      let next = prev;
+      create((update) => {
+        next = typeof update === 'function' ? update(next) : update;
+      })(event);
+      return applyPredecessor(
+        next,
+        event,
+        events,
+        entry,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
+    });
+  };
 }
 
 /**
@@ -1235,34 +1253,45 @@ function buildCompleteHandler(
   events?: NotificationEvents,
   replay = false
 ): ((event: unknown) => void) | null {
-  if (!entry.complete) return null;
+  const complete = entry.complete;
+  if (!complete) return null;
 
-  const baseHandler = createCompletionHandler(
-    {
-      type: entry.type,
-      events,
-      replay,
-      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
-      storageKey: entry.storageKey,
-      storesCardsById: entry.getId !== undefined,
-      eventName: entry.events?.complete,
-      shouldDisplay: entry.complete.shouldDisplay,
-      getSuccessMessage: entry.complete.getSuccessMessage,
-      getSuccessDetails: entry.complete.getSuccessDetails,
-      getDetailMessage: entry.complete.getDetailMessage,
-      getFailureMessage: entry.complete.getFailureMessage,
-      getCancelledMessage: entry.complete.getCancelledMessage,
-      getCancelledDetails: entry.complete.getCancelledDetails,
-      succeeded: entry.complete.succeeded,
-      announcement: !entry.started && !entry.progress,
-      dismissDelayMs: entry.complete.dismissDelayMs,
-      useAnimationDelay: entry.complete.useAnimationDelay
-    },
-    setNotifications,
-    scheduleAutoDismiss
-  );
+  const create = (set: SetNotifications) => (event: unknown) =>
+    createCompletionHandler(
+      {
+        type: entry.type,
+        events,
+        replay,
+        getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
+        storageKey: entry.storageKey,
+        storesCardsById: entry.getId !== undefined,
+        eventName: entry.events?.complete,
+        shouldDisplay: complete.shouldDisplay,
+        getSuccessMessage: complete.getSuccessMessage,
+        getSuccessDetails: complete.getSuccessDetails,
+        getDetailMessage: complete.getDetailMessage,
+        getFailureMessage: complete.getFailureMessage,
+        getCancelledMessage: complete.getCancelledMessage,
+        getCancelledDetails: complete.getCancelledDetails,
+        succeeded: complete.succeeded,
+        announcement: !entry.started && !entry.progress,
+        dismissDelayMs: complete.dismissDelayMs,
+        useAnimationDelay: complete.useAnimationDelay
+      },
+      set,
+      scheduleAutoDismiss
+    )(event as never);
 
-  return (event: unknown) => baseHandler(event as Parameters<typeof baseHandler>[0]);
+  if (replay || !events) return create(setNotifications);
+  return (event) => {
+    setNotifications((prev) => {
+      let next = prev;
+      create((update) => {
+        next = typeof update === 'function' ? update(next) : update;
+      })(event);
+      return applyPredecessor(next, event, events, entry, scheduleAutoDismiss, () => undefined);
+    });
+  };
 }
 
 export { buildStartedHandler, buildProgressHandler, buildCompleteHandler };

@@ -144,6 +144,72 @@ test('an exact handoff rebinds the captured waiter operationId', async () => {
   assert.equal(result.event.operationId, runningId);
 });
 
+test('a Started predecessor rebinds a queued operation without WaitingComplete', async () => {
+  const { waitForSignalRCompletion } = await loadWaitHelper();
+  const signalR = createFakeSignalR();
+  const waitingId = 'eviction-waiting';
+  const runningId = 'eviction-running';
+
+  const waitPromise = waitForSignalRCompletion({
+    signalR,
+    events: signalR.events,
+    completeEvent: 'EvictionScanComplete',
+    startedEvent: 'EvictionScanStarted',
+    match: () => true,
+    onStartedCapture: (event) =>
+      typeof event?.operationId === 'string' ? { opId: event.operationId } : null,
+    timeoutMs: null
+  });
+
+  waitPromise.captureOperationId(waitingId, 'waiting');
+  signalR.emit('EvictionScanStarted', {
+    operationId: runningId,
+    previousOperationId: waitingId
+  });
+  signalR.emit('EvictionScanComplete', { operationId: runningId, success: true });
+
+  const result = await waitPromise;
+  assert.equal(result.event.operationId, runningId);
+  assert.equal(signalR.listenerCount('EvictionScanStarted'), 0);
+  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
+});
+
+for (const eventName of ['EvictionScanProgress', 'EvictionScanComplete']) {
+  test(`${eventName} rebinds a queued operation without Started`, async () => {
+    const { waitForSignalRCompletion } = await loadWaitHelper();
+    const signalR = createFakeSignalR();
+    const waitingId = 'eviction-waiting';
+    const runningId = 'eviction-running';
+
+    const waitPromise = waitForSignalRCompletion({
+      signalR,
+      events: signalR.events,
+      completeEvent: 'EvictionScanComplete',
+      startedEvent: 'EvictionScanStarted',
+      progressEvent: 'EvictionScanProgress',
+      match: () => true,
+      onStartedCapture: (event) =>
+        typeof event?.operationId === 'string' ? { opId: event.operationId } : null,
+      timeoutMs: null
+    });
+
+    waitPromise.captureOperationId(waitingId, 'waiting');
+    signalR.emit(eventName, {
+      operationId: runningId,
+      previousOperationId: waitingId,
+      success: true
+    });
+    if (eventName !== 'EvictionScanComplete') {
+      signalR.emit('EvictionScanComplete', { operationId: runningId, success: true });
+    }
+
+    const result = await waitPromise;
+    assert.equal(result.event.operationId, runningId);
+    assert.equal(signalR.listenerCount('EvictionScanProgress'), 0);
+    assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
+  });
+}
+
 test('a cancelled item still resolves through its own terminal event', async () => {
   const { waitForSignalRCompletion } = await loadWaitHelper();
   const signalR = createFakeSignalR();

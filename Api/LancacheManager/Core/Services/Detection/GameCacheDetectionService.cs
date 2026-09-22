@@ -35,6 +35,9 @@ public partial class GameCacheDetectionService : IDisposable
     // Invalidated when detection scans, eviction scans, or game removals change the data.
     private DetectionOperationResponse? _cachedDetectionResponse;
     private readonly SemaphoreSlim _detectionCacheLock = new(1, 1);
+    private Guid? _reusableFullDetectionId;
+    private long _detectionRevision;
+    private long _reusableRevision;
 
     private bool _disposed;
 
@@ -1144,6 +1147,7 @@ public partial class GameCacheDetectionService : IDisposable
             HideNotification: metrics.HideNotification);
 
         InvalidateDetectionCache();
+        RememberCompletedDetection(operationId, metrics.ScanType, info.Success, info.Cancelled);
         lock (metrics)
         {
             _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
@@ -1308,6 +1312,7 @@ public partial class GameCacheDetectionService : IDisposable
     /// </summary>
     public void InvalidateDetectionCache()
     {
+        Interlocked.Increment(ref _detectionRevision);
         _detectionCacheLock.Wait();
         try
         {
@@ -1319,6 +1324,24 @@ public partial class GameCacheDetectionService : IDisposable
             _detectionCacheLock.Release();
         }
     }
+
+    /// <summary>
+    /// A successful full detection can stand in for the hidden detection an eviction scan would
+    /// otherwise start, until a later invalidation or a download currently writing the cache.
+    /// </summary>
+    internal void RememberCompletedDetection(
+        Guid operationId, DetectionScanType scanType, bool success, bool cancelled)
+    {
+        if (!success || cancelled || scanType != DetectionScanType.Full)
+            return;
+        _reusableFullDetectionId = operationId;
+        _reusableRevision = Volatile.Read(ref _detectionRevision);
+    }
+
+    internal bool HasReusableFullDetection(Guid operationId) =>
+        operationId == _reusableFullDetectionId
+        && Volatile.Read(ref _reusableRevision) == Volatile.Read(ref _detectionRevision)
+        && _cacheScanGate.CheckDownloadInProgress() == null;
 
     /// <summary>
     /// Recomputes persisted disk-summary totals and clears the in-memory detection cache.

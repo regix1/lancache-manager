@@ -7,7 +7,6 @@ import type { OperationStatusResponse } from '@contexts/notifications/recoverySt
 import type { EventHandler } from '@contexts/SignalRContext/types';
 import {
   decideScanHold,
-  SCAN_WAIT_MS,
   successorOperationId,
   type ScanAdmission,
   type ScanHoldDecision
@@ -94,12 +93,14 @@ export async function recoverScanHold(
       if (activeScanMatches) recoveredOperationId ??= activeId;
     } else {
       const active = await ApiService.getEvictionScanStatus();
+      const activeId = active.operationId ?? null;
+      const previousId = active.previousOperationId ?? null;
       activeScanMatches = Boolean(
         active.isProcessing &&
-        active.operationId &&
-        (operationId === null || active.operationId === operationId)
+        activeId &&
+        (operationId === null || activeId === operationId || previousId === operationId)
       );
-      if (activeScanMatches) recoveredOperationId ??= active.operationId;
+      if (activeScanMatches) recoveredOperationId = activeId;
     }
   } catch (error: unknown) {
     if (permission(error)) permissionDenied = kind === 'evictionScan';
@@ -155,7 +156,10 @@ export async function watchScanHold(input: {
   return { decision: 'aborted', operationId };
 }
 
-/** SignalR first. A timeout or a missed terminal falls through to the release rule. */
+/**
+ * Follow SignalR and server recovery together. A failed read is not an answer: it keeps
+ * polling and leaves the SignalR listener in place. Only a terminal operation releases the hold.
+ */
 export async function followAdmittedScan(input: {
   signalR: {
     on: (eventName: string, handler: EventHandler) => void;
@@ -168,29 +172,78 @@ export async function followAdmittedScan(input: {
   completeEvent: string;
   kind: ScanKind;
 }): Promise<ScanHoldDecision | 'aborted'> {
-  const wait = waitForSignalRCompletion<{ operationId?: string }, { operationId?: string }>({
-    signalR: input.signalR,
-    events: input.events,
-    completeEvent: input.completeEvent,
-    match: () => true,
-    abortSignal: input.abortSignal,
-    timeoutMs: SCAN_WAIT_MS
-  });
-  const status =
-    input.admission === 'queued'
-      ? 'waiting'
-      : input.admission === 'alreadyRunning'
-        ? 'alreadyRunning'
-        : 'started';
-  wait.captureOperationId(input.operationId, status);
-  const outcome = await wait;
-  if (outcome.aborted || input.abortSignal.aborted) return 'aborted';
-  if (outcome.terminal) return 'release';
-  if (outcome.dequeued && !outcome.dequeued.promoted) return 'release';
-  const recovered = await watchScanHold({
-    operationId: outcome.dequeued?.nextOperationId ?? input.operationId,
-    kind: input.kind,
-    abortSignal: input.abortSignal
-  });
-  return recovered.decision;
+  const signalAbort = new AbortController();
+  const recoveryAbort = new AbortController();
+  const abort = () => {
+    signalAbort.abort();
+    recoveryAbort.abort();
+  };
+  if (input.abortSignal.aborted) abort();
+  else input.abortSignal.addEventListener('abort', abort, { once: true });
+
+  const pollUntilRelease = async (): Promise<ScanWatch> => {
+    let operationId: string | null = input.operationId;
+    while (!recoveryAbort.signal.aborted) {
+      const hold = await recoverScanHold(operationId, input.kind);
+      if (recoveryAbort.signal.aborted) break;
+      operationId = hold.operationId;
+      if (hold.decision === 'release') return hold;
+      if (!(await waitForRecoveryPoll(RECOVERY_POLL_MS, recoveryAbort.signal))) break;
+    }
+    return { decision: 'aborted', operationId };
+  };
+
+  try {
+    const wait = waitForSignalRCompletion<
+      { operationId?: string; previousOperationId?: string | null },
+      { operationId?: string }
+    >({
+      signalR: input.signalR,
+      events: input.events,
+      completeEvent: input.completeEvent,
+      match: () => true,
+      startedEvent: input.kind === 'evictionScan' ? 'EvictionScanStarted' : 'GameDetectionStarted',
+      onStartedCapture: (event) =>
+        typeof event.operationId === 'string' ? { opId: event.operationId } : null,
+      progressEvent: input.kind === 'evictionScan' ? 'EvictionScanProgress' : undefined,
+      abortSignal: signalAbort.signal,
+      timeoutMs: null
+    });
+    const status =
+      input.admission === 'queued'
+        ? 'waiting'
+        : input.admission === 'alreadyRunning'
+          ? 'alreadyRunning'
+          : 'started';
+    wait.captureOperationId(input.operationId, status);
+
+    const first = await Promise.race([
+      wait.then((outcome) => ({ source: 'signal' as const, outcome })),
+      pollUntilRelease().then((outcome) => ({ source: 'recovery' as const, outcome }))
+    ]);
+
+    if (first.source === 'recovery') {
+      signalAbort.abort();
+      return first.outcome.decision === 'release' ? 'release' : 'aborted';
+    }
+
+    if (first.outcome.aborted || input.abortSignal.aborted) {
+      recoveryAbort.abort();
+      return 'aborted';
+    }
+    if (first.outcome.terminal) {
+      recoveryAbort.abort();
+      return 'release';
+    }
+    if (first.outcome.dequeued && !first.outcome.dequeued.promoted) {
+      recoveryAbort.abort();
+      return 'release';
+    }
+
+    const rest = await pollUntilRelease();
+    return rest.decision === 'release' ? 'release' : 'aborted';
+  } finally {
+    input.abortSignal.removeEventListener('abort', abort);
+    abort();
+  }
 }

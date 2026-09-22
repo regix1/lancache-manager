@@ -48,13 +48,18 @@ public class RecoveryStatusNotificationFlagTests
     [InlineData(true, true)]
     public void EvictionStatusRetainsNonfatalDetectionFailure(bool silent, bool failedDetection)
     {
+        var previousOperationId = Guid.NewGuid();
         var context = new Dictionary<string, object?> { ["totalProcessed"] = 12 };
         if (failedDetection) context["detectionError"] = "Cache index could not be read";
         var operation = new OperationInfo
         {
             Id = Guid.NewGuid(), Name = "Eviction Scan", Type = OperationType.EvictionScan, Status = OperationStatus.Running,
             Message = "signalr.evictionScan.scanning", PercentComplete = 25,
-            Metadata = new Dictionary<string, object?> { ["context"] = context }
+            Metadata = new Dictionary<string, object?>
+            {
+                ["context"] = context,
+                ["previousOperationId"] = previousOperationId
+            }
         };
         var service = (CacheReconciliationService)RuntimeHelpers.GetUninitializedObject(typeof(CacheReconciliationService));
         SetPrivateField(service, "_currentScanIsSilent", silent);
@@ -68,8 +73,10 @@ public class RecoveryStatusNotificationFlagTests
         Assert.Equal(silent, response.SilentMode);
         Assert.Equal(OperationStatus.Running, response.Status);
         Assert.Equal(operation.Id, response.OperationId);
+        Assert.Equal(previousOperationId, response.PreviousOperationId);
         var wire = JsonSerializer.SerializeToElement(response, WireOptions);
         Assert.Equal(failedDetection, wire.GetProperty("context").TryGetProperty("detectionError", out _));
+        Assert.Equal(previousOperationId, wire.GetProperty("previousOperationId").GetGuid());
     }
 
     // ---- Game detection: GET /api/games/detect/active -> ActiveDetectionResponse ----

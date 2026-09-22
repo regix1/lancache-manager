@@ -18,7 +18,7 @@ interface WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress = unkn
   onOperationIdCaptured?: (opId: string, ownsCancellation?: boolean) => void;
   progressEvent?: string;
   onProgress?: (event: TProgress) => void;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
   requestId?: string;
   /** Unmount aborts the wait and drops a late HTTP result. A request timeout is not this signal. */
   abortSignal?: AbortSignal;
@@ -149,21 +149,41 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
         });
       }
     };
+    const adoptPredecessor = (event: unknown): boolean => {
+      if (!parkedId || followed) return false;
+      const body = event as { operationId?: unknown; previousOperationId?: unknown };
+      const next = typeof body.operationId === 'string' ? body.operationId : '';
+      if (body.previousOperationId !== parkedId || !next || next === parkedId) return false;
+      followed = true;
+      events.current.waiting.delete(parkedId);
+      parkedId = null;
+      bind(next);
+      replay();
+      return true;
+    };
     const startedHandler: EventHandler = (event: TStarted) => {
-      if (settled || !captured || operationId || parkedId || !onStartedCapture) return;
-      const candidate = onStartedCapture(event);
-      if (candidate?.opId) {
-        bind(candidate.opId);
-        replay();
+      if (settled || !captured || !onStartedCapture) return;
+      if (parkedId) {
+        adoptPredecessor(event);
+        return;
       }
+      if (operationId) return;
+      const candidate = onStartedCapture(event);
+      if (!candidate?.opId) return;
+      bind(candidate.opId);
+      replay();
     };
     const progressHandler: EventHandler = (event: TProgress) => {
-      if (settled || !captured || !operationId || parkedId) return;
+      if (settled || !captured) return;
+      if (parkedId && !adoptPredecessor(event)) return;
+      if (!operationId || parkedId) return;
       if ((event as { operationId?: string }).operationId !== operationId) return;
       onProgress?.(event);
     };
     const completeHandler: EventHandler = (event: TCompleted) => {
-      if (settled || !captured || !operationId || parkedId) return;
+      if (settled || !captured) return;
+      if (parkedId && !adoptPredecessor(event)) return;
+      if (!operationId || parkedId) return;
       const fields = event as {
         operationId?: string;
         status?: string;
@@ -234,7 +254,7 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     signalR.on(WAITING_COMPLETE_EVENT, waitingCompleteHandler);
     if (startedEvent) signalR.on(startedEvent, startedHandler);
     if (progressEvent) signalR.on(progressEvent, progressHandler);
-    timeoutHandle = setTimeout(() => finish({ timedOut: true }), timeoutMs);
+    if (timeoutMs !== null) timeoutHandle = setTimeout(() => finish({ timedOut: true }), timeoutMs);
     if (abortSignal) {
       if (abortSignal.aborted) queueMicrotask(onAbort);
       else abortSignal.addEventListener('abort', onAbort, { once: true });

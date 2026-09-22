@@ -758,7 +758,10 @@ test('a declined game detection releases the section instead of leaving it scann
     waitForSignalRCompletion,
     /fields\.skipped \|\| fields\.status === 'skipped'[\s\S]*?\? 'skipped'/
   );
-  assert.match(scanHoldRecovery, /if \(outcome\.terminal\) return 'release';/);
+  assert.match(
+    scanHoldRecovery,
+    /if \(first\.outcome\.terminal\) \{\s*recoveryAbort\.abort\(\);\s*return 'release';/
+  );
   assert.match(gameCacheDetector, /if \(decision === 'release'\) \{[\s\S]*?releaseAttempt\(\);/);
 });
 

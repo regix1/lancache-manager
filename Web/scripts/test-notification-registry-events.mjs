@@ -278,8 +278,12 @@ test('each event in the closed list is subscribed exactly once', () => {
 
 test('the loop subscribes exactly the events its entries declare', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createStartedHandler, createStatusAwareProgressHandler, createCompletionHandler } =
-    await loadHandlers();
+  const {
+    createStartedHandler,
+    createStatusAwareProgressHandler,
+    createCompletionHandler,
+    applyPredecessor
+  } = await loadHandlers();
   const registry = [
     await liftDatabaseResetEntry(),
     await liftEpicCatalogEntry(),
@@ -297,11 +301,18 @@ test('the loop subscribes exactly the events its entries declare', async () => {
     cancelAutoDismissTimer: cards.cancelAutoDismissTimer,
     events: cards.events,
     recover: undefined,
-    buildStartedHandler: liftHandlerBuilder('buildStartedHandler', { createStartedHandler }),
-    buildProgressHandler: liftHandlerBuilder('buildProgressHandler', {
-      createStatusAwareProgressHandler
+    buildStartedHandler: liftHandlerBuilder('buildStartedHandler', {
+      createStartedHandler,
+      applyPredecessor
     }),
-    buildCompleteHandler: liftHandlerBuilder('buildCompleteHandler', { createCompletionHandler })
+    buildProgressHandler: liftHandlerBuilder('buildProgressHandler', {
+      createStatusAwareProgressHandler,
+      applyPredecessor
+    }),
+    buildCompleteHandler: liftHandlerBuilder('buildCompleteHandler', {
+      createCompletionHandler,
+      applyPredecessor
+    })
   })();
 
   // The wait-queue pair is subscribed once per mount rather than per entry, so it belongs in the
@@ -325,10 +336,11 @@ test('the Steam auth refetch keeps its own SteamSessionError subscription', () =
 
 test('a Steam session error raises a typed card, not a generic toast', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler } = await loadHandlers();
+  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
   const { NOTIFICATION_IDS, STEAM_ERROR_DISMISS_DELAY_MS } = await loadConstants();
   const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler
+    createCompletionHandler,
+    applyPredecessor
   });
 
   const cards = newCardList();
@@ -367,9 +379,10 @@ test('a Steam session error raises a typed card, not a generic toast', async () 
 
 test('a Steam error with no title key of its own still gets a title', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler } = await loadHandlers();
+  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
   const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler
+    createCompletionHandler,
+    applyPredecessor
   });
 
   const cards = newCardList();
@@ -386,9 +399,10 @@ test('a Steam error with no title key of its own still gets a title', async () =
 
 test('an Xbox catalog update carrying no counts raises no card', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler } = await loadHandlers();
+  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
   const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler
+    createCompletionHandler,
+    applyPredecessor
   });
 
   const cards = newCardList();
@@ -414,9 +428,10 @@ test('an Xbox catalog update carrying no counts raises no card', async () => {
 
 test('an Epic catalog merge that changed nothing raises no card', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler } = await loadHandlers();
+  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
   const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler
+    createCompletionHandler,
+    applyPredecessor
   });
 
   const cards = newCardList();
@@ -442,8 +457,12 @@ test('an Epic catalog merge that changed nothing raises no card', async () => {
 
 test('database reset reports progress and its terminal event never completes the card twice', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createStartedHandler, createStatusAwareProgressHandler, createCompletionHandler } =
-    await loadHandlers();
+  const {
+    createStartedHandler,
+    createStatusAwareProgressHandler,
+    createCompletionHandler,
+    applyPredecessor
+  } = await loadHandlers();
   const entry = await liftDatabaseResetEntry();
 
   assert.deepEqual(entry.events, {
@@ -453,14 +472,13 @@ test('database reset reports progress and its terminal event never completes the
   });
 
   const cards = newCardList();
-  const handleStarted = liftHandlerBuilder('buildStartedHandler', { createStartedHandler })(
-    entry,
-    entry.started,
-    cards.setNotifications,
-    cards.cancelAutoDismissTimer
-  );
+  const handleStarted = liftHandlerBuilder('buildStartedHandler', {
+    createStartedHandler,
+    applyPredecessor
+  })(entry, entry.started, cards.setNotifications, cards.cancelAutoDismissTimer);
   const handleProgress = liftHandlerBuilder('buildProgressHandler', {
-    createStatusAwareProgressHandler
+    createStatusAwareProgressHandler,
+    applyPredecessor
   })(
     entry,
     entry.progress,
@@ -468,12 +486,10 @@ test('database reset reports progress and its terminal event never completes the
     cards.scheduleAutoDismiss,
     cards.cancelAutoDismissTimer
   );
-  const handleComplete = liftHandlerBuilder('buildCompleteHandler', { createCompletionHandler })(
-    entry,
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events.current
-  );
+  const handleComplete = liftHandlerBuilder('buildCompleteHandler', {
+    createCompletionHandler,
+    applyPredecessor
+  })(entry, cards.setNotifications, cards.scheduleAutoDismiss, cards.events.current);
 
   handleStarted({ operationId: 'reset-1' });
   assert.equal(cards.state.length, 1);

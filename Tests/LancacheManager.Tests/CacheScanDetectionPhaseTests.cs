@@ -131,6 +131,105 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task PromotedScanReusesTheCompletedFullDetectionThatBlockedIt()
+    {
+        using var ctx = new PhaseContext();
+        var detectionId = Guid.NewGuid();
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: false);
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual) { BlockedByOperationId = detectionId };
+        var scanId = ctx.RegisterScan(notice: notice);
+
+        await ctx.RunPhaseAsync(scanId, CancellationToken.None);
+
+        Assert.Equal(0, ctx.Tracker.Count(OperationType.GameDetection));
+    }
+
+    [Fact]
+    public async Task InvalidatedDetectionStillStartsAHiddenFullScan()
+    {
+        using var ctx = new PhaseContext();
+        var detectionId = Guid.NewGuid();
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: false);
+        ctx.Detection.InvalidateDetectionCache();
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual) { BlockedByOperationId = detectionId };
+        var scanId = ctx.RegisterScan(notice: notice);
+
+        var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None);
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        Assert.NotEqual(detectionId, detection.Id);
+        ctx.Tracker.Complete(detection.Id);
+        await phase.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void OnlyASuccessfulFullDetectionStaysReusable()
+    {
+        using var ctx = new PhaseContext();
+        var detectionId = Guid.NewGuid();
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Incremental, success: true, cancelled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: false, cancelled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: true);
+        Assert.False(ctx.Detection.HasReusableFullDetection(detectionId));
+
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: false);
+        Assert.True(ctx.Detection.HasReusableFullDetection(detectionId));
+        ctx.Detection.InvalidateDetectionCache();
+        Assert.False(ctx.Detection.HasReusableFullDetection(detectionId));
+    }
+
+    [Fact]
+    public async Task RegisteredScanKeepsTheWaitingOperationItWasPromotedFrom()
+    {
+        using var ctx = new PhaseContext();
+        var waitingId = Guid.NewGuid();
+        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        notice.Attach((IUnifiedOperationTracker)(object)ctx.Tracker, waitingId);
+        var scanId = ctx.RegisterScan(notice: notice);
+
+        var registered = Assert.IsType<Dictionary<string, object?>>(ctx.Tracker.Get(scanId)!.Metadata);
+        Assert.Equal(waitingId, Assert.IsType<Guid>(registered["previousOperationId"]));
+
+        await ctx.ReportProgressAsync(scanId);
+        var progress = Assert.IsType<EvictionScanProgress>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanProgress, value => value is EvictionScanProgress));
+        Assert.Equal(waitingId, progress.PreviousOperationId);
+
+        await ctx.Tracker.FireTerminal(scanId, new OperationTerminalInfo(Success: true, Cancelled: false, Error: null));
+        var complete = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanComplete, value => value is EvictionScanComplete));
+        Assert.Equal(waitingId, complete.PreviousOperationId);
+    }
+
+    [Fact]
+    public async Task PromotionRecordsTheDetectionThatBlockedTheScan()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var detectionId = tracker.RegisterOperation(
+            OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            new GameDetectionMetrics { ScanType = DetectionScanType.Full });
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            (ISignalRNotificationService)(object)ctx.Notifications, NullLogger<OperationQueueService>.Instance);
+        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queued = await queue.EnqueueAsync(
+            OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () =>
+            {
+                started.TrySetResult(notice.BlockedByOperationId);
+                return Task.FromResult<Guid?>(Guid.NewGuid());
+            },
+            CancellationToken.None,
+            notice: notice);
+
+        Assert.True(queued.Queued);
+        tracker.CompleteOperation(detectionId, success: true);
+        Assert.Equal(detectionId, await started.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
     public async Task CancellingTheScanCancelsTheDetectionItIsWaitingOn()
     {
         using var ctx = new PhaseContext();
@@ -206,6 +305,7 @@ public sealed class CacheScanDetectionPhaseTests
         private readonly CacheReconciliationService _scan;
 
         public FakeTracker Tracker { get; }
+        public GameCacheDetectionService Detection { get; }
         public RecordingNotifications Notifications { get; }
         public CacheReconciliationService Scan => _scan;
 
@@ -245,7 +345,7 @@ public sealed class CacheScanDetectionPhaseTests
             Tracker = (FakeTracker)DispatchProxy
                 .Create<IUnifiedOperationTracker, FakeTracker>();
 
-            var detection = new GameCacheDetectionService(
+            Detection = new GameCacheDetectionService(
                 NullLogger<GameCacheDetectionService>.Instance,
                 pathResolver,
                 operationStateService,
@@ -264,7 +364,7 @@ public sealed class CacheScanDetectionPhaseTests
             SetField(_scan, "_logger", NullLogger<CacheReconciliationService>.Instance);
             SetField(_scan, "_operationTracker", (IUnifiedOperationTracker)(object)Tracker);
             SetField(_scan, "_notifications", (ISignalRNotificationService)(object)Notifications);
-            SetField(_scan, "_gameCacheDetectionService", detection);
+            SetField(_scan, "_gameCacheDetectionService", Detection);
             SetField(_scan, "_capabilityService", capabilityService);
             foreach (var name in new[] { "_silentRemovalOperationIds", "_evictionRemovalTerminalStates", "_evictionScanTerminalStates" })
             {
@@ -273,11 +373,11 @@ public sealed class CacheScanDetectionPhaseTests
             }
         }
 
-        public Guid RegisterScan(bool silent = false)
+        public Guid RegisterScan(bool silent = false, RunNotice? notice = null)
         {
             return (Guid)typeof(CacheReconciliationService).GetMethod("RegisterEvictionScanOperation",
                 BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_scan,
-                ["Eviction Scan", new CancellationTokenSource(), silent, null])!;
+                ["Eviction Scan", new CancellationTokenSource(), silent, notice])!;
         }
 
         public Task ReportProgressAsync(Guid id) => (Task)typeof(CacheReconciliationService)
@@ -337,6 +437,7 @@ public sealed class CacheScanDetectionPhaseTests
         private readonly object _sync = new();
         private readonly List<OperationInfo> _operations = [];
         private readonly List<Action<OperationInfo>> _terminalHandlers = [];
+        private readonly Dictionary<Guid, Func<OperationTerminalInfo, Task>> _terminalEmits = [];
         private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal List<Guid> Cancelled { get; } = [];
@@ -357,6 +458,8 @@ public sealed class CacheScanDetectionPhaseTests
                         ParentOperationId = (Guid?)args[7],
                         StartedAt = (DateTime?)args[8] ?? DateTime.UtcNow
                     };
+                    if (args[5] is Func<OperationTerminalInfo, Task> emit)
+                        _terminalEmits[operation.Id] = emit;
                     lock (_sync)
                     {
                         _operations.Add(operation);
@@ -459,6 +562,13 @@ public sealed class CacheScanDetectionPhaseTests
         }
 
         internal void Complete(Guid id) => End(id, OperationStatus.Completed);
+
+        internal int Count(OperationType type)
+        {
+            lock (_sync) return _operations.Count(operation => operation.Type == type);
+        }
+
+        internal Task FireTerminal(Guid id, OperationTerminalInfo terminal) => _terminalEmits[id](terminal);
         internal OperationInfo? Get(Guid id) { lock (_sync) return _operations.FirstOrDefault(o => o.Id == id); }
         internal void Fail(Guid id, string error)
         {

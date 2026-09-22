@@ -127,21 +127,24 @@ const newCardList = () => {
 
 test('a type with no per-event card id keeps exactly one card through a whole run', async () => {
   globalThis.localStorage = new MemoryStorage();
-  const { createStartedHandler, createStatusAwareProgressHandler, createCompletionHandler } =
-    await loadHandlers();
+  const {
+    createStartedHandler,
+    createStatusAwareProgressHandler,
+    createCompletionHandler,
+    applyPredecessor
+  } = await loadHandlers();
   const entry = await liftDatabaseResetEntry();
   const cards = newCardList();
 
   assert.equal(entry.getId, undefined, 'database_reset must not define a per-event card id');
 
-  const onStarted = liftHandlerBuilder('buildStartedHandler', { createStartedHandler })(
-    entry,
-    entry.started,
-    cards.setNotifications,
-    cards.cancelAutoDismissTimer
-  );
+  const onStarted = liftHandlerBuilder('buildStartedHandler', {
+    createStartedHandler,
+    applyPredecessor
+  })(entry, entry.started, cards.setNotifications, cards.cancelAutoDismissTimer);
   const onProgress = liftHandlerBuilder('buildProgressHandler', {
-    createStatusAwareProgressHandler
+    createStatusAwareProgressHandler,
+    applyPredecessor
   })(
     entry,
     entry.progress,
@@ -149,12 +152,10 @@ test('a type with no per-event card id keeps exactly one card through a whole ru
     cards.scheduleAutoDismiss,
     cards.cancelAutoDismissTimer
   );
-  const onComplete = liftHandlerBuilder('buildCompleteHandler', { createCompletionHandler })(
-    entry,
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events?.current
-  );
+  const onComplete = liftHandlerBuilder('buildCompleteHandler', {
+    createCompletionHandler,
+    applyPredecessor
+  })(entry, cards.setNotifications, cards.scheduleAutoDismiss, cards.events?.current);
 
   onStarted({ operationId: 'operation-1', showNotification: true });
   assert.equal(cards.state.length, 1);
@@ -378,13 +379,6 @@ for (const locale of ['en', 'zh']) {
                 successorMessage && phase === 'S' ? successorMessage : translate(stageKey, context);
             }
             for (const state of f.updates.slice(first)) {
-              if (order === 'PH' && phase === 'P') {
-                assert.equal(state.find((card) => card.id === original.id).message, waitingMessage);
-                assert.ok(state.every((card) => card.message.trim()));
-                const successor = state.find((card) => card.details.operationId === 'N');
-                if (successor) assert.equal(successor.message, successorMessage);
-                continue;
-              }
               assert.equal(state.length, 1);
               const card = state[0];
               assert.equal(card.id, original.id);
@@ -548,6 +542,111 @@ for (const silent of [true, false]) {
     });
   }
 }
+
+for (const silent of [true, false]) {
+  test(`eviction predecessor replaces its queued card without WaitingComplete, silent=${silent}`, async () => {
+    const f = await lifecycle();
+    f.waiting({ ...queued(), silent, acknowledge: false });
+    const original = f.state[0];
+    original.startedAt = new Date('2026-09-01T00:00:00Z');
+
+    f.event(
+      'eviction_scan',
+      'started',
+      scan('N', {
+        previousOperationId: 'W',
+        showNotification: !silent,
+        stageKey: 'signalr.evictionScan.detectingGames'
+      })
+    );
+
+    assert.equal(f.state.length, 1, JSON.stringify(f.state));
+    assert.equal(f.state[0].id, original.id);
+    assert.equal(f.state[0].startedAt, original.startedAt);
+    assert.equal(f.state[0].details.operationId, 'N');
+    assert.equal(f.state[0].status, 'running');
+    assert.equal(f.state[0].controlOnly, silent || undefined);
+    assert.ok(f.updates.every((state) => state.length === 1));
+  });
+}
+
+for (const phase of ['progress', 'complete']) {
+  for (const silent of [true, false]) {
+    test(`eviction ${phase} predecessor replaces its queued card without Started, silent=${silent}`, async () => {
+      const f = await lifecycle();
+      f.waiting({ ...queued(), silent, acknowledge: false });
+      const original = f.state[0];
+      original.startedAt = new Date('2026-09-01T00:00:00Z');
+
+      f.event(
+        'eviction_scan',
+        phase,
+        scan('N', {
+          previousOperationId: 'W',
+          showNotification: !silent,
+          success: true,
+          status: phase === 'complete' ? 'completed' : 'running',
+          stageKey:
+            phase === 'complete' ? 'signalr.evictionScan.complete' : 'signalr.evictionScan.scanning'
+        })
+      );
+
+      assert.ok(
+        f.state.every((card) => card.details.operationId !== 'W'),
+        JSON.stringify(f.state)
+      );
+      assert.ok(f.state.length < 2, JSON.stringify(f.state));
+      if (phase === 'progress' || !silent) {
+        assert.equal(f.state.length, 1, JSON.stringify(f.state));
+        assert.equal(f.state[0].id, original.id);
+        assert.equal(f.state[0].details.operationId, 'N');
+      }
+      assert.ok(f.updates.every((state) => state.length < 2));
+    });
+  }
+}
+
+test('eviction recovery merges its registered predecessor before committing', async () => {
+  const f = await lifecycle();
+  f.waiting({ ...queued(), silent: true, acknowledge: false });
+  const original = f.state[0];
+  const run = f.modules.createRecoveryRunner(
+    async (url) => {
+      const body =
+        url === '/api/operations/waiting'
+          ? [{ ...queued(), showNotification: false }]
+          : url === '/api/stats/eviction/scan/status'
+            ? {
+                isProcessing: true,
+                operationId: 'N',
+                previousOperationId: 'W',
+                showNotification: false,
+                silentMode: true,
+                status: 'running',
+                percentComplete: 12,
+                stageKey: 'signalr.evictionScan.scanning'
+              }
+            : undefined;
+      return new Response(body === undefined ? null : JSON.stringify(body), {
+        status: body === undefined ? 401 : 200
+      });
+    },
+    f.setNotifications,
+    f.scheduleAutoDismiss,
+    f.events,
+    () => f.state,
+    f.cancelAutoDismissTimer
+  );
+
+  await run();
+
+  assert.equal(f.state.length, 1, JSON.stringify(f.state));
+  assert.equal(f.state[0].id, original.id);
+  assert.equal(f.state[0].startedAt, original.startedAt);
+  assert.equal(f.state[0].details.operationId, 'N');
+  assert.equal(f.state[0].progress, 12);
+  assert.ok(f.updates.every((state) => state.length === 1));
+});
 
 test('cache scan recovery merges its registered predecessor before committing', async () => {
   const f = await lifecycle();

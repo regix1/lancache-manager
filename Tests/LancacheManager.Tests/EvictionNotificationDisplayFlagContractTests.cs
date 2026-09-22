@@ -44,6 +44,19 @@ public class EvictionNotificationDisplayFlagContractTests
     }
 
     [Fact]
+    public void EvictionScanStarted_CarriesQueuedPredecessor()
+    {
+        var waitingId = Guid.NewGuid();
+        var started = new EvictionScanStarted(
+            "signalr.evictionScan.scanning",
+            Guid.NewGuid(),
+            ShowNotification: false,
+            PreviousOperationId: waitingId);
+
+        Assert.Equal(waitingId, started.PreviousOperationId);
+    }
+
+    [Fact]
     public void EvictionScanRecords_CarryHiddenSeparatelyFromSilent()
     {
         var operationId = Guid.NewGuid();

@@ -587,7 +587,8 @@ public class StatsController : ControllerBase
                 // label instead of the generic "Scanning..." fallback. No scan active → null.
                 StageKey = null,
                 Context = null,
-                OperationId = null
+                OperationId = null,
+                PreviousOperationId = null
             });
         }
 
@@ -612,7 +613,11 @@ public class StatsController : ControllerBase
             Message = stageKey ?? "Scanning for evictable cache entries...",
             StageKey = stageKey,
             Context = context,
-            OperationId = activeScan.Id
+            OperationId = activeScan.Id,
+            PreviousOperationId = activeScan.Metadata is Dictionary<string, object?> scan &&
+                scan.GetValueOrDefault("previousOperationId") is Guid previousOperationId
+                    ? previousOperationId
+                    : null
         });
     }
 

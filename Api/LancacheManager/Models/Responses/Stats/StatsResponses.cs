@@ -313,4 +313,5 @@ public class EvictionScanStatusResponse
     /// The running scan's operation id. Null when no scan is currently running.
     /// </summary>
     public Guid? OperationId { get; set; }
+    public Guid? PreviousOperationId { get; set; }
 }
