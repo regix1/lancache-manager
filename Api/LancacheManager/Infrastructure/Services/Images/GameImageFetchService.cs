@@ -164,7 +164,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             OperationType.GameImageFetch,
             _eventNames,
             $"{StageBase}.complete",
-            EffectiveNotificationMode.AllowsTrigger(trigger),
+            new RunNotice(EffectiveNotificationMode, trigger),
             CancellationToken.None);
         await reporter.StartAsync($"{StageBase}.starting");
         var operationId = reporter.OperationId;
@@ -302,9 +302,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken)
     {
         // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
-        // only starts once real fetch work is confirmed (inside FetchImagesAsync), so a run with no
-        // downloads yet never shows a card.
-        var show = CurrentRunNotice.ShowNotification;
+        // only starts once real fetch work is confirmed (inside FetchImagesAsync), so an automatic run
+        // with no downloads yet never shows a card.
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -312,8 +311,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             OperationType.GameImageFetch,
             _eventNames,
             $"{StageBase}.complete",
-            show,
-            stoppingToken, notice: CurrentRunNotice);
+            CurrentRunNotice,
+            stoppingToken);
 
         await RunFetchAsync(scopedServices, reporter, stoppingToken);
     }
@@ -422,11 +421,16 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         if (totalDownloads == 0)
         {
             _logger.LogInformation("[GameImageFetch] Downloads table is empty - log processing hasn't completed yet, will retry next cycle");
+            // A Run Now reports itself skipped so the click is answered; an automatic run stays quiet. [59]
+            if (reporter is { IsStarted: false } && CurrentRunNotice.Trigger == RunTrigger.Manual)
+            {
+                await reporter.StartAsync($"{StageBase}.starting");
+            }
             if (reporter is { IsStarted: true })
             {
                 // The background-trigger path starts its reporter eagerly, so this run must still
                 // reach a terminal instead of being disposed as a failure.
-                await reporter.CompleteAsync(success: true, skipped: true);
+                await reporter.CompleteAsync(success: true, stageKey: ScheduledRunReporter.NothingToDoStageKey, skipped: true);
             }
             return;
         }

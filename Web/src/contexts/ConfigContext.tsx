@@ -5,6 +5,7 @@ import { ConfigContext } from './ConfigContext.types';
 import type { Config } from '../types';
 import ApiService from '../services/api.service';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import StartupErrorCard from '@components/common/StartupErrorCard';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -245,12 +246,7 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
 
         if (err instanceof DOMException && err.name === 'AbortError') {
           console.error('[ConfigProvider] Config request timed out after', CONFIG_TIMEOUT_MS, 'ms');
-          setError({
-            message: t('app.configError.timedOutMessage', {
-              seconds: CONFIG_TIMEOUT_MS / 1000
-            }),
-            isTimeout: true
-          });
+          setError({ message: t('errors.http.timeout'), isTimeout: true });
         } else {
           console.error('[ConfigProvider] Failed to load config:', err);
           // Never render the raw error message - extract via the shared helper so an ApiError's
@@ -285,20 +281,15 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
 
   if (error !== null && config === null) {
     return (
-      <div className="config-error-screen">
-        <div className="config-error-card">
-          <h2 className="config-error-title">
-            {error.isTimeout
-              ? t('app.configError.timedOutTitle')
-              : t('app.configError.failedTitle')}
-          </h2>
-          <p className="config-error-message">{error.message}</p>
-          <Button onClick={() => void loadConfig()}>{t('common.retry')}</Button>
-          {shouldOfferPasswordRecovery(error) && (
-            <PostgresPasswordRecovery onSaved={() => void loadConfig()} />
-          )}
-        </div>
-      </div>
+      <StartupErrorCard
+        title={t('app.configError.failedTitle')}
+        message={error.message}
+        onRetry={() => void loadConfig()}
+      >
+        {shouldOfferPasswordRecovery(error) && (
+          <PostgresPasswordRecovery onSaved={() => void loadConfig()} />
+        )}
+      </StartupErrorCard>
     );
   }
 

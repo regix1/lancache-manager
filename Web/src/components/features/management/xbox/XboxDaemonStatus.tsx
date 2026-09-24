@@ -9,7 +9,6 @@ import type {
   XboxMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
-import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
 import { getIntegrationReasonKey } from '../../../../types';
 import XboxGameMappings from './XboxGameMappings';
@@ -25,7 +24,7 @@ import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
 interface XboxDaemonStatusProps {
   authMode: AuthMode;
   mockMode: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
   onSuccess?: (message: string) => void;
 }
 
@@ -45,7 +44,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
     authStatus,
     refreshStatus: loadStatus,
     statusLoading: loading,
-    statusError: hasError,
+    statusError: loadError,
     loginDeadline,
     identity
   } = useXboxMappingAuth({
@@ -56,7 +55,10 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
     },
     onError: (message: string) => {
       console.error('Xbox mapping login error:', message);
-      onError?.(message);
+      onError?.(
+        t('common.errors.signInFailed', { platform: t('prefill.persistent.services.xbox') }),
+        message
+      );
     }
   });
 
@@ -124,11 +126,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
     } catch (err) {
       if (identityRef.current !== caller) return;
       console.error('Logout failed:', err);
-      onError?.(
-        err instanceof ApiError && err.body?.stageKey
-          ? t(err.body.stageKey, err.body.context ?? {})
-          : t('management.sections.integrations.xboxDaemonStatus.logoutFailed')
-      );
+      onError?.(t('management.sections.integrations.xboxDaemonStatus.logoutFailed'), err);
     } finally {
       if (identityRef.current === caller) setLoggingOut(false);
     }
@@ -181,8 +179,9 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
         }}
         loading={loading}
         loadingMessage={t('management.sections.integrations.xboxDaemonStatus.loadingStatus')}
-        hasError={hasError}
-        errorMessage={t('management.sections.integrations.xboxDaemonStatus.loadError')}
+        loadError={loadError}
+        loadErrorTitle={t('management.sections.integrations.xboxDaemonStatus.loadError')}
+        onRetry={() => void loadStatus()}
         connected={isAuthenticated}
         connectedLabel={t('management.sections.integrations.xboxDaemonStatus.connected')}
         notConnectedLabel={t('management.sections.integrations.xboxDaemonStatus.notConnected')}

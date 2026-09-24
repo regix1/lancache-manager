@@ -23,13 +23,10 @@ public partial class SteamKit2Service
             return false;
         }
 
-        // Capture the run-stable display flag once, under the single-flight guard, before any
-        // lifecycle event is emitted. This is the single assignment point, so every start path
-        // stamps it correctly: a direct (REST) rebuild defaults to a manual trigger evaluated
-        // against the effective notification mode, while the scheduled dispatch passes its own
-        // computed trigger. A run that opts out of notifications still emits every event; the flag
-        // only gates whether the frontend renders the card.
-        _depotRunShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
+        // Built once, under the single-flight guard, before any lifecycle event is emitted: a direct
+        // (REST) rebuild defaults to a manual trigger in the effective notification mode, while the
+        // scheduled dispatch passes the notice it was admitted with.
+        var runNotice = notice ?? new RunNotice(EffectiveNotificationMode, trigger);
 
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
@@ -60,7 +57,7 @@ public partial class SteamKit2Service
 
         async Task RunAsync()
         {
-            await using var reporter = CreateTrackedRebuildReporter(runCts, notice);
+            await using var reporter = CreateTrackedRebuildReporter(runCts, runNotice);
 
             try
             {
@@ -188,18 +185,17 @@ public partial class SteamKit2Service
 
     private MappingOperationReporter CreateDepotMappingReporter(
         CancellationToken token,
-        Action? onTerminalCleanup = null,
-        RunNotice? notice = null) =>
+        RunNotice notice,
+        Action? onTerminalCleanup = null) =>
         new(
             _notifications,
             _operationTracker,
             MappingOperations.Steam,
-            _depotRunShowNotification,
+            notice,
             token,
             _logger,
             CreateDepotPayloadFactories(),
-            onTerminalCleanup,
-            notice);
+            onTerminalCleanup);
 
     /// <summary>
     /// The reporter every rebuild-style depot run uses (PICS, GitHub, apply-to-downloads): its
@@ -207,10 +203,11 @@ public partial class SteamKit2Service
     /// then clears the rebuild flag and re-publishes execution state. One home for the closure
     /// the three run entry points used to carry as identical copies.
     /// </summary>
-    private MappingOperationReporter CreateTrackedRebuildReporter(CancellationTokenSource runCts, RunNotice? notice = null)
+    private MappingOperationReporter CreateTrackedRebuildReporter(CancellationTokenSource runCts, RunNotice notice)
     {
         var reporter = CreateDepotMappingReporter(
             runCts.Token,
+            notice,
             () =>
             {
                 if (ReferenceEquals(_currentRebuildCts, runCts))
@@ -222,7 +219,7 @@ public partial class SteamKit2Service
 
                 Interlocked.Exchange(ref _rebuildActive, 0);
                 RaiseExecutionStateChanged();
-            }, notice);
+            });
         _currentMappingReporter = reporter;
         return reporter;
     }
@@ -234,14 +231,12 @@ public partial class SteamKit2Service
                 started.OperationId,
                 started.StageKey,
                 started.Context,
-                started.ShowNotification,
                 _activeDepotScanMode,
                 ContextString(started.Context, "message") ?? "Starting depot mapping...",
                 IsSteamAuthenticated,
                 DateTime.UtcNow,
                 TotalApps: ContextInt(started.Context, "totalApps"),
-                ProcessedApps: ContextInt(started.Context, "processedApps"),
-                HideNotification: started.HideNotification),
+                ProcessedApps: ContextInt(started.Context, "processedApps")),
             progress => new DepotMappingProgress(
                 progress.ServiceKey,
                 progress.OperationId,
@@ -249,7 +244,6 @@ public partial class SteamKit2Service
                 progress.StageKey,
                 progress.PercentComplete,
                 progress.Context,
-                progress.ShowNotification,
                 _activeDepotScanMode,
                 ContextString(progress.Context, "message"),
                 IsSteamAuthenticated,
@@ -266,8 +260,7 @@ public partial class SteamKit2Service
                 MaxReconnectAttempts: ContextNullableInt(progress.Context, "maxReconnectAttempts"),
                 ProcessedMappings: ContextInt(progress.Context, "processedMappings"),
                 TotalMappings: ContextInt(progress.Context, "totalMappings"),
-                MappingsApplied: ContextInt(progress.Context, "mappingsApplied"),
-                HideNotification: progress.HideNotification),
+                MappingsApplied: ContextInt(progress.Context, "mappingsApplied")),
             complete => new DepotMappingComplete(
                 complete.OperationId,
                 complete.Success,
@@ -284,14 +277,12 @@ public partial class SteamKit2Service
                 IsLoggedOn: IsSteamAuthenticated,
                 Error: complete.Error,
                 Timestamp: DateTime.UtcNow,
-                ShowNotification: complete.ShowNotification,
                 StageKey: complete.StageKey,
                 PercentComplete: complete.PercentComplete,
                 Context: complete.Context,
                 DepotMappingsFound: ContextNullableInt(complete.Context, "depotMappingsFound"),
                 TotalApps: ContextNullableInt(complete.Context, "totalApps"),
-                TotalBatches: ContextNullableInt(complete.Context, "totalBatches"),
-                HideNotification: complete.HideNotification));
+                TotalBatches: ContextNullableInt(complete.Context, "totalBatches")));
 
     private Dictionary<string, object?> CreateDepotContext(
         string? status = null,

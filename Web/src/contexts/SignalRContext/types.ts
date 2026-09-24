@@ -3,6 +3,7 @@ import type { OperationStatus, NotificationVariant } from '../../types/operation
 import type { SessionType } from '../../services/auth.service';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
 import type { ClockPreferences, UserPreferences } from '@/types/userPreferences';
+import type { NotificationDisplayMode } from '@components/features/management/schedules/types';
 import type {
   StructuralBaselineStatus,
   StructuralEffectiveScanMode,
@@ -241,9 +242,9 @@ export const SIGNALR_EVENTS = [
   'CacheSizeScanProgress',
   'CacheSizeScanComplete',
 
-  // Operation wait-queue (purple waiting cards)
-  'OperationWaiting',
-  'OperationWaitingComplete',
+  // Run list: one row per tracked operation, the only source that opens or ends a run card
+  'OperationUpdated',
+  'NotificationDisplayModeChanged',
 
   // Eviction Removal
   'EvictionRemovalStarted',
@@ -343,8 +344,6 @@ export const SIGNALR_REFRESH_EVENTS = [
  */
 interface OperationEvent {
   operationId: string;
-  showNotification?: boolean;
-  hideNotification?: boolean;
   /**
    * The server builds this as `Dictionary<string, object?>` and writes null into an entry whose
    * source value is absent (a scan mode that was never resolved, a service name on a non-service
@@ -425,6 +424,7 @@ export interface GameRemovalStartedEvent extends OperationEvent {
   gameAppId: number | null;
   epicAppId: string | null;
   gameName: string;
+  service: string | null;
   stageKey: string;
   timestamp: string;
 }
@@ -433,6 +433,7 @@ export interface GameRemovalProgressEvent extends OperationEvent {
   gameAppId: number | null;
   epicAppId: string | null;
   gameName: string;
+  service: string | null;
   /** @deprecated use stageKey instead */
   message?: string;
   filesDeleted?: number;
@@ -584,7 +585,6 @@ export interface GameDetectionStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   timestamp?: string;
-  showNotification?: boolean;
 }
 
 export interface GameDetectionProgressEvent extends OperationEvent {
@@ -597,7 +597,6 @@ export interface GameDetectionProgressEvent extends OperationEvent {
   servicesDetected?: number;
   gamesProcessed?: number;
   totalGames?: number;
-  showNotification?: boolean;
 }
 
 export interface GameDetectionCompleteEvent extends OperationEvent {
@@ -612,7 +611,6 @@ export interface GameDetectionCompleteEvent extends OperationEvent {
   totalServicesDetected?: number;
   newGamesCount?: number;
   timestamp?: string;
-  showNotification?: boolean;
 }
 
 // Database Reset Events
@@ -625,6 +623,22 @@ export interface DatabaseResetProgressEvent extends OperationEvent {
   status: OperationStatus;
   /** @deprecated use stageKey instead */
   message?: string;
+}
+/**
+ * Terminal `DatabaseResetComplete` payload (camelCase, mirrors the backend
+ * `SignalRNotifications.DatabaseResetComplete` record). Emitted exactly once via
+ * `OperationInfo.OnTerminalEmit` on the normal success/error path AND the universal
+ * force-kill/cancel path. It sits with its two siblings above; it satisfies the completion
+ * config's `{ success; stageKey?; context?; message?; cancelled? }` constraint.
+ */
+export interface DatabaseResetCompleteEvent {
+  operationId: string;
+  success: boolean;
+  stageKey?: string;
+  status?: string;
+  cancelled?: boolean;
+  error?: string;
+  context?: Record<string, string | number | boolean>;
 }
 
 // Cache Clear Event Types (used by CacheClearingProgress/CacheClearingComplete handlers)
@@ -669,8 +683,6 @@ export interface MappingStartedEvent {
   operationId: string;
   stageKey: string;
   context: MappingStageContext | null;
-  showNotification: boolean;
-  hideNotification?: boolean;
 }
 
 export interface MappingProgressEvent {
@@ -680,8 +692,6 @@ export interface MappingProgressEvent {
   stageKey: string;
   percentComplete: number;
   context: MappingStageContext | null;
-  showNotification: boolean;
-  hideNotification?: boolean;
 }
 
 export interface MappingCompleteEvent {
@@ -692,8 +702,6 @@ export interface MappingCompleteEvent {
   percentComplete: number;
   error: string | null;
   context: MappingStageContext | null;
-  showNotification: boolean;
-  hideNotification?: boolean;
   cancelled: boolean;
   status: OperationStatus;
 }
@@ -787,7 +795,8 @@ export interface SteamAutoLogoutEvent {
 export interface ShowToastEvent {
   type: NotificationVariant;
   message: string;
-  duration?: number;
+  /** The reason, already a sentence from `getErrorMessage`; drawn as the popup's second line. */
+  error?: string;
 }
 
 export interface GuestRefreshRateUpdatedEvent {
@@ -1034,8 +1043,6 @@ export interface ScheduledPrefillStartedEvent {
   scheduleId?: string | null;
   scheduleName?: string | null;
   runOperationId?: string | null;
-  showNotification?: boolean;
-  hideNotification?: boolean;
 }
 
 export interface ScheduledPrefillProgressEvent {
@@ -1064,8 +1071,6 @@ export interface ScheduledPrefillProgressEvent {
   totalBytes?: number | null;
   downloadSessionId?: string | null;
   percentComplete?: number | null;
-  showNotification?: boolean;
-  hideNotification?: boolean;
 }
 
 export interface ScheduledPrefillCompletedEvent {
@@ -1093,8 +1098,6 @@ export interface ScheduledPrefillCompletedEvent {
   cancelled?: boolean;
   /** "skipped" when the service did nothing (no container, needs login); the card closes as skipped. */
   status?: string | null;
-  showNotification?: boolean;
-  hideNotification?: boolean;
 }
 
 // ============================================================================
@@ -1103,8 +1106,7 @@ export interface ScheduledPrefillCompletedEvent {
 // One shared payload trio reused by every per-service event triple (log rotation,
 // game image fetch, Steam refresh, cache snapshot, operation-history cleanup,
 // performance optimization, dashboard cache warmer). Lifecycle events are ALWAYS
-// emitted; `showNotification` (stamped once per run from the effective mode + trigger)
-// gates whether the frontend displays a card.
+// emitted; the run's row decides whether the frontend displays a card.
 
 export interface ScheduledRunStartedEvent extends OperationEvent {
   serviceKey: string;
@@ -1179,21 +1181,17 @@ export interface XboxGameMappingsUpdatedEvent {
 export interface EvictionScanStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
-  previousOperationId?: string | null;
-  showNotification?: boolean;
 }
 
 export interface EvictionScanProgressEvent extends OperationEvent {
   status: OperationStatus;
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
-  previousOperationId?: string | null;
   percentComplete: number;
   processed: number;
   totalEstimate: number;
   evicted: number;
   unEvicted: number;
-  showNotification?: boolean;
 }
 
 /**
@@ -1210,12 +1208,10 @@ export interface EvictionScanCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
-  previousOperationId?: string | null;
   processed: number;
   evicted: number;
   unEvicted: number;
   error?: string;
-  showNotification?: boolean;
   cancelled?: boolean;
   /**
    * Terminal status. A run declined before it started reports success:true here, so this is the
@@ -1224,10 +1220,7 @@ export interface EvictionScanCompleteEvent extends OperationEvent {
   status?: OperationStatus;
 }
 
-export interface CacheSizeScanStartedEvent extends OperationEvent {
-  previousOperationId?: string | null;
-  showNotification?: boolean;
-}
+export type CacheSizeScanStartedEvent = OperationEvent;
 
 export interface CacheSizeScanProgressEvent extends OperationEvent {
   status: OperationStatus;
@@ -1236,7 +1229,6 @@ export interface CacheSizeScanProgressEvent extends OperationEvent {
   totalDirectories: number;
   totalFiles: number;
   totalBytes: number;
-  showNotification?: boolean;
 }
 
 export interface CacheSizeScanCompleteEvent extends OperationEvent {
@@ -1245,7 +1237,6 @@ export interface CacheSizeScanCompleteEvent extends OperationEvent {
   totalBytes: number;
   formattedSize?: string;
   error?: string;
-  showNotification?: boolean;
   cancelled?: boolean;
   /**
    * Terminal status. A run declined before it started reports success:true here, so this is the
@@ -1254,49 +1245,70 @@ export interface CacheSizeScanCompleteEvent extends OperationEvent {
   status?: OperationStatus;
 }
 
-/**
- * Emitted when an operation is parked in the backend wait-queue behind a conflicting
- * operation. operationType is the backend OperationType wire string (camelCase).
- */
-export interface OperationWaitingEvent {
-  acknowledge?: boolean;
-  operationId: string;
-  operationType: string;
-  name: string;
-  /**
-   * Display name of the operation currently holding the conflict; null/absent when the
-   * blocker is unknown (local start-gate refusal). The backend re-emits this event with a
-   * new value when the waiter ends up parked behind a different operation.
-   */
-  blockedByName?: string | null;
-  /**
-   * True when the run's schedule asked it to keep its cards to itself. It is parked like any
-   * other run, but it gets the notice that clears itself instead of the purple card, and the
-   * backend sends this event for it exactly once, never again on a blocker change.
-   */
-  silent?: boolean;
-  hidden?: boolean;
-}
+/** How a run shows while it is live: a full card, a background row, or nothing at all. */
+export type RunVisibility = 'card' | 'background' | 'hidden';
 
 /**
- * Emitted when a WAITING operation terminates. A promoted operation normally replaces
- * the waiting card through its own Started event; promoted also closes the card when
- * the running operation is intentionally notification-silent.
+ * One tracked operation as the server sees it, pushed as `OperationUpdated` on every state change
+ * and listed by `GET /api/operations/runs`. It is the only thing that opens or ends a run card;
+ * the per-type lifecycle events only fill in the text a card shows.
  */
-export interface OperationWaitingCompleteEvent {
-  nextOperationId?: string;
-  nextStatus?: string;
+export interface OperationRun {
   operationId: string;
+  /** Backend OperationType wire string (camelCase), e.g. 'evictionScan'. */
   operationType: string;
-  cancelled: boolean;
-  error?: string;
-  promoted?: boolean;
+  name: string;
+  status: OperationStatus;
+  visibility: RunVisibility;
+  percentComplete: number;
+  /** A stage key for most producers; plain English for a few. */
+  message: string;
+  /** Set only when status is 'failed'. */
+  error?: string | null;
+  /** Display name of the operation this one is parked behind; null when unknown. */
+  blockedByName?: string | null;
+  previousOperationId?: string | null;
+  parentOperationId?: string | null;
   /**
-   * The run was declined and never started, so nothing replaced the card. Mutually exclusive
-   * with `promoted`, and the reason travels in `error`.
+   * On a run that handed its work on (its terminal row, and snapshot rows until it is reaped): the
+   * END of the handoff chain, the operation now doing the work.
    */
-  skipped?: boolean;
-  hidden?: boolean;
+  nextOperationId?: string | null;
+  /** The raw detection error of an eviction scan that finished with a warning. */
+  warning?: string | null;
+  /** A kept ending: the server keeps it until someone closes it. */
+  retained?: boolean;
+  /** The final row after someone closed a kept ending; the card leaves on every screen. */
+  closed?: boolean;
+  /** Failures in a row of this run's schedule, on its kept ending. */
+  consecutiveFailures?: number;
+  /** A later run of the schedule succeeded while this kept failure was on screen. */
+  latestRunSucceeded?: boolean;
+  /** Scheduled prefill's per-platform schedule id; null for every other run. */
+  scheduleId?: string | null;
+  /** Scheduled prefill's platform, the same value the prefill events send as `serviceId`. */
+  serviceId?: string | null;
+  /** A pass of the live log ingest: never drawn while it runs and never keeps a button busy. */
+  liveIngest?: boolean;
+  /** A mapping sign-in run: its kept failure never shares its schedule's failure card. */
+  integrationLogin?: boolean;
+  /** The auth session whose browser alone draws this run; absent for everyone. */
+  ownerSessionId?: string | null;
+  /** Revision of the run's first terminal row, the order endings are kept in; null while live. */
+  completedRevision?: number | null;
+  /** ISO timestamp. */
+  startedAt: string;
+  revision: number;
+}
+
+/** `GET /api/operations/runs`: every run the server still tracks, captured at `revision`. */
+export interface OperationRunsSnapshot {
+  runs: OperationRun[];
+  revision: number;
+}
+
+export interface NotificationDisplayModeChangedEvent {
+  mode: NotificationDisplayMode;
 }
 
 export interface EvictionRemovalStartedEvent extends OperationEvent {
@@ -1305,7 +1317,6 @@ export interface EvictionRemovalStartedEvent extends OperationEvent {
   gameName?: string;
   gameAppId?: string;
   epicAppId?: string;
-  showNotification?: boolean;
 }
 
 export interface EvictionRemovalProgressEvent extends OperationEvent {
@@ -1315,7 +1326,6 @@ export interface EvictionRemovalProgressEvent extends OperationEvent {
   percentComplete?: number;
   downloadsRemoved?: number;
   logEntriesRemoved?: number;
-  showNotification?: boolean;
 }
 
 export interface EvictionRemovalCompleteEvent extends OperationEvent {
@@ -1326,5 +1336,4 @@ export interface EvictionRemovalCompleteEvent extends OperationEvent {
   downloadsRemoved?: number;
   logEntriesRemoved?: number;
   error?: string;
-  showNotification?: boolean;
 }

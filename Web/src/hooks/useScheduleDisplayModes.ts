@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { NotificationDisplayModeChangedEvent } from '@contexts/SignalRContext/types';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type {
   NotificationDisplayMode,
@@ -9,6 +9,13 @@ import type {
 } from '@components/features/management/schedules/types';
 
 type ScheduleDisplayModeMap = Record<string, NotificationDisplayMode>;
+
+interface ScheduleDisplayModes {
+  modes: ScheduleDisplayModeMap;
+  defaultMode: NotificationDisplayMode;
+  /** False until the first read of both settles, answered or not. */
+  ready: boolean;
+}
 
 /**
  * A schedule that runs several platforms under one key contributes an entry per platform as well as
@@ -35,65 +42,96 @@ const toDisplayModeMap = (schedules: ServiceScheduleInfo[]): ScheduleDisplayMode
   return map;
 };
 
-/**
- * Per-service notification display mode ('full' | 'condensed'), keyed by schedule serviceKey.
- * Seeds once from GET /api/system/schedules and then follows the SchedulesUpdated broadcast, so a
- * toggle on the Schedules page reaches the notification bar live without polling. A serviceKey
- * absent from the map has no persisted preference and is treated as 'full' by the consumer, so a
- * failed initial fetch degrades to the default full-card rendering rather than an error surface.
- */
-export function useScheduleDisplayModes(): ScheduleDisplayModeMap {
+/** A failed first read leaves notifications as full cards until a push or later read succeeds. */
+export function useScheduleDisplayModes(): ScheduleDisplayModes {
   const [displayModes, setDisplayModes] = useState<ScheduleDisplayModeMap>({});
-  const { on, off, isConnected } = useSignalR();
-  // Single freshness sequence shared by every writer below: each applied update bumps it, and a
-  // fetch response only lands if the generation captured when the request was sent still matches
-  // when it resolves. A GET snapshot resolving after newer data has already applied is discarded
-  // instead of rolling the map back to its pre-toggle state.
-  const generationRef = useRef<number>(0);
+  const [defaultMode, setDefaultMode] = useState<NotificationDisplayMode>('full');
+  const [ready, setReady] = useState(false);
+  const { on, off, invoke, isConnected } = useSignalR();
+  const schedulesGeneration = useRef(0);
+  const defaultGeneration = useRef(0);
+  const resyncPending = useRef({ schedules: false, defaultMode: false });
+  const active = useRef(true);
 
   const applySchedules = useCallback((schedules: ServiceScheduleInfo[]): void => {
-    generationRef.current += 1;
+    schedulesGeneration.current += 1;
+    resyncPending.current.schedules = false;
     setDisplayModes(toDisplayModeMap(schedules));
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    // Subscribe before the seed fetch: a broadcast landing while the GET is in flight is newer
-    // than the GET's snapshot and bumps the generation, so the seed response is then discarded.
-    on('SchedulesUpdated', applySchedules);
-    const requestGeneration = generationRef.current;
-    ApiService.getSchedules()
-      .then((schedules) => {
-        if (!cancelled && generationRef.current === requestGeneration) {
-          applySchedules(schedules);
-        }
-      })
-      .catch((error: unknown) => {
-        // Best-effort seed: an unreachable schedules endpoint leaves every service at the
-        // 'full' default (an explicit, documented result), so no user-facing error is raised.
-        console.error('useScheduleDisplayModes seed failed:', getErrorMessage(error));
-      });
-    return () => {
-      cancelled = true;
-      off('SchedulesUpdated', applySchedules);
-    };
-  }, [on, off, applySchedules]);
+  const applyDefault = useCallback((event: NotificationDisplayModeChangedEvent): void => {
+    defaultGeneration.current += 1;
+    resyncPending.current.defaultMode = false;
+    setDefaultMode(event.mode);
+  }, []);
 
-  // Refetch on reconnect: broadcasts sent while SignalR was down are gone for good, so the map
-  // must be re-based on authoritative state (same recovery the Schedules page itself performs).
-  // The generation guard keeps a slow response from overwriting a newer SignalR push.
+  const refresh = useCallback(async (): Promise<void> => {
+    // Joining first closes the connection window in which a GET could miss a settings push.
+    await Promise.allSettled([invoke('JoinAuthenticatedGroupAsync')]);
+    if (!active.current) return;
+
+    const schedulesRequest = schedulesGeneration.current;
+    const defaultRequest = defaultGeneration.current;
+    await Promise.all([
+      ApiService.getSchedules()
+        .then((schedules) => {
+          if (active.current && schedulesGeneration.current === schedulesRequest) {
+            applySchedules(schedules);
+          }
+        })
+        .catch((error: unknown) => {
+          if (active.current && schedulesGeneration.current === schedulesRequest) {
+            resyncPending.current.schedules = true;
+          }
+          console.error('useScheduleDisplayModes seed failed:', error);
+        }),
+      ApiService.getGlobalNotificationDisplayMode()
+        .then((mode) => {
+          if (active.current && defaultGeneration.current === defaultRequest) {
+            applyDefault({ mode });
+          }
+        })
+        .catch((error: unknown) => {
+          if (active.current && defaultGeneration.current === defaultRequest) {
+            resyncPending.current.defaultMode = true;
+          }
+          console.error('useScheduleDisplayModes default seed failed:', error);
+        })
+    ]);
+    // The bar draws no card before this, so a reload never shows one full and then moves it. [62]
+    if (active.current) setReady(true);
+  }, [invoke, applySchedules, applyDefault]);
+
+  const retryPending = useCallback((): void => {
+    if (resyncPending.current.schedules || resyncPending.current.defaultMode) {
+      void refresh();
+    }
+  }, [refresh]);
+
+  useEffect(() => {
+    active.current = true;
+    on('SchedulesUpdated', applySchedules);
+    on('NotificationDisplayModeChanged', applyDefault);
+    on('OperationUpdated', retryPending);
+    const handleVisibility = (): void => {
+      if (document.visibilityState === 'visible') retryPending();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    void refresh();
+    return () => {
+      active.current = false;
+      schedulesGeneration.current += 1;
+      defaultGeneration.current += 1;
+      off('SchedulesUpdated', applySchedules);
+      off('NotificationDisplayModeChanged', applyDefault);
+      off('OperationUpdated', retryPending);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [on, off, applySchedules, applyDefault, retryPending, refresh]);
+
   useReconnectRefetch(isConnected, () => {
-    const requestGeneration = generationRef.current;
-    ApiService.getSchedules()
-      .then((schedules) => {
-        if (generationRef.current === requestGeneration) {
-          applySchedules(schedules);
-        }
-      })
-      .catch((error: unknown) => {
-        console.error('useScheduleDisplayModes reconnect refresh failed:', getErrorMessage(error));
-      });
+    void refresh();
   });
 
-  return displayModes;
+  return { modes: displayModes, defaultMode, ready };
 }

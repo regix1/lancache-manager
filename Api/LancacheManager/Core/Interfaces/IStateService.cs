@@ -106,11 +106,16 @@ public interface IStateService
     void SetServiceNotificationMode(string serviceKey, NotificationMode mode);
     void ClearServiceNotificationMode(string serviceKey);
 
-    // Service NotificationDisplayMode Methods (absent key = Full; unlike NotificationMode there is no
-    // per-service compiled default to resolve against, so the registry mapper resolves the absent case)
+    // Service NotificationDisplayMode Methods (absent key = the global default below; the registry
+    // mapper resolves the absent case)
     NotificationDisplayMode? GetServiceNotificationDisplayMode(string serviceKey);
     void SetServiceNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
     void ClearServiceNotificationDisplayMode(string serviceKey);
+
+    // Global NotificationDisplayMode Methods (a state file written before this setting existed reads
+    // as Condensed; there is no separate absent case to resolve, so this returns the mode and not a nullable)
+    NotificationDisplayMode GetGlobalNotificationDisplayMode();
+    void SetGlobalNotificationDisplayMode(NotificationDisplayMode mode);
 
     // Game Detection Scan Mode Methods (a state file written before this setting existed reads as
     // Full; there is no separate absent case to resolve, so this returns the mode and not a nullable)
@@ -198,10 +203,6 @@ public interface IStateService
     // Evicted Data Mode Methods
     string GetEvictedDataMode();
     void SetEvictedDataMode(string mode);
-
-    // Eviction Scan Notification Methods
-    bool GetEvictionScanNotifications();
-    void SetEvictionScanNotifications(bool enabled);
 
     // Client Hostname Lookup Methods (reverse DNS on client addresses)
     bool GetClientHostnameLookup();

@@ -26,7 +26,8 @@ import { useImageErrors } from '@hooks/useImageErrors';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import type { ColumnWidths } from '@utils/textMeasurement';
 import { storage } from '@utils/storage';
-import { Alert } from '@components/ui/Alert';
+import { getErrorMessage } from '@utils/error';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Pagination } from '@components/ui/Pagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useReaderClock } from '@hooks/useReaderClock';
@@ -889,7 +890,12 @@ const RetroView = memo(
 
           {/* Surface fetch failures instead of silently showing stale rows */}
           {serverMode && serverRetro.error && (
-            <Alert color="red">{t('downloads.tab.retro.loadError')}</Alert>
+            <ErrorBlock
+              title={t('downloads.tab.errors.loadFailed')}
+              message={getErrorMessage(serverRetro.error)}
+              retryLabel={t('common.retry')}
+              onRetry={serverRetro.reload}
+            />
           )}
 
           <div ref={fadeContainerRef} className="page-content-transition relative z-0">

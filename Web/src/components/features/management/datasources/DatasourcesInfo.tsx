@@ -1,5 +1,5 @@
 import { noAutofill } from '@utils/autofill';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -13,20 +13,16 @@ import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
-import { useNotifications } from '@contexts/notifications';
-import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
-import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -38,7 +34,7 @@ import { useSectionExpanded } from '@hooks/useSectionExpanded';
 interface DatasourcesManagerProps {
   isAdmin: boolean;
   mockMode: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
 }
@@ -68,6 +64,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(!mockMode);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The first load, Retry, the processing-complete refresh and the reconnect refresh can overlap;
+  // only the newest one writes the positions and the section error.
+  const positionsRequestRef = useRef(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const { selected: expandedDatasources, toggle: toggleExpanded } = useSelectionSet<string>();
   const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(
@@ -78,9 +77,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     false
   );
   useAccordionGroupItem('storage-datasources', isExpanded, () => setIsExpanded((prev) => !prev));
-
-  const { addNotification } = useNotifications();
-  const { notifyError } = useErrorHandler();
 
   // Per-datasource manual cache-size limit. A blank value clears the override and falls
   // back to auto-detect, so the input drives an explicit save rather than editing state live.
@@ -144,20 +140,21 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   });
 
   const loadData = useCallback(async () => {
+    const request = ++positionsRequestRef.current;
     setLoading(true);
     setLoadError(null);
     try {
       const positionsData = await fetchLogPositions();
+      if (request !== positionsRequestRef.current) return;
       setLogPositions(positionsData);
     } catch (err) {
+      if (request !== positionsRequestRef.current) return;
       setLoadError(getErrorMessage(err));
-      notifyError(t('management.datasources.errors.loadFailed'), err, {
-        logLabel: 'Failed to load datasource data'
-      });
     } finally {
+      // Background refreshes never raise the skeleton, so a superseded load still lowers it.
       setLoading(false);
     }
-  }, [notifyError, t]);
+  }, []);
 
   // Load log positions
   useEffect(() => {
@@ -169,24 +166,29 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     }
   }, [loadData, mockMode]);
 
+  // Re-reads positions with the rows kept on screen. It never throws: a failure lands in the
+  // section's own box, so an action that calls it reports only its own failure.
+  const refreshPositions = useCallback(async () => {
+    const request = ++positionsRequestRef.current;
+    try {
+      const positions = await fetchLogPositions();
+      if (request !== positionsRequestRef.current) return;
+      setLogPositions(positions);
+      setLoadError(null);
+    } catch (err) {
+      if (request !== positionsRequestRef.current) return;
+      setLoadError(getErrorMessage(err));
+    }
+  }, []);
+
   // Listen for processing complete events to refresh positions
   useEffect(() => {
     // The socket stays connected in mock mode, so a real processing run would otherwise pull real
     // log positions into the mock view.
     if (mockMode) return;
 
-    const handleProcessingComplete = async (_result: LogProcessingCompleteEvent) => {
-      try {
-        const positions = await fetchLogPositions();
-        setLogPositions(positions);
-      } catch (err) {
-        // Background auto-refresh after a completed processing run; the position display simply
-        // stays stale until the next successful refresh, so this is explicit background noise.
-        notifyError(t('management.datasources.errors.loadFailed'), err, {
-          silent: true,
-          logLabel: 'Failed to refresh log positions after processing'
-        });
-      }
+    const handleProcessingComplete = (_result: LogProcessingCompleteEvent) => {
+      void refreshPositions();
     };
 
     signalR.on('LogProcessingComplete', handleProcessingComplete);
@@ -194,23 +196,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return () => {
       signalR.off('LogProcessingComplete', handleProcessingComplete);
     };
-  }, [mockMode, signalR, notifyError, t]);
+  }, [mockMode, signalR, refreshPositions]);
 
   // Recover a stale snapshot after a reconnect: a processing-complete event can be missed while
   // the socket is down, so resync log positions whenever the connection returns.
   useReconnectRefetch(signalR.isConnected, () => {
     if (mockMode) return;
-    void (async () => {
-      try {
-        const positions = await fetchLogPositions();
-        setLogPositions(positions);
-      } catch (err) {
-        notifyError(t('management.datasources.errors.loadFailed'), err, {
-          silent: true,
-          logLabel: 'Failed to refresh log positions after reconnect'
-        });
-      }
-    })();
+    void refreshPositions();
   });
 
   const handleProcessAll = async () => {
@@ -218,20 +210,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     setActionLoading('all');
     try {
-      const result = await ApiService.processAllLogs();
-      // Wait-queue model: queued/deduplicated responses must not seed a running card.
-      if (shouldPinOperationIdFromResponse(result)) {
-        addNotification(
-          buildSeededRunningNotification(
-            'log_processing',
-            result.operationId,
-            t('signalr.logProcessing.starting')
-          )
-        );
-      }
+      // The server's run row opens the card.
+      await ApiService.processAllLogs();
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err));
+      onError?.(t('management.datasources.errors.processingFailed'), err);
     } finally {
       setActionLoading(null);
     }
@@ -242,20 +225,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     setActionLoading(`access-${datasourceName}`);
     try {
-      const result = await ApiService.processDatasourceLogs(datasourceName);
-      // Wait-queue model: queued/deduplicated responses must not seed a running card.
-      if (shouldPinOperationIdFromResponse(result)) {
-        addNotification(
-          buildSeededRunningNotification(
-            'log_processing',
-            result.operationId,
-            t('signalr.logProcessing.starting')
-          )
-        );
-      }
+      await ApiService.processDatasourceLogs(datasourceName);
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err));
+      onError?.(t('management.datasources.errors.processingFailed'), err);
     } finally {
       setActionLoading(null);
     }
@@ -277,11 +250,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         onSuccess?.(t('management.datasources.messages.positionResetAll'));
       }
       // Refresh positions
-      const positions = await fetchLogPositions();
-      setLogPositions(positions);
+      await refreshPositions();
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(getErrorMessage(err));
+      onError?.(t('management.datasources.errors.resetFailed'), err);
     } finally {
       setActionLoading(null);
       setResetModal(null);
@@ -361,6 +333,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const headerActions = (
     <SectionHeaderActions>
+      {loadError !== null && !isExpanded && <SectionErrorChip />}
       <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>

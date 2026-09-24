@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
-import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
 import { getIntegrationReasonKey, type EpicMappingAuthStatus } from '../types';
 
@@ -52,7 +51,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const [status, setStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [statusError, setStatusError] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const hasAccess =
     !isLoading &&
     (authenticationEnabled === false ||
@@ -60,7 +59,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const formIdentityRef = useRef(identity);
   const formCurrent = formIdentityRef.current === identity && hasAccess;
   const authStatus = statusIdentity === identity && hasAccess ? status : null;
-  const accessUnavailable = !formCurrent || authStatus === null || statusError;
+  const accessUnavailable = !formCurrent || authStatus === null || statusError !== null;
   const canAuthenticate =
     formCurrent &&
     (authStatus?.canSignIn === true ||
@@ -74,11 +73,11 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       if (identityRef.current !== identity || statusRequestRef.current !== request) return;
       setStatus(next);
       setStatusIdentity(identity);
-      setStatusError(false);
+      setStatusError(null);
     } catch (error: unknown) {
       if (identityRef.current !== identity || statusRequestRef.current !== request) return;
       setStatus(null);
-      setStatusError(true);
+      setStatusError(getErrorMessage(error));
       console.warn('Epic integration status unavailable:', getErrorMessage(error));
     } finally {
       if (identityRef.current === identity && statusRequestRef.current === request)
@@ -134,7 +133,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     setStatus(null);
     setStatusIdentity(null);
     setStatusLoading(hasAccess);
-    setStatusError(false);
+    setStatusError(null);
     void refreshStatus();
     return () => {
       requestRef.current += 1;
@@ -188,10 +187,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         setLoading(false);
         return;
       }
-      const message =
-        error instanceof ApiError && error.body?.stageKey
-          ? t(error.body.stageKey, error.body.context ?? {})
-          : t('modals.epicAuth.errors.authenticationFailed');
+      const message = getErrorMessage(error);
       setError(message);
       onError?.(message);
       setLoading(false);
@@ -259,10 +255,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       setNeedsAuthorizationCode(false);
       setAuthorizationCode('');
       setAuthorizationUrl('');
-      const message =
-        error instanceof ApiError && error.body?.stageKey
-          ? t(error.body.stageKey, error.body.context ?? {})
-          : t('modals.epicAuth.errors.authenticationFailed');
+      const message = getErrorMessage(error);
       setError(message);
       onError?.(message);
       return false;
@@ -280,7 +273,6 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     startLogin,
     onSuccess,
     onError,
-    t,
     identity,
     refreshStatus,
     canAuthenticate

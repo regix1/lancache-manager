@@ -89,3 +89,42 @@ test('surviving events keep the chosen time range', () => {
   assert.deepEqual(writes.selected, [[1]]);
   assert.deepEqual(writes.range, []);
 });
+
+test('a failed refresh for an admin keeps the events on screen and the selected event filter', async () => {
+  const eventWrites = [];
+  let error = null;
+  const refreshEvents = bindLifted(
+    liftHookCallback('src/contexts/EventContext.tsx', 'useCallback', 'getActiveEvents'),
+    {
+      refreshRequestIdRef: { current: 0 },
+      hasLoadedRef: { current: true },
+      setLoading: () => undefined,
+      setError: (next) => {
+        error = typeof next === 'function' ? next(error) : next;
+      },
+      mockMode: false,
+      MockDataService: {},
+      ApiService: {
+        getEvents: () => Promise.reject(new Error('down')),
+        getActiveEvents: () => Promise.resolve([])
+      },
+      setEvents: (next) => eventWrites.push(next),
+      setActiveEvents: () => undefined,
+      selectedEventId: null,
+      setSelectedEventId: () => undefined,
+      authMode: 'authenticated',
+      getErrorMessage: (err) => err.message,
+      console: { error: () => undefined }
+    }
+  );
+
+  await refreshEvents();
+
+  // The list the prune effect sees next: the last one written, or the one already on screen.
+  const eventsOnScreen = eventWrites.length > 0 ? eventWrites[eventWrites.length - 1] : EVENTS;
+  const writes = runPrune({ selectedEventIds: [1], events: eventsOnScreen, timeRange: 'custom' });
+  assert.deepEqual(eventsOnScreen, EVENTS);
+  assert.deepEqual(writes.selected, []);
+  assert.deepEqual(writes.range, []);
+  assert.equal(error, 'down');
+});

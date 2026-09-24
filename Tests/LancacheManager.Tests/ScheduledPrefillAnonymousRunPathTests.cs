@@ -177,11 +177,10 @@ public class ScheduledPrefillAnonymousRunPathTests
         var runServiceAsync = typeof(ScheduledPrefillService).GetMethod(
             "RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-        // The run-level visibility flag is false here: the single due platform is Silent, so the OR
-        // across due platforms is false, and every relayed event must carry showNotification=false.
+        // The platform run's row decides how it shows, so no relayed event carries a visibility.
         var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
             scheduledPrefillService,
-            new object?[] { MakeServiceRun(serviceConfig), daemonProvider, notifications, config, false })!;
+            new object?[] { MakeServiceRun(serviceConfig), daemonProvider, notifications, config })!;
 
         scheduledPrefillService.Dispose();
 
@@ -190,8 +189,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
         Assert.DoesNotContain("needs-login", recorder.Stages);
         Assert.Contains("completed", recorder.Stages);
-        Assert.NotEmpty(recorder.ShowNotificationValues);
-        Assert.All(recorder.ShowNotificationValues, Assert.False);
+        Assert.Equal(0, recorder.VisibilityFieldCount);
 
         // The selection must actually reach the daemon, and the preset must be forced off in favor
         // of it (ScheduledPrefillService.cs:338-348's hasSelectedApps branch).
@@ -263,7 +261,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
         var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None, true })!;
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, CancellationToken.None, true })!;
         Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
         var stateCalls = ((RecordingNotificationsProxy)(object)state).Calls;
         Assert.Single(stateCalls, c => c.Method == nameof(IStateService.SetScheduledPrefillServiceLastRun));
@@ -312,7 +310,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
         var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None, true })!;
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, CancellationToken.None, true })!;
 
         Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
         var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
@@ -574,7 +572,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             relayType,
             BindingFlags.Instance | BindingFlags.NonPublic,
             binder: null,
-            args: new object[] { scheduledPrefillService, notifications, session, serviceRun, session.Id, true },
+            args: new object[] { scheduledPrefillService, notifications, session, serviceRun, session.Id },
             culture: null)!;
         relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
         var onProgress = relayType.GetMethod("OnProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -664,7 +662,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             new object?[]
             {
                 MakeServiceRun(serviceConfig), daemonProvider, notifications,
-                ScheduledPrefillConfigFactory.CreateDefault(), false
+                ScheduledPrefillConfigFactory.CreateDefault()
             })!;
 
         scheduledPrefillService.Dispose();
@@ -686,7 +684,8 @@ public class ScheduledPrefillAnonymousRunPathTests
             new ScheduledPrefillServiceRunState(
                 serviceConfig.ServiceId,
                 serviceConfig.ScheduleId,
-                serviceConfig.ScheduleName, false),
+                serviceConfig.ScheduleName,
+                new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled)),
             CancellationToken.None);
 
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
@@ -885,7 +884,9 @@ public class ScheduledPrefillAnonymousRunPathTests
         public Action<string, object>? Notification { get; set; }
         public List<(string Method, object?[] Args)> Calls { get; } = new();
         public List<string> Stages { get; } = new();
-        public List<bool> ShowNotificationValues { get; } = new();
+
+        /// <summary>Payloads that carried a visibility field (any name ending in "Notification").</summary>
+        public int VisibilityFieldCount { get; private set; }
 
         /// <summary>
         /// The <c>stageKey</c> alongside each recorded stage. Nullable entries are the point: the
@@ -958,10 +959,10 @@ public class ScheduledPrefillAnonymousRunPathTests
                         TotalBytes.Add((long?)totalBytesProperty.GetValue(args[1]));
                     }
 
-                    var showNotificationProperty = args[1]?.GetType().GetProperty("showNotification");
-                    if (showNotificationProperty?.GetValue(args[1]) is bool showNotification)
+                    if (args[1]?.GetType().GetProperties()
+                        .Any(property => property.Name.EndsWith("Notification", StringComparison.Ordinal)) == true)
                     {
-                        ShowNotificationValues.Add(showNotification);
+                        VisibilityFieldCount++;
                     }
                 }
 

@@ -476,7 +476,8 @@ public abstract partial class PrefillDaemonServiceBase
                 change.Session.Id,
                 "Persistent container image updated",
                 terminatedBy: "system");
-            await NotifyHubAsync(
+            // The owner's tabs get SessionEnded just below, so only the account holders need this copy.
+            await _notifications.NotifyAdminAsync(
                 EventSessionTerminated,
                 new { sessionId = change.Session.Id, reason = "Persistent container image updated" });
             foreach (var connection in change.Session.SubscribedConnections.ToArray())

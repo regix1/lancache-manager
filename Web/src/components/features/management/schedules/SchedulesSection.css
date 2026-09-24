@@ -51,15 +51,6 @@
   min-height: 200px;
 }
 
-.schedules-error {
-  padding: 1.5rem;
-  border-radius: var(--theme-border-radius);
-  background-color: var(--theme-error-bg);
-  border: 1px solid var(--theme-error);
-  color: var(--theme-error-text);
-  font-size: var(--font-size-md);
-}
-
 /* ===== Schedule list =====
    One divided list for every single-service schedule: a card-level surface sitting
    directly on the page, replacing the old two-column card grid whose stretched rows
@@ -2236,14 +2227,19 @@
 }
 
 .scheduled-prefill-persistent-card__login-help,
-.scheduled-prefill-persistent-card__login-help > span {
+.scheduled-prefill-persistent-card__login-help > span,
+.scheduled-prefill-card-summary__run-help,
+.scheduled-prefill-card-summary__run-help > span {
   display: inline-flex;
 }
 
 @media (max-width: 639px) {
   .scheduled-prefill-persistent-card__login-help,
   .scheduled-prefill-persistent-card__login-help > span,
-  .scheduled-prefill-persistent-card__login-help button {
+  .scheduled-prefill-persistent-card__login-help button,
+  .scheduled-prefill-card-summary__run-help,
+  .scheduled-prefill-card-summary__run-help > span,
+  .scheduled-prefill-card-summary__run-help button {
     width: 100%;
   }
 

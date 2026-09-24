@@ -36,8 +36,9 @@ public sealed class CacheScanGateTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var notice = new RunNotice(visible ? NotificationMode.All : NotificationMode.Silent, RunTrigger.Manual);
+        // Parked the way the queue parks it: under the same notice the promoted run carries.
         Guid? previous = queued ? tracker.RegisterOperation(OperationType.CacheSizeScan,
-            "Cache File Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting) : null;
+            "Cache File Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting, notice: notice) : null;
         if (previous.HasValue) notice.Attach(tracker, previous.Value);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
         var recorder = (RecordingNotifications)(object)notifications;
@@ -50,14 +51,14 @@ public sealed class CacheScanGateTests
         SetField(service, "_conflictChecker", new OperationConflictChecker(tracker,
             NullLogger<OperationConflictChecker>.Instance));
         var run = typeof(CacheManagementService).GetMethod("RunFullScanAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        await (Task)run.Invoke(service, [new List<string>(), CancellationToken.None, null, visible, notice])!;
+        await (Task)run.Invoke(service, [new List<string>(), CancellationToken.None, null, notice])!;
         var started = Assert.IsType<CacheSizeScanStarted>(await recorder.FirstPayload.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Equal(previous, started.PreviousOperationId);
-        Assert.Equal(visible, started.ShowNotification);
         Assert.Equal(started.OperationId, notice.OperationId);
         var operation = tracker.GetOperation(started.OperationId)!;
-        var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(operation.Metadata);
-        Assert.Equal(previous, values["previousOperationId"]);
+        Assert.Same(notice, operation.Notice);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == started.OperationId);
+        Assert.Equal(previous, row.PreviousOperationId);
+        Assert.Equal(visible ? RunVisibility.Card : RunVisibility.Background, row.Visibility);
     }
 
     [Theory]
@@ -68,7 +69,6 @@ public sealed class CacheScanGateTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
-        var recorder = (RecordingNotifications)(object)notifications;
         var gate = Idle();
         var service = ReconciliationServiceWith(gate);
         service.SetNotificationMode(NotificationMode.Silent);
@@ -84,7 +84,7 @@ public sealed class CacheScanGateTests
         });
         var capability = new DatasourceCapabilityService(sources);
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance), notifications,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
         SetField(controller, "_reconciliationService", service);
@@ -98,7 +98,7 @@ public sealed class CacheScanGateTests
         tracker.OperationTerminal += operation =>
         {
             if (operation.Type == OperationType.EvictionScan && operation.Status != OperationStatus.Waiting
-                && operation.Metadata is IReadOnlyDictionary<string, object?> values && values.ContainsKey("runNotice"))
+                && operation.Notice is not null)
                 registered.TrySetResult(operation);
         };
         var result = await controller.ReconcileAsync(CancellationToken.None);
@@ -107,23 +107,25 @@ public sealed class CacheScanGateTests
         {
             var queued = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>(result.Result).Value);
             Assert.True(queued.Queued);
-            var waitingValues = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(tracker.GetOperation(queued.OperationId)!.Metadata);
-            admitted = Assert.IsType<RunNotice>(waitingValues["runNotice"]);
+            admitted = Assert.IsType<RunNotice>(tracker.GetOperation(queued.OperationId)!.Notice);
             var duplicate = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.ReconcileAsync(CancellationToken.None)).Result).Value);
             Assert.Equal(queued.OperationId, duplicate.OperationId);
-            lock (recorder.Waiting) Assert.True(Assert.Single(recorder.Waiting).Silent);
+            var waiting = Assert.Single(tracker.GetWaitingOperations());
+            Assert.Equal(queued.OperationId, waiting.Id);
+            Assert.Equal(RunVisibility.Background,
+                Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == waiting.Id).Visibility);
             service.SetNotificationMode(NotificationMode.All);
             tracker.CompleteOperation(blocker.Value, success: true);
         }
         else
         {
             var started = Assert.IsType<EvictionScanStartedResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
-            Assert.False(started.ShowNotification);
-            lock (recorder.Waiting) Assert.Empty(recorder.Waiting);
+            Assert.Equal(RunVisibility.Background,
+                Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == started.OperationId).Visibility);
+            Assert.Empty(tracker.GetWaitingOperations());
         }
         var operation = await registered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(operation.Metadata);
-        var notice = Assert.IsType<RunNotice>(values["runNotice"]);
+        var notice = Assert.IsType<RunNotice>(operation.Notice);
         Assert.Equal(NotificationMode.Silent, notice.Mode);
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
         Assert.False(notice.ShowNotification);
@@ -134,7 +136,7 @@ public sealed class CacheScanGateTests
         SetField(sources, "_datasources", new List<ResolvedDatasource>());
         var invalid = Assert.IsType<BadRequestObjectResult>((await controller.ReconcileAsync(CancellationToken.None)).Result);
         Assert.Null(Assert.IsType<ErrorResponse>(invalid.Value).Code);
-        lock (recorder.Waiting) Assert.Equal(blocked ? 1 : 0, recorder.Waiting.Count);
+        Assert.Empty(tracker.GetWaitingOperations());
     }
 
     [Fact]
@@ -414,7 +416,7 @@ public sealed class CacheScanGateTests
         var register = typeof(CacheReconciliationService).GetMethod(
             "RegisterEvictionScanOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var operationId = (Guid)register.Invoke(
-            service, ["Eviction Scan", new CancellationTokenSource(), false, null])!;
+            service, ["Eviction Scan", new CancellationTokenSource(), new RunNotice(NotificationMode.All, RunTrigger.Scheduled)])!;
 
         const string reason = "A client download is writing to the cache right now.";
         operationTracker.CompleteOperation(operationId, success: true, error: reason, skipped: true);
@@ -537,7 +539,7 @@ public sealed class CacheScanGateTests
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -583,7 +585,7 @@ public sealed class CacheScanGateTests
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
@@ -595,7 +597,7 @@ public sealed class CacheScanGateTests
         {
             try
             {
-                return await cacheService.StartCacheSizeScanInBackgroundAsync();
+                return await cacheService.StartCacheSizeScanInBackgroundAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual));
             }
             catch (Exception ex)
             {
@@ -637,7 +639,7 @@ public sealed class CacheScanGateTests
             OperationType.GameDetection,
             "Game Detection",
             snapshot,
-            () => detectionService.StartDetectionAsync(incremental: true));
+            () => detectionService.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: true));
 
         Assert.IsType<DownloadInProgressException>(refusal);
     }
@@ -671,7 +673,7 @@ public sealed class CacheScanGateTests
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         // The tracker raises OperationTerminal off the completing stack, so the announcement has to
         // be awaited rather than read straight after the call returns.
@@ -706,7 +708,7 @@ public sealed class CacheScanGateTests
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.LogProcessing, "Blocker", new CancellationTokenSource());
@@ -760,8 +762,8 @@ public sealed class CacheScanGateTests
     /// The outcome record is private to the service, so the run is driven and read reflectively.
     /// Reflection means a changed signature shows up as a timeout in whichever test awaits the run
     /// rather than as a compile error, so the argument list is spelled out against the parameters:
-    /// context, operationId, token, silent, hideNotification, deferIfDownloading. Deferring is on,
-    /// which is what an automatic run passes; a person's own scan passes false and is not held.
+    /// context, operationId, token, notice, deferIfDownloading. Deferring is on, which is what an
+    /// automatic run passes; a person's own scan passes false and is not held.
     /// </summary>
     private static async Task<(bool Success, string? Error)> RunReconcileAsync(CacheReconciliationService service)
     {
@@ -769,7 +771,7 @@ public sealed class CacheScanGateTests
             "ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var run = (Task)reconcile.Invoke(
             service,
-            [null, Guid.NewGuid(), CancellationToken.None, false, false, true])!;
+            [null, Guid.NewGuid(), CancellationToken.None, new RunNotice(NotificationMode.All, RunTrigger.Scheduled), true])!;
         await run;
 
         var outcome = run.GetType().GetProperty("Result")!.GetValue(run)!;
@@ -803,15 +805,12 @@ public sealed class CacheScanGateTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal List<string> Sent { get; } = [];
-        internal List<OperationWaitingNotification> Waiting { get; } = [];
 
         internal Task<object?> FirstPayload => _firstPayload.Task;
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             Sent.Add((string)args![0]!);
-            if (args.Length > 1 && args[1] is OperationWaitingNotification waiting)
-                lock (Waiting) Waiting.Add(waiting);
             _firstPayload.TrySetResult(args.Length > 1 ? args[1] : null);
             return Task.CompletedTask;
         }

@@ -69,6 +69,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
 
         _controller = new GamesController(
             gameCacheDetectionService: CreateCachedDetectionService(),
+            gameDetectionService: null!,
             cacheManagementService: null!,
             notifications: CreateProxy<ISignalRNotificationService>((method, _) => DefaultReturn(method.ReturnType)),
             logger: NullLogger<GamesController>.Instance,
@@ -130,7 +131,45 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Contains("GameAppId: isNameKeyed ? null : appId", source, StringComparison.Ordinal);
         Assert.Contains("EpicAppId: isEpic ? epicAppId : null", source, StringComparison.Ordinal);
         Assert.Contains("GameName: displayName", source, StringComparison.Ordinal);
+        Assert.Contains("Service: service", source, StringComparison.Ordinal);
         Assert.Contains("StartedEventName: SignalREvents.GameRemovalStarted", source, StringComparison.Ordinal);
+    }
+
+    // After a reload the recovered removal names its service, so a same-named game on another
+    // service is not shown busy. [98]
+    [Fact]
+    public void ActiveRemovals_RecoverTheRemovedGamesService()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        tracker.RegisterOperation(OperationType.GameRemoval, "Game Removal", new CancellationTokenSource(),
+            new RemovalMetrics { EntityKey = "xboxlive:Diablo IV", EntityName = "Diablo IV", EntityKind = "named", Service = "xboxlive" });
+        var controller = new CacheController(
+            cacheService: null!,
+            cacheClearingService: null!,
+            corruptionDetectionService: null!,
+            logger: NullLogger<CacheController>.Instance,
+            pathResolver: null!,
+            notifications: null!,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: tracker,
+            datasourceService: null!,
+            dbContextFactory: null!,
+            reconciliationService: null!,
+            conflictChecker: null!,
+            operationQueue: null!,
+            capabilityService: null!,
+            stateService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            cacheSizeScan: null!);
+
+        var body = Assert.IsType<AllActiveRemovalsResponse>(Assert.IsType<OkObjectResult>(controller.GetAllActiveRemovals()).Value);
+
+        var removal = Assert.Single(body.GameRemovals!);
+        Assert.Equal("xboxlive", removal.Service);
+        Assert.Equal("Diablo IV", removal.GameName);
     }
 
     [Theory]
@@ -189,6 +228,9 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             });
 
         var operationId = await TrackedRemovalOperationRunner.StartAsync(tracked, notifications, config);
+        // A removal belongs to no schedule: it carries no notice and is always a full card. [89]
+        Assert.Null(tracker.GetOperation(operationId)!.Notice);
+        Assert.Equal(RunVisibility.Card, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == operationId).Visibility);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         tracker.CompleteOperation(operationId, success: false, error: cancelled ? null : "disk failure", cancelled: cancelled);
         var completedAt = tracker.GetOperation(operationId)!.CompletedAt;
@@ -331,7 +373,6 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            bool showWaitingCard = true,
             RunNotice? notice = null)
         {
             Type = type;
@@ -340,11 +381,5 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             Start = start;
             return Task.FromResult(Response);
         }
-
-        public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
-
-        public bool IsWaiterSilent(Guid waitingOperationId) => false;
-
-        public bool IsWaiterHidden(Guid waitingOperationId) => false;
     }
 }

@@ -15,8 +15,6 @@ import { type AuthMode } from '@services/auth.service';
 import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
-import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
-import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   CorruptionDetectionCompleteEvent,
@@ -46,11 +44,14 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
-import { Alert } from '@components/ui/Alert';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { ActionMenuDangerItem, ActionMenuDivider, ActionMenuItem } from '@components/ui/ActionMenu';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
@@ -88,7 +89,7 @@ interface CorruptionManagerProps {
 
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
-  const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
+  const { runs, addNotification, isAnyRemovalRunning } = useNotifications();
   const { notifyError } = useErrorHandler();
   const { notifySuccess } = useNotifySuccess();
   const { on, off, isConnected } = useSignalR();
@@ -127,7 +128,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [corruptionDetails, setCorruptionDetails] = useState<
     Record<string, CorruptedChunkDetail[]>
   >({});
-  const [detailErrors, setDetailErrors] = useState<Set<string>>(new Set());
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
   const [loadingDetailsServices, setLoadingDetailsServices] = useState<Set<string>>(new Set());
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
@@ -138,10 +139,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     useState<CorruptionDetectionMethod>('repeated_miss');
   const [missThreshold, setMissThreshold] = useState(3);
   const [lookbackDays, setLookbackDays] = useState(30);
-  const [cachedLoadFailed, setCachedLoadFailed] = useState(false);
+  const [cachedLoadError, setCachedLoadError] = useState<string | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const resultEpochRef = useRef(0);
-  const activeDetectionNotification = notifications.find(
+  const activeDetectionNotification = runs.find(
     (notification) =>
       notification.type === 'corruption_detection' &&
       (notification.status === 'running' || notification.status === 'waiting')
@@ -275,7 +276,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     resultEpochRef.current += 1;
     setCorruptionCounts({});
     setCorruptionDetails({});
-    setDetailErrors(new Set());
+    setDetailErrors({});
     setLoadingDetailsServices(new Set());
     setExpandedService(null);
     setLastDetectionTime(null);
@@ -285,7 +286,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setPendingServiceRemoval(null);
     setPendingRemoveAll(false);
     setPendingRemoveSelected(false);
-    setCachedLoadFailed(false);
+    setCachedLoadError(null);
     clearSelection();
   }, [clearSelection]);
 
@@ -300,7 +301,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // contract failure. Fail closed without ever moving the selector.
       if (cached.detectionMethod !== expectedMethod) {
         clearLoadedResults();
-        setCachedLoadFailed(true);
+        setCachedLoadError(t('common.errors.invalidJsonResponse'));
         return false;
       }
 
@@ -371,7 +372,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         !isIsoDate(cached.lastDetectionTime)
       ) {
         clearLoadedResults();
-        setCachedLoadFailed(true);
+        setCachedLoadError(t('common.errors.invalidJsonResponse'));
         return false;
       }
 
@@ -382,7 +383,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         nextProjection.total !== cached.totalCorruptedChunks
       ) {
         clearLoadedResults();
-        setCachedLoadFailed(true);
+        setCachedLoadError(t('common.errors.invalidJsonResponse'));
         return false;
       }
 
@@ -396,10 +397,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         setMissThreshold(cached.settings!.threshold as number);
         setLookbackDays(cached.settings!.lookbackDays as number);
       }
-      setCachedLoadFailed(false);
+      setCachedLoadError(null);
       return true;
     },
-    [clearLoadedResults]
+    [clearLoadedResults, t]
   );
 
   const loadCachedData = useCallback(
@@ -415,7 +416,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // method switch bumps the epoch so a late response can never repaint.
       const method = detectionMethod;
       beginLoad(showNotification);
-      setCachedLoadFailed(false);
+      setCachedLoadError(null);
       const requestEpoch = resultEpochRef.current;
       try {
         const cached = await ApiService.getCachedCorruptionDetection(method);
@@ -456,7 +457,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         markLoaded();
       } catch (error: unknown) {
         if (requestEpoch !== resultEpochRef.current) return;
-        setCachedLoadFailed(true);
+        setCachedLoadError(getErrorMessage(error));
         notifyError(t('management.corruption.errors.loadCachedData'), error, {
           silent: true,
           logLabel: '[CorruptionManager] Failed to load cached data'
@@ -583,49 +584,26 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       scanRequestInFlightRef.current = true;
       setStartingScanAction(action);
       resultEpochRef.current += 1;
-      setCachedLoadFailed(false);
+      setCachedLoadError(null);
       try {
-        const result = await ApiService.startCorruptionDetection(
+        // The server's run row opens the card; the starting state ends once that run is listed.
+        await ApiService.startCorruptionDetection(
           detectionMethod,
           missThreshold,
           lookbackDays,
           detectionMethod === 'structural' ? scanMode : undefined
         );
-        if (shouldPinOperationIdFromResponse(result)) {
-          const confirmedScanMode =
-            detectionMethod === 'structural' ? (result.scanMode ?? scanMode) : undefined;
-          addNotification(
-            buildSeededRunningNotification(
-              'corruption_detection',
-              result.operationId,
-              t(
-                detectionMethod !== 'structural'
-                  ? 'signalr.corruptionDetect.startingRepeatedMiss'
-                  : confirmedScanMode === 'incremental'
-                    ? 'signalr.corruptionDetect.startingStructuralIncremental'
-                    : 'signalr.corruptionDetect.startingStructuralFull'
-              ),
-              {
-                detectionMethod,
-                ...(confirmedScanMode ? { scanMode: confirmedScanMode } : {})
-              }
-            )
-          );
-        } else {
-          setStartingScanAction(null);
-          scanRequestInFlightRef.current = false;
-        }
       } catch (error: unknown) {
         // This route answers the same 400 for a refused scan and for a fleet with unusable
         // cache-key evidence, so neither can be softened without hiding the other.
-        notifyError(getErrorMessage(error), error, {
+        notifyError(t('management.corruption.errors.startScan'), error, {
           logLabel: '[CorruptionManager] Failed to start scan'
         });
         setStartingScanAction(null);
         scanRequestInFlightRef.current = false;
       }
     },
-    [addNotification, detectionMethod, lookbackDays, missThreshold, notifyError, scanBlocked, t]
+    [detectionMethod, lookbackDays, missThreshold, notifyError, scanBlocked, t]
   );
 
   useEffect(() => {
@@ -651,7 +629,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           applyCachedScan(result, detectionMethod);
         } catch (error: unknown) {
           if (requestEpoch !== resultEpochRef.current) return;
-          setCachedLoadFailed(true);
+          setCachedLoadError(getErrorMessage(error));
           notifyError(t('management.corruption.errors.loadCachedData'), error, {
             silent: true,
             logLabel: '[CorruptionManager] Failed to load completed scan'
@@ -684,7 +662,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           applyCachedScan(result, detectionMethod);
         } catch (error: unknown) {
           if (requestEpoch !== resultEpochRef.current) return;
-          setCachedLoadFailed(true);
+          setCachedLoadError(getErrorMessage(error));
           notifyError(t('management.corruption.errors.loadCachedData'), error, {
             silent: true,
             logLabel: '[CorruptionManager] Failed to reload after removal'
@@ -699,7 +677,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   useEffect(() => {
     if (anyServiceRemovalPending) {
-      const runningRemoval = notifications.find(
+      const runningRemoval = runs.find(
         (notification) =>
           notification.type === 'corruption_removal' && notification.status === 'running'
       );
@@ -707,7 +685,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         const service = runningRemoval.details?.service ?? '';
         clearServiceRemovalOnNotification(
           service,
-          notifications,
+          runs,
           (notification, key) =>
             notification.type === 'corruption_removal' &&
             notification.status === 'running' &&
@@ -718,7 +696,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (startingRemoveAll) {
       clearRemoveAllOnNotification(
         'removeAll',
-        notifications,
+        runs,
         (notification) =>
           notification.type === 'corruption_removal' && notification.status === 'running'
       );
@@ -726,13 +704,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (startingRemoveSelected) {
       clearRemoveSelectedOnNotification(
         'removeSelected',
-        notifications,
+        runs,
         (notification) =>
           notification.type === 'corruption_removal' && notification.status === 'running'
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifications]);
+  }, [runs]);
 
   useEffect(() => {
     const validServices = new Set(projection.rows.map((row) => row.service));
@@ -741,7 +719,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projection.rows]);
 
-  const activeRemoval = notifications.find(
+  const activeRemoval = runs.find(
     (notification) =>
       notification.type === 'corruption_removal' && notification.status === 'running'
   );
@@ -783,8 +761,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (!scanId || loadingDetailsServices.has(service)) return;
     const requestEpoch = resultEpochRef.current;
     setDetailErrors((current) => {
-      const next = new Set(current);
-      next.delete(service);
+      const next = { ...current };
+      delete next[service];
       return next;
     });
     setLoadingDetailsServices((current) => new Set(current).add(service));
@@ -792,7 +770,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       const details = await ApiService.getCorruptionDetails(service, scanId);
       if (requestEpoch !== resultEpochRef.current) return;
       if (details.length === 0) {
-        setDetailErrors((current) => new Set(current).add(service));
+        setDetailErrors((current) => ({
+          ...current,
+          [service]: t('management.corruption.errors.unsafeDetails')
+        }));
         notifyError(t('management.corruption.errors.unsafeDetails'), undefined, {
           silent: true,
           logLabel: '[CorruptionManager] Saved service detail response was empty'
@@ -802,7 +783,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       setCorruptionDetails((current) => ({ ...current, [service]: details }));
     } catch (error: unknown) {
       if (requestEpoch !== resultEpochRef.current) return;
-      setDetailErrors((current) => new Set(current).add(service));
+      setDetailErrors((current) => ({ ...current, [service]: getErrorMessage(error) }));
       notifyError(
         t('management.corruption.errors.loadDetails', { service: getServiceDisplayName(service) }),
         error,
@@ -843,22 +824,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setPendingServiceRemoval(null);
     markServiceRemovalStarting(service);
     try {
-      const result = await ApiService.removeCorruptedChunks(service, scanId);
-      if (shouldPinOperationIdFromResponse(result)) {
-        addNotification(
-          buildSeededRunningNotification(
-            'corruption_removal',
-            result.operationId,
-            t(
-              detectionMethod === 'structural'
-                ? 'signalr.corruptionRemove.startingStructural'
-                : 'signalr.corruptionRemove.starting',
-              { service: getServiceDisplayName(service) }
-            ),
-            { service, detectionMethod }
-          )
-        );
-      }
+      // The server's run row opens the card.
+      await ApiService.removeCorruptedChunks(service, scanId);
     } catch (error: unknown) {
       notifyError(
         t('management.corruption.errors.removeCorrupted', {
@@ -977,6 +944,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const headerActions = (
     <SectionHeaderActions>
+      {cachedLoadError !== null && !sectionExpanded && <SectionErrorChip />}
       {projection.total > 0 && (
         <SectionHeaderChip variant="neutral" className="badge-count badge-count-warning">
           {t('management.corruption.flaggedCount', {
@@ -1187,10 +1155,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             />
           )}
 
-          {cachedLoadFailed && !isLoading && (
+          {cachedLoadError && !isLoading && (
             <ErrorBlock
               title={t('management.corruption.errors.loadCachedData')}
-              message={t('management.corruption.errors.loadCachedRetry')}
+              message={cachedLoadError}
               retryLabel={t('common.retry')}
               onRetry={() => void loadCachedData()}
             />
@@ -1340,19 +1308,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             variant="spinner"
                             message={t('management.corruption.loadingDetails')}
                           />
-                        ) : detailErrors.has(service) ? (
-                          <Alert color="red">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <p className="text-sm">
-                                {t('management.corruption.errors.loadDetails', {
-                                  service: getServiceDisplayName(service)
-                                })}
-                              </p>
-                              <Button size="sm" onClick={() => void loadDetails(service)}>
-                                {t('common.retry')}
-                              </Button>
-                            </div>
-                          </Alert>
+                        ) : detailErrors[service] !== undefined ? (
+                          <ErrorBlock
+                            title={t('management.corruption.errors.loadDetails', {
+                              service: getServiceDisplayName(service)
+                            })}
+                            message={detailErrors[service]}
+                            retryLabel={t('common.retry')}
+                            onRetry={() => void loadDetails(service)}
+                          />
                         ) : corruptionDetails[service]?.length > 0 ? (
                           <CorruptionChunkList chunks={corruptionDetails[service]} />
                         ) : (
@@ -1381,7 +1345,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                   : 'management.corruption.emptyStates.noCorrupted.repeatedMissSubtitle'
               )}
             />
-          ) : !isScanBusy && !cachedLoadFailed ? (
+          ) : !isScanBusy && !cachedLoadError ? (
             <EmptyState
               icon={Search}
               title={t('management.corruption.emptyStates.noCachedData.title')}

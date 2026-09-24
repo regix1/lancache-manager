@@ -3,25 +3,49 @@ import { useSignalR } from '../SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
-import type { ShowToastEvent } from '../SignalRContext/types';
+import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
+import type { OperationRunsSnapshot, ShowToastEvent } from '../SignalRContext/types';
 
-import type { UnifiedNotification, NotificationEvents } from './types';
+import type {
+  DispatchDetail,
+  LocalNotificationInput,
+  NotificationTerminal,
+  NotificationsContextType,
+  UnifiedNotification
+} from './types';
 import {
   AUTO_DISMISS_DELAY_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
-  TOAST_DEFAULT_DURATION_MS,
-  NOTIFICATION_STORAGE_KEYS,
-  NOTIFICATION_IDS,
-  LIVE_ONLY_CANCEL_DETAIL_KEYS
+  LIVE_ONLY_CANCEL_DETAIL_KEYS,
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recovery';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import {
-  readPersistedCards,
-  clearPersistedNotificationIfTargeted,
-  persistNotification
-} from './handlers';
+  applyDetail,
+  applyRun,
+  applySnapshot,
+  changeSession,
+  createRunStoreState,
+  deriveNotifications,
+  deriveRuns,
+  endStatus,
+  hideRun,
+  locateRun,
+  markConnectionRecovering,
+  nextGeneration,
+  readOperationRun,
+  readOperationRunsSnapshot,
+  releaseKeptSuccess,
+  removeRuns,
+  setRunCancel,
+  settleBulkCards,
+  type RunApplyResult,
+  type RunEntry,
+  type RunStoreState
+} from './runStore';
 import { useNotificationHandlers } from './useNotificationHandlers';
 
 import { NotificationsContext } from './NotificationsContext.types';
@@ -30,6 +54,14 @@ import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
 interface NotificationsProviderProps {
   children: ReactNode;
+}
+
+/** Someone waiting for a run to end: `target` follows the run through every merge. */
+interface RunWaiter {
+  target: string;
+  /** A status request for `target` is on the wire. */
+  probing: boolean;
+  settle: (terminal: NotificationTerminal) => void;
 }
 
 /**
@@ -59,239 +91,352 @@ const REMOVAL_TYPES = [
   'cache_clearing'
 ] as const;
 
-export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
-  const events = useRef<NotificationEvents>({
-    revision: 0,
-    records: new Map(),
-    handoffs: new Map(),
-    terminals: new Map(),
-    acknowledgedIds: new Set(),
-    revisions: new Map(),
-    typeRevisions: new Map(),
-    children: new Map(),
-    waiting: new Set(),
-    held: new Map()
-  });
-  const [notifications, setNotifications] = useState<UnifiedNotification[]>(() => {
-    // Restore notifications from localStorage on mount
-    const restoredNotifications: UnifiedNotification[] = [];
-    const mountedAt = new Date();
-    const persistentKeys = Object.values(NOTIFICATION_STORAGE_KEYS);
+// A failed run-list read is asked again after this long while the connection is up. It repeats a
+// request and ends no card; 5 s is the app's retry delay for a failed request
+// (ScheduledPrefillEditSessionCleanupRecovery.tsx:6).
+const RUN_LIST_RETRY_DELAY_MS = 5000;
 
-    for (const key of persistentKeys) {
-      try {
-        // One key can hold several cards: a type that owns one card per entity persists them
-        // together, and every running one is restored.
-        for (const parsed of readPersistedCards(key)) {
-          if (parsed.type === 'game_detection' && parsed.details?.parentOperationId) {
-            if (parsed.details.operationId)
-              events.current.children.set(
-                parsed.details.operationId,
-                parsed.details.parentOperationId
-              );
-            clearPersistedNotificationIfTargeted(
-              key,
-              { operationId: parsed.details.operationId },
-              parsed.id
+export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
+  // The run store and the browser's own cards live in refs so every SignalR and HTTP handler
+  // applies its change synchronously; one counter tells React to draw the result.
+  const storeRef = useRef<RunStoreState>(createRunStoreState());
+  const localRef = useRef<UnifiedNotification[]>([]);
+  const [version, setVersion] = useState(0);
+  const waitersRef = useRef(new Set<RunWaiter>());
+  const requestSeqRef = useRef(0);
+  const appliedSeqRef = useRef(0);
+  const resyncPendingRef = useRef(false);
+  const fadingRef = useRef(new Set<string>());
+  const autoDismissTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const { invoke, isConnected } = useSignalR();
+  const { authMode, isLoading: authLoading, sessionId } = useAuth();
+  const isAdmin = !authLoading && authMode === 'authenticated';
+  const isAdminRef = useRef(isAdmin);
+  isAdminRef.current = isAdmin;
+  const isConnectedRef = useRef(isConnected);
+  isConnectedRef.current = isConnected;
+  const snapshotRetryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const sessionBeforeRef = useRef(sessionId);
+  const connectedBeforeRef = useRef(isConnected);
+
+  const commit = useCallback(() => setVersion((current) => current + 1), []);
+
+  // The card's exit fade: the removal was already decided; this is only the 300 ms the bar
+  // animates before the card is gone.
+  const fadeLocal = useCallback(
+    (id: string) => {
+      // A batch card is released again by every apply until its fade ends.
+      if (fadingRef.current.has(id)) return;
+      const card = localRef.current.find((n) => n.id === id);
+      fadingRef.current.add(id);
+      window.dispatchEvent(
+        new CustomEvent(APP_EVENTS.NOTIFICATION_REMOVING, { detail: { notificationId: id } })
+      );
+      setTimeout(() => {
+        fadingRef.current.delete(id);
+        localRef.current = localRef.current.filter((n) => n !== card);
+        commit();
+      }, NOTIFICATION_ANIMATION_DURATION_MS);
+    },
+    [commit]
+  );
+
+  // A run card leaves because its row said it ended. It stays for the one popup time first, like
+  // every card that leaves on its own, then fades; a card closed on another screen fades at once.
+  // Each run's hold and then its fade live in one timer keyed by the run, so a newer run on the
+  // same card never meets an older run's timer, and the unmount clears them all.
+  const fadeLeavingRuns = useCallback(() => {
+    const timers = autoDismissTimersRef.current;
+    for (const entry of storeRef.current.entries.values()) {
+      const operationId = entry.run.operationId;
+      if (!entry.leaving || timers.has(operationId)) continue;
+      const closed = entry.run.closed === true;
+      timers.set(
+        operationId,
+        setTimeout(
+          () => {
+            const leaving = storeRef.current.entries.get(operationId);
+            // Keep Notifications Visible turned on during the hold keeps the card.
+            if (!leaving?.leaving || (!closed && !shouldAutoDismiss())) {
+              timers.delete(operationId);
+              return;
+            }
+            window.dispatchEvent(
+              new CustomEvent(APP_EVENTS.NOTIFICATION_REMOVING, {
+                detail: { notificationId: leaving.cardId }
+              })
             );
-            continue;
-          }
-          if (parsed.status === 'running') {
-            if (
-              parsed.type === 'scheduled_prefill' &&
-              parsed.details?.operationId &&
-              parsed.details.eventEpoch &&
-              typeof parsed.details.eventSequence === 'number'
-            ) {
-              events.current.versions ??= new Map();
-              events.current.versions.set(parsed.details.operationId, {
-                epoch: parsed.details.eventEpoch,
-                sequence: parsed.details.eventSequence,
-                daemonInstanceId: parsed.details.daemonInstanceId,
-                retired: new Set()
-              });
-            }
-            // Strip cancel-intent flags: they are live-session UI state. A persisted
-            // cancelRequested (X clicked before the operationId arrived) would re-arm the
-            // deferred-cancel watchdog after reload, and the NEXT operation of this type to
-            // land an operationId in the slot gets cancelled at birth - seen as corruption
-            // removals / cache clears / cache size scans dying instantly after registration.
-            const details = parsed.details ? { ...parsed.details } : undefined;
-            if (details) {
-              for (const key of LIVE_ONLY_CANCEL_DETAIL_KEYS) {
-                delete details[key];
-              }
-            }
-            restoredNotifications.push({
-              ...parsed,
-              details,
-              startedAt: Number.isFinite(new Date(parsed.startedAt).getTime())
-                ? new Date(parsed.startedAt)
-                : mountedAt
-            });
-          }
+            timers.set(
+              operationId,
+              setTimeout(() => {
+                timers.delete(operationId);
+                if (!storeRef.current.entries.get(operationId)?.leaving) return;
+                storeRef.current = removeRuns(storeRef.current, [operationId]);
+                commit();
+              }, NOTIFICATION_ANIMATION_DURATION_MS)
+            );
+          },
+          closed ? 0 : AUTO_DISMISS_DELAY_MS
+        )
+      );
+    }
+  }, [commit]);
+
+  const scheduleAutoDismiss = useCallback(
+    (notificationId: string) => {
+      const timers = autoDismissTimersRef.current;
+      clearTimeout(timers.get(notificationId));
+      timers.set(
+        notificationId,
+        setTimeout(() => {
+          timers.delete(notificationId);
+          const card = localRef.current.find((n) => n.id === notificationId);
+          // A bulk card ends by the ending rules: a failed one stays until closed. Keep
+          // Notifications Visible turned on during the wait keeps the card.
+          if (
+            card &&
+            shouldAutoDismiss() &&
+            isTerminalNotificationStatus(card.status) &&
+            !(card.type === 'bulk_removal' && card.status === 'failed')
+          )
+            fadeLocal(notificationId);
+        }, AUTO_DISMISS_DELAY_MS)
+      );
+    },
+    [fadeLocal]
+  );
+
+  const settleBulk = useCallback(() => {
+    const settled = settleBulkCards(storeRef.current, localRef.current);
+    storeRef.current = settled.next;
+    settled.release.forEach(fadeLocal);
+  }, [fadeLocal]);
+
+  // Follows a waiter to its run's current id and settles it once that run ended. A run this
+  // browser has never heard of is asked about directly, so no waiter depends on elapsed time.
+  const followWaiter = useMemo(() => {
+    function follow(waiter: RunWaiter, probe: boolean): void {
+      const place = locateRun(storeRef.current, waiter.target);
+      waiter.target = place.operationId;
+      if (place.terminal) waiter.settle(place.terminal);
+      else if (!place.known && probe) void probeRun(waiter);
+    }
+    async function probeRun(waiter: RunWaiter): Promise<void> {
+      const target = waiter.target;
+      waiter.probing = true;
+      try {
+        const answer = await ApiService.getTrackedOperation(target);
+        waiter.probing = false;
+        if (locateRun(storeRef.current, target).known) {
+          follow(waiter, false);
+        } else if (answer.nextOperationId) {
+          waiter.target = answer.nextOperationId;
+          follow(waiter, true);
+        } else if (!answer.status) {
+          waiter.settle({ operationId: target, status: 'gone' });
+        } else if (isTerminalNotificationStatus(answer.status)) {
+          waiter.settle({
+            operationId: target,
+            status: endStatus(answer.status),
+            error: answer.error ?? undefined
+          });
         }
-      } catch {
-        // Invalid JSON, skip
+        // A live answer keeps the waiter until the next snapshot that does not hold the run.
+      } catch (error: unknown) {
+        waiter.probing = false;
+        if (error instanceof ApiError && error.status === 404)
+          waiter.settle({ operationId: target, status: 'gone' });
       }
     }
-
-    return restoredNotifications;
-  });
-
-  const notificationsRef = useRef(notifications);
-  notificationsRef.current = notifications;
-  const recoveryRef = useRef<(() => Promise<void>) | null>(null);
-  const requestRecovery = useCallback(() => {
-    void recoveryRef.current?.();
-  }, []);
-  events.current.requestRecovery = requestRecovery;
-  const signalR = useSignalR();
-  const { authMode, isLoading: authLoading } = useAuth();
-  const isAdmin = authMode === 'authenticated';
-
-  // Timer management for auto-dismiss
-  const autoDismissTimersRef = useRef<
-    Map<string, { timerId: ReturnType<typeof setTimeout>; instanceId: number }>
-  >(new Map());
-  const instanceCounterRef = useRef<Map<string, number>>(new Map());
-
-  // Track when the tab was hidden, so we can debounce visibility recovery
-  const tabHiddenAtRef = useRef<number | null>(null);
-
-  const getNextInstanceId = useCallback((notificationId: string): number => {
-    const current = instanceCounterRef.current.get(notificationId) || 0;
-    const next = current + 1;
-    instanceCounterRef.current.set(notificationId, next);
-    return next;
+    return follow;
   }, []);
 
-  const cancelAutoDismissTimer = useCallback((notificationId: string) => {
-    const existing = autoDismissTimersRef.current.get(notificationId);
-    if (existing) {
-      clearTimeout(existing.timerId);
-      autoDismissTimersRef.current.delete(notificationId);
+  const commitApply = useCallback(
+    (result: RunApplyResult, probe: boolean) => {
+      storeRef.current = result.next;
+      const waiters = [...waitersRef.current];
+      for (const { from, to } of result.merged)
+        for (const waiter of waiters) if (waiter.target === from) waiter.target = to;
+      for (const end of result.ended)
+        for (const waiter of waiters) if (waiter.target === end.operationId) waiter.settle(end);
+      for (const waiter of waitersRef.current) if (!waiter.probing) followWaiter(waiter, probe);
+      settleBulk();
+      fadeLeavingRuns();
+      commit();
+    },
+    [followWaiter, settleBulk, fadeLeavingRuns, commit]
+  );
+
+  // Authenticated fetch helper for snapshot and recovery requests - they fire from a
+  // SignalR-reconnect effect with no user action involved (a network blip or laptop wake can
+  // reconnect while the tab is genuinely idle), so it carries the same activity signal as
+  // ApiService.getFetchOptions() rather than keeping LastSeenAtUtc artificially fresh.
+  const fetchWithAuth: FetchWithAuth = useCallback(async (url: string): Promise<Response> => {
+    return fetch(url, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Active': hasRecentUserInteraction(120_000) ? 'true' : 'false'
+      }
+    });
+  }, []);
+
+  const recover = useMemo(() => createRecoveryRunner(fetchWithAuth), [fetchWithAuth]);
+
+  // Fills in the text of runs whose card shows only its row. Each result applies only while
+  // nothing newer reached its run since this request started.
+  const recoverDetails = useCallback(
+    async (operationIds: readonly string[]): Promise<void> => {
+      const targets = operationIds.flatMap((id) => {
+        const entry = storeRef.current.entries.get(id);
+        return entry ? [entry] : [];
+      });
+      if (targets.length === 0) return;
+      const requestSeq = ++requestSeqRef.current;
+      const generation = storeRef.current.generation;
+      const revisions = new Map(
+        targets.map((entry) => [entry.run.operationId, entry.detailRevision])
+      );
+      const types = new Set(
+        targets.map((entry) => OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[entry.run.operationType])
+      );
+      const complete = await recover(types, (type, operationId, detail) => {
+        // A result without an operation id (a reset recovered before its id was registered)
+        // belongs to the one live run of its type, or to none when there are several.
+        const matches = [...storeRef.current.entries.values()].filter(
+          (entry) =>
+            revisions.has(entry.run.operationId) &&
+            (operationId
+              ? entry.aliases.includes(operationId)
+              : OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[entry.run.operationType] === type)
+        );
+        if (matches.length !== 1) return;
+        const key = matches[0].run.operationId;
+        storeRef.current = applyDetail(storeRef.current, key, () => detail, 'recovery', {
+          requestSeq,
+          generation,
+          detailRevision: revisions.get(key)
+        });
+      });
+      if (!complete) resyncPendingRef.current = true;
+      commit();
+    },
+    [recover, commit]
+  );
+
+  const requestSnapshot = useCallback(async (): Promise<void> => {
+    clearTimeout(snapshotRetryRef.current);
+    const requestSeq = ++requestSeqRef.current;
+    const generation = storeRef.current.generation;
+    // The hub adds a connection to the admin group inside OnConnectedAsync, which finishes before
+    // any hub call is dispatched, so a snapshot sent after this call settles was captured after
+    // the join; a rejected call means the connection dropped, and its reconnect asks again.
+    await invoke('JoinAuthenticatedGroupAsync').catch(() => undefined);
+    let snapshot: OperationRunsSnapshot | null = null;
+    try {
+      const response = await fetchWithAuth('/api/operations/runs');
+      if (response.ok) snapshot = readOperationRunsSnapshot(await response.json());
+    } catch (error: unknown) {
+      console.warn('Unable to read the run list', error);
     }
-  }, []);
+    if (!snapshot) {
+      resyncPendingRef.current = true;
+      // A run that ended while this browser could not read the list keeps its card, or its closed
+      // card, and its waiters busy until a read succeeds, so ask again. The reconnect asks for itself.
+      snapshotRetryRef.current = setTimeout(() => {
+        if (isAdminRef.current && isConnectedRef.current) void requestSnapshot();
+      }, RUN_LIST_RETRY_DELAY_MS);
+      return;
+    }
+    if (generation !== storeRef.current.generation || requestSeq < appliedSeqRef.current) return;
+    appliedSeqRef.current = requestSeq;
+    resyncPendingRef.current = false;
+    const result = applySnapshot(storeRef.current, snapshot, {
+      keepSuccessVisible: !shouldAutoDismiss(),
+      localCards: localRef.current,
+      requestSeq,
+      issuedSeq: requestSeqRef.current,
+      sessionId: sessionIdRef.current
+    });
+    commitApply(result, true);
+    void recoverDetails(result.recover);
+  }, [invoke, fetchWithAuth, commitApply, recoverDetails]);
+
+  const handleRun = useCallback(
+    (value: unknown): void => {
+      const resync = resyncPendingRef.current;
+      const row = readOperationRun(value);
+      if (!row) {
+        resyncPendingRef.current = true;
+        void requestSnapshot();
+        return;
+      }
+      const successorId = row.nextOperationId;
+      const linkedBefore =
+        !!successorId && !!storeRef.current.links.get(successorId)?.includes(row.operationId);
+      const result = applyRun(storeRef.current, row, {
+        keepSuccessVisible: !shouldAutoDismiss(),
+        localCards: localRef.current,
+        pushed: true,
+        sessionId: sessionIdRef.current
+      });
+      commitApply(result, false);
+      // A handoff to a successor this browser has not seen: the snapshot says where the work went.
+      const linked =
+        !!successorId && !!result.next.links.get(successorId)?.includes(row.operationId);
+      if (resync || (linked && !linkedBefore)) void requestSnapshot();
+    },
+    [requestSnapshot, commitApply]
+  );
+
+  const dispatchDetail: DispatchDetail = useCallback(
+    (operationId, build, source) => {
+      const before = storeRef.current;
+      storeRef.current = applyDetail(before, operationId, build, source, {
+        requestSeq: requestSeqRef.current
+      });
+      if (storeRef.current === before) return;
+      // A prefill event from a series not yet adopted waits for the run-status response.
+      const pending = storeRef.current.entries.get(operationId)?.stream?.pending;
+      if (pending && pending !== before.entries.get(operationId)?.stream?.pending)
+        void recoverDetails([operationId]);
+      commit();
+    },
+    [recoverDetails, commit]
+  );
+
+  const showAnnouncement = useCallback(
+    (card: Omit<UnifiedNotification, 'id' | 'startedAt'>) => {
+      // One card per announcement type: a newer one replaces the card instead of stacking.
+      const id = card.type;
+      localRef.current = [
+        ...localRef.current.filter((n) => n.id !== id),
+        { ...card, id, startedAt: new Date() }
+      ];
+      if (card.status === 'completed') scheduleAutoDismiss(id);
+      commit();
+    },
+    [scheduleAutoDismiss, commit]
+  );
 
   const addNotification = useCallback(
-    (notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
-      let id = '';
-
-      // Map notification types to their singleton IDs
-      const typeToIdMap: Record<string, string> = {
-        log_processing: NOTIFICATION_IDS.LOG_PROCESSING,
-        cache_clearing: NOTIFICATION_IDS.CACHE_CLEARING,
-        database_reset: NOTIFICATION_IDS.DATABASE_RESET,
-        depot_mapping: NOTIFICATION_IDS.DEPOT_MAPPING,
-        log_removal: NOTIFICATION_IDS.LOG_REMOVAL,
-        game_removal: NOTIFICATION_IDS.GAME_REMOVAL,
-        service_removal: NOTIFICATION_IDS.SERVICE_REMOVAL,
-        corruption_removal: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-        game_detection: NOTIFICATION_IDS.GAME_DETECTION,
-        corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
-        data_import: NOTIFICATION_IDS.DATA_IMPORT,
-        epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-        xbox_game_mapping: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
-        battle_net_game_mapping: NOTIFICATION_IDS.BATTLE_NET_GAME_MAPPING,
-        riot_game_mapping: NOTIFICATION_IDS.RIOT_GAME_MAPPING,
-        eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN,
-        eviction_removal: NOTIFICATION_IDS.EVICTION_REMOVAL,
-        scheduled_prefill: NOTIFICATION_IDS.SCHEDULED_PREFILL
-      };
-
-      if (typeToIdMap[notification.type]) {
-        id = typeToIdMap[notification.type];
-      } else if (notification.type === 'generic' && notification.message) {
-        // For generic notifications, create a deterministic ID based on message
-        // This prevents duplicate notifications with the same message
-        const messageHash = notification.message.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        id = `generic_${messageHash}`;
-      } else {
-        id = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      }
-
-      const newNotification: UnifiedNotification = {
-        ...notification,
-        id,
-        startedAt: new Date()
-      };
-
-      const operationId = notification.details?.operationId;
-      const exact = operationId
-        ? notificationsRef.current.find(
-            (n) => n.type === notification.type && n.details?.operationId === operationId
-          )
-        : undefined;
-      if (exact) id = exact.id;
-      if (notification.type === 'game_detection' && notification.details?.parentOperationId)
-        return id;
-      if (
-        operationId &&
-        events.current.terminals.has(operationId) &&
-        !isTerminalNotificationStatus(notification.status)
-      )
-        return id;
-      setNotifications((prev) => {
-        const existing =
-          (operationId
-            ? prev.find(
-                (n) => n.type === notification.type && n.details?.operationId === operationId
-              )
-            : undefined) ?? prev.find((n) => n.id === id);
-        const sameRun = !!operationId && existing?.details?.operationId === operationId;
-        if (sameRun && existing && isTerminalNotificationStatus(existing.status)) return prev;
-        if (
-          existing &&
-          !sameRun &&
-          operationId &&
-          existing.details?.operationId &&
-          !isTerminalNotificationStatus(existing.status)
-        )
-          return prev;
-        if (
-          operationId &&
-          events.current.terminals.has(operationId) &&
-          !isTerminalNotificationStatus(notification.status)
-        )
-          return prev;
-        const card: UnifiedNotification =
-          sameRun && existing
-            ? {
-                ...existing,
-                ...notification,
-                id: existing.id,
-                startedAt: existing.startedAt,
-                instanceVersion: existing.instanceVersion,
-                progress: existing.progress ?? notification.progress,
-                progressMode: existing.progressMode ?? notification.progressMode,
-                detailMessage: existing.detailMessage ?? notification.detailMessage,
-                progressAriaValueText:
-                  existing.progressAriaValueText ?? notification.progressAriaValueText,
-                message: existing.message,
-                details: {
-                  ...existing.details,
-                  ...Object.fromEntries(
-                    Object.entries(notification.details ?? {}).filter(
-                      ([, value]) => value !== undefined
-                    )
-                  )
-                }
-              }
-            : { ...newNotification, id, instanceVersion: getNextInstanceId(id) };
-        if (card.details?.cancelRequested && !isTerminalNotificationStatus(card.status))
-          card.status = 'cancelling';
-        if (!sameRun) cancelAutoDismissTimer(card.id);
-        const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === card.type);
-        if (entry) persistNotification(entry.storageKey, card, entry.getId !== undefined);
-        if (isTerminalNotificationStatus(card.status)) scheduleAutoDismiss(card.id);
-        return existing ? prev.map((n) => (n === existing ? card : n)) : [...prev, card];
-      });
-
+    (notification: LocalNotificationInput): string => {
+      // A generic card's id comes from its message, so the same message never stacks twice.
+      const id =
+        notification.type === 'generic' && notification.message
+          ? `generic_${notification.message.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}`
+          : `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localRef.current = [
+        ...localRef.current.filter((n) => n.id !== id),
+        { ...notification, id, startedAt: new Date() }
+      ];
+      if (isTerminalNotificationStatus(notification.status)) scheduleAutoDismiss(id);
+      commit();
       return id;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [scheduleAutoDismiss, commit]
   );
 
   const updateNotification = useCallback(
@@ -301,188 +446,144 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         | Partial<UnifiedNotification>
         | ((notification: UnifiedNotification) => Partial<UnifiedNotification>)
     ) => {
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.map((n) =>
-          n.id === id
-            ? (() => {
-                const patch = typeof updates === 'function' ? updates(n) : updates;
-                if (
-                  isTerminalNotificationStatus(n.status) &&
-                  patch.status &&
-                  !isTerminalNotificationStatus(patch.status)
-                )
-                  return n;
-                return {
-                  ...n,
-                  ...patch,
-                  id: n.id,
-                  startedAt: n.startedAt,
-                  instanceVersion: n.instanceVersion
-                };
-              })()
-            : n
+      const local = localRef.current.find((n) => n.id === id);
+      if (local) {
+        const patch = typeof updates === 'function' ? updates(local) : updates;
+        if (
+          isTerminalNotificationStatus(local.status) &&
+          patch.status &&
+          !isTerminalNotificationStatus(patch.status)
         )
-      );
-    },
-    []
-  );
-
-  const removeNotificationAnimated = useCallback(
-    (id: string, expected: UnifiedNotification, instanceId: number) => {
-      if (autoDismissTimersRef.current.get(id)?.instanceId !== instanceId) return;
-      window.dispatchEvent(
-        new CustomEvent(APP_EVENTS.NOTIFICATION_REMOVING, { detail: { notificationId: id } })
-      );
-      const timerId = setTimeout(() => {
-        if (autoDismissTimersRef.current.get(id)?.instanceId !== instanceId) return;
-        autoDismissTimersRef.current.delete(id);
-        setNotifications((prev) =>
-          prev.filter((n) => {
-            if (
-              n.id !== id ||
-              n.instanceVersion !== expected.instanceVersion ||
-              n.details?.operationId !== expected.details?.operationId ||
-              n.startedAt.getTime() !== expected.startedAt.getTime() ||
-              !isTerminalNotificationStatus(n.status)
-            )
-              return true;
-            const terminal = n.details?.operationId
-              ? events.current.terminals.get(n.details.operationId)
-              : undefined;
-            if (terminal) terminal.presented = true;
-            return false;
-          })
-        );
-      }, NOTIFICATION_ANIMATION_DURATION_MS);
-      autoDismissTimersRef.current.set(id, { timerId, instanceId });
-    },
-    []
-  );
-
-  /**
-   * Schedule auto-dismiss for a notification.
-   *
-   * Safe to call from anywhere - the timer callback checks notification state
-   * when it fires (after delayMs), by which time React state is committed.
-   * Also, createStartedHandler cancels any existing timer when a new operation
-   * starts with the same ID, preventing race conditions.
-   *
-   * @param notificationId - ID of the notification to auto-dismiss
-   * @param delayMs - Delay before dismissing (default: AUTO_DISMISS_DELAY_MS)
-   */
-  const scheduleAutoDismiss = useCallback(
-    (notificationId: string, delayMs: number = AUTO_DISMISS_DELAY_MS) => {
-      if (!shouldAutoDismiss()) return;
-
-      cancelAutoDismissTimer(notificationId);
-      const instanceId = getNextInstanceId(notificationId);
-
-      const timerId = setTimeout(() => {
-        const currentTimer = autoDismissTimersRef.current.get(notificationId);
-        if (currentTimer && currentTimer.instanceId === instanceId) {
-          setNotifications((prev: UnifiedNotification[]) => {
-            const notification = prev.find((n) => n.id === notificationId);
-            // Only dismiss if notification exists and is in a terminal state
-            if (notification && isTerminalNotificationStatus(notification.status)) {
-              // Defer to avoid setState-during-render (CustomEvent triggers UniversalNotificationBar setState)
-              queueMicrotask(() =>
-                removeNotificationAnimated(notificationId, notification, instanceId)
-              );
-            }
-            return prev;
-          });
+          return;
+        const card: UnifiedNotification = {
+          ...local,
+          ...patch,
+          id: local.id,
+          startedAt: local.startedAt
+        };
+        localRef.current = localRef.current.map((n) => (n === local ? card : n));
+        if (
+          card.type === 'bulk_removal' &&
+          !isTerminalNotificationStatus(local.status) &&
+          isTerminalNotificationStatus(card.status)
+        ) {
+          // A finished batch follows the run ending rules: a success or a cancel stays for the
+          // popup time, then leaves, unless Keep Notifications Visible holds it; a failure stays
+          // until closed.
+          scheduleAutoDismiss(id);
+          settleBulk();
         }
-      }, delayMs);
-
-      autoDismissTimersRef.current.set(notificationId, { timerId, instanceId });
+        commit();
+        return;
+      }
+      const drawn = [
+        ...deriveNotifications(storeRef.current, localRef.current),
+        ...deriveRuns(storeRef.current)
+      ].find((n) => n.id === id);
+      if (!drawn) return;
+      const patch = typeof updates === 'function' ? updates(drawn) : updates;
+      // The server owns a run's state; the browser writes only its cancel intent.
+      const cancel: RunEntry['cancel'] = {};
+      for (const key of LIVE_ONLY_CANCEL_DETAIL_KEYS)
+        if (patch.details && key in patch.details) cancel[key] = patch.details[key];
+      if (patch.status === 'cancelling') cancel.cancelling = true;
+      storeRef.current = setRunCancel(storeRef.current, id, cancel);
+      commit();
     },
-    [cancelAutoDismissTimer, getNextInstanceId, removeNotificationAnimated]
+    [scheduleAutoDismiss, settleBulk, commit]
   );
 
   const removeNotification = useCallback(
-    (id: string) => {
-      cancelAutoDismissTimer(id);
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.filter((n) => {
-          if (n.id !== id) return true;
-          const terminal = n.details?.operationId
-            ? events.current.terminals.get(n.details.operationId)
-            : undefined;
-          if (terminal) terminal.presented = true;
-          return false;
-        })
+    (id: string, closedOperationIds?: string[]) => {
+      clearTimeout(autoDismissTimersRef.current.get(id));
+      autoDismissTimersRef.current.delete(id);
+      const local = localRef.current.some((n) => n.id === id);
+      localRef.current = localRef.current.filter((n) => n.id !== id);
+      // The ids the server confirmed closed are recorded as ended, so their closed rows change
+      // nothing; a kept run a batch card listed but the server did not close becomes its own card.
+      storeRef.current = removeRuns(
+        storeRef.current,
+        local ? (closedOperationIds ?? []) : [id, ...(closedOperationIds ?? [])]
       );
+      for (const waiter of waitersRef.current) if (!waiter.probing) followWaiter(waiter, false);
+      commit();
     },
-    [cancelAutoDismissTimer]
+    [followWaiter, commit]
   );
 
-  const clearCompletedNotifications = useCallback(() => {
-    setNotifications((prev: UnifiedNotification[]) => {
-      const terminal = prev.filter((n) => isTerminalNotificationStatus(n.status));
-      terminal.forEach((n) => {
-        cancelAutoDismissTimer(n.id);
-        const outcome = n.details?.operationId
-          ? events.current.terminals.get(n.details.operationId)
-          : undefined;
-        if (outcome) outcome.presented = true;
-      });
-      return prev.filter((n) => !isTerminalNotificationStatus(n.status));
-    });
-  }, [cancelAutoDismissTimer]);
-
-  // Registry-driven handlers for standard notification lifecycle types
-  useNotificationHandlers(
-    NOTIFICATION_REGISTRY,
-    setNotifications,
-    scheduleAutoDismiss,
-    cancelAutoDismissTimer,
-    events,
-    requestRecovery
+  const hideNotification = useCallback(
+    (id: string) => {
+      storeRef.current = hideRun(storeRef.current, id);
+      commit();
+    },
+    [commit]
   );
 
-  // Toast notifications
+  const waitForRunEnd = useCallback(
+    (operationId: string, signal?: AbortSignal): Promise<NotificationTerminal> =>
+      new Promise<NotificationTerminal>((resolve) => {
+        const abort = (): void => waiter.settle({ operationId, status: 'gone' });
+        const waiter: RunWaiter = {
+          target: operationId,
+          probing: false,
+          settle: (terminal) => {
+            if (!waitersRef.current.delete(waiter)) return;
+            signal?.removeEventListener('abort', abort);
+            resolve(terminal);
+          }
+        };
+        waitersRef.current.add(waiter);
+        if (signal?.aborted) {
+          abort();
+          return;
+        }
+        signal?.addEventListener('abort', abort);
+        followWaiter(waiter, true);
+      }),
+    [followWaiter]
+  );
+
+  useNotificationHandlers(NOTIFICATION_REGISTRY, dispatchDetail, showAnnouncement, handleRun);
+
+  // Toast notifications: every one leaves after the one popup time, which addNotification starts
+  // for every finished card.
   React.useEffect(() => {
     const handleShowToast = (e: Event) => {
-      const event = e as CustomEvent<ShowToastEvent>;
-      const { message, type, duration } = event.detail;
-
-      const notificationId = addNotification({
+      const { message, type, error } = (e as CustomEvent<ShowToastEvent>).detail;
+      addNotification({
         type: 'generic',
-        status: 'completed',
+        status: type === 'error' ? 'failed' : 'completed',
         message,
+        error,
         details: {
           notificationType: type
         }
       });
-
-      scheduleAutoDismiss(notificationId, duration ?? TOAST_DEFAULT_DURATION_MS);
     };
 
     window.addEventListener(APP_EVENTS.SHOW_TOAST, handleShowToast);
     return () => window.removeEventListener(APP_EVENTS.SHOW_TOAST, handleShowToast);
-  }, [addNotification, scheduleAutoDismiss]);
+  }, [addNotification]);
 
-  // Listen for "Keep Notifications Visible" preference changes
-  // When turned off, schedule auto-dismiss for ALL completed/failed notifications
+  // "Keep Notifications Visible" turned off: the successes and cancels it held stay for the popup
+  // time, then leave. Failed, skipped and warning cards stay until closed, and so does the Steam
+  // session error.
   React.useEffect(() => {
     const handleNotificationVisibilityChange = () => {
-      // Check if "Keep Notifications Visible" was just turned OFF
-      if (shouldAutoDismiss()) {
-        // Collect notification IDs to schedule, then schedule OUTSIDE setNotifications
-        const idsToSchedule: string[] = [];
-
-        setNotifications((prev: UnifiedNotification[]) => {
-          prev.forEach((n) => {
-            if (isTerminalNotificationStatus(n.status)) {
-              idsToSchedule.push(n.id);
-            }
-          });
-          return prev;
-        });
-
-        // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
-        idsToSchedule.forEach((id) => scheduleAutoDismiss(id));
-      }
+      if (!shouldAutoDismiss()) return;
+      storeRef.current = releaseKeptSuccess(storeRef.current);
+      for (const card of localRef.current)
+        if (isTerminalNotificationStatus(card.status) && card.type !== 'steam_session_error')
+          scheduleAutoDismiss(card.id);
+      // A leaving run card's hold starts over from now, as a held popup's does.
+      const timers = autoDismissTimersRef.current;
+      for (const entry of storeRef.current.entries.values())
+        if (entry.leaving) {
+          clearTimeout(timers.get(entry.run.operationId));
+          timers.delete(entry.run.operationId);
+        }
+      fadeLeavingRuns();
+      commit();
     };
 
     window.addEventListener(
@@ -494,149 +595,88 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE,
         handleNotificationVisibilityChange
       );
-  }, [scheduleAutoDismiss]);
-
-  // Authenticated fetch helper for recovery operations - fires from a SignalR-reconnect effect with
-  // no user action involved (a network blip or laptop wake can reconnect while the tab is genuinely
-  // idle), so it carries the same activity signal as ApiService.getFetchOptions() rather than keeping
-  // LastSeenAtUtc artificially fresh on every reconnect.
-  const fetchWithAuth: FetchWithAuth = useCallback(async (url: string): Promise<Response> => {
-    return fetch(url, {
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Active': hasRecentUserInteraction(120_000) ? 'true' : 'false'
-      }
-    });
-  }, []);
-
-  const recoverAllOperations = useMemo(
-    () =>
-      createRecoveryRunner(
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss,
-        events,
-        () => notificationsRef.current,
-        cancelAutoDismissTimer
-      ),
-    [fetchWithAuth, scheduleAutoDismiss, cancelAutoDismissTimer]
-  );
-  recoveryRef.current = recoverAllOperations;
-
-  React.useEffect(() => {
-    for (const notification of notifications) {
-      if (isTerminalNotificationStatus(notification.status) && notification.details?.operationId) {
-        const terminal = events.current.terminals.get(notification.details.operationId);
-        if (terminal) terminal.presented = true;
-        else
-          events.current.terminals.set(notification.details.operationId, {
-            operationId: notification.details.operationId,
-            status: notification.status as 'completed' | 'failed' | 'cancelled' | 'skipped',
-            error: notification.error,
-            presented: true
-          });
-      }
-    }
-  }, [notifications]);
+  }, [scheduleAutoDismiss, fadeLeavingRuns, commit]);
 
   React.useEffect(
     () => () => {
-      for (const { timerId } of autoDismissTimersRef.current.values()) clearTimeout(timerId);
+      for (const timerId of autoDismissTimersRef.current.values()) clearTimeout(timerId);
       autoDismissTimersRef.current.clear();
+      clearTimeout(snapshotRetryRef.current);
     },
     []
   );
 
-  // Recovery on page load (admin-only - all recovery endpoints require admin access)
+  // Snapshot on mount (admin-only - the run list requires admin access).
   React.useEffect(() => {
-    if (authLoading || !isAdmin) return;
+    if (isAdmin) void requestSnapshot();
+  }, [isAdmin, requestSnapshot]);
 
-    recoverAllOperations();
-  }, [authLoading, isAdmin, recoverAllOperations]);
-
-  // Re-run recovery on every connect, including the first one: the page-load recovery above can
-  // seed a running card before the hub subscription is live, so a completion emitted in that gap
-  // would otherwise leave the card running forever.
+  // A dropped connection may lose prefill events; the card says so until detail arrives again.
   React.useEffect(() => {
-    events.current.connectionGeneration = (events.current.connectionGeneration ?? 0) + 1;
-    if (signalR.isConnected) return;
-    setNotifications((current) =>
-      current.map((card) =>
-        card.type === 'scheduled_prefill' &&
-        !isTerminalNotificationStatus(card.status) &&
-        !card.details?.connectionRecovering
-          ? { ...card, details: { ...card.details, connectionRecovering: true } }
-          : card
-      )
-    );
-  }, [signalR.isConnected]);
+    if (isConnected) return;
+    storeRef.current = markConnectionRecovering(storeRef.current);
+    commit();
+  }, [isConnected, commit]);
 
-  useReconnectRefetch(signalR.isConnected, () => {
-    // Skip if not admin - all recovery endpoints require admin access
-    if (authLoading || !isAdmin) return;
-
-    recoverAllOperations();
+  // Every connect: rows sent while disconnected are gone, and after a server restart the new
+  // server numbers its rows from 1, so a reconnect starts a new generation before it asks.
+  useReconnectRefetch(isConnected, () => {
+    if (connectedBeforeRef.current) storeRef.current = nextGeneration(storeRef.current);
+    connectedBeforeRef.current = true;
+    if (isAdminRef.current) void requestSnapshot();
   });
 
-  // Recovery on tab becoming visible after being backgrounded.
-  // The SignalR connection stays open while backgrounded, so the reconnection effect
-  // never fires - but the browser may have throttled/dropped message processing.
-  // This effect detects the tab returning to the foreground and re-runs recovery
-  // if the tab was hidden for more than 2 seconds.
+  // Signed out or signed in as someone else: the earlier session's sign-in cards leave now, since a
+  // sign-out asks for no run list and a failed or slow read applies nothing.
   React.useEffect(() => {
-    const MIN_HIDDEN_MS = 2000;
+    if (sessionBeforeRef.current === sessionId) return;
+    sessionBeforeRef.current = sessionId;
+    storeRef.current = changeSession(storeRef.current, sessionId);
+    commit();
+    if (isAdminRef.current) void requestSnapshot();
+  }, [sessionId, commit, requestSnapshot]);
 
+  // Tab return: the browser may have throttled or dropped message processing while hidden.
+  React.useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        tabHiddenAtRef.current = Date.now();
-        return;
-      }
-
-      // Tab became visible
-      if (!isAdmin || authLoading) return;
-
-      const hiddenAt = tabHiddenAtRef.current;
-      tabHiddenAtRef.current = null;
-
-      if (hiddenAt !== null && Date.now() - hiddenAt >= MIN_HIDDEN_MS) {
-        recoverAllOperations();
-      }
+      if (document.visibilityState === 'visible' && isAdminRef.current) void requestSnapshot();
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isAdmin, authLoading, recoverAllOperations]);
+  }, [requestSnapshot]);
+
+  const notifications = useMemo(
+    () => deriveNotifications(storeRef.current, localRef.current),
+    // `version` is the store's change counter; the store itself lives in a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version]
+  );
+  const runs = useMemo(
+    () => deriveRuns(storeRef.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version]
+  );
 
   // Compute if any removal operation is running (these all share a backend lock)
   const isAnyRemovalRunning = useMemo(
     () =>
-      notifications.some(
+      runs.some(
         (n) =>
           REMOVAL_TYPES.includes(n.type as (typeof REMOVAL_TYPES)[number]) && n.status === 'running'
       ),
-    [notifications]
+    [runs]
   );
 
-  const activeRemovalType = useMemo(
-    () =>
-      notifications.find(
-        (n) =>
-          REMOVAL_TYPES.includes(n.type as (typeof REMOVAL_TYPES)[number]) && n.status === 'running'
-      )?.type ?? null,
-    [notifications]
-  );
-
-  const value = {
-    events,
+  const value: NotificationsContextType = {
     notifications,
+    runs,
     addNotification,
     updateNotification,
     removeNotification,
-    clearCompletedNotifications,
+    hideNotification,
     isAnyRemovalRunning,
-    activeRemovalType,
-    scheduleAutoDismiss
+    scheduleAutoDismiss,
+    waitForRunEnd
   };
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

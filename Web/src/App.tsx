@@ -11,8 +11,11 @@ import AppProviders from '@components/AppProviders';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
+import ConnectionLostBanner from '@components/layout/ConnectionLostBanner';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoadingState } from '@components/ui/ManagerCard';
+import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
 import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
@@ -91,7 +94,7 @@ const AppContent: React.FC = () => {
   } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
-  const { isDockerAvailable } = useDockerSocket();
+  const { isDockerAvailable, error: dockerLoadError, refreshDockerStatus } = useDockerSocket();
   const [_depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
@@ -501,39 +504,39 @@ const AppContent: React.FC = () => {
 
     return (
       <>
-        {activeTab === 'prefill' && !isDockerAvailable ? (
+        {activeTab === 'prefill' && dockerLoadError !== null ? (
+          <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
+            <ErrorBlock
+              title={t('app.prefill.dockerCheckFailed')}
+              message={dockerLoadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void refreshDockerStatus()}
+            />
+          </div>
+        ) : activeTab === 'prefill' && !isDockerAvailable ? (
           <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 animate-fadeIn">
-            <div className="rounded-lg p-6 bg-[var(--theme-warning-subtle)] border border-[var(--theme-warning-strong)]">
-              <div className="min-w-0">
-                <p className="font-medium text-[var(--theme-warning-text)] mb-2">
-                  {t('app.prefill.dockerNotAvailable.title')}
+            <Alert color="warning" title={t('app.prefill.dockerNotAvailable.title')}>
+              <p className="text-sm mb-3">{t('app.prefill.dockerNotAvailable.description')}</p>
+
+              {/* Linux instructions */}
+              <div className="mb-3">
+                <p className="text-sm font-medium mb-2">
+                  {t('app.prefill.dockerNotAvailable.helpLinux')}
                 </p>
-                <p className="text-sm mb-3 text-themed-secondary">
-                  {t('app.prefill.dockerNotAvailable.description')}
-                </p>
+                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
+                  /var/run/docker.sock:/var/run/docker.sock
+                </pre>
+              </div>
 
-                {/* Linux instructions */}
-                <div className="mb-3">
-                  <p className="text-sm font-medium text-themed-primary mb-2">
-                    {t('app.prefill.dockerNotAvailable.helpLinux')}
-                  </p>
-                  <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
-                    /var/run/docker.sock:/var/run/docker.sock
-                  </pre>
-                </div>
-
-                {/* Windows instructions */}
-                <div className="mb-3">
-                  <p className="text-sm font-medium text-themed-primary mb-2">
-                    {t('app.prefill.dockerNotAvailable.helpWindows')}
-                  </p>
-                </div>
-
-                <p className="text-sm text-themed-muted">
-                  {t('app.prefill.dockerNotAvailable.helpGeneric')}
+              {/* Windows instructions */}
+              <div className="mb-3">
+                <p className="text-sm font-medium mb-2">
+                  {t('app.prefill.dockerNotAvailable.helpWindows')}
                 </p>
               </div>
-            </div>
+
+              <p className="text-sm">{t('app.prefill.dockerNotAvailable.helpGeneric')}</p>
+            </Alert>
           </div>
         ) : activeTab === 'prefill' && isBanned ? (
           <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
@@ -643,9 +646,12 @@ const AppContent: React.FC = () => {
   // Handle special routes like /memory
   if (isMemoryRoute) {
     return (
-      <Suspense fallback={<LoadingState shape="cards" rows={3} />}>
-        <MemoryDiagnostics />
-      </Suspense>
+      <>
+        <ConnectionLostBanner />
+        <Suspense fallback={<LoadingState shape="cards" rows={3} />}>
+          <MemoryDiagnostics />
+        </Suspense>
+      </>
     );
   }
 
@@ -676,10 +682,11 @@ const AppContent: React.FC = () => {
           authMode={authMode}
           prefillEnabled={prefillEnabled}
           isBanned={isBanned}
-          dockerAvailable={isDockerAvailable}
+          dockerAvailable={isDockerAvailable || dockerLoadError !== null}
         />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
+        <ConnectionLostBanner />
         <main className="container mx-auto px-4 py-6 flex-grow">
           <div className="app-content-area">
             <Suspense

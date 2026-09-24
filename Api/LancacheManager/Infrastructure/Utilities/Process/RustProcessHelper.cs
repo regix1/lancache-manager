@@ -1235,7 +1235,7 @@ public partial class RustProcessHelper
     /// <summary>
     /// Runs the cache_eviction_scan Rust executable
     /// </summary>
-    public async Task<RustExecutionResult> RunEvictionScanAsync(
+    public virtual async Task<RustExecutionResult> RunEvictionScanAsync(
         string datasourceConfigPath,
         string? progressFile = null,
         CancellationToken cancellationToken = default,

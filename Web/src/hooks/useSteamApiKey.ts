@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
-import { ApiError } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { getIntegrationReasonKey } from '../types';
@@ -31,9 +31,13 @@ interface UseSteamApiKeyResult {
   setApiKey: (key: string) => void;
   testing: boolean;
   saving: boolean;
-  testResult: { valid: boolean; message: string } | null;
-  handleTest: (emptyKeyMessage: string, networkErrorMessage: string) => Promise<void>;
-  handleSave: (emptyKeyMessage: string, networkErrorMessage: string) => Promise<void>;
+  /**
+   * `title` is the failed action's first line, set only when the request itself failed; a key
+   * verdict and the empty-key message have none.
+   */
+  testResult: { valid: boolean; message: string; title?: string } | null;
+  handleTest: (emptyKeyMessage: string) => Promise<void>;
+  handleSave: (emptyKeyMessage: string) => Promise<void>;
   resetTestResult: () => void;
   /**
    * Settles an abandoned Test/Save as a red, auto-dismissing cancel card. Call on modal
@@ -71,12 +75,15 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
   const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState<{ valid: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    valid: boolean;
+    message: string;
+    title?: string;
+  } | null>(null);
 
   // Id of the Web API key status card while a Test/Save this hook started is still live. Steam
   // Web API key actions are synchronous REST with no backend progress stream to share, so the
-  // lifecycle lives in one 'generic' card updated in place; null once settled (mirrors
-  // useSteamLoginFlow.loginCardIdRef).
+  // lifecycle lives in one 'generic' card updated in place; null once settled.
   const webApiCardIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -115,7 +122,8 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     status: 'completed' | 'failed',
     message: string,
     variant: NotificationVariant,
-    cancelled = false
+    cancelled = false,
+    error?: string
   ): void => {
     if (!statusNotifications) {
       return;
@@ -128,6 +136,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     updateNotification(id, {
       status,
       message,
+      error,
       details: { notificationType: variant, cancelled, serviceKey: 'depotMapping' }
     });
     scheduleAutoDismiss(id);
@@ -142,7 +151,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     settleWebApiCard('completed', t('signalr.steamWebApi.cancelled'), 'warning', true);
   };
 
-  const handleTest = async (emptyKeyMessage: string, networkErrorMessage: string) => {
+  const handleTest = async (emptyKeyMessage: string) => {
     if (identityRef.current !== identity || !canManage || busyRef.current) return;
     if (!apiKey.trim()) {
       setTestResult({ valid: false, message: emptyKeyMessage });
@@ -166,24 +175,13 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
       if (data.valid) {
         settleWebApiCard('completed', t('signalr.steamWebApi.keyValid'), 'success');
       } else {
-        settleWebApiCard(
-          'failed',
-          t('signalr.steamWebApi.keyInvalid', { errorDetail: verdict }),
-          'error'
-        );
+        settleWebApiCard('failed', t('management.steamWebApi.test.invalid'), 'error');
       }
     } catch (error: unknown) {
       if (!current()) return;
-      const message =
-        error instanceof ApiError && error.body?.stageKey
-          ? t(error.body.stageKey, error.body.context ?? {})
-          : networkErrorMessage;
-      setTestResult({ valid: false, message });
-      settleWebApiCard(
-        'failed',
-        t('signalr.steamWebApi.keyInvalid', { errorDetail: message }),
-        'error'
-      );
+      const message = getErrorMessage(error);
+      setTestResult({ valid: false, title: t('signalr.steamWebApi.testFailed'), message });
+      settleWebApiCard('failed', t('signalr.steamWebApi.testFailed'), 'error', false, message);
     } finally {
       if (current()) {
         busyRef.current = false;
@@ -192,7 +190,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     }
   };
 
-  const handleSave = async (emptyKeyMessage: string, networkErrorMessage: string) => {
+  const handleSave = async (emptyKeyMessage: string) => {
     if (identityRef.current !== identity || !canManage || busyRef.current) return;
     if (!apiKey.trim()) {
       setTestResult({ valid: false, message: emptyKeyMessage });
@@ -212,16 +210,9 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
       onSaveSuccess?.();
     } catch (error: unknown) {
       if (!current()) return;
-      const message =
-        error instanceof ApiError && error.body?.stageKey
-          ? t(error.body.stageKey, error.body.context ?? {})
-          : networkErrorMessage;
-      setTestResult({ valid: false, message });
-      settleWebApiCard(
-        'failed',
-        t('signalr.steamWebApi.keySaveFailed', { errorDetail: message }),
-        'error'
-      );
+      const message = getErrorMessage(error);
+      setTestResult({ valid: false, title: t('signalr.steamWebApi.keySaveFailed'), message });
+      settleWebApiCard('failed', t('signalr.steamWebApi.keySaveFailed'), 'error', false, message);
     } finally {
       if (current()) {
         busyRef.current = false;

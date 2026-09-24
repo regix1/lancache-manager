@@ -1,13 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Users, Settings2, UserCog } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
+import { getErrorMessage } from '@utils/error';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { LoadingState } from '@components/ui/ManagerCard';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
 import SignInMethodCard from './SignInMethodCard';
@@ -32,22 +35,41 @@ const UserTab: React.FC = () => {
   const [guestRefreshRateLocked, setGuestRefreshRateLocked] = useState<boolean>(true);
   const [updatingGuestRefreshRateLock, setUpdatingGuestRefreshRateLock] = useState(false);
 
+  const [guestDefaultsError, setGuestDefaultsError] = useState<string | null>(null);
+  const [guestDefaultsLoaded, setGuestDefaultsLoaded] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'sessions' | 'accounts' | 'defaults'>('sessions');
   const [activeFilter, setActiveFilter] = useState<SessionFilter>('all');
 
-  const loadGuestDuration = async () => {
+  const guestDefaultsRequestRef = useRef(0);
+
+  const loadGuestDefaults = useCallback(async () => {
+    // Mount, reconnect and Retry can overlap; only the newest request writes values or the error.
+    const request = ++guestDefaultsRequestRef.current;
+    setGuestDefaultsError(null);
     try {
-      const data = await ApiService.getGuestConfig<{ durationHours: number; isLocked: boolean }>();
-      setGuestDurationHours(data.durationHours || 6);
-      setGuestModeLocked(data.isLocked);
+      const [guestConfig, guestTheme, guestRefreshRate, themeResult] = await Promise.all([
+        ApiService.getGuestConfig<{ durationHours: number; isLocked: boolean }>(),
+        ApiService.getGuestThemePreference<{ themeId: string }>(),
+        ApiService.getDefaultGuestRefreshRate<{ refreshRate: string; locked: boolean }>(),
+        themeService.loadThemes()
+      ]);
+      if (request !== guestDefaultsRequestRef.current) return;
+      setGuestDurationHours(guestConfig.durationHours || 6);
+      setGuestModeLocked(guestConfig.isLocked);
+      setDefaultGuestTheme(guestTheme.themeId || 'dark-default');
+      setDefaultGuestRefreshRate(guestRefreshRate.refreshRate || 'STANDARD');
+      setGuestRefreshRateLocked(guestRefreshRate.locked);
+      setAvailableThemes(
+        themeResult.themes.map((theme) => ({ id: theme.meta.id, name: theme.meta.name }))
+      );
+      setGuestDefaultsError(themeResult.loadError);
+      setGuestDefaultsLoaded(true);
     } catch (err) {
-      notifyError(t('user.errors.loadGuestDuration'), err, {
-        logLabel: 'Failed to load guest duration'
-      });
-      setGuestDurationHours(6);
-      setGuestModeLocked(false);
+      if (request !== guestDefaultsRequestRef.current) return;
+      setGuestDefaultsError(getErrorMessage(err));
     }
-  };
+  }, []);
 
   const handleUpdateDuration = async (newDuration: number) => {
     try {
@@ -79,31 +101,6 @@ const UserTab: React.FC = () => {
     }
   };
 
-  const loadAvailableThemes = async () => {
-    try {
-      const themes = await themeService.loadThemes();
-      setAvailableThemes(
-        themes.map((theme) => ({
-          id: theme.meta.id,
-          name: theme.meta.name
-        }))
-      );
-    } catch (err) {
-      notifyError(t('user.errors.loadThemes'), err, { logLabel: 'Failed to load themes' });
-    }
-  };
-
-  const loadDefaultGuestTheme = async () => {
-    try {
-      const data = await ApiService.getGuestThemePreference<{ themeId: string }>();
-      setDefaultGuestTheme(data.themeId || 'dark-default');
-    } catch (err) {
-      notifyError(t('user.errors.loadGuestTheme'), err, {
-        logLabel: 'Failed to load guest theme'
-      });
-    }
-  };
-
   const handleUpdateGuestTheme = async (newThemeId: string) => {
     try {
       setUpdatingGuestTheme(true);
@@ -115,21 +112,6 @@ const UserTab: React.FC = () => {
       });
     } finally {
       setUpdatingGuestTheme(false);
-    }
-  };
-
-  const loadDefaultGuestRefreshRate = async () => {
-    try {
-      const data = await ApiService.getDefaultGuestRefreshRate<{
-        refreshRate: string;
-        locked: boolean;
-      }>();
-      setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
-      setGuestRefreshRateLocked(data.locked);
-    } catch (err) {
-      notifyError(t('user.errors.loadGuestRefreshRate'), err, {
-        logLabel: 'Failed to load guest refresh rate'
-      });
     }
   };
 
@@ -190,17 +172,10 @@ const UserTab: React.FC = () => {
   }, []);
 
   // Refresh guest defaults when SignalR reconnects (catches config events missed during disconnect)
-  useReconnectRefetch(isConnected, () => {
-    loadGuestDuration();
-    loadDefaultGuestTheme();
-    loadDefaultGuestRefreshRate();
-  });
+  useReconnectRefetch(isConnected, () => void loadGuestDefaults());
 
   useEffect(() => {
-    loadGuestDuration();
-    loadAvailableThemes();
-    loadDefaultGuestTheme();
-    loadDefaultGuestRefreshRate();
+    void loadGuestDefaults();
 
     on('GuestModeLockChanged', handleGuestModeLockChanged);
     on('GuestDurationUpdated', handleGuestDurationUpdated);
@@ -246,6 +221,16 @@ const UserTab: React.FC = () => {
         fullWidth
       />
 
+      {/* The Sessions tab shows values from these reads too, so the box sits above both tabs */}
+      {guestDefaultsError !== null && activeTab !== 'accounts' && (
+        <ErrorBlock
+          title={t('user.guest.errors.loadDefaults')}
+          message={guestDefaultsError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void loadGuestDefaults()}
+        />
+      )}
+
       {/* Tab Content - keyed by activeTab so AccordionGroupProvider's registry always
           starts empty for the newly active tab. */}
       <AccordionGroupProvider key={activeTab}>
@@ -259,6 +244,7 @@ const UserTab: React.FC = () => {
               availableThemes={availableThemes}
               defaultGuestTheme={defaultGuestTheme}
               defaultGuestRefreshRate={defaultGuestRefreshRate}
+              guestDefaultsLoaded={guestDefaultsLoaded}
               sessions={sessions}
               setSessions={setSessions}
               loading={loading}
@@ -280,7 +266,11 @@ const UserTab: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'defaults' && (
+        {activeTab === 'defaults' && !guestDefaultsLoaded && guestDefaultsError === null && (
+          <LoadingState />
+        )}
+
+        {activeTab === 'defaults' && guestDefaultsLoaded && (
           <div className="user-tab-content">
             <GuestConfiguration
               guestDurationHours={guestDurationHours}

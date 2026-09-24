@@ -79,14 +79,6 @@ public partial class CacheManagementService
     private Guid _cacheSizeScanId;
     public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext => _currentCacheSizeScanProgressContext;
 
-    /// <summary>
-    /// Run-stable display flag for the active tracked cache-file scan. Lifecycle events are always
-    /// emitted so recovery works, but a silent automatic scan leaves this false so the recovery
-    /// endpoint (GET /api/cache/size/scan/status) can decline to resurrect a card on page reload
-    /// instead of leaving it stuck once the silent terminal arrives. Null while no scan is running.
-    /// </summary>
-    public bool? CurrentCacheSizeScanShowNotification { get; private set; }
-
     public CacheManagementService(
         IConfiguration configuration,
         ILogger<CacheManagementService> logger,
@@ -1837,9 +1829,7 @@ public partial class CacheManagementService
     /// </summary>
     private async Task ReportProgressAsync(
         Guid operationId,
-        CacheSizeScanProgressData progress,
-        bool showNotification = true,
-        bool hideNotification = false)
+        CacheSizeScanProgressData progress)
     {
         if (string.IsNullOrEmpty(progress.StageKey))
         {
@@ -1889,9 +1879,7 @@ public partial class CacheManagementService
             TotalDirectories: progress.TotalDirectories,
             TotalFiles: progress.TotalFiles,
             TotalBytes: progress.TotalBytes,
-            Context: context,
-            ShowNotification: showNotification,
-            HideNotification: hideNotification));
+            Context: context));
     }
 
     /// <summary>
@@ -1900,18 +1888,15 @@ public partial class CacheManagementService
     /// happens BEFORE any Started/Progress emit), emits CacheSizeScanStarted/Progress/Complete
     /// SignalR events, and runs the Rust binary on the registered operation's token so the
     /// universal cancel path (/api/operations/{id}/cancel + /force-kill, stdin CANCEL) works.
-    /// Deliberately non-silent: the running card explains why other heavy cache operations
-    /// are blocked by <see cref="OperationConflictChecker"/> while the scan runs.
+    /// The run's notice decides how it is drawn; a null notice draws a full card.
     /// Callers must hold _scanCacheLock so at most one tracked scan is registered at a time.
     /// </summary>
     private async Task<CacheSizeResponse?> RunFullScanAsync(
         IReadOnlyList<string> cachePaths,
         CancellationToken callerToken,
         Action<Guid>? onScanStarted = null,
-        bool showNotification = true,
         RunNotice? notice = null)
     {
-        var hideNotification = notice?.HideNotification == true;
         // Heavy data ops run one at a time (OperationConflictChecker section 1a). Both scan
         // entry points (the queued manual refresh and the scheduled service) funnel through
         // here before the Rust walker spawns, so this final guard also closes start races.
@@ -1929,24 +1914,13 @@ public partial class CacheManagementService
         var terminalBytes = 0L;
         string? terminalFormattedSize = null;
 
-        // Stamp the run's visibility before any Started/Progress emit so the recovery endpoint
-        // reports the run-stable flag for the whole scan, even if the page reloads mid-run.
-
         // CTS ownership: handed to the tracker, which disposes it in CompleteOperation.
         var cts = new CancellationTokenSource();
         Guid operationId = default;
-        var previousOperationId = notice?.OperationId;
         operationId = _operationTracker.RegisterOperation(
             OperationType.CacheSizeScan,
             "Cache File Scan",
             cts,
-            metadata: new Dictionary<string, object?>
-            {
-                ["runNotice"] = notice,
-                ["showNotification"] = showNotification,
-                ["hideNotification"] = hideNotification,
-                ["previousOperationId"] = previousOperationId
-            },
             onTerminalCleanup: () =>
             {
                 lock (_scanCacheLock)
@@ -1955,7 +1929,6 @@ public partial class CacheManagementService
                     {
                         _cacheSizeScanId = Guid.Empty;
                         _currentCacheSizeScanProgressContext = null;
-                        CurrentCacheSizeScanShowNotification = null;
                     }
                 }
             },
@@ -1969,9 +1942,7 @@ public partial class CacheManagementService
                         StageKey: "signalr.cacheSizeScan.cancelled",
                         TotalFiles: 0,
                         TotalBytes: 0,
-                        ShowNotification: showNotification,
-                        Cancelled: true,
-                        HideNotification: hideNotification));
+                        Cancelled: true));
                 }
 
                 if (info.Success)
@@ -1987,9 +1958,7 @@ public partial class CacheManagementService
                         {
                             ["totalFiles"] = terminalFiles,
                             ["totalSize"] = terminalFormattedSize ?? FormatBytes(terminalBytes)
-                        },
-                        ShowNotification: showNotification,
-                        HideNotification: hideNotification));
+                        }));
                 }
 
                 return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
@@ -1998,10 +1967,9 @@ public partial class CacheManagementService
                     StageKey: "signalr.cacheSizeScan.complete",
                     TotalFiles: 0,
                     TotalBytes: 0,
-                    Error: info.Error ?? "Rust cache size binary returned failure",
-                    ShowNotification: showNotification,
-                    HideNotification: hideNotification));
-            });
+                    Error: info.Error));
+            },
+            notice: notice);
 
         _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheSizeScan.starting", _ =>
         {
@@ -2009,7 +1977,6 @@ public partial class CacheManagementService
             {
                 _cacheSizeScanId = operationId;
                 _currentCacheSizeScanProgressContext = null;
-                CurrentCacheSizeScanShowNotification = showNotification;
                 _cacheSizeScanLastEmitStageKey = null;
                 _cacheSizeScanLastEmitTicks = 0;
             }
@@ -2023,10 +1990,7 @@ public partial class CacheManagementService
         {
             await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanStarted, new CacheSizeScanStarted(
                 StageKey: "signalr.cacheSizeScan.starting",
-                OperationId: operationId,
-                ShowNotification: showNotification,
-                PreviousOperationId: previousOperationId,
-                HideNotification: hideNotification));
+                OperationId: operationId));
             // Info-level on purpose: NotifyAllAsync logs success only at Debug, so without this
             // line production logs cannot distinguish "Started was emitted but the browser runs a
             // stale bundle" from "Started was never emitted".
@@ -2060,7 +2024,7 @@ public partial class CacheManagementService
                         CalibrationStep = progress.CalibrationStep,
                         CalibrationTotalSteps = progress.CalibrationTotalSteps
                     };
-                    await ReportProgressAsync(operationId, overallProgress, showNotification, hideNotification);
+                    await ReportProgressAsync(operationId, overallProgress);
                 }
 
                 var datasourceResult = await RunCacheSizeScanAsync(
@@ -2124,14 +2088,14 @@ public partial class CacheManagementService
     /// service continues the scan, persists the result, and emits <see cref="SignalREvents.CacheScanComplete"/>
     /// after the cached result is ready for readers. Intended for <see cref="IOperationQueue"/> promotion.
     /// </summary>
-    public Task<Guid?> StartCacheSizeScanInBackgroundAsync(bool showNotification = true, RunNotice? notice = null)
+    public Task<Guid?> StartCacheSizeScanInBackgroundAsync(RunNotice notice)
     {
         var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = RunCacheSizeScanInBackgroundAsync(started, showNotification, notice);
+        _ = RunCacheSizeScanInBackgroundAsync(started, notice);
         return started.Task;
     }
 
-    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started, bool showNotification, RunNotice? notice)
+    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started, RunNotice notice)
     {
         Guid? operationId = null;
         try
@@ -2155,7 +2119,6 @@ public partial class CacheManagementService
                     operationId = id;
                     started.TrySetResult(id);
                 },
-                showNotification: showNotification,
                 notice: notice);
 
             // A last-moment conflict can still make the start path decline after the queue's
@@ -2195,7 +2158,6 @@ public partial class CacheManagementService
         string? datasource = null,
         CancellationToken cancellationToken = default,
         Action<Guid>? onScanStarted = null,
-        bool showNotification = true,
         RunNotice? notice = null)
     {
         // Per-datasource scans are always live - no caching
@@ -2239,7 +2201,7 @@ public partial class CacheManagementService
         {
             // A forced scan is either a queued manual refresh or the scheduled service.
             _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-            var freshResult = await RunFullScanAsync(allCachePaths, cancellationToken, onScanStarted, showNotification, notice);
+            var freshResult = await RunFullScanAsync(allCachePaths, cancellationToken, onScanStarted, notice);
             if (freshResult != null)
             {
                 var usedCacheSizeByMount = OperatingSystemDetector.IsWindows

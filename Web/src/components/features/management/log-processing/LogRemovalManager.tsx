@@ -10,8 +10,6 @@ import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
-import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
-import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useBulkRemoval, type LogBatchEntry } from '@contexts/BulkRemovalContext';
 import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -29,7 +27,11 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
@@ -141,12 +143,12 @@ const ServiceRow: React.FC<{
 interface LogRemovalManagerProps {
   authMode: AuthMode;
   mockMode: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
 }
 
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
-  const { notifications, isAnyRemovalRunning, addNotification } = useNotifications();
+  const { runs, isAnyRemovalRunning } = useNotifications();
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
@@ -200,11 +202,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     setSectionExpanded((prev) => !prev)
   );
 
-  // Track the last processed completion notification ID to prevent duplicate reloads
-  const lastProcessedCompletionRef = useRef<string | null>(null);
-
-  // Derive active log removal from notifications
-  const activeLogRemovalNotification = notifications.find(
+  // Derive active log removal from the server's run list
+  const activeLogRemovalNotification = runs.find(
     (n) => n.type === 'log_removal' && n.status === 'running'
   );
   const activeLogRemoval =
@@ -240,38 +239,30 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   // counts stale until remount. Refetch once the connection re-establishes.
   useReconnectRefetch(isConnected, () => void loadData(true));
 
-  // Listen for log removal completion via notifications to trigger reload
-  // Use ref to prevent duplicate processing of the same completion notification
   useEffect(() => {
-    // A cancelled removal is terminal too, and it has usually already deleted some entries,
-    // so it must reload the list exactly like a completed or failed one.
-    const completedLogRemoval = notifications.find(
-      (n) => n.type === 'log_removal' && isTerminalNotificationStatus(n.status)
-    );
+    // A canceled removal has usually already deleted some entries, so it must reload the
+    // list exactly like a completed or failed one.
+    const handleLogRemovalComplete = () => {
+      void loadData(true);
+    };
+    on('LogRemovalComplete', handleLogRemovalComplete);
+    return () => off('LogRemovalComplete', handleLogRemovalComplete);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on, off]);
 
-    if (completedLogRemoval && hasInitiallyLoaded) {
-      // Only reload if we haven't already processed this completion. Key on the per-run
-      // operationId - the notification id is the stable per-type 'log_removal', so keying
-      // on it would block every clear after the first one.
-      const completionKey = completedLogRemoval.details?.operationId ?? completedLogRemoval.id;
-      if (lastProcessedCompletionRef.current !== completionKey) {
-        lastProcessedCompletionRef.current = completionKey;
-        void loadData(true);
-      }
-    }
-
-    // Clear optimistic pending as soon as the matching running notification appears
+  // Clear optimistic pending as soon as the matching running removal appears
+  useEffect(() => {
     if (anyServiceRemovalPending && activeLogRemoval) {
       datasourceCounts.forEach((ds) => {
         const key = `${ds.datasource}:${activeLogRemoval}`;
-        clearServiceRemovalOnNotification(key, notifications, (n, k) => {
+        clearServiceRemovalOnNotification(key, runs, (n, k) => {
           const [, svc] = k.split(':');
           return n.type === 'log_removal' && n.status === 'running' && n.details?.service === svc;
         });
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifications, hasInitiallyLoaded]);
+  }, [runs]);
 
   const loadData = async (forceRefresh = false) => {
     // Mock mode has no logs behind it and every remove button in this card is already disabled
@@ -290,7 +281,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       // markFailed only stops the spinner, which on its own reads as "this card has no logs".
       console.error('Failed to load log data:', getErrorMessage(err));
       setLoadError(getErrorMessage(err));
-      onError?.(t('management.logRemoval.errors.loadFailed'));
       markFailed();
     }
   };
@@ -309,27 +299,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
       if (result?.queued || result?.alreadyRunning || result?.status === 'waiting') {
         // Wait-queue model: a queued/deduplicated response is a SUCCESS, not an error - the
-        // OperationWaiting purple card owns the UI until promotion. Release the button's
+        // run's purple waiting card owns the UI until promotion. Release the button's
         // optimistic pending now: the waiting card carries no per-service details, so the
         // running-notification matcher would never clear it.
         clearServiceRemovalPending(key);
-      } else if (result?.status === 'running' && result.operationId) {
-        addNotification(
-          buildSeededRunningNotification(
-            'log_removal',
-            result.operationId,
-            t('signalr.logRemoval.starting.default', {
-              service: getServiceDisplayName(serviceName)
-            }),
-            {
-              // Raw tag: notification matching and the backend operate on LogEntries.Service.
-              service: serviceName
-            }
-          )
-        );
       } else if (result && (result.status === 'running' || result.operationId)) {
-        // Accepted without a seedable shape (e.g. the queue's immediate-start path):
-        // SignalR Started/progress events own the card from here.
+        // Accepted: the server's run row opens the card.
       } else {
         onError?.(
           t('management.logRemoval.errors.unexpectedResponse', {
@@ -340,10 +315,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       }
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
-      const errorMessage = errMsg.includes('read-only')
-        ? t('management.logRemoval.errors.readOnly')
-        : errMsg;
-      onError?.(errorMessage);
+      onError?.(
+        t('management.logRemoval.errors.removeServiceFailed', {
+          service: getServiceDisplayName(serviceName)
+        }),
+        errMsg.includes('read-only') ? t('management.logRemoval.errors.readOnly') : err
+      );
       clearServiceRemovalPending(key);
     }
   };
@@ -374,10 +351,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       await loadData(true);
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
-      const errorMessage = errMsg.includes('read-only')
-        ? t('management.logRemoval.errors.readOnly')
-        : errMsg;
-      onError?.(errorMessage);
+      onError?.(
+        t('management.logRemoval.errors.deleteFailed'),
+        errMsg.includes('read-only') ? t('management.logRemoval.errors.readOnly') : err
+      );
     } finally {
       setDeletingLogFile(null);
     }
@@ -492,6 +469,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   // trigger from overflowing at 390px.
   const headerBadge = (
     <SectionHeaderActions>
+      {loadError !== null && !sectionExpanded && <SectionErrorChip />}
       {selection.count > 0 && (
         <SectionHeaderChip variant="neutral" className="badge-count">
           {selection.count}
@@ -811,7 +789,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           })}
         </p>
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">
             {t('management.logRemoval.modal.serviceSummary', {
               service: pendingServiceRemoval
@@ -863,7 +841,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           {t('management.batchSelect.confirmBody', { count: selection.count })}
         </p>
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.logRemoval.modal.batchSummary')}</p>
         </Alert>
       </ConfirmationModal>

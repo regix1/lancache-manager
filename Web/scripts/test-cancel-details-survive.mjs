@@ -36,25 +36,31 @@ export let cancelImpl = () => Promise.resolve({});
 export const setCancel = (fn) => {
   cancelImpl = fn;
 };
+export const sent = [];
 const ApiService = {
-  cancelOperation: (operationId) => cancelImpl(operationId),
+  cancelOperation: (operationId) => {
+    sent.push(operationId);
+    return cancelImpl(operationId);
+  },
   forceKillOperation: () => Promise.resolve({})
 };
 export default ApiService;`);
 
   const errorUrl = moduleUrl(`// ${nonce}
-export const isAbortError = (err) => err instanceof Error && err.name === 'AbortError';`);
+export const isAbortError = (err) => err instanceof Error && err.name === 'AbortError';
+export const getErrorMessage = (err) => err.message;`);
 
   const i18nUrl = moduleUrl(`// ${nonce}
 export default { t: (key) => key };`);
 
-  // The real map, compiled from source rather than stubbed, so the color assertions below run the
-  // whole path a card is drawn from: status -> badge variant -> color token.
+  // The real map, compiled from source rather than stubbed, so the variant assertions below run
+  // the whole path a card is drawn from: status -> badge variant.
   const statusVariantUrl = await compileToUrl('../src/utils/statusVariant.ts');
 
   const registryUrl = moduleUrl(`// ${nonce}
 export const NOTIFICATION_REGISTRY = [
-  { type: 'game_detection', cancelKind: 'serverOp', cancelTooltipKey: 'common.actions.cancel' }
+  { type: 'game_detection', cancelKind: 'serverOp', cancelTooltipKey: 'common.actions.cancel' },
+  { type: 'prefill_login', cancelKind: 'serverOp', cancelTooltipKey: 'common.actions.cancel' }
 ];`);
 
   const constantsUrl = moduleUrl(`// ${nonce}
@@ -91,13 +97,13 @@ export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`);
   };
 };
 
-/** A running game detection card holding the operation the click will cancel. */
+/** A running game detection run card holding the operation the click will cancel. */
 const runningCard = () => ({
   id: 'n1',
   type: 'game_detection',
   status: 'running',
   message: 'Detecting games',
-  details: { operationId: 'op-1' }
+  details: { operationId: 'op-1', operationIds: ['op-1'] }
 });
 
 const driveCancel = async (cancel, notifications, card) => {
@@ -106,7 +112,7 @@ const driveCancel = async (cancel, notifications, card) => {
     card,
     (id, updates) => applyUpdate(notifications, id, updates),
     (id) => removed.push(id),
-    (id) => notifications.find((n) => n.id === id)
+    () => notifications
   );
   return removed;
 };
@@ -161,46 +167,178 @@ test('a cancel the server accepts raises no failure toast', async () => {
   const removed = await driveCancel(cancel, notifications, notifications[0]);
 
   assert.deepEqual(toasts, [], 'a cancel that worked must not show a failure card');
-  assert.deepEqual(removed, [], 'the card stays until its own terminal event arrives');
+  assert.deepEqual(removed, [], 'the card stays until its own run row ends it');
   assert.equal(notifications[0].details.cancelSent, true);
+  assert.equal(notifications[0].status, 'cancelling');
 });
 
-test('a canceled card draws gray and only a failure draws red', async () => {
-  const { cancel } = await loadCancel('colors');
+test('a cancel answered after its card was merged into a newer run still settles that card', async () => {
+  const { cancel, api, toasts } = await loadCancel('promotion');
+  const notifications = [runningCard()];
+  const clicked = notifications[0];
 
-  // What the user asked for, at the one function both renderers color from: the full card reads it
-  // directly and the condensed strip is handed the result by the bar.
+  api.setCancel(
+    () =>
+      new Promise((resolve) => {
+        // Before the answer, the waiting run W (op-1) is promoted onto N (op-2), which was
+        // already running: the card becomes N's card, with N's OLDER card id, and lists both ids.
+        queueMicrotask(() => {
+          const merged = notifications[0];
+          notifications[0] = {
+            ...merged,
+            id: 'n0',
+            details: { ...merged.details, operationId: 'op-2', operationIds: ['op-2', 'op-1'] }
+          };
+          resolve({});
+        });
+      })
+  );
+  const removed = await driveCancel(cancel, notifications, clicked);
+
+  const card = notifications[0];
+  assert.equal(card.id, 'n0');
+  assert.equal(card.details.cancelPending, false, 'the answer clears the pending cancel');
+  assert.equal(card.status, 'cancelling');
+  // What the background row's Force stop reads: requested and sent, no longer loading.
+  assert.equal(card.details.cancelRequested, true);
+  assert.equal(card.details.cancelSent, true);
+  assert.deepEqual(removed, []);
+  assert.deepEqual(toasts, []);
+});
+
+test('an answer for an id no card lists changes nothing', async () => {
+  const { cancel, api, toasts } = await loadCancel('unlisted');
+  const notifications = [runningCard()];
+  const clicked = notifications[0];
+  let other;
+
+  api.setCancel(
+    () =>
+      new Promise((resolve) => {
+        queueMicrotask(() => {
+          // The run's card left, and another run's card took the slot.
+          other = {
+            ...runningCard(),
+            id: 'other',
+            details: { operationId: 'op-9', operationIds: ['op-9'] }
+          };
+          notifications[0] = other;
+          resolve({ alreadyFinished: true });
+        });
+      })
+  );
+  const removed = await driveCancel(cancel, notifications, clicked);
+
+  assert.deepEqual(removed, []);
+  assert.deepEqual(toasts, []);
+  assert.equal(notifications[0], other, 'no update reached the other run card');
+});
+
+test('a sign-in card is found by its own id when the answer lands', async () => {
+  // Steam and Xbox sign-in cards are local cards: only `details.operationId`, no merged ids.
+  const signIn = (service) => ({
+    id: `login-${service}`,
+    type: 'prefill_login',
+    status: 'running',
+    message: `${service} sign-in`,
+    details: { operationId: `login-op-${service}`, service }
+  });
+
+  for (const service of ['steam', 'xbox']) {
+    const accepted = await loadCancel(`login-accepted-${service}`);
+    const acceptedCards = [signIn(service)];
+    accepted.api.setCancel(() => Promise.resolve({ message: 'Cancellation requested' }));
+    await driveCancel(accepted.cancel, acceptedCards, acceptedCards[0]);
+    assert.equal(acceptedCards[0].details.cancelPending, false, `${service}: pending cleared`);
+    assert.equal(acceptedCards[0].status, 'cancelling', `${service}: shows cancelling`);
+    assert.deepEqual(accepted.toasts, []);
+
+    const failed = await loadCancel(`login-failed-${service}`);
+    const failedCards = [signIn(service)];
+    failed.api.setCancel(() => Promise.reject(new Error('Server unreachable')));
+    await driveCancel(failed.cancel, failedCards, failedCards[0]);
+    assert.deepEqual(
+      failed.toasts.map((toast) => toast.detail),
+      [
+        {
+          type: 'error',
+          message: 'common.notifications.cancelOperationFailed',
+          error: 'Server unreachable'
+        }
+      ],
+      `${service}: the failure raises the cancel error toast with its reason`
+    );
+    assert.equal(failedCards[0].details.cancelPending, false);
+    assert.equal(failedCards[0].details.cancelRequested, false);
+    assert.equal(failedCards[0].details.cancelSent, false);
+
+    const finished = await loadCancel(`login-finished-${service}`);
+    const finishedCards = [signIn(service)];
+    finished.api.setCancel(() => Promise.resolve({ message: 'done', alreadyFinished: true }));
+    const removed = await driveCancel(finished.cancel, finishedCards, finishedCards[0]);
+    assert.deepEqual(removed, [`login-${service}`], `${service}: a finished sign-in leaves`);
+  }
+});
+
+test('a card without an operation id sends no cancel', async () => {
+  const { cancel, api } = await loadCancel('no-id');
+  const notifications = [{ ...runningCard(), details: {} }];
+  await driveCancel(cancel, notifications, notifications[0]);
+  assert.deepEqual(api.sent, []);
+  assert.deepEqual(notifications[0].details, {});
+});
+
+test('a canceled card draws gray, a warning amber, and only a failure red', async () => {
+  const { cancel } = await loadCancel('variants');
+
+  // What the user asked for, at the one function both renderers take their status class from:
+  // the full card reads it directly and the condensed strip is handed the result by the bar.
   assert.equal(
-    cancel.getNotificationColor({
+    cancel.getNotificationVariant({
       id: 'n1',
       type: 'game_detection',
       status: 'cancelled',
       details: { cancelled: true }
     }),
-    'var(--theme-text-secondary)',
+    'neutral',
     'a run the user stopped is gray'
   );
   assert.equal(
-    cancel.getNotificationColor({
+    cancel.getNotificationVariant({
       id: 'n1',
       type: 'game_detection',
       status: 'cancelled',
       details: {}
     }),
-    'var(--theme-text-secondary)',
+    'neutral',
     'the status alone is enough, even with the details flag erased'
   );
   // The red the user was seeing came from a second card, not from the canceled one: the failure
   // branch raises a generic toast carrying an error type, which is the only thing here drawn red.
   assert.equal(
-    cancel.getNotificationColor({
+    cancel.getNotificationVariant({
       id: 'generic_x',
       type: 'generic',
       status: 'completed',
       details: { notificationType: 'error' }
     }),
-    'var(--theme-error)',
+    'error',
     'a genuine failure still reads red'
+  );
+  assert.equal(
+    cancel.getNotificationVariant({
+      id: 'scan',
+      type: 'eviction_scan',
+      status: 'completed',
+      details: { notificationType: 'warning' }
+    }),
+    'warning',
+    'a run that succeeded with a warning reads amber'
+  );
+  assert.equal(
+    cancel.getNotificationVariant({ id: 'n1', type: 'game_detection', status: 'cancelling' }),
+    'info',
+    'a status with no row of its own reads as running'
   );
 });
 

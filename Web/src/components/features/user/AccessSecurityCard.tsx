@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -7,9 +7,15 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
-import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -35,21 +41,24 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('guest-access-security', expanded, () => setExpanded((prev) => !prev));
   const [state, setState] = useState<GuestDurationResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const durationRequestRef = useRef(0);
 
-  const fetchGuestDuration = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        const data = await ApiService.getGuestSessionDuration(signal);
-        setState(data);
-      } catch (error: unknown) {
-        notifyError(t('user.guest.errors.loadSessionDuration'), error, {
-          logLabel: 'Failed to load guest session duration'
-        });
-      }
-    },
-    [notifyError, t]
-  );
+  const fetchGuestDuration = useCallback(async (signal?: AbortSignal) => {
+    // Mount, the duration event, reconnect and Retry can overlap; only the newest request writes
+    // the value or the error.
+    const request = ++durationRequestRef.current;
+    try {
+      const data = await ApiService.getGuestSessionDuration(signal);
+      if (request !== durationRequestRef.current) return;
+      setState(data);
+      setLoadError(null);
+    } catch (error: unknown) {
+      if (request !== durationRequestRef.current) return;
+      setLoadError(getErrorMessage(error));
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,6 +117,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
     return t('user.guest.guestDurationToggle.source.default');
   };
 
+  const showErrorChip = loadError !== null && !expanded;
   const dropdownDisabled = !isAdmin || isSaving || state === null;
   const dropdownTitle = !isAdmin ? t('user.guest.guestDurationToggle.adminRequired') : undefined;
 
@@ -134,70 +144,88 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
         isExpanded={expanded}
         onToggle={() => setExpanded((prev) => !prev)}
         badge={
-          durationBadgeLabel ? (
-            <SectionHeaderChip variant="neutral">{durationBadgeLabel}</SectionHeaderChip>
+          showErrorChip || durationBadgeLabel ? (
+            <SectionHeaderActions>
+              {showErrorChip && <SectionErrorChip />}
+              {durationBadgeLabel && (
+                <SectionHeaderChip variant="neutral">{durationBadgeLabel}</SectionHeaderChip>
+              )}
+            </SectionHeaderActions>
           ) : undefined
         }
       >
-        <div className="mgmt-list divided-list user-settings-list">
-          <div className="mgmt-row">
-            <div className="mgmt-row__body">
-              <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
-              {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
-            </div>
+        <div className="space-y-4">
+          {loadError !== null && (
+            <ErrorBlock
+              title={t('user.guest.errors.loadSessionDuration')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void fetchGuestDuration()}
+            />
+          )}
+          {/* With nothing read yet the row has no value to show, so the box stands alone */}
+          {(state !== null || loadError === null) && (
+            <div className="mgmt-list divided-list user-settings-list">
+              <div className="mgmt-row">
+                <div className="mgmt-row__body">
+                  <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
+                  {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
+                </div>
 
-            <div className="mgmt-row__actions">
-              {state === null ? (
-                <LoadingSpinner inline size="sm" />
-              ) : (
-                <>
-                  {(() => {
-                    const durationControl = (
-                      <span className="user-settings-dropdown">
-                        <EnhancedDropdown
-                          options={durationOptions}
-                          value={state.durationHours.toString()}
-                          onChange={handleDurationChange}
-                          disabled={dropdownDisabled}
+                <div className="mgmt-row__actions">
+                  {state === null ? (
+                    <LoadingSpinner inline size="sm" />
+                  ) : (
+                    <>
+                      {(() => {
+                        const durationControl = (
+                          <span className="user-settings-dropdown">
+                            <EnhancedDropdown
+                              options={durationOptions}
+                              value={state.durationHours.toString()}
+                              onChange={handleDurationChange}
+                              disabled={dropdownDisabled}
+                              size="md"
+                              className="w-40 control-h-md"
+                            />
+                            {isSaving && (
+                              <LoadingSpinner
+                                inline
+                                size="sm"
+                                className="user-settings-inline-spinner"
+                              />
+                            )}
+                          </span>
+                        );
+                        return dropdownTitle ? (
+                          <Tooltip content={dropdownTitle} position="top">
+                            {durationControl}
+                          </Tooltip>
+                        ) : (
+                          durationControl
+                        );
+                      })()}
+                      {isAdmin && (
+                        <Button
+                          variant="filled"
+                          color="secondary"
                           size="md"
-                          className="w-40 control-h-md"
-                        />
-                        {isSaving && (
-                          <LoadingSpinner
-                            inline
-                            size="sm"
-                            className="user-settings-inline-spinner"
-                          />
-                        )}
-                      </span>
-                    );
-                    return dropdownTitle ? (
-                      <Tooltip content={dropdownTitle} position="top">
-                        {durationControl}
-                      </Tooltip>
-                    ) : (
-                      durationControl
-                    );
-                  })()}
-                  {isAdmin && (
-                    <Button
-                      variant="filled"
-                      color="secondary"
-                      size="md"
-                      /* Matches the duration dropdown beside it: same w-40, and the same height at
-                       both tiers. The phone touch floor is carried by the shared button and
-                       control-h-md rules, so the pair no longer needs a per-tier height here. */
-                      className="w-40"
-                      disabled={state.source !== 'ui' || isSaving}
-                      onClick={handleResetToDefault}
-                    >
-                      {t('user.guest.guestDurationToggle.resetToDefault')}
-                    </Button>
+                          /* Matches the duration dropdown beside it: same w-40, and the same height at
+                           both tiers. The phone touch floor is carried by the shared button and
+                           control-h-md rules, so the pair no longer needs a per-tier height here. */
+                          className="w-40"
+                          disabled={state.source !== 'ui' || isSaving}
+                          onClick={handleResetToDefault}
+                        >
+                          {t('user.guest.guestDurationToggle.resetToDefault')}
+                        </Button>
+                      )}
+                    </>
                   )}
-                </>
-              )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </AccordionSection>
     </>

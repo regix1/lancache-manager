@@ -105,6 +105,10 @@ public sealed class GameImagesControllerCacheContractTests
             CreateDefaultProxy<IUnifiedOperationTracker>(),
             conflict,
             queue);
+        var fetchService = (GameImageFetchService)typeof(GameImagesController)
+            .GetField("_gameImageFetchService", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(controller)!;
+        fetchService.SetNotificationMode(NotificationMode.Hidden);
 
         var result = await controller.ClearImageCacheAsync(CancellationToken.None);
 
@@ -115,6 +119,11 @@ public sealed class GameImagesControllerCacheContractTests
         Assert.Equal(OperationType.GameImageFetch, queue.Type);
         Assert.Equal(ConflictScope.Bulk(), queue.Scope);
         Assert.Equal("Game Image Fetch", queue.DisplayName);
+        // The click waits the way the image fetch schedule's mode says a click is drawn. [104]
+        var notice = Assert.IsType<RunNotice>(queue.Notice);
+        Assert.Equal(NotificationMode.Hidden, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+        Assert.True(notice.HideNotification);
 
         // Nothing may start while the conflict stands - the queue owns the start path from here.
         Assert.False(passStarted.IsSet);
@@ -729,6 +738,7 @@ public sealed class GameImagesControllerCacheContractTests
         public OperationType? Type { get; private set; }
         public ConflictScope? Scope { get; private set; }
         public string? DisplayName { get; private set; }
+        public RunNotice? Notice { get; private set; }
 
         public Task<QueuedOperationResponse> EnqueueAsync(
             OperationType type,
@@ -737,19 +747,13 @@ public sealed class GameImagesControllerCacheContractTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            bool showWaitingCard = true,
             RunNotice? notice = null)
         {
             Type = type;
             Scope = scope;
             DisplayName = displayName;
+            Notice = notice;
             return Task.FromResult(response);
         }
-
-        public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
-
-        public bool IsWaiterSilent(Guid waitingOperationId) => false;
-
-        public bool IsWaiterHidden(Guid waitingOperationId) => false;
     }
 }

@@ -181,6 +181,7 @@ const { SteamAuthProvider } = await import(
     '@contexts/SignalRContext/useSignalR': signalRStubUrl,
     '@contexts/useAuth': authStubUrl,
     '@hooks/useReconnectRefetch': reconnectUrl,
+    '@utils/error': toUrl('export const getErrorMessage = (error) => String(error);'),
     './SteamAuthContext.types': contextStubUrl
   })
 );

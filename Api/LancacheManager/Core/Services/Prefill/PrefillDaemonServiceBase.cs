@@ -306,10 +306,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected virtual Task OnAuthenticatedAsync() => Task.CompletedTask;
 
     /// <summary>
-    /// Identifies which prefill daemon hub this service routes per-connection and broadcast
-    /// notifications to. Steam inherits "steam"; concrete services override for their hub
-    /// ("epic", "battlenet"). Used by <see cref="SendToClientAsync"/> and
-    /// <see cref="NotifyHubAsync"/> to avoid cross-hub event leakage.
+    /// Identifies which prefill daemon hub this service routes per-connection notifications to.
+    /// Steam inherits "steam"; concrete services override for their hub ("epic", "battlenet").
+    /// Used by <see cref="SendToClientAsync"/> to avoid cross-hub event leakage.
     /// </summary>
     protected virtual string HubRoutingTarget => "steam";
 
@@ -355,29 +354,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
-    /// Broadcasts a notification to the downloads hub and the correct daemon hub (Steam, Epic, or Battle.net).
-    /// Avoids sending service-specific events to the wrong daemon hub.
+    /// Sends a session event to that session's own subscribed connections and to the account holders'
+    /// management pages. No other browser receives it: a session's events carry its sign-in challenges.
     /// </summary>
-    protected async Task NotifyHubAsync(string eventName, object? data = null)
+    protected async Task NotifyHubAsync(DaemonSession session, string eventName, object body)
     {
-        switch (HubRoutingTarget)
-        {
-            case "epic":
-                await _notifications.NotifyEpicHubAsync(eventName, data);
-                break;
-            case "battlenet":
-                await _notifications.NotifyBattleNetHubAsync(eventName, data);
-                break;
-            case "riot":
-                await _notifications.NotifyRiotHubAsync(eventName, data);
-                break;
-            case "xbox":
-                await _notifications.NotifyXboxHubAsync(eventName, data);
-                break;
-            default:
-                await _notifications.NotifySteamHubAsync(eventName, data);
-                break;
-        }
+        await BroadcastToSubscribersAsync(session, eventName, body);
+        await _notifications.NotifyAdminAsync(eventName, body);
     }
 
     /// <summary>

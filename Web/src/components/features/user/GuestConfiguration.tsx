@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -7,9 +7,12 @@ import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { GroupHeading } from '@components/ui/GroupHeading';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { DefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
@@ -94,6 +97,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     allowedTimeFormats: [...TIME_SETTING_VALUES]
   });
   const [loadingDefaultPrefs, setLoadingDefaultPrefs] = useState(false);
+  const [defaultPrefsError, setDefaultPrefsError] = useState<string | null>(null);
+  const [prefillConfigError, setPrefillConfigError] = useState<string | null>(null);
+  const defaultPrefsRequestRef = useRef(0);
+  const prefillConfigRequestRef = useRef(0);
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
   const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
 
@@ -157,12 +164,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       ApiService.getJsonFetchOptions(clockFromTimeSetting(format), { method: 'PATCH' })
     );
 
-    if (response.ok) {
-      // The server normalizes before storing, so the stored clock is read back off the reply rather
-      // than assumed from what was sent.
-      const { clock } = (await response.json()) as { clock: ClockPreferences };
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({ ...prev, ...clock }));
-    }
+    await assertOk(response);
+    // The server normalizes before storing, so the stored clock is read back off the reply rather
+    // than assumed from what was sent.
+    const { clock } = (await response.json()) as { clock: ClockPreferences };
+    setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({ ...prev, ...clock }));
   };
 
   // Get current default time format from the boolean settings behind it.
@@ -194,30 +200,34 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   };
 
   const loadDefaultGuestPreferences = async () => {
+    // Mount, reconnect and Retry can overlap; only the newest request writes values or the error.
+    const request = ++defaultPrefsRequestRef.current;
     try {
       setLoadingDefaultPrefs(true);
       const response = await fetch(
         '/api/system/default-guest-preferences',
         ApiService.getFetchOptions()
       );
-      if (response.ok) {
-        const data = (await response.json()) as DefaultGuestPreferencesResponse;
-        setDefaultGuestPreferences({
-          useLocalTimezone: data.useLocalTimezone,
-          useUtcTimezone: data.useUtcTimezone ?? false,
-          use24HourFormat: data.use24HourFormat,
-          sharpCorners: data.sharpCorners,
-          disableTooltips: data.disableTooltips,
-          showDatasourceLabels: data.showDatasourceLabels,
-          allowedTimeFormats: data.allowedTimeFormats ?? [...TIME_SETTING_VALUES]
-        });
-      }
-    } catch (err) {
-      notifyError(t('user.guest.errors.loadPreferences'), err, {
-        logLabel: 'Failed to load default guest preferences'
+      await assertOk(response);
+      const preferences = (await response.json()) as DefaultGuestPreferencesResponse;
+      if (request !== defaultPrefsRequestRef.current) return;
+      setDefaultGuestPreferences({
+        useLocalTimezone: preferences.useLocalTimezone,
+        useUtcTimezone: preferences.useUtcTimezone ?? false,
+        use24HourFormat: preferences.use24HourFormat,
+        sharpCorners: preferences.sharpCorners,
+        disableTooltips: preferences.disableTooltips,
+        showDatasourceLabels: preferences.showDatasourceLabels,
+        allowedTimeFormats: preferences.allowedTimeFormats ?? [...TIME_SETTING_VALUES]
       });
+      setDefaultPrefsError(null);
+    } catch (err) {
+      if (request !== defaultPrefsRequestRef.current) return;
+      setDefaultPrefsError(getErrorMessage(err));
     } finally {
-      setLoadingDefaultPrefs(false);
+      if (request === defaultPrefsRequestRef.current) {
+        setLoadingDefaultPrefs(false);
+      }
     }
   };
 
@@ -230,19 +240,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         ApiService.getJsonFetchOptions({ value }, { method: 'PATCH' })
       );
 
-      if (response.ok) {
-        setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-          ...prev,
-          [key]: value
-        }));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.errors.updateDefault', { label: preferenceLabels[key] || key }),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update default guest preference' }
-        );
-      }
+      await assertOk(response);
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
+        ...prev,
+        [key]: value
+      }));
     } catch (err: unknown) {
       notifyError(
         t('user.guest.errors.updateDefault', { label: preferenceLabels[key] || key }),
@@ -298,25 +300,17 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         ApiService.getJsonFetchOptions({ formats }, { method: 'PATCH' })
       );
 
-      if (response.ok) {
-        // If current default is no longer in allowed list, update to first allowed format
-        const currentDefault = getCurrentDefaultFormat();
-        if (!formats.includes(currentDefault) && formats.length > 0) {
-          await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
-        }
-
-        setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-          ...prev,
-          allowedTimeFormats: formats
-        }));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.errors.updateAllowedTimeFormats'),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update allowed time formats' }
-        );
+      await assertOk(response);
+      // If current default is no longer in allowed list, update to first allowed format
+      const currentDefault = getCurrentDefaultFormat();
+      if (!formats.includes(currentDefault) && formats.length > 0) {
+        await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
       }
+
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
+        ...prev,
+        allowedTimeFormats: formats
+      }));
     } catch (err: unknown) {
       notifyError(t('user.guest.errors.updateAllowedTimeFormats'), err, {
         logLabel: 'Failed to update allowed time formats'
@@ -329,31 +323,42 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   // Guest prefill config load/update, driven by PREFILL_SERVICES. Only services that
   // support a thread cap send or read maxThreadCount; the anonymous ones never carry the
   // field on the wire, so it is omitted from their request body and pinned to null locally.
-  const loadPrefillConfig = async (service: PrefillServiceConfig) => {
+  const loadPrefillConfig = useCallback(async (service: PrefillServiceConfig, request: number) => {
     try {
       setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
         ...prev,
         [service.id]: true
       }));
       const configResponse = await fetch(service.guestConfigPath, ApiService.getFetchOptions());
-      if (configResponse.ok) {
-        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
-        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+      await assertOk(configResponse);
+      const config = (await configResponse.json()) as GuestPrefillConfigResponse;
+      if (request !== prefillConfigRequestRef.current) return;
+      setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+        ...prev,
+        [service.id]: toGuestPrefillConfig(service, config)
+      }));
+    } catch (err) {
+      if (request !== prefillConfigRequestRef.current) return;
+      setPrefillConfigError(getErrorMessage(err));
+    } finally {
+      if (request === prefillConfigRequestRef.current) {
+        setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
           ...prev,
-          [service.id]: toGuestPrefillConfig(service, data)
+          [service.id]: false
         }));
       }
-    } catch (err) {
-      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
-        logLabel: `Failed to load ${service.shortName} prefill config`
-      });
-    } finally {
-      setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
-        ...prev,
-        [service.id]: false
-      }));
     }
-  };
+  }, []);
+
+  // Mount, reconnect and Retry each reload every service as one batch, and batches can overlap;
+  // only the newest batch writes values, the error or the loading flags.
+  const loadPrefillConfigs = useCallback(() => {
+    const request = ++prefillConfigRequestRef.current;
+    setPrefillConfigError(null);
+    for (const service of PREFILL_SERVICES) {
+      void loadPrefillConfig(service, request);
+    }
+  }, [loadPrefillConfig]);
 
   const updatePrefillConfig = async (
     service: PrefillServiceConfig,
@@ -377,21 +382,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         ApiService.getJsonFetchOptions(body, { method: 'POST' })
       );
 
-      if (response.ok) {
-        const data = (await response.json()) as GuestPrefillConfigResponse;
-        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
-          ...prev,
-          [service.id]: toGuestPrefillConfig(service, data)
-        }));
-        showToast('success', t('user.guest.prefill.updated'));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.prefill.errors.update'),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: `Failed to update ${service.shortName} prefill config` }
-        );
-      }
+      await assertOk(response);
+      const config = (await response.json()) as GuestPrefillConfigResponse;
+      setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+        ...prev,
+        [service.id]: toGuestPrefillConfig(service, config)
+      }));
+      showToast('success', t('user.guest.prefill.updated'));
     } catch (err: unknown) {
       notifyError(t('user.guest.prefill.errors.update'), err, {
         logLabel: `Failed to update ${service.shortName} prefill config`
@@ -425,9 +422,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   // Refresh guest defaults when SignalR reconnects (catches config events missed during disconnect)
   useReconnectRefetch(isConnected, () => {
     loadDefaultGuestPreferences();
-    for (const service of PREFILL_SERVICES) {
-      loadPrefillConfig(service);
-    }
+    loadPrefillConfigs();
   });
 
   useEffect(() => {
@@ -443,9 +438,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       handler: (data: GuestPrefillConfigChangedPayload) => handlePrefillConfigChanged(service, data)
     }));
 
-    for (const service of PREFILL_SERVICES) {
-      loadPrefillConfig(service);
-    }
+    loadPrefillConfigs();
     for (const subscription of serviceSubscriptions) {
       on(subscription.eventName, subscription.handler);
     }
@@ -457,13 +450,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         off(subscription.eventName, subscription.handler);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     on,
     off,
     handleDefaultGuestPreferencesChanged,
     handleAllowedTimeFormatsChanged,
-    handlePrefillConfigChanged
+    handlePrefillConfigChanged,
+    loadPrefillConfigs
   ]);
 
   const helpAccessory = (
@@ -503,6 +496,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           count={enabledPrefillCount}
           badge={
             <SectionHeaderActions>
+              {prefillConfigError !== null && !prefillSectionExpanded && <SectionErrorChip />}
               <SectionActionsMenu label={t('management.actions.menuLabel')}>
                 {(close) => (
                   <ActionMenuItem
@@ -529,65 +523,86 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           }
         >
           <div className="space-y-4">
+            {prefillConfigError !== null && (
+              <ErrorBlock
+                title={t('user.guest.prefill.errors.loadConfig')}
+                message={prefillConfigError}
+                retryLabel={t('common.retry')}
+                onRetry={loadPrefillConfigs}
+              />
+            )}
             <p className="text-xs text-themed-muted">
               {t('user.guest.prefill.existingGuestsNote')}
             </p>
-            <div className="user-settings-service-sections">
-              {PREFILL_SERVICES.map((service: PrefillServiceConfig) => (
-                <PrefillServicePanel
-                  key={service.id}
-                  serviceName={service.displayName}
-                  serviceIcon={service.icon}
-                  iconColor={service.colorVar}
-                  config={prefillConfigs[service.id]}
-                  onToggleEnabled={() => handleToggleEnabled(service)}
-                  onDurationChange={(hours: number) => handleDurationChange(service, hours)}
-                  onMaxThreadsChange={(threads: number | null) =>
-                    handleMaxThreadsChange(service, threads)
-                  }
-                  loading={loadingPrefillConfigs[service.id]}
-                  updating={updatingPrefillConfigs[service.id]}
-                  warningText={t('user.guest.prefill.warning')}
-                  durationLabel={t('user.guest.prefill.duration.label')}
-                  durationHelpText={t('user.guest.prefill.duration.description')}
-                  maxThreadsLabel={
-                    service.supportsMaxThreads
-                      ? t('user.guest.prefill.maxThreads.label')
-                      : undefined
-                  }
-                  enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                  enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                  serviceDescription={serviceDescriptions[service.id]}
-                  prefillDurationOptions={prefillDurationOptions}
-                  maxThreadOptions={service.supportsMaxThreads ? maxThreadOptions : undefined}
-                  showMaxThreads={service.supportsMaxThreads}
-                  isExpanded={prefillServiceExpanded[service.id]}
-                  onToggle={() => togglePrefillService(service.id)}
-                />
-              ))}
-            </div>
+            {/* The panels start at default values, so a failed read shows only the box above */}
+            {prefillConfigError === null && (
+              <div className="user-settings-service-sections">
+                {PREFILL_SERVICES.map((service: PrefillServiceConfig) => (
+                  <PrefillServicePanel
+                    key={service.id}
+                    serviceName={service.displayName}
+                    serviceIcon={service.icon}
+                    iconColor={service.colorVar}
+                    config={prefillConfigs[service.id]}
+                    onToggleEnabled={() => handleToggleEnabled(service)}
+                    onDurationChange={(hours: number) => handleDurationChange(service, hours)}
+                    onMaxThreadsChange={(threads: number | null) =>
+                      handleMaxThreadsChange(service, threads)
+                    }
+                    loading={loadingPrefillConfigs[service.id]}
+                    updating={updatingPrefillConfigs[service.id]}
+                    warningText={t('user.guest.prefill.warning')}
+                    durationLabel={t('user.guest.prefill.duration.label')}
+                    durationHelpText={t('user.guest.prefill.duration.description')}
+                    maxThreadsLabel={
+                      service.supportsMaxThreads
+                        ? t('user.guest.prefill.maxThreads.label')
+                        : undefined
+                    }
+                    enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                    enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                    serviceDescription={serviceDescriptions[service.id]}
+                    prefillDurationOptions={prefillDurationOptions}
+                    maxThreadOptions={service.supportsMaxThreads ? maxThreadOptions : undefined}
+                    showMaxThreads={service.supportsMaxThreads}
+                    isExpanded={prefillServiceExpanded[service.id]}
+                    onToggle={() => togglePrefillService(service.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </AccordionSection>
 
-        <AppearanceDisplayCard
-          defaultGuestTheme={defaultGuestTheme}
-          onGuestThemeChange={onGuestThemeChange}
-          updatingGuestTheme={updatingGuestTheme}
-          availableThemes={availableThemes}
-          defaultGuestRefreshRate={defaultGuestRefreshRate}
-          onGuestRefreshRateChange={onGuestRefreshRateChange}
-          updatingGuestRefreshRate={updatingGuestRefreshRate}
-          guestRefreshRateLocked={guestRefreshRateLocked}
-          onGuestRefreshRateLockChange={onGuestRefreshRateLockChange}
-          updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
-          refreshRateOptions={translatedRefreshRateOptions}
-          defaultGuestPreferences={defaultGuestPreferences}
-          onUpdateDefaultPref={handleUpdateDefaultGuestPref}
-          updatingDefaultPref={updatingDefaultPref}
-          loadingDefaultPrefs={loadingDefaultPrefs}
-          onAllowedFormatsChange={handleAllowedFormatsChange}
-          updatingAllowedFormats={updatingAllowedFormats}
-        />
+        {/* The card starts at default values, so a failed read shows the box in its place */}
+        {defaultPrefsError !== null ? (
+          <ErrorBlock
+            title={t('user.guest.errors.loadPreferences')}
+            message={defaultPrefsError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void loadDefaultGuestPreferences()}
+          />
+        ) : (
+          <AppearanceDisplayCard
+            defaultGuestTheme={defaultGuestTheme}
+            onGuestThemeChange={onGuestThemeChange}
+            updatingGuestTheme={updatingGuestTheme}
+            availableThemes={availableThemes}
+            defaultGuestRefreshRate={defaultGuestRefreshRate}
+            onGuestRefreshRateChange={onGuestRefreshRateChange}
+            updatingGuestRefreshRate={updatingGuestRefreshRate}
+            guestRefreshRateLocked={guestRefreshRateLocked}
+            onGuestRefreshRateLockChange={onGuestRefreshRateLockChange}
+            updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
+            refreshRateOptions={translatedRefreshRateOptions}
+            defaultGuestPreferences={defaultGuestPreferences}
+            onUpdateDefaultPref={handleUpdateDefaultGuestPref}
+            updatingDefaultPref={updatingDefaultPref}
+            loadingDefaultPrefs={loadingDefaultPrefs}
+            onAllowedFormatsChange={handleAllowedFormatsChange}
+            updatingAllowedFormats={updatingAllowedFormats}
+          />
+        )}
       </div>
     </div>
   );

@@ -106,8 +106,8 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
 
       {/* One sentence rather than the six bullets this used to be. The old list spelled out the
           record tables and where progress appears, which is not what the reader is deciding. */}
-      <Alert color="yellow">
-        <p className="text-xs">
+      <Alert color="yellow" icon={null}>
+        <p className="text-sm">
           {summary}
           {!isEvictedRemoval && isGame && depotCount > 0
             ? ` ${t('modals.cacheRemoval.depotScope', { count: depotCount })}`

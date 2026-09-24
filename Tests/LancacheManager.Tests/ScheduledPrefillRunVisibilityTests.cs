@@ -1,5 +1,6 @@
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
@@ -10,14 +11,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Covers run-level notification visibility for a scheduled-prefill run that spans several due
-/// platforms with different per-platform NotificationModes. The visibility flag is computed ONCE for
-/// the whole run (an OR across the due platforms' modes for the current trigger) and stamped verbatim
-/// into the Started event, every per-platform progress event, and the terminal event - so a silent
-/// child can never remove a visible sibling's card, and the terminal never disagrees with the Started
-/// visibility (the stuck-visible-card defect). The run reaches its per-service progress events without
-/// any daemon registered: an unresolved daemon emits a "skipped" progress event and returns, which is
-/// enough to observe the stamped flag on every lifecycle event.
+/// Covers how a scheduled-prefill run that spans several due platforms with different
+/// NotificationModes decides what shows: each platform run is admitted with its own notice (its
+/// schedule's mode and the tick's trigger), the run-level container that groups them never becomes a
+/// row, and no lifecycle event carries a visibility of its own. The run reaches its per-service
+/// events without any daemon registered: an unresolved daemon emits a "skipped" progress event and
+/// returns, which is enough to observe every registration and every event.
 /// </summary>
 public class ScheduledPrefillRunVisibilityTests
 {
@@ -33,90 +32,145 @@ public class ScheduledPrefillRunVisibilityTests
         Assert.Equal(bytes > 0, result.Context?.ContainsKey("bytes") == true);
     }
 
-    public static IEnumerable<object[]> VisibilityCases()
-    {
-        // One visible + one silent -> the run's card is visible (OR is true), regardless of order.
-        yield return new object[] { NotificationMode.All, NotificationMode.Silent, true, false };
-        yield return new object[] { NotificationMode.Silent, NotificationMode.All, true, false };
-        // Every due platform silent -> the whole run is silent.
-        yield return new object[] { NotificationMode.Silent, NotificationMode.Silent, false, false };
-        // Hidden and scheduled Manual-only children disappear. The aggregate disappears when every
-        // due platform disappears.
-        yield return new object[] { NotificationMode.Hidden, NotificationMode.Hidden, false, true };
-        yield return new object[] { NotificationMode.Manual, NotificationMode.Manual, false, true };
-        yield return new object[] { NotificationMode.Manual, NotificationMode.Hidden, false, true };
-        yield return new object[] { NotificationMode.Hidden, NotificationMode.Silent, false, false };
-        yield return new object[] { NotificationMode.Manual, NotificationMode.Silent, false, false };
-        yield return new object[] { NotificationMode.All, NotificationMode.Hidden, true, false };
-        yield return new object[] { NotificationMode.All, NotificationMode.Manual, true, false };
-    }
-
     [Theory]
-    [MemberData(nameof(VisibilityCases))]
-    public async Task ExecuteWorkAsync_StampsRunLevelVisibilityOnEveryLifecycleEvent(
+    [InlineData(NotificationMode.All, NotificationMode.Silent, RunTrigger.Scheduled)]
+    [InlineData(NotificationMode.Silent, NotificationMode.All, RunTrigger.Manual)]
+    [InlineData(NotificationMode.Manual, NotificationMode.Manual, RunTrigger.Scheduled)]
+    [InlineData(NotificationMode.Manual, NotificationMode.Silent, RunTrigger.Manual)]
+    [InlineData(NotificationMode.Manual, NotificationMode.Hidden, RunTrigger.RunAll)]
+    [InlineData(NotificationMode.Hidden, NotificationMode.All, RunTrigger.Startup)]
+    public async Task ExecuteWorkAsync_AdmitsEachPlatformRunWithItsOwnNotice(
         NotificationMode steamMode,
         NotificationMode epicMode,
-        bool expectedVisible,
-        bool expectedHidden)
+        RunTrigger trigger)
     {
         var recorder = (RecordingNotificationsProxy)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        var tracker = (NoopTrackerProxy)DispatchProxy.Create<IUnifiedOperationTracker, NoopTrackerProxy>();
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+
+        var tracking = await RunTickAsync(BuildMixedConfig(steamMode, epicMode), lastRun: null, trigger, recorder, tracker);
+
+        var operations = tracking.Registered.Select(id => tracker.GetOperation(id)!).ToList();
+        var rows = tracker.GetRuns().Runs;
+
+        // The run-level container groups the tick's platforms; it has no notice and never becomes a row.
+        var container = Assert.Single(operations, operation => operation.Metadata is ScheduledPrefillOperationMetadata);
+        Assert.Null(container.Notice);
+        Assert.DoesNotContain(rows, row => row.OperationId == container.Id);
+
+        foreach (var (platform, mode) in new[] { (PrefillPlatform.Steam, steamMode), (PrefillPlatform.Epic, epicMode) })
+        {
+            var operation = Assert.Single(operations, candidate =>
+                candidate.Metadata is ScheduledPrefillServiceRunState runState && runState.ServiceId == platform);
+            var state = (ScheduledPrefillServiceRunState)operation.Metadata!;
+            Assert.Same(state.Notice, operation.Notice);
+            Assert.Equal(mode, state.Notice.Mode);
+            Assert.Equal(trigger, state.Notice.Trigger);
+            Assert.Contains(rows, row => row.OperationId == operation.Id);
+        }
+
+        // A run emits a Started and a Completed per due service beside its own run-level pair, so each
+        // service's card opens and closes on its own timing. None of them carries a visibility: the
+        // row alone decides how the run shows.
+        Assert.NotEmpty(recorder.Events);
+        Assert.All(recorder.Events, captured => Assert.False(captured.CarriesVisibility));
+        var started = recorder.Events.Where(captured => captured.EventName == SignalREvents.ScheduledPrefillStarted).ToList();
+        var completed = recorder.Events.Where(captured => captured.EventName == SignalREvents.ScheduledPrefillCompleted).ToList();
+        Assert.Equal(3, started.Count);
+        Assert.Equal(started.Count, completed.Count);
+    }
+
+    /// <summary>
+    /// Run All starts every enabled prefill schedule, including one that is not due yet, exactly as
+    /// Run Now does; an automatic tick leaves a schedule that ran moments ago alone.
+    /// </summary>
+    [Theory]
+    [InlineData(RunTrigger.Scheduled, 0)]
+    [InlineData(RunTrigger.Startup, 0)]
+    [InlineData(RunTrigger.Manual, 2)]
+    [InlineData(RunTrigger.RunAll, 2)]
+    public async Task ExecuteWorkAsync_RunAllSkipsTheDueCheckLikeManual(RunTrigger trigger, int expectedPlatformRuns)
+    {
+        var recorder = (RecordingNotificationsProxy)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+
+        var tracking = await RunTickAsync(BuildMixedConfig(NotificationMode.All, NotificationMode.All),
+            lastRun: DateTime.UtcNow, trigger, recorder, tracker);
+
+        var platformRuns = tracking.Registered
+            .Select(id => tracker.GetOperation(id)!.Metadata)
+            .OfType<ScheduledPrefillServiceRunState>()
+            .ToList();
+        Assert.Equal(expectedPlatformRuns, platformRuns.Count);
+        Assert.All(platformRuns, state => Assert.Equal(trigger, state.Notice.Trigger));
+    }
+
+    /// <summary>
+    /// A Run Now on one schedule is admitted with that schedule's mode and a manual trigger.
+    /// </summary>
+    [Theory]
+    [InlineData(NotificationMode.Manual)]
+    [InlineData(NotificationMode.Hidden)]
+    public async Task TriggerServiceRun_AdmitsTheRunWithAManualNotice(NotificationMode steamMode)
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var scopeServices = new ServiceCollection();
+        scopeServices.AddSingleton((ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>());
+        scopeServices.AddSingleton<IUnifiedOperationTracker>(tracker);
+        using var root = scopeServices.BuildServiceProvider();
+        var stateService = (IStateService)DispatchProxy.Create<IStateService, MixedModeStateServiceProxy>();
+        ((MixedModeStateServiceProxy)stateService).Config = BuildMixedConfig(steamMode, NotificationMode.All);
+        using var service = new ScheduledPrefillService(
+            NullLogger<ScheduledPrefillService>.Instance,
+            root.GetRequiredService<IServiceScopeFactory>(),
+            stateService);
+
+        var operationId = service.TriggerServiceRun(
+            PrefillPlatform.Steam, ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam));
+        await service.StopAsync(CancellationToken.None);
+
+        var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(operationId!.Value));
+        var state = Assert.IsType<ScheduledPrefillServiceRunState>(operation.Metadata);
+        Assert.Same(state.Notice, operation.Notice);
+        Assert.Equal(steamMode, state.Notice.Mode);
+        Assert.Equal(RunTrigger.Manual, state.Notice.Trigger);
+    }
+
+    /// <summary>
+    /// Runs one scheduler tick under <paramref name="trigger"/> against the real tracker and returns
+    /// the proxy that recorded every operation the tick registered.
+    /// </summary>
+    private static async Task<ScheduleTracker> RunTickAsync(
+        ScheduledPrefillConfigDto config,
+        DateTime? lastRun,
+        RunTrigger trigger,
+        RecordingNotificationsProxy recorder,
+        UnifiedOperationTracker tracker)
+    {
+        var trackerProxy = DispatchProxy.Create<IUnifiedOperationTracker, ScheduleTracker>();
+        var tracking = (ScheduleTracker)(object)trackerProxy;
+        tracking.Tracker = tracker;
 
         var scopeServices = new ServiceCollection();
         scopeServices.AddSingleton((ISignalRNotificationService)recorder);
-        scopeServices.AddSingleton((IUnifiedOperationTracker)tracker);
+        scopeServices.AddSingleton(trackerProxy);
         using var scopeProvider = scopeServices.BuildServiceProvider();
 
         var stateService = (IStateService)DispatchProxy.Create<IStateService, MixedModeStateServiceProxy>();
-        ((MixedModeStateServiceProxy)stateService).Config = BuildMixedConfig(steamMode, epicMode);
+        ((MixedModeStateServiceProxy)stateService).Config = config;
+        ((MixedModeStateServiceProxy)stateService).LastRun = lastRun;
 
-        var service = new ScheduledPrefillService(
+        using var service = new ScheduledPrefillService(
             NullLogger<ScheduledPrefillService>.Instance,
             scopeProvider.GetRequiredService<IServiceScopeFactory>(),
             stateService);
+        typeof(ScheduledPrefillService)
+            .GetProperty("CurrentRunTrigger", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, trigger);
 
         var executeWork = typeof(ScheduledPrefillService)
             .GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
         await (Task)executeWork.Invoke(service, new object[] { CancellationToken.None })!;
-        service.Dispose();
-
-        // The aggregate run is visible when any child is visible. Each child's own lifecycle follows
-        // that named record's mode, so a silent record cannot open its own card.
-        Assert.NotEmpty(recorder.Events);
-        Assert.All(
-            recorder.Events.Where(e => e.ServiceId is null),
-            e =>
-            {
-                Assert.Equal(expectedVisible, e.ShowNotification);
-                Assert.Equal(expectedHidden, e.HideNotification);
-            });
-        Assert.All(
-            recorder.Events.Where(e => e.ServiceId == PrefillPlatform.Steam.ToString()),
-            e =>
-            {
-                Assert.Equal(steamMode == NotificationMode.All, e.ShowNotification);
-                Assert.Equal(
-                    steamMode is NotificationMode.Hidden or NotificationMode.Manual,
-                    e.HideNotification);
-            });
-        Assert.All(
-            recorder.Events.Where(e => e.ServiceId == PrefillPlatform.Epic.ToString()),
-            e =>
-            {
-                Assert.Equal(epicMode == NotificationMode.All, e.ShowNotification);
-                Assert.Equal(
-                    epicMode is NotificationMode.Hidden or NotificationMode.Manual,
-                    e.HideNotification);
-            });
-
-        // A run emits a Started and a Completed per due service beside its own run-level pair, so each
-        // service's card opens and closes on its own timing. Every one of them carries the run-level
-        // flag, and the counts match: a card that opened and never closed is the stuck-card defect.
-        var started = recorder.Events.Where(e => e.EventName == SignalREvents.ScheduledPrefillStarted).ToList();
-        var completed = recorder.Events.Where(e => e.EventName == SignalREvents.ScheduledPrefillCompleted).ToList();
-        Assert.Equal(3, started.Count);
-        Assert.Equal(started.Count, completed.Count);
+        return tracking;
     }
 
     /// <summary>
@@ -146,13 +200,14 @@ public class ScheduledPrefillRunVisibilityTests
             new ScheduledPrefillServiceRunState(
                 serviceConfig.ServiceId,
                 serviceConfig.ScheduleId,
-                serviceConfig.ScheduleName, true),
+                serviceConfig.ScheduleName,
+                new RunNotice(NotificationMode.All, RunTrigger.Manual)),
             CancellationToken.None);
 
         var complete = typeof(ScheduledPrefillService)
             .GetMethod("CompleteServiceRunAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
         // The trailing null is the thrown-failure message, which only the throwing path supplies.
-        await (Task)complete.Invoke(null, new object?[] { serviceRun, tracker, (ISignalRNotificationService)recorder, result, true, null })!;
+        await (Task)complete.Invoke(null, new object?[] { serviceRun, tracker, (ISignalRNotificationService)recorder, result, null })!;
 
         var completed = Assert.Single(recorder.Events);
         Assert.Equal(SignalREvents.ScheduledPrefillCompleted, completed.EventName);
@@ -212,16 +267,15 @@ public class ScheduledPrefillRunVisibilityTests
 
     private sealed record CapturedEvent(
         string EventName,
-        bool ShowNotification,
-        bool HideNotification,
-        string? ServiceId,
+        bool CarriesVisibility,
         string? Status,
         bool? Success);
 
     /// <summary>
-    /// Records the event name, the <c>showNotification</c> field, and the wire <c>status</c> and
-    /// <c>success</c> (null when the payload has none) of every <c>NotifyAllAsync</c> payload the
-    /// scheduled-prefill orchestrator emits. Every other member returns its type default.
+    /// Records the event name, whether the payload has a visibility field (any name ending in
+    /// "Notification"), and the wire <c>status</c> and <c>success</c> (null when the
+    /// payload has none) of every <c>NotifyAllAsync</c> payload the scheduled-prefill orchestrator
+    /// emits. Every other member returns its type default.
     /// Not sealed: DispatchProxy.Create derives a runtime subclass.
     /// </summary>
     private class RecordingNotificationsProxy : DispatchProxy
@@ -239,16 +293,15 @@ public class ScheduledPrefillRunVisibilityTests
             if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
                 && args is { Length: >= 2 }
                 && args[0] is string eventName
-                && args[1] is { } payload
-                && payload.GetType().GetProperty("showNotification")?.GetValue(payload) is bool showNotification)
+                && args[1] is { } payload)
             {
-                var hideNotification = payload.GetType().GetProperty("hideNotification")?.GetValue(payload) is true;
+                var carriesVisibility = payload.GetType().GetProperties()
+                    .Any(property => property.Name.EndsWith("Notification", StringComparison.Ordinal));
                 var status = payload.GetType().GetProperty("status")?.GetValue(payload) as string;
-                var serviceId = payload.GetType().GetProperty("serviceId")?.GetValue(payload) as string;
                 var success = payload.GetType().GetProperty("success")?.GetValue(payload) as bool?;
                 lock (_sync)
                 {
-                    _events.Add(new CapturedEvent(eventName, showNotification, hideNotification, serviceId, status, success));
+                    _events.Add(new CapturedEvent(eventName, carriesVisibility, status, success));
                 }
             }
 
@@ -275,18 +328,24 @@ public class ScheduledPrefillRunVisibilityTests
 
     /// <summary>
     /// IStateService stub whose <c>GetScheduledPrefillConfig</c> returns the mixed-mode config under
-    /// test; per-service last-run getters return null (so every enabled service is due this tick) and
-    /// every other member returns its type default.
+    /// test; the per-service last-run getter returns <see cref="LastRun"/> (null makes every enabled
+    /// service due this tick) and every other member returns its type default.
     /// </summary>
     private class MixedModeStateServiceProxy : DispatchProxy
     {
         public ScheduledPrefillConfigDto? Config { get; set; }
+        public DateTime? LastRun { get; set; }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillConfig))
             {
                 return Config ?? ScheduledPrefillConfigFactory.CreateDefault();
+            }
+
+            if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillServiceLastRun))
+            {
+                return LastRun;
             }
 
             return DefaultReturnValue(targetMethod);

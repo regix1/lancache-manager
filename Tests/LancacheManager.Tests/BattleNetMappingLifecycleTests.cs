@@ -39,7 +39,8 @@ public sealed class BattleNetMappingLifecycleTests
             tracker,
             NullLogger<BattleNetMappingService>.Instance);
 
-        var resolved = await service.ResolveDownloadsAsync();
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
+        var resolved = await service.ResolveDownloadsAsync(notice);
         await notifications.Terminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(1, resolved);
@@ -53,9 +54,7 @@ public sealed class BattleNetMappingLifecycleTests
         Assert.NotEmpty(progress);
         Assert.All(progress, item => Assert.Equal(started.OperationId, item.OperationId));
         Assert.Equal(started.OperationId, complete.OperationId);
-        Assert.True(started.HideNotification);
-        Assert.All(progress, item => Assert.True(item.HideNotification));
-        Assert.True(complete.HideNotification);
+        Assert.Same(notice, tracker.GetOperation(started.OperationId)!.Notice);
         Assert.True(complete.Success);
         Assert.Equal(OperationStatus.Completed, complete.Status);
         Assert.Contains(
@@ -67,7 +66,7 @@ public sealed class BattleNetMappingLifecycleTests
             item.EventName is SignalREvents.BattleNetMappingStarted
                 or SignalREvents.BattleNetMappingProgress
                 or SignalREvents.BattleNetMappingComplete);
-        Assert.Equal(0, await service.ResolveDownloadsAsync());
+        Assert.Equal(0, await service.ResolveDownloadsAsync(notice));
         Assert.Equal(
             lifecycleCount,
             notifications.Events.Count(item =>
@@ -103,8 +102,9 @@ public sealed class BattleNetMappingLifecycleTests
             tracker,
             NullLogger<BattleNetMappingService>.Instance);
 
-        Assert.Equal(0, await service.ResolveDownloadsAsync());
-        Assert.Equal(0, await service.ResolveDownloadsAsync());
+        var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
+        Assert.Equal(0, await service.ResolveDownloadsAsync(notice));
+        Assert.Equal(0, await service.ResolveDownloadsAsync(notice));
         Assert.DoesNotContain(
             notifications.Events,
             item => item.EventName is SignalREvents.BattleNetMappingStarted
@@ -168,14 +168,9 @@ public sealed class BattleNetMappingLifecycleTests
 
         public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifySteamHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyEpicHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyBattleNetHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyRiotHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyXboxHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyAdminAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGuestAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGroupAsync(string groupName, string eventName, object? data = null) => Task.CompletedTask;

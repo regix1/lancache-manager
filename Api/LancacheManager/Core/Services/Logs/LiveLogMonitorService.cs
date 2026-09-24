@@ -181,7 +181,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             }
         }
 
-        _logger.LogInformation("LiveLogMonitorService started - monitoring {Count} datasource(s) for new entries (silent mode enabled)", datasources.Count);
+        _logger.LogInformation("LiveLogMonitorService started - monitoring {Count} datasource(s) for new entries as live ingest", datasources.Count);
 
         await Task.CompletedTask;
     }
@@ -380,13 +380,13 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
                 try
                 {
-                    // Start the Rust processor in SILENT MODE. Per-stem offsets come from the
+                    // Start the Rust processor as live ingest. Per-stem offsets come from the
                     // positions file the processor service writes from persisted checkpoints;
                     // the legacy start position argument is ignored in multi-source mode.
                     var success = await _rustLogProcessorService.StartProcessingAsync(
                         datasource.LogPath,
                         startPosition: 0,
-                        silentMode: true,
+                        liveIngest: true,
                         datasourceName: datasource.Name);
 
                     if (success)

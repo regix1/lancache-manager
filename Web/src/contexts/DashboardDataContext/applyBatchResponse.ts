@@ -145,3 +145,16 @@ export function applyDashboardBatchResponse(
 
   return { next, hadPartialFailure: failedSectionKeys.length > 0, failedSectionKeys };
 }
+
+/**
+ * The failed sections whose slice holds no confirmed value for the range on screen: a range
+ * change cleared it, or the same range kept a value that an earlier apply had already failed.
+ * Only these still report failure while the connection is lost.
+ */
+export function unconfirmedSections(
+  previous: (keyof DashboardBatchResponse)[],
+  failedSectionKeys: (keyof DashboardBatchResponse)[],
+  sameRange: boolean
+): (keyof DashboardBatchResponse)[] {
+  return sameRange ? failedSectionKeys.filter((key) => previous.includes(key)) : failedSectionKeys;
+}

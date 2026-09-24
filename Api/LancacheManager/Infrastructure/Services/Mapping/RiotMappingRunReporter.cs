@@ -17,8 +17,7 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
     private readonly IUnifiedOperationTracker _tracker;
     private readonly ILogger _logger;
     private readonly CancellationToken _sourceToken;
-    private readonly bool _showNotification;
-    private readonly bool _hideNotification;
+    private readonly RunNotice _notice;
     private readonly Action _cancelOwner;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -34,16 +33,14 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
         IUnifiedOperationTracker tracker,
         ILogger logger,
         CancellationToken sourceToken,
-        bool showNotification,
-        bool hideNotification,
+        RunNotice notice,
         Action cancelOwner)
     {
         _notifications = notifications;
         _tracker = tracker;
         _logger = logger;
         _sourceToken = sourceToken;
-        _showNotification = showNotification;
-        _hideNotification = hideNotification;
+        _notice = notice;
         _cancelOwner = cancelOwner;
     }
 
@@ -68,10 +65,9 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
                     _notifications,
                     _tracker,
                     MappingOperations.Riot,
-                    _showNotification,
+                    _notice,
                     _sourceToken,
-                    _logger,
-                    hideNotification: _hideNotification);
+                    _logger);
                 _processed = processed;
                 _mapped = mapped;
                 _percent = Math.Clamp(percent, 0, 100);

@@ -5,7 +5,7 @@ import ApiService from '@services/api.service';
 import { useErrorHandler } from './useErrorHandler';
 import { useReconnectRefetch } from './useReconnectRefetch';
 import { useAuth } from '@contexts/useAuth';
-import { ApiError } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import { createUuid } from '@utils/uuid';
 import { getIntegrationReasonKey, type XboxMappingAuthStatus } from '../types';
 import type { XboxMappingAuthStateChangedEvent } from '../contexts/SignalRContext/types';
@@ -56,7 +56,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const [status, setStatus] = useState<XboxMappingAuthStatus | null>(null);
   const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [statusError, setStatusError] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const hasAccess =
     !isLoading &&
     (authenticationEnabled === false ||
@@ -64,7 +64,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const formIdentityRef = useRef(identity);
   const formCurrent = formIdentityRef.current === identity && hasAccess;
   const authStatus = statusIdentity === identity && hasAccess ? status : null;
-  const accessUnavailable = !formCurrent || authStatus === null || statusError;
+  const accessUnavailable = !formCurrent || authStatus === null || statusError !== null;
   const refreshStatus = useCallback(async () => {
     if (!hasAccess || identityRef.current !== identity) return null;
     const request = ++statusRequestRef.current;
@@ -73,12 +73,12 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
       setStatus(next);
       setStatusIdentity(identity);
-      setStatusError(false);
+      setStatusError(null);
       return next;
     } catch (error: unknown) {
       if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
       setStatus(null);
-      setStatusError(true);
+      setStatusError(getErrorMessage(error));
       notifyError('Xbox integration status unavailable', error, { silent: true });
       return null;
     } finally {
@@ -123,7 +123,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     setStatus(null);
     setStatusIdentity(null);
     setStatusLoading(hasAccess);
-    setStatusError(false);
+    setStatusError(null);
     void refreshStatus();
     return () => {
       requestRef.current += 1;
@@ -249,10 +249,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       loginInProgressRef.current = false;
       setLoading(false);
       if (error instanceof Error && error.name === 'AbortError') return;
-      const message =
-        error instanceof ApiError && error.body?.stageKey
-          ? t(error.body.stageKey, error.body.context ?? {})
-          : t('modals.xboxAuth.errors.loginFailed');
+      const message = getErrorMessage(error);
       setError(message);
       onError?.(message);
     } finally {

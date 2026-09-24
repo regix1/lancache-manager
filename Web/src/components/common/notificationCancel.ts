@@ -1,8 +1,9 @@
 import ApiService from '@services/api.service';
-import { isAbortError } from '@utils/error';
+import { getErrorMessage, isAbortError } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import i18n from '../../i18n';
 import type { UnifiedNotification } from '@contexts/notifications';
+import type { BadgeVariant } from '@components/ui/Badge.types';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import type { CancelKind, NotificationsContextType } from '@contexts/notifications/types';
@@ -16,7 +17,6 @@ import { isTerminalNotificationStatus } from '@contexts/notifications/notificati
 interface CancelConfig {
   cancelKind: CancelKind;
   tooltipKey: string;
-  allowsDeferredCancel: boolean;
 }
 
 /**
@@ -33,8 +33,7 @@ export const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
     if (entry.cancelKind !== 'none' && entry.cancelTooltipKey) {
       map[entry.type] = {
         cancelKind: entry.cancelKind,
-        tooltipKey: entry.cancelTooltipKey,
-        allowsDeferredCancel: entry.allowsDeferredCancel === true
+        tooltipKey: entry.cancelTooltipKey
       };
     }
   }
@@ -46,15 +45,17 @@ export const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
 // ============================================================================
 
 /**
- * Surface a genuine cancel/force-kill failure to the user via the `show-toast` bridge. `handleCancel`
- * is a module-level helper (not a hook/component), so `useErrorHandler` is unavailable here - this
- * mirrors it using the documented non-hook escape hatch, which NotificationsContext bridges into the
- * same generic notification the hook would create.
+ * Surface a genuine failure of a card's own request (a cancel, a force kill, a close) to the user
+ * via the `show-toast` bridge. `handleCancel` is a module-level helper (not a hook/component), so
+ * `useErrorHandler` is unavailable here - this mirrors it using the documented non-hook escape
+ * hatch, which NotificationsContext bridges into the same generic notification the hook would
+ * create. The bar's close request raises the same toast, so a failed close reads like a failed
+ * cancel.
  */
-const notifyToastError = (i18nKey: string): void => {
+export const notifyToastError = (message: string, error: unknown): void => {
   window.dispatchEvent(
     new CustomEvent(APP_EVENTS.SHOW_TOAST, {
-      detail: { type: 'error', message: i18n.t(i18nKey) }
+      detail: { type: 'error', message, error: getErrorMessage(error) }
     })
   );
 };
@@ -72,12 +73,11 @@ export const handleCancel = async (
   notification: UnifiedNotification,
   updateNotification: NotificationsContextType['updateNotification'],
   removeNotification: (id: string) => void,
-  getLiveNotification: (id: string) => UnifiedNotification | undefined,
-  deferred = false
-): Promise<boolean> => {
-  if (isTerminalNotificationStatus(notification.status)) return false;
+  getNotifications: () => UnifiedNotification[]
+): Promise<void> => {
+  if (isTerminalNotificationStatus(notification.status)) return;
   const cancelKind = CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind ?? 'none';
-  if (cancelKind === 'none') return false;
+  if (cancelKind === 'none') return;
   if (cancelKind === 'clientQueue') {
     updateNotification(notification.id, (current) =>
       isTerminalNotificationStatus(current.status)
@@ -86,29 +86,27 @@ export const handleCancel = async (
             details: { ...current.details, cancelRequested: true, cancelling: true }
           }
     );
-    return true;
+    return;
   }
+  // A card without an operation id shows no X (UnifiedNotificationItem), and every run card
+  // carries its id from its first row.
   const operationId = notification.details?.operationId;
-  if (!operationId) {
-    updateNotification(notification.id, (current) =>
-      isTerminalNotificationStatus(current.status)
-        ? {}
-        : {
-            details: { ...current.details, cancelRequested: true }
-          }
+  if (!operationId) return;
+  // The card this request belongs to when the answer lands. A run card matches through every
+  // operation id merged into it: a promotion onto a run that was already going merges the card
+  // into one with the OLDER card id while the request is in flight, so neither the clicked card's
+  // id nor its current operation id finds it then. A card the browser owns (a sign-in) has no
+  // merged ids and matches by its own id.
+  const findLive = (): UnifiedNotification | undefined =>
+    getNotifications().find((n) =>
+      n.details?.operationIds
+        ? n.details.operationIds.includes(operationId)
+        : n.id === notification.id
     );
-    return true;
-  }
-  if (
-    pendingCancels.has(operationId) ||
-    getLiveNotification(notification.id)?.details?.cancelPending
-  )
-    return false;
-  const force = !deferred && notification.details?.cancelRequested === true;
+  if (pendingCancels.has(operationId) || findLive()?.details?.cancelPending) return;
+  const force = notification.details?.cancelRequested === true;
   pendingCancels.add(operationId);
   updateNotification(notification.id, (current) =>
-    current.details?.operationId === operationId &&
-    current.instanceVersion === notification.instanceVersion &&
     !isTerminalNotificationStatus(current.status)
       ? {
           details: {
@@ -124,20 +122,14 @@ export const handleCancel = async (
     const result = force
       ? await ApiService.forceKillOperation(operationId)
       : await ApiService.cancelOperation(operationId);
-    const live = getLiveNotification(notification.id);
-    if (
-      !live ||
-      live.details?.operationId !== operationId ||
-      live.instanceVersion !== notification.instanceVersion ||
-      isTerminalNotificationStatus(live.status)
-    )
-      return true;
+    const live = findLive();
+    if (!live || isTerminalNotificationStatus(live.status)) return;
+    // The answer describes the operation the cancel actually reached, so `alreadyFinished` means
+    // the work ended even when the request named the run this card was promoted from.
     if (result && 'alreadyFinished' in result && result.alreadyFinished === true) {
-      removeNotification(notification.id);
+      removeNotification(live.id);
     } else {
-      updateNotification(notification.id, (current) =>
-        current.details?.operationId === operationId &&
-        current.instanceVersion === notification.instanceVersion &&
+      updateNotification(live.id, (current) =>
         !isTerminalNotificationStatus(current.status)
           ? {
               status: 'cancelling',
@@ -146,39 +138,31 @@ export const handleCancel = async (
           : {}
       );
     }
-    return true;
   } catch (err: unknown) {
+    const live = findLive();
+    if (!live || isTerminalNotificationStatus(live.status)) return;
     if (isAbortError(err)) {
-      updateNotification(notification.id, (current) =>
-        current.details?.operationId === operationId &&
-        current.instanceVersion === notification.instanceVersion &&
+      updateNotification(live.id, (current) =>
         !isTerminalNotificationStatus(current.status)
           ? { details: { ...current.details, cancelPending: false } }
           : {}
       );
-      return false;
+      return;
     }
-    const live = getLiveNotification(notification.id);
-    if (
-      !live ||
-      live.details?.operationId !== operationId ||
-      live.instanceVersion !== notification.instanceVersion ||
-      isTerminalNotificationStatus(live.status)
-    )
-      return true;
     console.error('Cancellation failed:', { operationId, force, error: err });
     if (err instanceof ApiError && err.status === 404) {
-      removeNotification(notification.id);
-      return true;
+      removeNotification(live.id);
+      return;
     }
     notifyToastError(
-      force
-        ? 'common.notifications.forceKillOperationFailed'
-        : 'common.notifications.cancelOperationFailed'
+      i18n.t(
+        force
+          ? 'common.notifications.forceKillOperationFailed'
+          : 'common.notifications.cancelOperationFailed'
+      ),
+      err
     );
-    updateNotification(notification.id, (current) =>
-      current.details?.operationId === operationId &&
-      current.instanceVersion === notification.instanceVersion &&
+    updateNotification(live.id, (current) =>
       !isTerminalNotificationStatus(current.status)
         ? {
             details: {
@@ -191,7 +175,6 @@ export const handleCancel = async (
           }
         : {}
     );
-    return false;
   } finally {
     pendingCancels.delete(operationId);
   }
@@ -202,48 +185,26 @@ export const handleCancel = async (
 // ============================================================================
 
 /**
- * The badge variant a status resolves to, drawn as a solid line colour. `neutral` has no
- * status token of its own and borrows the grey the neutral badge fill is built from
- * (`badges.css:93`), so grey means the same thing on a card as it does on a pill.
+ * The status variant a card and its compact strip segment are drawn in, via the shared status
+ * vocabulary so a card and a badge never disagree about the same word. Each variant's color is
+ * written once, in the `notification-status--*` rules (styles/utilities/animations.css).
  */
-const STATUS_COLOR_BY_VARIANT: Record<string, string> = {
-  success: 'var(--theme-success)',
-  error: 'var(--theme-error)',
-  warning: 'var(--theme-warning)',
-  info: 'var(--theme-info)',
-  waiting: 'var(--theme-waiting)',
-  neutral: 'var(--theme-text-secondary)'
-};
-
-/**
- * Gets the status color for a notification based on its current state, via the shared
- * status vocabulary so a card and a badge never disagree about the same word.
- */
-export const getNotificationColor = (notification: UnifiedNotification): string => {
+export const getNotificationVariant = (notification: UnifiedNotification): BadgeVariant => {
   if (notification.details?.cancelled) {
-    return STATUS_COLOR_BY_VARIANT[VARIANT_BY_STATUS['cancelled']];
+    return VARIANT_BY_STATUS['cancelled'];
   }
 
-  // Toast-style notifications carry their real semantic in details.notificationType
-  // (the show-toast bridge stores every toast with status 'completed'), so color by
-  // that semantic first - an error toast must read red, never completed-green.
-  // Scoped to generic so operation cards keep pure status semantics.
-  if (notification.type === 'generic' && notification.details?.notificationType) {
-    const typeColorMap: Record<string, string> = {
-      success: 'var(--theme-success)',
-      error: 'var(--theme-error)',
-      warning: 'var(--theme-warning)',
-      info: 'var(--theme-info)'
-    };
-    const typeColor = typeColorMap[notification.details.notificationType];
-    if (typeColor) {
-      return typeColor;
-    }
+  // A card that carries its real semantic in details.notificationType reads it before its status:
+  // the show-toast bridge stores every toast but an error with status 'completed', and a run that
+  // succeeded with a warning ends 'completed' too, so a warning toast and that run must read amber,
+  // never completed-green.
+  if (notification.details?.notificationType) {
+    return notification.details.notificationType;
   }
 
   // `skipped` is amber because the run did nothing, so it is neither the green of a finished
   // run nor the red of a broken one, and warning already has a glow tone in the condensed strip.
   // `pending` and `cancelling` carry no row of their own: both are still in flight, so they
   // read the way a running run does.
-  return STATUS_COLOR_BY_VARIANT[VARIANT_BY_STATUS[notification.status] ?? 'info'];
+  return VARIANT_BY_STATUS[notification.status] ?? 'info';
 };

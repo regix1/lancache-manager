@@ -127,7 +127,6 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
 
     private async Task RotateAsync(string trigger, CancellationToken stoppingToken)
     {
-        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -135,8 +134,8 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
             OperationType.LogRotation,
             _eventNames,
             $"{StageBase}.complete",
-            show,
-            stoppingToken, notice: CurrentRunNotice);
+            CurrentRunNotice,
+            stoppingToken);
 
         await reporter.StartAsync($"{StageBase}.starting");
 

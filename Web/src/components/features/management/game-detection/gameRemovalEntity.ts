@@ -17,14 +17,6 @@ export type GameEntityIdentifier =
 
 export type EntityIdentifier = GameEntityIdentifier | { kind: 'service'; service: string };
 
-interface GameRemovalIdentity {
-  gameAppId?: number | null;
-  epicAppId?: string | null;
-  gameName?: string;
-  service?: string | null;
-  operationId?: string;
-}
-
 export function classifyGameFromCacheInfo(game: GameCacheInfo): GameEntityIdentifier {
   if (game.service === 'epicgames') {
     return {
@@ -43,64 +35,4 @@ export function classifyGameFromCacheInfo(game: GameCacheInfo): GameEntityIdenti
   }
 
   return { kind: 'steamGame', gameAppId: game.game_app_id };
-}
-
-/** Identity-only. Never reads operationId — used for Started capture after queue promotion. */
-export function matchesGameRemovalIdentity(
-  event: GameRemovalIdentity | undefined,
-  entity: EntityIdentifier
-): boolean {
-  if (!event) {
-    return false;
-  }
-
-  if (entity.kind === 'epicGame') {
-    if (entity.epicAppId && event.epicAppId === entity.epicAppId) {
-      return true;
-    }
-
-    return event.gameName === entity.gameName;
-  }
-
-  if (entity.kind === 'namedGame') {
-    if (event.gameName !== entity.gameName) {
-      return false;
-    }
-
-    return event.service == null || event.service === entity.service;
-  }
-
-  if (entity.kind === 'steamGame') {
-    return event.gameAppId === entity.gameAppId;
-  }
-
-  return false;
-}
-
-/**
- * Complete-event match: after a running id is captured, prefer that id; before capture
- * (or when the HTTP body was a waiting id we refused to pin), fall back to identity.
- */
-export function matchesGameRemovalComplete(
-  event: GameRemovalIdentity | undefined,
-  entity: EntityIdentifier,
-  capturedOpId: string | null
-): boolean {
-  if (!event) {
-    return false;
-  }
-
-  if (capturedOpId) {
-    return event.operationId === capturedOpId;
-  }
-
-  return matchesGameRemovalIdentity(event, entity);
-}
-
-export function shouldPinOperationIdFromResponse(response: {
-  operationId?: string;
-  queued?: boolean;
-  alreadyRunning?: boolean;
-}): response is { operationId: string; queued?: boolean; alreadyRunning?: boolean } {
-  return Boolean(response.operationId) && !response.queued && !response.alreadyRunning;
 }

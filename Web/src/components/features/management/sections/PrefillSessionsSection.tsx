@@ -1,5 +1,5 @@
 import { noAutofill } from '@utils/autofill';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Container,
@@ -30,7 +30,7 @@ import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import Badge from '@components/ui/Badge';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import ApiService, {
@@ -78,7 +78,7 @@ import './PrefillSessionsSection.css';
 
 interface PrefillSessionsSectionProps {
   isAdmin: boolean;
-  onError: (message: string) => void;
+  onError: (message: string, error?: unknown) => void;
   onSuccess: (message: string) => void;
 }
 
@@ -793,9 +793,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
   const [loadingPersistent, setLoadingPersistent] = useState(true);
   const [persistentError, setPersistentError] = useState<string | null>(null);
-  // The saved schedules each container runs. Stays null against a server that predates named
-  // schedules, where getScheduledPrefillConfig throws rather than return a v5 config
-  // (api.service.ts:372-376); the rows then list nothing and the panel is otherwise unaffected.
+  // The saved schedules each container runs. Null until a read succeeds; a failed read fails the
+  // whole persistent block, so the rows never claim a container has no schedules. It lands with
+  // the container list, so the header also reads it to tell a list never read from an empty one.
   const [scheduledPrefillConfig, setScheduledPrefillConfig] =
     useState<ScheduledPrefillConfigDto | null>(null);
 
@@ -822,6 +822,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   // Bans state
   const [bans, setBans] = useState<BannedPrefillUserDto[]>([]);
+  const [hasLoadedBans, setHasLoadedBans] = useState(false);
   const [loadingBans, setLoadingBans] = useState(true);
   const [includeLifted, setIncludeLifted] = useState(false);
 
@@ -842,8 +843,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [loadingHistory, setLoadingHistory] = useState<Set<string>>(new Set());
   const [historyPage, setHistoryPage] = useState<Record<string, number>>({});
 
+  // Mount, a page or filter change, reconnect, SignalR events and the actions each start a read of
+  // these lists; only the newest read of each one writes, so an older page or failure never lands
+  // over a newer answer.
+  const sessionsRequestRef = useRef(0);
+  const bansRequestRef = useRef(0);
+  const persistentRequestRef = useRef(0);
+
   // Load sessions and pre-fetch history
   const loadSessions = useCallback(async () => {
+    const request = ++sessionsRequestRef.current;
     // Mock mode has no prefill container behind it, so the list stays empty rather than showing a
     // real machine's sessions, bans and cache route.
     if (mockMode) {
@@ -866,6 +875,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ),
         ApiService.getActivePrefillSessions()
       ]);
+      if (request !== sessionsRequestRef.current) return;
       setSessions(sessionsRes.sessions);
       setTotalCount(sessionsRes.totalCount);
       setActiveSessions(activeRes);
@@ -880,65 +890,69 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ...sessionsRes.sessions.map((session) => session.sessionId),
         ...activeRes.map((session) => session.id)
       ];
-      const historyPromises = historySessionIds.map(async (sessionId) => {
-        try {
-          const history = await ApiService.getPrefillSessionHistory(sessionId);
-          return { sessionId, history };
-        } catch {
-          return { sessionId, history: [] };
-        }
-      });
-
-      Promise.all(historyPromises).then((results) => {
+      // A failed read keeps the session's last confirmed history, or leaves it absent so that
+      // expanding the row fetches it, instead of recording an empty history.
+      Promise.allSettled(
+        historySessionIds.map((sessionId) => ApiService.getPrefillSessionHistory(sessionId))
+      ).then((results) => {
+        // A newer load reads the same sessions again, so only its answers are kept.
+        if (request !== sessionsRequestRef.current) return;
         const newHistoryData: Record<string, PrefillHistoryEntryDto[]> = {};
-        results.forEach(({ sessionId, history }) => {
-          newHistoryData[sessionId] = history;
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            newHistoryData[historySessionIds[index]] = result.value;
+          }
         });
         setHistoryData((prev) => ({ ...prev, ...newHistoryData }));
       });
     } catch (error) {
+      if (request !== sessionsRequestRef.current) return;
       setSessionsError(getErrorMessage(error));
-      onError(getErrorMessage(error));
     } finally {
-      setLoadingSessions(false);
+      if (request === sessionsRequestRef.current) setLoadingSessions(false);
     }
-  }, [mockMode, page, pageSize, statusFilter, platformFilter, onError]);
+  }, [mockMode, page, pageSize, statusFilter, platformFilter]);
 
   // Load bans
   const loadBans = useCallback(async () => {
+    const request = ++bansRequestRef.current;
     setLoadingBans(true);
     setBansError(null);
     try {
       // Always fetch full ban list so toggling the filter doesn't trigger reloads.
       const bansRes = await ApiService.getPrefillBans(true);
+      if (request !== bansRequestRef.current) return;
       setBans(bansRes);
+      setHasLoadedBans(true);
     } catch (error) {
+      if (request !== bansRequestRef.current) return;
       setBansError(getErrorMessage(error));
-      onError(getErrorMessage(error));
     } finally {
-      setLoadingBans(false);
+      if (request === bansRequestRef.current) setLoadingBans(false);
     }
-  }, [onError]);
+  }, []);
 
   // Load persistent containers (system-owned; separate list from guest live sessions) together
   // with the schedules they run, so a row and its schedule count land in the same render.
   const loadPersistentContainers = useCallback(async () => {
+    const request = ++persistentRequestRef.current;
     setLoadingPersistent(true);
     setPersistentError(null);
     try {
       const [containers, config] = await Promise.all([
         ApiService.getPersistentPrefillContainers(),
-        ApiService.getScheduledPrefillConfig().catch(() => null)
+        ApiService.getScheduledPrefillConfig()
       ]);
+      if (request !== persistentRequestRef.current) return;
       setPersistentContainers(containers);
       setScheduledPrefillConfig(config);
     } catch (error) {
+      if (request !== persistentRequestRef.current) return;
       setPersistentError(getErrorMessage(error));
-      onError(getErrorMessage(error));
     } finally {
-      setLoadingPersistent(false);
+      if (request === persistentRequestRef.current) setLoadingPersistent(false);
     }
-  }, [onError]);
+  }, []);
 
   // Load prefill history for a session
   const loadHistory = useCallback(
@@ -948,7 +962,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         const history = await ApiService.getPrefillSessionHistory(sessionId);
         setHistoryData((prev) => ({ ...prev, [sessionId]: history }));
       } catch (error) {
-        onError(getErrorMessage(error));
+        onError(t('management.prefillSessions.errors.loadHistory'), error);
+        // The row closes rather than show an empty history, and the next expand fetches again.
+        setExpandedHistory((prev) => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        });
       } finally {
         setLoadingHistory((prev) => {
           const next = new Set(prev);
@@ -957,7 +977,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         });
       }
     },
-    [onError]
+    [onError, t]
   );
 
   // Toggle history expansion
@@ -986,7 +1006,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   // Recover a stale snapshot after a reconnect: a session change/completion event can be
   // missed while the socket is down, so resync the sessions view whenever the connection returns.
-  useReconnectRefetch(isConnected, () => loadSessions());
+  // The bans list reloads too, since a read that failed during the outage has no other retry.
+  useReconnectRefetch(isConnected, () => {
+    loadSessions();
+    loadBans();
+  });
 
   useEffect(() => {
     loadBans();
@@ -1016,19 +1040,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       );
     };
 
-    const handleSessionTerminated = async (event: DaemonSessionTerminatedEvent) => {
+    const handleSessionTerminated = (event: DaemonSessionTerminatedEvent) => {
       setActiveSessions((prev) => prev.filter((s) => s.id !== event.sessionId));
-      try {
-        const [sessionsRes, activeRes] = await Promise.all([
-          ApiService.getPrefillSessions(1, 20),
-          ApiService.getActivePrefillSessions()
-        ]);
-        setSessions(sessionsRes.sessions);
-        setTotalCount(sessionsRes.totalCount);
-        setActiveSessions(activeRes);
-      } catch {
-        // Ignore errors in SignalR handler
-      }
+      void loadSessions();
     };
 
     const handlePrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
@@ -1081,7 +1095,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('XboxDaemonSessionUpdated', handleSessionUpdated);
       off('XboxDaemonSessionTerminated', handleSessionTerminated);
     };
-  }, [on, off]);
+  }, [on, off, loadSessions]);
 
   // Action handlers
   const handleTerminateSession = async (sessionId: string) => {
@@ -1090,7 +1104,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       await ApiService.terminatePrefillSession(sessionId, 'Terminated by admin');
       onSuccess(t('management.prefillSessions.actions.terminateSession'));
     } catch (error: unknown) {
-      onError(getErrorMessage(error));
+      onError(t('management.prefillSessions.errors.terminateSession'), error);
     } finally {
       await loadSessions();
       setTerminatingSession(null);
@@ -1105,7 +1119,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setTerminateAllConfirm(false);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 503) setTerminateAllConfirm(false);
-      onError(getErrorMessage(error));
+      onError(t('management.prefillSessions.errors.terminateAll'), error);
     } finally {
       await loadSessions();
       setTerminatingAll(false);
@@ -1124,7 +1138,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setBanConfirm(null);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 503) setBanConfirm(null);
-      onError(getErrorMessage(error));
+      onError(t('management.prefillSessions.errors.banUser'), error);
     } finally {
       await Promise.all([loadSessions(), loadBans()]);
       setBanningSession(null);
@@ -1139,7 +1153,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setLiftBanConfirm(null);
       await loadBans();
     } catch (error) {
-      onError(getErrorMessage(error));
+      onError(t('management.prefillSessions.errors.liftBan'), error);
     } finally {
       setLiftingBan(null);
     }
@@ -1228,12 +1242,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <AccordionSection
             title={t('management.prefillSessions.liveSessions')}
             titleAccessory={liveSessionsHelpAccessory}
-            count={guestActiveSessions.length}
+            count={hasLoadedSessions ? guestActiveSessions.length : undefined}
             icon={Play}
             isExpanded={liveSessionsExpanded}
             onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
             badge={
               <SectionHeaderActions>
+                {sessionsError !== null && !liveSessionsExpanded && <SectionErrorChip />}
                 <SectionActionsMenu label={t('management.actions.menuLabel')}>
                   {(close) => (
                     <>
@@ -1278,45 +1293,52 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   rows={4}
                 />
               </div>
-            ) : sessionsError && guestActiveSessions.length === 0 ? (
-              <ErrorBlock
-                title={t('management.prefillSessions.errors.loadSessions')}
-                message={sessionsError}
-                retryLabel={t('common.retry')}
-                onRetry={loadSessions}
-              />
-            ) : guestActiveSessions.length === 0 ? (
-              <EmptyState
-                icon={Container}
-                title={t('management.prefillSessions.noActiveSessions')}
-                subtitle={t('management.prefillSessions.noActiveSessionsDesc')}
-              />
             ) : (
-              <div className="mgmt-list divided-list">
-                {guestActiveSessions.map((session) => (
-                  <SessionCard
-                    key={session.id}
-                    session={session}
-                    isLive={true}
-                    isAdmin={isAdmin}
-                    historyData={historyData[session.id] || []}
-                    isHistoryExpanded={expandedHistory.has(session.id)}
-                    isLoadingHistory={loadingHistory.has(session.id)}
-                    onToggleHistory={() => toggleHistory(session.id)}
-                    onTerminate={() => handleTerminateSession(session.id)}
-                    onBan={
-                      session.id
-                        ? () => setBanConfirm({ sessionId: session.id, reason: '' })
-                        : undefined
-                    }
-                    isTerminating={terminatingSession === session.id}
-                    isBanning={banningSession === session.id}
-                    historyPage={historyPage[session.id] || 1}
-                    onHistoryPageChange={(p) =>
-                      setHistoryPage((prev) => ({ ...prev, [session.id]: p }))
-                    }
+              <div className="space-y-4">
+                {sessionsError && (
+                  <ErrorBlock
+                    title={t('management.prefillSessions.errors.loadSessions')}
+                    message={sessionsError}
+                    retryLabel={t('common.retry')}
+                    onRetry={loadSessions}
                   />
-                ))}
+                )}
+                {guestActiveSessions.length === 0 ? (
+                  sessionsError ? null : (
+                    <EmptyState
+                      icon={Container}
+                      title={t('management.prefillSessions.noActiveSessions')}
+                      subtitle={t('management.prefillSessions.noActiveSessionsDesc')}
+                    />
+                  )
+                ) : (
+                  <div className="mgmt-list divided-list">
+                    {guestActiveSessions.map((session) => (
+                      <SessionCard
+                        key={session.id}
+                        session={session}
+                        isLive={true}
+                        isAdmin={isAdmin}
+                        historyData={historyData[session.id] || []}
+                        isHistoryExpanded={expandedHistory.has(session.id)}
+                        isLoadingHistory={loadingHistory.has(session.id)}
+                        onToggleHistory={() => toggleHistory(session.id)}
+                        onTerminate={() => handleTerminateSession(session.id)}
+                        onBan={
+                          session.id
+                            ? () => setBanConfirm({ sessionId: session.id, reason: '' })
+                            : undefined
+                        }
+                        isTerminating={terminatingSession === session.id}
+                        isBanning={banningSession === session.id}
+                        historyPage={historyPage[session.id] || 1}
+                        onHistoryPageChange={(p) =>
+                          setHistoryPage((prev) => ({ ...prev, [session.id]: p }))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </AccordionSection>
@@ -1324,10 +1346,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <AccordionSection
             title={t('management.prefillSessions.persistentSessions.title')}
             titleAccessory={persistentSessionsHelpAccessory}
-            count={persistentContainers.length}
+            count={scheduledPrefillConfig !== null ? persistentContainers.length : undefined}
             icon={Server}
             isExpanded={persistentExpanded}
             onToggle={() => setPersistentExpanded(!persistentExpanded)}
+            badge={
+              persistentError !== null && !persistentExpanded ? <SectionErrorChip /> : undefined
+            }
           >
             {loadingPersistent && persistentContainers.length === 0 ? (
               <div className="w-full">
@@ -1337,31 +1362,38 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   rows={3}
                 />
               </div>
-            ) : persistentError && persistentContainers.length === 0 ? (
-              <ErrorBlock
-                title={t('management.prefillSessions.persistentSessions.errors.load')}
-                message={persistentError}
-                retryLabel={t('common.retry')}
-                onRetry={loadPersistentContainers}
-              />
-            ) : persistentContainers.length === 0 ? (
-              <EmptyState
-                icon={Server}
-                title={t('management.prefillSessions.persistentSessions.noContainers')}
-                subtitle={t('management.prefillSessions.persistentSessions.noContainersDesc')}
-              />
             ) : (
-              <div className="mgmt-list divided-list">
-                {persistentContainers.map((container) => (
-                  <PersistentContainerCard
-                    key={container.sessionId}
-                    container={container}
-                    schedules={persistentContainerSchedules(
-                      scheduledPrefillConfig,
-                      container.service
-                    )}
+              <div className="space-y-4">
+                {persistentError && (
+                  <ErrorBlock
+                    title={t('management.prefillSessions.persistentSessions.errors.load')}
+                    message={persistentError}
+                    retryLabel={t('common.retry')}
+                    onRetry={loadPersistentContainers}
                   />
-                ))}
+                )}
+                {persistentContainers.length === 0 ? (
+                  persistentError ? null : (
+                    <EmptyState
+                      icon={Server}
+                      title={t('management.prefillSessions.persistentSessions.noContainers')}
+                      subtitle={t('management.prefillSessions.persistentSessions.noContainersDesc')}
+                    />
+                  )
+                ) : (
+                  <div className="mgmt-list divided-list">
+                    {persistentContainers.map((container) => (
+                      <PersistentContainerCard
+                        key={container.sessionId}
+                        container={container}
+                        schedules={persistentContainerSchedules(
+                          scheduledPrefillConfig,
+                          container.service
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </AccordionSection>
@@ -1376,10 +1408,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <AccordionSection
             title={t('management.prefillSessions.sessionHistory')}
             titleAccessory={historyHelpAccessory}
-            count={totalCount}
+            count={hasLoadedSessions ? totalCount : undefined}
             icon={Clock}
             isExpanded={historyExpanded}
             onToggle={() => setHistoryExpanded(!historyExpanded)}
+            badge={sessionsError !== null && !historyExpanded ? <SectionErrorChip /> : undefined}
           >
             <div className="prefill-history-filters">
               <EnhancedDropdown
@@ -1458,77 +1491,85 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   rows={5}
                 />
               </div>
-            ) : sessionsError && sessions.length === 0 ? (
-              <ErrorBlock
-                title={t('management.prefillSessions.errors.loadHistory')}
-                message={sessionsError}
-                retryLabel={t('common.retry')}
-                onRetry={loadSessions}
-              />
-            ) : sessions.length === 0 ? (
-              <EmptyState
-                icon={Clock}
-                title={t('management.prefillSessions.noSessionsFound')}
-                subtitle={t('management.prefillSessions.noSessionsFoundDesc')}
-              />
             ) : (
-              <>
-                <div className="mgmt-list divided-list">
-                  {sessions.map((session) => (
-                    <SessionCard
-                      key={session.id}
-                      session={session}
-                      isLive={session.isLive}
-                      isAdmin={isAdmin}
-                      historyData={historyData[session.sessionId] || []}
-                      isHistoryExpanded={expandedHistory.has(session.sessionId)}
-                      isLoadingHistory={loadingHistory.has(session.sessionId)}
-                      onToggleHistory={() => toggleHistory(session.sessionId)}
-                      onTerminate={
-                        session.isLive && !session.isPersistent
-                          ? () => handleTerminateSession(session.sessionId)
-                          : undefined
-                      }
-                      onBan={
-                        session.isLive && !session.isPersistent && session.sessionId
-                          ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
-                          : undefined
-                      }
-                      isTerminating={terminatingSession === session.sessionId}
-                      isBanning={banningSession === session.sessionId}
-                      historyPage={historyPage[session.sessionId] || 1}
-                      onHistoryPageChange={(p) =>
-                        setHistoryPage((prev) => ({ ...prev, [session.sessionId]: p }))
-                      }
-                    />
-                  ))}
-                </div>
-
-                {totalPages > 1 && (
-                  <div className="prefill-pagination">
-                    <Pagination
-                      currentPage={page}
-                      totalPages={totalPages}
-                      totalItems={totalCount}
-                      itemsPerPage={pageSize}
-                      onPageChange={setPage}
-                      itemLabel={t('management.prefillSessions.labels.sessions')}
-                    />
-                  </div>
+              <div className="space-y-4">
+                {sessionsError && (
+                  <ErrorBlock
+                    title={t('management.prefillSessions.errors.loadHistory')}
+                    message={sessionsError}
+                    retryLabel={t('common.retry')}
+                    onRetry={loadSessions}
+                  />
                 )}
-              </>
+                {sessions.length === 0 ? (
+                  sessionsError ? null : (
+                    <EmptyState
+                      icon={Clock}
+                      title={t('management.prefillSessions.noSessionsFound')}
+                      subtitle={t('management.prefillSessions.noSessionsFoundDesc')}
+                    />
+                  )
+                ) : (
+                  <>
+                    <div className="mgmt-list divided-list">
+                      {sessions.map((session) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          isLive={session.isLive}
+                          isAdmin={isAdmin}
+                          historyData={historyData[session.sessionId] || []}
+                          isHistoryExpanded={expandedHistory.has(session.sessionId)}
+                          isLoadingHistory={loadingHistory.has(session.sessionId)}
+                          onToggleHistory={() => toggleHistory(session.sessionId)}
+                          onTerminate={
+                            session.isLive && !session.isPersistent
+                              ? () => handleTerminateSession(session.sessionId)
+                              : undefined
+                          }
+                          onBan={
+                            session.isLive && !session.isPersistent && session.sessionId
+                              ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
+                              : undefined
+                          }
+                          isTerminating={terminatingSession === session.sessionId}
+                          isBanning={banningSession === session.sessionId}
+                          historyPage={historyPage[session.sessionId] || 1}
+                          onHistoryPageChange={(p) =>
+                            setHistoryPage((prev) => ({ ...prev, [session.sessionId]: p }))
+                          }
+                        />
+                      ))}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div className="prefill-pagination">
+                        <Pagination
+                          currentPage={page}
+                          totalPages={totalPages}
+                          totalItems={totalCount}
+                          itemsPerPage={pageSize}
+                          onPageChange={setPage}
+                          itemLabel={t('management.prefillSessions.labels.sessions')}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </AccordionSection>
 
           <AccordionSection
             title={t('management.prefillSessions.bannedUsers.title')}
             titleAccessory={bannedUsersHelpAccessory}
-            count={activeBansCount}
+            count={hasLoadedBans ? activeBansCount : undefined}
             icon={Ban}
             isExpanded={bansExpanded}
             onToggle={() => setBansExpanded(!bansExpanded)}
             badge={
               <SectionHeaderActions>
+                {bansError !== null && !bansExpanded && <SectionErrorChip />}
                 {/* h-10 matches the accordion's own chevron/badge-slot height (see Session
                     History's EnhancedDropdown pair above) - Checkbox has no explicit height of
                     its own, so without this it renders far shorter than the 40px chevron next
@@ -1551,32 +1592,39 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   rows={3}
                 />
               </div>
-            ) : bansError && !hasVisibleBans ? (
-              <ErrorBlock
-                title={t('management.prefillSessions.errors.loadBans')}
-                message={bansError}
-                retryLabel={t('common.retry')}
-                onRetry={loadBans}
-              />
-            ) : !loadingBans && !hasVisibleBans ? (
-              <EmptyState
-                icon={Shield}
-                title={t('management.prefillSessions.bannedUsers.noBannedUsers')}
-                subtitle={t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
-              />
             ) : (
-              <div
-                className={`mgmt-list divided-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
-              >
-                {visibleBans.map((ban) => (
-                  <BannedUserCard
-                    key={ban.id}
-                    ban={ban}
-                    isAdmin={isAdmin}
-                    onLiftBan={() => setLiftBanConfirm(ban)}
-                    isLifting={liftingBan === ban.id}
+              <div className="space-y-4">
+                {bansError && (
+                  <ErrorBlock
+                    title={t('management.prefillSessions.errors.loadBans')}
+                    message={bansError}
+                    retryLabel={t('common.retry')}
+                    onRetry={loadBans}
                   />
-                ))}
+                )}
+                {!hasVisibleBans ? (
+                  bansError ? null : (
+                    <EmptyState
+                      icon={Shield}
+                      title={t('management.prefillSessions.bannedUsers.noBannedUsers')}
+                      subtitle={t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
+                    />
+                  )
+                ) : (
+                  <div
+                    className={`mgmt-list divided-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
+                  >
+                    {visibleBans.map((ban) => (
+                      <BannedUserCard
+                        key={ban.id}
+                        ban={ban}
+                        isAdmin={isAdmin}
+                        onLiftBan={() => setLiftBanConfirm(ban)}
+                        isLifting={liftingBan === ban.id}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </AccordionSection>
@@ -1597,7 +1645,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             count: guestActiveSessions.length
           })}
         </p>
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.prefillSessions.modals.terminateAll.warning')}</p>
         </Alert>
       </ConfirmationModal>

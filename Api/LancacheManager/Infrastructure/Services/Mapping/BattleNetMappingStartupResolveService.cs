@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.BattleNet;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -32,7 +33,8 @@ public class BattleNetMappingStartupResolveService : BackgroundService
         try
         {
             await Task.Delay(_startupDelay, stoppingToken);
-            var resolved = await _mappingService.ResolveDownloadsAsync(stoppingToken, hideNotification: true);
+            var resolved = await _mappingService.ResolveDownloadsAsync(
+                new RunNotice(NotificationMode.Hidden, RunTrigger.Startup), stoppingToken);
             if (resolved > 0)
             {
                 _logger.LogInformation(

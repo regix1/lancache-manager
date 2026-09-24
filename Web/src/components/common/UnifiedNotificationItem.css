@@ -1,3 +1,14 @@
+/* The card's status color comes from its `notification-status--*` class
+   (styles/utilities/animations.css). Its leaving fade is the Tailwind opacity utilities on the
+   element, which also carry reduced motion. */
+.notification-card {
+  border-left: 3px solid var(--notification-status-color);
+}
+
+.notification-card__icon {
+  color: var(--notification-status-color);
+}
+
 .notification-card__body {
   padding-inline-start: 0.75rem;
 }

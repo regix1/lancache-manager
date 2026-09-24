@@ -10,6 +10,8 @@ import {
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
+import { Alert } from '../../ui/Alert';
+import { ErrorBlock } from '../../ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
@@ -22,7 +24,7 @@ import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
-import { ApiError, assertOk } from '@services/apiError';
+import { assertOk } from '@services/apiError';
 import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -31,7 +33,7 @@ import { sessionStore } from '@utils/storage';
 import { getErrorMessage } from '@utils/error';
 import { parseUtcDate } from '@utils/timezone';
 
-import { ScrollText, Timer, LogIn, AlertCircle } from 'lucide-react';
+import { ScrollText, Timer, LogIn } from 'lucide-react';
 
 import { useGameService } from '@contexts/useGameService';
 import type { GameServiceId } from '@/types/gameService';
@@ -188,38 +190,44 @@ function ServicePrefillPanel({
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
   const [maxConcurrency, setMaxConcurrency] = useState<string>('auto');
   const [maxThreadLimit, setMaxThreadLimit] = useState<number | null>(null);
+  const [defaultsError, setDefaultsError] = useState<string | null>(null);
+  // Mount, Retry and five SignalR events all start this read, so only the newest may write.
+  const defaultsRequestRef = useRef(0);
 
   // Load prefill defaults from server (reusable for initial load + SignalR refresh)
   const loadPrefillDefaults = useCallback(async () => {
+    const request = ++defaultsRequestRef.current;
     try {
       const response = await fetch(`${API_BASE}/system/prefill-defaults`, {
         credentials: 'include'
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
-          setSelectedOS(data.operatingSystems);
-        }
-        const limit: number | null = data.maxThreadLimit ?? null;
-        setMaxThreadLimit(limit);
-
-        // Clamp concurrency to the guest thread limit so the dropdown
-        // never selects a value that exceeds the allowed maximum
-        let concurrency: string = data.maxConcurrency || 'auto';
-        // Migrate legacy "max" saved value to numeric equivalent
-        if (concurrency === 'max') {
-          concurrency = String(limit ?? 256);
-        }
-        if (limit != null) {
-          const numeric = parseInt(concurrency, 10);
-          if (!isNaN(numeric) && numeric > limit) {
-            concurrency = String(limit);
-          }
-        }
-        setMaxConcurrency(concurrency);
+      await assertOk(response);
+      const defaults = await response.json();
+      if (request !== defaultsRequestRef.current) return;
+      if (defaults.operatingSystems && Array.isArray(defaults.operatingSystems)) {
+        setSelectedOS(defaults.operatingSystems);
       }
-    } catch {
-      // Failed to load defaults - will use existing values
+      const limit: number | null = defaults.maxThreadLimit ?? null;
+      setMaxThreadLimit(limit);
+
+      // Clamp concurrency to the guest thread limit so the dropdown
+      // never selects a value that exceeds the allowed maximum
+      let concurrency: string = defaults.maxConcurrency || 'auto';
+      // Migrate legacy "max" saved value to numeric equivalent
+      if (concurrency === 'max') {
+        concurrency = String(limit ?? 256);
+      }
+      if (limit != null) {
+        const numeric = parseInt(concurrency, 10);
+        if (!isNaN(numeric) && numeric > limit) {
+          concurrency = String(limit);
+        }
+      }
+      setMaxConcurrency(concurrency);
+      setDefaultsError(null);
+    } catch (err) {
+      if (request !== defaultsRequestRef.current) return;
+      setDefaultsError(getErrorMessage(err));
     }
   }, []);
 
@@ -227,6 +235,10 @@ function ServicePrefillPanel({
   useEffect(() => {
     loadPrefillDefaults();
   }, [loadPrefillDefaults]);
+
+  // A settings broadcast sent while the connection was down is lost, and a read that failed then
+  // left the box up. Read again once the main hub is live.
+  useReconnectRefetch(isMainHubConnected, () => void loadPrefillDefaults());
 
   // Listen for PrefillDefaultsChanged (admin changes OS/concurrency),
   // GuestPrefillConfigChanged / Epic / Xbox (admin changes system-wide guest thread limits),
@@ -247,21 +259,24 @@ function ServicePrefillPanel({
     };
   }, [onSignalR, offSignalR, loadPrefillDefaults]);
 
-  // Save prefill defaults to API
-  const savePrefillDefaults = useCallback(async (os?: string[], concurrency?: string) => {
-    try {
-      const body: Record<string, unknown> = {};
-      if (os !== undefined) body.operatingSystems = os;
-      if (concurrency !== undefined) body.maxConcurrency = concurrency;
+  // Save prefill defaults to API. The endpoint refuses guests, so a guest's choice stays local and
+  // still applies to this session's runs. The control keeps a value whose save failed for the
+  // same reason.
+  const savePrefillDefaults = useCallback(
+    async (os?: string[], concurrency?: string) => {
+      if (!isAdmin) return;
+      try {
+        const body: Record<string, unknown> = {};
+        if (os !== undefined) body.operatingSystems = os;
+        if (concurrency !== undefined) body.maxConcurrency = concurrency;
 
-      await fetch(
-        `${API_BASE}/system/prefill-defaults`,
-        ApiService.getJsonFetchOptions(body, { method: 'PATCH' })
-      );
-    } catch {
-      // Failed to save defaults
-    }
-  }, []);
+        await ApiService.updatePrefillDefaults(body);
+      } catch (err) {
+        notifyError(t('prefill.errors.saveSettingsFailed'), err);
+      }
+    },
+    [isAdmin, notifyError, t]
+  );
 
   // Wrapper setters that also persist to API
   const handleOSChange = useCallback(
@@ -628,14 +643,7 @@ function ServicePrefillPanel({
             cacheStatusResolved = unknownIds.length === 0;
           } catch (error: unknown) {
             if (!isCurrent()) return;
-            const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
-            setGameLoadError(
-              stageKey === 'errors.steam.signInLost'
-                ? t('errors.steam.signInLost')
-                : stageKey === 'errors.steam.gameDetailsUnavailable'
-                  ? t('errors.steam.gameDetailsUnavailable')
-                  : t('errors.prefill.requestFailed')
-            );
+            setGameLoadError(getErrorMessage(error));
             cachedIds = eligible;
             outdatedIds = [];
             unknownIds = eligible;
@@ -690,14 +698,7 @@ function ServicePrefillPanel({
             'StatusUnavailable'
           )
         );
-        const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
-        setGameLoadError(
-          stageKey === 'errors.steam.signInLost'
-            ? t('errors.steam.signInLost')
-            : stageKey === 'errors.steam.gameDetailsUnavailable'
-              ? t('errors.steam.gameDetailsUnavailable')
-              : t('errors.prefill.requestFailed')
-        );
+        setGameLoadError(getErrorMessage(error));
         addLog('error', t('prefill.log.failedLoadLibrary'));
       } finally {
         if (isCurrent()) setIsLoadingGames(false);
@@ -805,8 +806,23 @@ function ServicePrefillPanel({
   }, [onSignalR, offSignalR, reloadGamesOnce]);
 
   // A broadcast that lands while the socket is down is lost, leaving the cached badges stale until
-  // the next Rescan. Re-read once the main hub is live again.
-  useReconnectRefetch(isMainHubConnected, () => void reloadGamesOnce());
+  // the next Rescan. Re-read once the main hub is live again. A prefill page first opened during an
+  // outage also retries its failed prefill connection here. A prefill start still on the wire when
+  // the connection returns may fail after this runs, so the effect below retries once when that
+  // start settles failed.
+  const retryAfterStartRef = useRef(false);
+  const { retryConnection } = signalR;
+  useReconnectRefetch(isMainHubConnected, () => {
+    void reloadGamesOnce();
+    if (signalR.hubConnectFailed) retryConnection();
+    else if (signalR.isConnecting || signalR.isInitializing) retryAfterStartRef.current = true;
+  });
+
+  useEffect(() => {
+    if (signalR.isConnecting || signalR.isInitializing || !retryAfterStartRef.current) return;
+    retryAfterStartRef.current = false;
+    if (signalR.hubConnectFailed) retryConnection();
+  }, [signalR.isConnecting, signalR.isInitializing, signalR.hubConnectFailed, retryConnection]);
 
   const handleClearAllFromCache = useCallback(async () => {
     const epoch = gamesEpochRef.current;
@@ -992,10 +1008,12 @@ function ServicePrefillPanel({
     addLog('info', t('prefill.log.endingSession'));
     try {
       await signalR.hubConnection.current.invoke('EndSessionAsync', signalR.session.id);
-    } catch {
-      // Session end failed - will be cleaned up by timeout
+    } catch (err) {
+      // The log line is the notice a guest reads; a guest has no notification bar.
+      addLog('error', getErrorMessage(err));
+      notifyError(t('prefill.errors.endSessionFailed'), err);
     }
-  }, [signalR.session, signalR.hubConnection, addLog, t]);
+  }, [signalR.session, signalR.hubConnection, addLog, t, notifyError]);
 
   const handleCancelLogin = useCallback(async () => {
     if (!signalR.session || !signalR.hubConnection.current) return;
@@ -1005,10 +1023,12 @@ function ServicePrefillPanel({
       setShowAuthModal(false);
       authActions.resetAuthForm();
       addLog('info', t('prefill.log.loginCancelled'));
-    } catch {
-      // Cancel login failed
+    } catch (err) {
+      // The dialog has already closed, so the log line is the notice a guest reads.
+      addLog('error', getErrorMessage(err));
+      notifyError(t('prefill.errors.cancelLoginFailed'), err);
     }
-  }, [signalR.session, signalR.hubConnection, authActions, addLog, t]);
+  }, [signalR.session, signalR.hubConnection, authActions, addLog, t, notifyError]);
 
   const handleCancelPrefill = useCallback(() => {
     // Full cancel orchestration (hard-stop animations + reactive "Cancelling..." state + watchdog
@@ -1354,6 +1374,14 @@ function ServicePrefillPanel({
     signalR.isConnected
   ]);
 
+  // A guest has no notification bar, so the popup's title and reason are drawn on the page instead.
+  const createSessionFailure =
+    !isAdmin && signalR.createSessionError ? (
+      <Alert color="error" title={t('prefill.errors.failedCreateSession')}>
+        {signalR.createSessionError}
+      </Alert>
+    ) : null;
+
   // No session, not loading, not pending - show home page
   if (!signalR.session && !isLoadingSession && !pendingService) {
     return (
@@ -1387,10 +1415,21 @@ function ServicePrefillPanel({
             loginDeadline={authLoginDeadline}
           />
         )}
+        {(signalR.hubConnectFailed || createSessionFailure) && (
+          <div className="flex flex-col gap-4">
+            {signalR.hubConnectFailed && (
+              <ErrorBlock
+                title={t('prefill.errors.failedConnect')}
+                message={t('common.errors.requestFailed')}
+                retryLabel={t('common.retry')}
+                onRetry={retryConnection}
+              />
+            )}
+            {createSessionFailure}
+          </div>
+        )}
         <PrefillHomePage
           onServiceStart={onServiceStart}
-          error={signalR.error}
-          errorService={serviceId as GameServiceId}
           isAdmin={isAdmin}
           steamPrefillEnabled={steamPrefillEnabled}
           epicPrefillEnabled={epicPrefillEnabled}
@@ -1566,27 +1605,24 @@ function ServicePrefillPanel({
 
       {/* Session Expired Notice */}
       {isSessionExpired && (
-        <div className="p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--theme-warning-subtle)] border border-[var(--theme-warning-strong)]">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-warning)]" />
+        <Alert color="warning">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <p className="font-medium text-sm text-[var(--theme-warning-text)]">
-                {t('prefill.sessionExpired.title')}
-              </p>
-              <p className="text-sm text-themed-muted">
+              <p className="font-medium text-sm">{t('prefill.sessionExpired.title')}</p>
+              <p className="text-sm">
                 {t('prefill.sessionExpired.message', { service: serviceName })}
               </p>
             </div>
+            <Button
+              variant="filled"
+              color="run"
+              onClick={handleStartNewSession}
+              className="flex-shrink-0"
+            >
+              {t('prefill.sessionExpired.startNew')}
+            </Button>
           </div>
-          <Button
-            variant="filled"
-            color="run"
-            onClick={handleStartNewSession}
-            className="flex-shrink-0"
-          >
-            {t('prefill.sessionExpired.startNew')}
-          </Button>
-        </div>
+        </Alert>
       )}
 
       {/* Header Bar */}
@@ -1662,13 +1698,16 @@ function ServicePrefillPanel({
         </div>
       </div>
 
-      {/* Error Banner */}
-      {signalR.error && (
-        <div className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[var(--theme-error-strong)]">
-          <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
-          <span className="text-[var(--theme-error-text)]">{signalR.error}</span>
-        </div>
+      {signalR.hubConnectFailed && (
+        <ErrorBlock
+          title={t('prefill.errors.failedConnect')}
+          message={t('common.errors.requestFailed')}
+          retryLabel={t('common.retry')}
+          onRetry={retryConnection}
+        />
       )}
+      {createSessionFailure}
+      {signalR.error && <Alert color="error">{signalR.error}</Alert>}
 
       {/* Main Content - Two Column Layout. While a job runs on stacked layouts the columns
           flatten so the activity log orders directly after the progress card (CSS in
@@ -1748,16 +1787,13 @@ function ServicePrefillPanel({
             )}
 
           {(signalR.runs.length > 0 ||
-            runCompletions.some(
-              (run) => run.sessionId === signalR.session?.id && run.notificationMode !== 'hidden'
-            )) && (
+            runCompletions.some((run) => run.sessionId === signalR.session?.id)) && (
             <div className="prefill-sec-progress space-y-3">
               {[
                 ...signalR.runs,
                 ...runCompletions.filter(
                   (run) =>
                     run.sessionId === signalR.session?.id &&
-                    run.notificationMode !== 'hidden' &&
                     !signalR.runs.some(
                       (current) =>
                         current.runId === run.runId &&
@@ -1784,33 +1820,43 @@ function ServicePrefillPanel({
             </div>
           )}
 
-          {/* Command Buttons */}
+          {/* Command Buttons. A failed settings read replaces them, so no run starts with
+              platforms and connections nobody saved. */}
           <div className="prefill-sec-commands">
-            <PrefillCommandButtons
-              isLoggedIn={isReadyForCommands}
-              isExecuting={isExecuting}
-              isPrefillActive={signalR.isPrefillActive || signalR.runs.some(isPrefillRunActive)}
-              canStart={signalR.canStart}
-              activeRunCount={signalR.runs.filter(isPrefillRunActive).length}
-              maxConcurrentRuns={
-                supportsConcurrentPrefill(signalR.session)
-                  ? signalR.session.maxConcurrentRuns
-                  : undefined
-              }
-              isSessionActive={isSessionActive}
-              isUserAuthenticated={isAdmin}
-              selectedAppIds={selectedAppIds}
-              selectedOS={selectedOS}
-              maxConcurrency={maxConcurrency}
-              maxThreadLimit={maxThreadLimit}
-              supportedCommands={serviceConfig.prefillCommands}
-              supportedOperatingSystems={serviceConfig.supportedOperatingSystems}
-              cachedAppIds={cachedAppIds}
-              estimatedSize={estimatedSize}
-              onCommandClick={handleCommandClick}
-              onSelectedOSChange={handleOSChange}
-              onMaxConcurrencyChange={handleConcurrencyChange}
-            />
+            {defaultsError ? (
+              <ErrorBlock
+                title={t('prefill.errors.failedLoadSettings')}
+                message={defaultsError}
+                retryLabel={t('common.retry')}
+                onRetry={() => void loadPrefillDefaults()}
+              />
+            ) : (
+              <PrefillCommandButtons
+                isLoggedIn={isReadyForCommands}
+                isExecuting={isExecuting}
+                isPrefillActive={signalR.isPrefillActive || signalR.runs.some(isPrefillRunActive)}
+                canStart={signalR.canStart}
+                activeRunCount={signalR.runs.filter(isPrefillRunActive).length}
+                maxConcurrentRuns={
+                  supportsConcurrentPrefill(signalR.session)
+                    ? signalR.session.maxConcurrentRuns
+                    : undefined
+                }
+                isSessionActive={isSessionActive}
+                isUserAuthenticated={isAdmin}
+                selectedAppIds={selectedAppIds}
+                selectedOS={selectedOS}
+                maxConcurrency={maxConcurrency}
+                maxThreadLimit={maxThreadLimit}
+                supportedCommands={serviceConfig.prefillCommands}
+                supportedOperatingSystems={serviceConfig.supportedOperatingSystems}
+                cachedAppIds={cachedAppIds}
+                estimatedSize={estimatedSize}
+                onCommandClick={handleCommandClick}
+                onSelectedOSChange={handleOSChange}
+                onMaxConcurrencyChange={handleConcurrencyChange}
+              />
+            )}
           </div>
         </div>
 

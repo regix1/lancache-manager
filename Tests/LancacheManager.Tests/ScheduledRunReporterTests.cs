@@ -109,11 +109,9 @@ public class ScheduledRunReporterTests
     private static ScheduledRunReporter CreateReporter(
         CapturingNotificationService notifications,
         UnifiedOperationTracker tracker,
-        bool showNotification = true,
         CancellationToken stoppingToken = default,
         Action? onTerminalCleanup = null,
-        RunNotice? notice = null,
-        bool hideNotification = false)
+        RunNotice? notice = null)
         => new(
             notifications,
             tracker,
@@ -121,11 +119,9 @@ public class ScheduledRunReporterTests
             OperationType.GameDetection,
             Events,
             "probe.complete",
-            showNotification,
+            notice ?? new RunNotice(NotificationMode.All, RunTrigger.Manual),
             stoppingToken,
-            onTerminalCleanup: onTerminalCleanup,
-            notice: notice,
-            hideNotification: hideNotification);
+            onTerminalCleanup: onTerminalCleanup);
 
     [Theory]
     [InlineData(true)]
@@ -137,7 +133,7 @@ public class ScheduledRunReporterTests
         var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
         var pendingCts = new CancellationTokenSource();
         var pendingId = tracker.RegisterOperation(OperationType.GameDetection, "pending", pendingCts,
-            metadata: notice, initialStatus: OperationStatus.Waiting);
+            initialStatus: OperationStatus.Waiting, notice: notice);
         notice.Attach(tracker, pendingId);
         using var registration = pendingCts.Token.Register(() => notice.Cancel(tracker, pendingId));
         if (cancelBeforeStart) tracker.CancelOperation(pendingId);
@@ -149,7 +145,7 @@ public class ScheduledRunReporterTests
         Assert.True(notice.Cancelled);
         Assert.Equal(reporter.OperationId, notice.OperationId);
         Assert.NotEqual(Guid.Empty, reporter.OperationId);
-        Assert.False(Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName)).ShowNotification);
+        Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName));
         await reporter.CompleteAsync(success: false, cancelled: true);
         await reporter.CompleteAsync(success: false, cancelled: true);
         Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
@@ -180,15 +176,15 @@ public class ScheduledRunReporterTests
         var tracker = CreateTracker();
         var notifications = new CapturingNotificationService();
         var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
-        await using var reporter = CreateReporter(notifications, tracker, showNotification: true, notice: notice);
+        await using var reporter = CreateReporter(notifications, tracker, notice: notice);
         await reporter.StartAsync("probe.starting");
-        Assert.Same(notice, RunNotice.ReadRunNotice(tracker.GetOperation(reporter.OperationId)!.Metadata));
+        Assert.Same(notice, tracker.GetOperation(reporter.OperationId)!.Notice);
         await reporter.CompleteAsync(success: false, error: "Connection closed");
         var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
-        Assert.False(terminal.ShowNotification);
-        Assert.True(terminal.HideNotification);
         Assert.Equal("Connection closed", terminal.Error);
         Assert.Equal(OperationStatus.Failed, terminal.Status);
+        // The failure keeps the notice it was admitted with, so its kept row stays hidden.
+        Assert.Equal(RunVisibility.Hidden, Assert.Single(tracker.GetRuns().Runs).Visibility);
     }
 
     [Fact]
@@ -225,21 +221,24 @@ public class ScheduledRunReporterTests
     }
 
     [Fact]
-    public async Task ShowNotification_IsStampedVerbatimIntoEveryPayloadAsync()
+    // Visibility lives on the run row, so a silent run still sends every lifecycle event. [80]
+    public async Task SilentRun_SendsEveryLifecycleEventAndListsABackgroundRowAsync()
     {
         var notifications = new CapturingNotificationService();
         var tracker = CreateTracker();
-        await using var reporter = CreateReporter(notifications, tracker, showNotification: false);
+        await using var reporter = CreateReporter(notifications, tracker,
+            notice: new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
 
         await reporter.StartAsync("probe.starting");
         await reporter.ReportAsync(40, "probe.running");
+        Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs).Visibility);
         await reporter.CompleteAsync(success: true);
 
         var complete = await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.False(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName).Single().ShowNotification);
-        Assert.False(notifications.PayloadsFor<ScheduledRunProgressEvent>(ProgressEventName).Single().ShowNotification);
-        Assert.False(Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload).ShowNotification);
+        Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName));
+        Assert.Single(notifications.PayloadsFor<ScheduledRunProgressEvent>(ProgressEventName));
+        Assert.True(Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload).Success);
     }
 
     [Fact]
@@ -350,23 +349,28 @@ public class ScheduledRunReporterTests
         Assert.Equal(45, payload.PercentComplete);
     }
 
+    // The run list reads the notice registered with the operation, so a silent run is still a
+    // background row after a page refresh. [77] [80]
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task StartAsync_PersistsShowNotificationIntoOperationMetadataAsync(bool showNotification)
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, RunVisibility.Hidden)]
+    public async Task StartAsync_RegistersItsNoticeWithTheOperationAsync(NotificationMode mode, RunTrigger trigger, RunVisibility visibility)
     {
         var notifications = new CapturingNotificationService();
         var tracker = CreateTracker();
-        await using var reporter = CreateReporter(notifications, tracker, showNotification);
+        var notice = new RunNotice(mode, trigger);
+        await using var reporter = CreateReporter(notifications, tracker, notice: notice);
 
         await reporter.StartAsync("probe.starting");
 
-        // The run-status recovery endpoint reads the display flag from the tracked operation's
-        // metadata under this exact key; a silent run must not resurface a card on refresh.
         var operation = tracker.GetActiveOperations(OperationType.GameDetection).Single();
+        Assert.Same(notice, operation.Notice);
         var metadata = Assert.IsType<Dictionary<string, object?>>(operation.Metadata);
-        Assert.Equal(showNotification, Assert.IsType<bool>(metadata["showNotification"]));
-        Assert.False(Assert.IsType<bool>(metadata["hideNotification"]));
+        Assert.Equal(new[] { "context", "integrationLogin" }, metadata.Keys.Order());
+        Assert.Equal(visibility, Assert.Single(tracker.GetRuns().Runs).Visibility);
 
         await reporter.CompleteAsync(success: true);
     }
@@ -383,13 +387,14 @@ public class ScheduledRunReporterTests
         await reporter.ReportAsync(25, "probe.running");
 
         var operation = tracker.GetActiveOperations(OperationType.GameDetection).Single();
-        var state = Assert.IsType<Dictionary<string, object?>>(operation.Metadata);
-        Assert.True(Assert.IsType<bool>(state["hideNotification"]));
-        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName)).HideNotification);
-        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunProgressEvent>(ProgressEventName)).HideNotification);
+        Assert.Same(notice, operation.Notice);
+        Assert.Equal(RunVisibility.Hidden, Assert.Single(tracker.GetRuns().Runs).Visibility);
+        Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName));
+        Assert.Single(notifications.PayloadsFor<ScheduledRunProgressEvent>(ProgressEventName));
 
         await reporter.CompleteAsync(success: true);
-        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName)).HideNotification);
+        Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        Assert.Equal(RunVisibility.Hidden, Assert.Single(tracker.GetRuns().Runs).Visibility);
     }
 
     [Fact]
@@ -634,14 +639,9 @@ public class ScheduledRunReporterTests
 
         public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifySteamHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyEpicHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyBattleNetHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyRiotHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyXboxHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyAdminAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGuestAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGroupAsync(string groupName, string eventName, object? data = null) => Task.CompletedTask;

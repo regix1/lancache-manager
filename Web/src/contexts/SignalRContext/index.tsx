@@ -138,7 +138,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
     }
 
     try {
-      setConnectionState('connecting');
+      // A start after a known failure keeps the outage state until the server answers.
+      setConnectionState((prev) => (prev === 'reconnecting' ? prev : 'connecting'));
 
       const connection = new signalR.HubConnectionBuilder()
         .withUrl(`${SIGNALR_BASE}/downloads`, {
@@ -170,13 +171,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
       });
 
       connection.onclose((_error) => {
-        if (isMountedRef.current) {
-          setConnectionState('disconnected');
+        // Every stop the app asks for clears or replaces connectionRef first, so a close of the
+        // current connection is an outage (the retry policy pauses while the tab is hidden), and
+        // the tab-return start picks it up.
+        if (isMountedRef.current && connectionRef.current === connection) {
+          setConnectionState('reconnecting');
           setIsConnected(false);
           setConnectionId(null);
-          // Reconnect logic is owned by withAutomaticReconnect(InfiniteBackoffRetryPolicy).
-          // handleVisibilityChange re-invokes setupConnection when the page becomes visible
-          // again after a full close.
         }
       });
 
@@ -245,20 +246,24 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
       }
     } catch (error) {
       // Connection failures are already surfaced structurally via connectionState/isConnected,
-      // which consumers render their own "disconnected" UI from; retry is automatic
-      // (InfiniteBackoffRetryPolicy once started, or the visibility/auth-change listeners below
-      // before the first successful start). A toast on every transient connect failure would be
-      // very noisy (fires on tab switches, brief network blips, etc). Deliberately silent.
+      // which the connection banner renders from; retry is automatic (InfiniteBackoffRetryPolicy
+      // once started, the timer below after a failed start, and the visibility/auth-change
+      // listeners). A toast on every transient connect failure would be very noisy (fires on tab
+      // switches, brief network blips, etc). Deliberately silent.
       console.error('[SignalR] Connection failed:', error);
       isSettingUpRef.current = false;
-      if (isMountedRef.current) {
-        setConnectionState('disconnected');
+      if (isMountedRef.current && !mockModeRef.current && connectionRef.current === null) {
+        setConnectionState('reconnecting');
         setIsConnected(false);
         setConnectionId(null);
-        // Retry logic is owned by withAutomaticReconnect(InfiniteBackoffRetryPolicy)
-        // once the connection has been started. If the initial start() fails,
-        // handleVisibilityChange or handleAuthSessionUpdated will re-invoke
-        // setupConnection when conditions allow.
+        // A failed start is outside withAutomaticReconnect, so its retry lives here; 10 s is the
+        // retry policy's fourth step (retryPolicy.ts). An attempt that lost to a newer connection
+        // fails the check above and stays quiet. An auth-change start can fail while a retry is
+        // still pending, so that one is replaced rather than left running as a second chain.
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        reconnectTimeoutRef.current = setTimeout(() => void setupConnection(), 10000);
       }
     }
   }, []);

@@ -12,6 +12,7 @@ import type { SpeedContextType, SpeedProviderProps } from './types';
 import { SpeedContext } from './SpeedContext.types';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { APP_EVENTS } from '@utils/constants';
+import { getErrorMessage } from '@utils/error';
 
 // Expiry for an accepted ACTIVE snapshot: the remaining server-side rolling window plus a
 // grace period, capped near the tracker's maximum adaptive window (15s) plus grace. If no
@@ -167,13 +168,13 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       console.error('[SpeedContext] Failed to refresh speed data:', error);
       // SpeedProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
       // useErrorHandler (useNotifications) is not reachable here. Use the existing show-toast
-      // bridge instead (mirrors NotificationsContext.tsx:332-356).
+      // bridge instead (the SHOW_TOAST listener in NotificationsContext.tsx).
       window.dispatchEvent(
         new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
           detail: {
             type: 'error',
             message: i18n.t('dashboard.errors.refreshSpeedsFailed'),
-            duration: 4000
+            error: getErrorMessage(error)
           }
         })
       );

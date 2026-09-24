@@ -3,11 +3,12 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useMockMode } from '@contexts/useMockMode';
+import { getErrorMessage } from '@utils/error';
 import DaemonStatusCard from './DaemonStatusCard';
 import type { AnonymousDaemonCopy, AnonymousDaemonService } from './daemonStatus.types';
 import type { DaemonStatusDto } from '../../../../types';
 
-/** Applied after a failed read so the card reports a definite offline state rather than a blank one. */
+/** Mock mode's answer: a definite offline state rather than a real machine's container state. */
 const OFFLINE_STATUS: DaemonStatusDto = {
   dockerAvailable: false,
   activeSessions: 0,
@@ -18,8 +19,9 @@ const OFFLINE_STATUS: DaemonStatusDto = {
 interface AnonymousDaemonState {
   connected: boolean;
   activeSessions: number;
-  hasError: boolean;
+  loadError: string | null;
   loading: boolean;
+  loadStatus: () => Promise<void>;
 }
 
 /**
@@ -34,45 +36,45 @@ interface AnonymousDaemonState {
  * `service` must be a stable reference (a module-level table), since it identifies both the fetch
  * and the hub subscriptions.
  */
-function useAnonymousDaemonStatus(
-  service: AnonymousDaemonService,
-  onLoadError: () => void
-): AnonymousDaemonState {
+function useAnonymousDaemonStatus(service: AnonymousDaemonService): AnonymousDaemonState {
   const { on, off, isConnected } = useSignalR();
   const { mockMode } = useMockMode();
   const activity = useActivityStatus();
   const [status, setStatus] = useState<DaemonStatusDto | null>(null);
-  const [hasError, setHasError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Held in a ref so a parent re-rendering with a fresh callback does not re-run the fetch and the
-  // hub subscriptions below.
-  const onLoadErrorRef = useRef(onLoadError);
-  useEffect(() => {
-    onLoadErrorRef.current = onLoadError;
-  }, [onLoadError]);
+  // Mount, daemon events, reconnect and Retry can overlap; only the newest read writes the card.
+  const statusRequestRef = useRef(0);
 
   const loadStatus = useCallback(async () => {
+    const request = ++statusRequestRef.current;
     // Mock mode reports the daemon as not connected, the same answer XboxDaemonStatus gives there,
     // rather than a real machine's container state.
     if (mockMode) {
       setStatus(OFFLINE_STATUS);
-      setHasError(false);
+      setLoadError(null);
+      setLoading(false);
       return;
     }
     try {
       const data = await service.loadStatus();
+      if (request !== statusRequestRef.current) return;
       setStatus(data);
-      setHasError(false);
-    } catch {
-      setHasError(true);
-      setStatus(OFFLINE_STATUS);
-      onLoadErrorRef.current();
+      setLoadError(null);
+    } catch (error: unknown) {
+      if (request !== statusRequestRef.current) return;
+      setLoadError(getErrorMessage(error));
+    } finally {
+      // Only the newest read ends loading: a superseded mount read would otherwise show the card
+      // with no status read yet, and the newer read has to end the loading the mount read started.
+      if (request === statusRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [mockMode, service]);
 
   useEffect(() => {
-    loadStatus().finally(() => setLoading(false));
+    void loadStatus();
   }, [loadStatus]);
 
   // Refresh when the daemon reports a status change over its own hub
@@ -98,15 +100,15 @@ function useAnonymousDaemonStatus(
       status?.dockerAvailable ?? false
     ),
     activeSessions: status?.activeSessions ?? 0,
-    hasError,
-    loading
+    loadError,
+    loading,
+    loadStatus
   };
 }
 
 interface AnonymousDaemonStatusProps {
   service: AnonymousDaemonService;
   copy: AnonymousDaemonCopy;
-  onError?: (message: string) => void;
 }
 
 /**
@@ -114,20 +116,9 @@ interface AnonymousDaemonStatusProps {
  * account, so the card reports Docker availability plus an active session count and carries no
  * sign-in control. A service supplies only its table and its copy.
  */
-const AnonymousDaemonStatus: React.FC<AnonymousDaemonStatusProps> = ({
-  service,
-  copy,
-  onError
-}) => {
-  const loadErrorMessage = copy.loadError;
-  const handleLoadError = useCallback(
-    () => onError?.(loadErrorMessage),
-    [onError, loadErrorMessage]
-  );
-  const { connected, activeSessions, hasError, loading } = useAnonymousDaemonStatus(
-    service,
-    handleLoadError
-  );
+const AnonymousDaemonStatus: React.FC<AnonymousDaemonStatusProps> = ({ service, copy }) => {
+  const { connected, activeSessions, loadError, loading, loadStatus } =
+    useAnonymousDaemonStatus(service);
 
   return (
     <DaemonStatusCard
@@ -139,8 +130,9 @@ const AnonymousDaemonStatus: React.FC<AnonymousDaemonStatusProps> = ({
       help={copy.help}
       loading={loading}
       loadingMessage={copy.loadingStatus}
-      hasError={hasError}
-      errorMessage={loadErrorMessage}
+      loadError={loadError}
+      loadErrorTitle={copy.loadError}
+      onRetry={() => void loadStatus()}
       connected={connected}
       connectedLabel={copy.connected}
       notConnectedLabel={copy.notConnected}

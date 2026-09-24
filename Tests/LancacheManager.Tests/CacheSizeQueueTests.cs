@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -18,7 +20,45 @@ public sealed class CacheSizeQueueTests
             Status = "waiting"
         };
         var queue = new RecordingOperationQueue(queuedResponse);
-        var controller = new CacheController(
+
+        var result = await CreateController(queue, NotificationMode.All).GetCacheSizeAsync(
+            datasource: null,
+            force: true,
+            CancellationToken.None);
+
+        var accepted = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(202, accepted.StatusCode);
+        Assert.Same(queuedResponse, accepted.Value);
+        Assert.Equal(OperationType.CacheSizeScan, queue.Type);
+        Assert.Equal(ConflictScope.Bulk(), queue.Scope);
+        Assert.Equal("Cache File Scan", queue.DisplayName);
+        Assert.NotNull(queue.Start);
+    }
+
+    // The Storage page's scan button is a person's run of the cache file scan schedule, so it
+    // carries that schedule's mode with a manual trigger. [86]
+    [Theory]
+    [InlineData(NotificationMode.All)]
+    [InlineData(NotificationMode.Manual)]
+    [InlineData(NotificationMode.Silent)]
+    [InlineData(NotificationMode.Hidden)]
+    public async Task ForceFullScan_CarriesTheScheduleModeWithAManualTrigger(NotificationMode mode)
+    {
+        var queue = new RecordingOperationQueue(new QueuedOperationResponse { Status = "started" });
+
+        await CreateController(queue, mode).GetCacheSizeAsync(datasource: null, force: true, CancellationToken.None);
+
+        var notice = Assert.IsType<RunNotice>(queue.Notice);
+        Assert.Equal(mode, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+    }
+
+    private static CacheController CreateController(IOperationQueue queue, NotificationMode mode)
+    {
+        // The button reads only the schedule's effective mode, so the service needs no loop behind it.
+        var cacheSizeScan = (CacheSizeScanScheduledService)RuntimeHelpers.GetUninitializedObject(typeof(CacheSizeScanScheduledService));
+        cacheSizeScan.SetNotificationMode(mode);
+        return new CacheController(
             cacheService: null!,
             cacheClearingService: null!,
             corruptionDetectionService: null!,
@@ -35,20 +75,8 @@ public sealed class CacheSizeQueueTests
             operationQueue: queue,
             capabilityService: null!,
             stateService: null!,
-            cacheScanGate: CacheScanGateHarness.Idle());
-
-        var result = await controller.GetCacheSizeAsync(
-            datasource: null,
-            force: true,
-            CancellationToken.None);
-
-        var accepted = Assert.IsAssignableFrom<ObjectResult>(result);
-        Assert.Equal(202, accepted.StatusCode);
-        Assert.Same(queuedResponse, accepted.Value);
-        Assert.Equal(OperationType.CacheSizeScan, queue.Type);
-        Assert.Equal(ConflictScope.Bulk(), queue.Scope);
-        Assert.Equal("Cache File Scan", queue.DisplayName);
-        Assert.NotNull(queue.Start);
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            cacheSizeScan: cacheSizeScan);
     }
 
     private sealed class RecordingOperationQueue(QueuedOperationResponse response) : IOperationQueue
@@ -57,6 +85,7 @@ public sealed class CacheSizeQueueTests
         public ConflictScope? Scope { get; private set; }
         public string? DisplayName { get; private set; }
         public Func<Task<Guid?>>? Start { get; private set; }
+        public RunNotice? Notice { get; private set; }
 
         public Task<QueuedOperationResponse> EnqueueAsync(
             OperationType type,
@@ -65,20 +94,14 @@ public sealed class CacheSizeQueueTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            bool showWaitingCard = true,
             RunNotice? notice = null)
         {
             Type = type;
             Scope = scope;
             DisplayName = displayName;
             Start = start;
+            Notice = notice;
             return Task.FromResult(response);
         }
-
-        public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
-
-        public bool IsWaiterSilent(Guid waitingOperationId) => false;
-
-        public bool IsWaiterHidden(Guid waitingOperationId) => false;
     }
 }

@@ -1,23 +1,26 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import ts from 'typescript';
 import {
-  MemoryStorage,
-  notificationEvents,
   bindLifted,
+  bulkRemovalCard,
   compileToUrl,
   findSoleNode,
+  liftConstArrow,
+  liftHookCallback,
   moduleUrl,
   loadNotificationModules,
-  parseSource
+  operationRunRow,
+  parseSource,
+  pushRun
 } from './transpile-module.mjs';
 
 /**
- * The notification registry is the only place a SignalR lifecycle event reaches a card, and an
- * event nobody subscribes fails silently: no error, no exception, no failing render, just a card
- * that never appears. So these tests read the real NOTIFICATION_REGISTRY and drive the real
- * handler factories over it.
+ * The notification registry is the only place a SignalR lifecycle event reaches a card's text, and
+ * an event nobody subscribes fails silently: no error, no exception, no failing render, just a card
+ * that never says anything. So these tests read the real NOTIFICATION_REGISTRY and drive the real
+ * handler builders over it.
  *
  * Most entries do NOT name their events as literals - the builders derive the triple from an
  * `eventPrefix` - so the walk below expands the prefix rather than searching the source text. A
@@ -26,6 +29,7 @@ import {
 
 const REGISTRY_PATH = 'src/contexts/notifications/notificationRegistry.ts';
 const HANDLERS_PATH = 'src/contexts/notifications/useNotificationHandlers.ts';
+const CONTEXT_PATH = 'src/contexts/notifications/NotificationsContext.tsx';
 
 /**
  * The events whose subscription moved when the hand-built handlers were folded into the registry.
@@ -40,9 +44,18 @@ const CLOSED_EVENT_LIST = [
   'SteamSessionError'
 ];
 
-const I18N_STUB = moduleUrl(`export default { t: (key) => key };`);
+const I18N_STUB = moduleUrl(`export default { t: (key) => key, exists: () => false };`);
 const i18nStub = { t: (key) => key };
-globalThis.sessionStorage = new MemoryStorage();
+const modules = await loadNotificationModules(I18N_STUB);
+const {
+  AUTO_DISMISS_DELAY_MS,
+  NOTIFICATION_ANIMATION_DURATION_MS,
+  buildAnnouncementHandler,
+  buildCompleteHandler,
+  buildProgressHandler,
+  buildStartedHandler,
+  isTerminalNotificationStatus
+} = modules;
 
 // ── Reading the real registry ───────────────────────────────────────────────
 
@@ -115,21 +128,6 @@ const liftRegistryEntry = (type, bindings) => {
   return bindLifted(`() => (${element.getText(sourceFile)})`, bindings)();
 };
 
-// ── Loading the real handlers and the real wiring ───────────────────────────
-
-const loadHandlers = async () => {
-  const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
-  const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
-  const storageUrl = await compileToUrl('../src/utils/storage.ts');
-  const handlersUrl = await compileToUrl('../src/contexts/notifications/handlers.ts', {
-    './constants': constantsUrl,
-    './notificationStatus': statusUrl,
-    '@utils/storage': storageUrl,
-    '@/i18n': I18N_STUB
-  });
-  return await import(handlersUrl);
-};
-
 const loadRegistryEntries = async () => {
   const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
   const stageKeyUrl = await compileToUrl('../src/utils/stageKeyMessage.ts', {
@@ -143,27 +141,10 @@ const loadRegistryEntries = async () => {
   return await import(entriesUrl);
 };
 
-const loadConstants = async () =>
-  await import(await compileToUrl('../src/contexts/notifications/constants.ts'));
-
-/**
- * One of the per-phase handler builders in useNotificationHandlers.ts. They are module-local, so
- * the test lifts the shipped function rather than repeating how a registry entry is wired up.
- */
-const liftHandlerBuilder = (name, bindings) => {
-  const sourceFile = parseSource('src/contexts/notifications/handlers.ts');
-  const declaration = findSoleNode(
-    sourceFile,
-    `${name} declaration`,
-    (node) => ts.isFunctionDeclaration(node) && node.name?.text === name
-  );
-  return bindLifted(`(${declaration.getText(sourceFile)})`, bindings);
-};
-
 /**
  * The subscribe loop itself, ready to call. It is the only place a declared event becomes a live
  * subscription, and it has no name of its own - it is the body of the hook's single effect - so a
- * test that lifts the phase builders instead still proves nothing about what is subscribed.
+ * test that drives the phase builders instead still proves nothing about what is subscribed.
  */
 const liftSubscribeEffect = (bindings) => {
   const sourceFile = parseSource(HANDLERS_PATH);
@@ -175,16 +156,12 @@ const liftSubscribeEffect = (bindings) => {
   return bindLifted(effect.arguments[0].getText(sourceFile), bindings);
 };
 
-/** A card list plus the setState and dismiss hooks the handlers are called with. */
-const newCardList = () => {
-  const cards = { state: [], dismissals: [] };
-  cards.setNotifications = (updater) => {
-    cards.state = updater(cards.state);
-  };
-  cards.scheduleAutoDismiss = (id, delayMs) => cards.dismissals.push([id, delayMs]);
-  cards.cancelAutoDismissTimer = () => undefined;
-  cards.events = notificationEvents();
-  return cards;
+/** Records every detail patch a handler dispatches, built against `existing`. */
+const recordPatches = (existing) => {
+  const patches = [];
+  const dispatchDetail = (operationId, build, source) =>
+    patches.push({ operationId, source, patch: build(existing) });
+  return { patches, dispatchDetail };
 };
 
 // ── The four entries that own the closed list ───────────────────────────────
@@ -192,49 +169,131 @@ const newCardList = () => {
 /** The only closed-list entry with all three lifecycle phases. */
 const liftDatabaseResetEntry = async () => {
   const registryEntries = await loadRegistryEntries();
-  const constants = await loadConstants();
   return liftRegistryEntry('database_reset', {
     buildStandardOperationEntry: registryEntries.buildStandardOperationEntry,
     stageKeyMessage: registryEntries.stageKeyMessage,
     cappedProgress: registryEntries.cappedProgress,
     operationIdDetails: registryEntries.operationIdDetails,
-    NOTIFICATION_IDS: constants.NOTIFICATION_IDS,
-    NOTIFICATION_STORAGE_KEYS: constants.NOTIFICATION_STORAGE_KEYS,
-    GENERIC_FAILURE_I18N_KEY: constants.GENERIC_FAILURE_I18N_KEY,
+    GENERIC_FAILURE_I18N_KEY: modules.GENERIC_FAILURE_I18N_KEY,
     CANCEL_TOOLTIP: { databaseReset: 'common.notifications.cancel.databaseReset' },
     translateRecoveryStage: (stageKey, context, fallbackKey) => stageKey ?? fallbackKey,
-    formatDatabaseResetProgressMessage: () => undefined,
-    formatDatabaseResetCompleteMessage: () => undefined,
+    formatDatabaseResetProgressMessage: (event) => `resetting:${event.percentComplete}`,
+    formatDatabaseResetCompleteMessage: () => 'reset complete',
     i18n: i18nStub
   });
 };
 
 /** The three announcement entries, whose single event is already terminal. */
-const liftEpicCatalogEntry = async () => {
-  const { NOTIFICATION_IDS } = await loadConstants();
-  return liftRegistryEntry('epic_catalog_update', {
-    NOTIFICATION_IDS,
+const liftEpicCatalogEntry = () =>
+  liftRegistryEntry('epic_catalog_update', {
     i18n: i18nStub,
     formatEpicGameMappingsUpdatedMessage: (event) => `total:${event.totalGames}`
   });
-};
 
-const liftXboxCatalogEntry = async () => {
-  const { NOTIFICATION_IDS } = await loadConstants();
-  return liftRegistryEntry('xbox_catalog_update', {
-    NOTIFICATION_IDS,
+const liftXboxCatalogEntry = () =>
+  liftRegistryEntry('xbox_catalog_update', {
     i18n: i18nStub,
     formatXboxGameMappingsUpdatedMessage: (event) => `new:${event.newMappings ?? 0}`
   });
+
+const liftSteamSessionErrorEntry = () =>
+  liftRegistryEntry('steam_session_error', { i18n: i18nStub });
+
+// ── The browser's own cards, lifted from the provider ───────────────────────
+
+const APP_EVENTS = {
+  NOTIFICATION_REMOVING: 'removing',
+  NOTIFICATION_VISIBILITY_CHANGE: 'visibility-change',
+  SHOW_TOAST: 'show-toast'
 };
 
-const liftSteamSessionErrorEntry = async () => {
-  const { NOTIFICATION_IDS, STEAM_ERROR_DISMISS_DELAY_MS } = await loadConstants();
-  return liftRegistryEntry('steam_session_error', {
-    NOTIFICATION_IDS,
-    STEAM_ERROR_DISMISS_DELAY_MS,
-    i18n: i18nStub
+/**
+ * The provider's own-card functions bound to one set of refs: the announcement path, the toast
+ * bridge, the popup timer and the exit fade, as they ship.
+ */
+const liftLocalCards = ({ keepVisible = false } = {}) => {
+  const localRef = { current: [] };
+  const removing = [];
+  const listeners = new Map();
+  const window = {
+    dispatchEvent: (event) => removing.push(event.detail.notificationId),
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    removeEventListener: () => undefined
+  };
+  const commit = () => undefined;
+  const shouldAutoDismiss = () => !keepVisible;
+  const lift = (hook, marker, bindings) =>
+    bindLifted(liftHookCallback(CONTEXT_PATH, hook, marker), bindings);
+  const fadeLocal = lift('useCallback', 'fadingRef.current.add(id)', {
+    localRef,
+    fadingRef: { current: new Set() },
+    window,
+    APP_EVENTS,
+    NOTIFICATION_ANIMATION_DURATION_MS,
+    commit
   });
+  const scheduleAutoDismiss = lift('useCallback', 'A bulk card ends by the ending rules', {
+    shouldAutoDismiss,
+    autoDismissTimersRef: { current: new Map() },
+    localRef,
+    isTerminalNotificationStatus,
+    fadeLocal,
+    AUTO_DISMISS_DELAY_MS
+  });
+  const showAnnouncement = lift('useCallback', 'One card per announcement type', {
+    localRef,
+    scheduleAutoDismiss,
+    commit
+  });
+  const addNotification = lift('useCallback', "A generic card's id comes from its message", {
+    localRef,
+    isTerminalNotificationStatus,
+    scheduleAutoDismiss,
+    commit
+  });
+  lift('useEffect', 'handleShowToast', {
+    addNotification,
+    window,
+    APP_EVENTS
+  })();
+  const updateNotification = lift('useCallback', "The server owns a run's state", {
+    localRef,
+    isTerminalNotificationStatus,
+    shouldAutoDismiss,
+    fadeLocal,
+    scheduleAutoDismiss,
+    settleBulk: () => undefined,
+    commit
+  });
+  lift('useEffect', 'handleNotificationVisibilityChange', {
+    shouldAutoDismiss,
+    autoDismissTimersRef: { current: new Map() },
+    storeRef: { current: modules.createRunStoreState() },
+    releaseKeptSuccess: modules.releaseKeptSuccess,
+    localRef,
+    isTerminalNotificationStatus,
+    fadeLocal,
+    scheduleAutoDismiss,
+    fadeLeavingRuns: () => undefined,
+    commit,
+    window,
+    APP_EVENTS
+  })();
+  return {
+    localRef,
+    removing,
+    showAnnouncement,
+    showToast: (detail) => listeners.get(APP_EVENTS.SHOW_TOAST)({ detail }),
+    turnKeepVisibleOff: () => {
+      keepVisible = false;
+      listeners.get(APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE)();
+    },
+    turnKeepVisibleOn: () => {
+      keepVisible = true;
+      listeners.get(APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE)();
+    },
+    updateNotification
+  };
 };
 
 // ── The closed list ─────────────────────────────────────────────────────────
@@ -276,51 +335,31 @@ test('each event in the closed list is subscribed exactly once', () => {
   }
 });
 
-test('the loop subscribes exactly the events its entries declare', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const {
-    createStartedHandler,
-    createStatusAwareProgressHandler,
-    createCompletionHandler,
-    applyPredecessor
-  } = await loadHandlers();
+test('the loop subscribes exactly the events its entries declare, plus the run rows', async () => {
   const registry = [
     await liftDatabaseResetEntry(),
-    await liftEpicCatalogEntry(),
-    await liftXboxCatalogEntry(),
-    await liftSteamSessionErrorEntry()
+    liftEpicCatalogEntry(),
+    liftXboxCatalogEntry(),
+    liftSteamSessionErrorEntry()
   ];
 
   const subscribed = [];
-  const cards = newCardList();
   liftSubscribeEffect({
-    signalR: { on: (eventName) => subscribed.push(eventName) },
+    on: (eventName) => subscribed.push(eventName),
+    off: () => undefined,
     registry,
-    setNotifications: cards.setNotifications,
-    scheduleAutoDismiss: cards.scheduleAutoDismiss,
-    cancelAutoDismissTimer: cards.cancelAutoDismissTimer,
-    events: cards.events,
-    recover: undefined,
-    buildStartedHandler: liftHandlerBuilder('buildStartedHandler', {
-      createStartedHandler,
-      applyPredecessor
-    }),
-    buildProgressHandler: liftHandlerBuilder('buildProgressHandler', {
-      createStatusAwareProgressHandler,
-      applyPredecessor
-    }),
-    buildCompleteHandler: liftHandlerBuilder('buildCompleteHandler', {
-      createCompletionHandler,
-      applyPredecessor
-    })
+    dispatchDetail: () => undefined,
+    showAnnouncement: () => undefined,
+    handleRun: () => undefined,
+    buildStartedHandler,
+    buildProgressHandler,
+    buildCompleteHandler,
+    buildAnnouncementHandler
   })();
 
-  // The wait-queue pair is subscribed once per mount rather than per entry, so it belongs in the
-  // expected set: an exact comparison is what catches a phase that quietly stopped subscribing.
-  assert.deepEqual(
-    [...subscribed].sort(),
-    [...CLOSED_EVENT_LIST, 'OperationWaiting', 'OperationWaitingComplete'].sort()
-  );
+  // The run rows are subscribed once per mount rather than per entry, so they belong in the
+  // expected set; the old wait-queue pair is no longer read at all.
+  assert.deepEqual([...subscribed].sort(), [...CLOSED_EVENT_LIST, 'OperationUpdated'].sort());
 });
 
 test('the Steam auth refetch keeps its own SteamSessionError subscription', () => {
@@ -332,200 +371,372 @@ test('the Steam auth refetch keeps its own SteamSessionError subscription', () =
   assert.match(source, /signalR\.off\('SteamSessionError', handleSteamSessionError\)/);
 });
 
-// ── The completion-only cards ───────────────────────────────────────────────
+// ── The announcements and the toast bridge [18] ─────────────────────────────
 
-test('a Steam session error raises a typed card, not a generic toast', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
-  const { NOTIFICATION_IDS, STEAM_ERROR_DISMISS_DELAY_MS } = await loadConstants();
-  const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler,
-    applyPredecessor
-  });
+test('a Steam session error is a red card that stays until closed, with no timer', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    const entry = liftSteamSessionErrorEntry();
+    const handleError = buildAnnouncementHandler(entry, entry.complete, cards.showAnnouncement);
 
-  const cards = newCardList();
-  const handleError = buildCompleteHandler(
-    await liftSteamSessionErrorEntry(),
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events.current
-  );
+    handleError({
+      errorType: 'RateLimited',
+      titleStageKey: 'signalr.steamSession.errorTitle.rateLimited',
+      stageKey: 'signalr.steamSession.rateLimited'
+    });
+    assert.equal(cards.localRef.current.length, 1);
+    const [card] = cards.localRef.current;
+    assert.equal(card.type, 'steam_session_error');
+    assert.equal(card.status, 'failed');
+    assert.equal(card.message, 'signalr.steamSession.errorTitle.rateLimited');
+    assert.equal(card.detailMessage, 'signalr.steamSession.rateLimited');
 
-  handleError({
-    errorType: 'RateLimited',
-    titleStageKey: 'signalr.steamSession.errorTitle.rateLimited',
-    stageKey: 'signalr.steamSession.rateLimited'
-  });
+    mock.timers.tick(10 * 60 * 1000);
+    assert.equal(cards.localRef.current.length, 1, 'no timer removes the Steam session error');
+    assert.deepEqual(cards.removing, []);
 
-  assert.equal(cards.state.length, 1);
-  assert.equal(cards.state[0].type, 'steam_session_error');
-  assert.equal(cards.state[0].status, 'failed');
-  assert.equal(cards.state[0].id, NOTIFICATION_IDS.STEAM_SESSION_ERROR);
-  assert.equal(cards.state[0].message, 'signalr.steamSession.errorTitle.rateLimited');
-  assert.equal(cards.state[0].detailMessage, 'signalr.steamSession.rateLimited');
-  assert.deepEqual(cards.dismissals, [
-    [NOTIFICATION_IDS.STEAM_SESSION_ERROR, STEAM_ERROR_DISMISS_DELAY_MS]
-  ]);
-
-  handleError({
-    errorType: 'AutoLogout',
-    titleStageKey: 'signalr.steamSession.errorTitle.autoLogout',
-    stageKey: 'signalr.steamSession.autoLogout'
-  });
-
-  assert.equal(cards.state.length, 1, 'a newer error replaces the card instead of stacking');
-  assert.equal(cards.state[0].message, 'signalr.steamSession.errorTitle.autoLogout');
+    handleError({
+      errorType: 'AutoLogout',
+      titleStageKey: 'signalr.steamSession.errorTitle.autoLogout',
+      stageKey: 'signalr.steamSession.autoLogout'
+    });
+    assert.equal(cards.localRef.current.length, 1, 'a newer error replaces the card');
+    assert.equal(cards.localRef.current[0].message, 'signalr.steamSession.errorTitle.autoLogout');
+  } finally {
+    mock.timers.reset();
+  }
 });
 
-test('a Steam error with no title key of its own still gets a title', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
-  const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler,
-    applyPredecessor
+test('a Steam error with no title key of its own still gets a title', () => {
+  const cards = liftLocalCards();
+  const entry = liftSteamSessionErrorEntry();
+  buildAnnouncementHandler(
+    entry,
+    entry.complete,
+    cards.showAnnouncement
+  )({
+    errorType: 'AnErrorTypeNobodyHasAddedYet'
   });
-
-  const cards = newCardList();
-  const handleError = buildCompleteHandler(
-    await liftSteamSessionErrorEntry(),
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events.current
-  );
-
-  handleError({ errorType: 'AnErrorTypeNobodyHasAddedYet' });
-  assert.equal(cards.state[0].message, 'signalr.steamSession.errorTitle.generic');
+  assert.equal(cards.localRef.current[0].message, 'signalr.steamSession.errorTitle.generic');
 });
 
-test('an Xbox catalog update carrying no counts raises no card', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
-  const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler,
-    applyPredecessor
-  });
+test('an Xbox catalog update with counts leaves after the one popup time; one with none raises nothing', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    const entry = liftXboxCatalogEntry();
+    const handleUpdate = buildAnnouncementHandler(entry, entry.complete, cards.showAnnouncement);
 
-  const cards = newCardList();
-  const handleUpdate = buildCompleteHandler(
-    await liftXboxCatalogEntry(),
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events.current
-  );
+    // The gate reads the two counts and nothing else, so this is what a download resolution looks
+    // like to it: the source and the resolved count are along for the ride.
+    handleUpdate({ source: 'xbox-download-resolution', resolvedCount: 3 });
+    assert.deepEqual(
+      cards.localRef.current,
+      [],
+      'an update with neither count must not raise a card'
+    );
 
-  // The gate reads the two counts and nothing else, so this is what a download resolution looks
-  // like to it: the source and the resolved count are along for the ride.
-  handleUpdate({ source: 'xbox-download-resolution', resolvedCount: 3 });
-  assert.deepEqual(cards.state, [], 'an update with neither count must not raise a card');
-  assert.deepEqual(cards.dismissals, []);
+    handleUpdate({ source: 'xbox-mapping', newMappings: 2, newPatterns: 0 });
+    assert.equal(cards.localRef.current.length, 1);
+    const [card] = cards.localRef.current;
+    assert.equal(card.type, 'xbox_catalog_update');
+    assert.equal(card.status, 'completed');
+    assert.equal(card.message, 'notifications.xboxGameMappingsUpdated.title');
 
-  handleUpdate({ source: 'xbox-mapping', newMappings: 2, newPatterns: 0 });
-  assert.equal(cards.state.length, 1);
-  assert.equal(cards.state[0].type, 'xbox_catalog_update');
-  assert.equal(cards.state[0].status, 'completed');
-  assert.equal(cards.state[0].message, 'notifications.xboxGameMappingsUpdated.title');
+    mock.timers.tick(AUTO_DISMISS_DELAY_MS - 1);
+    assert.equal(cards.localRef.current.length, 1);
+    mock.timers.tick(1);
+    assert.deepEqual(cards.removing, ['xbox_catalog_update'], 'the exit fade starts');
+    mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+    assert.deepEqual(cards.localRef.current, []);
+  } finally {
+    mock.timers.reset();
+  }
 });
 
-test('an Epic catalog merge that changed nothing raises no card', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler, applyPredecessor } = await loadHandlers();
-  const buildCompleteHandler = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler,
-    applyPredecessor
-  });
-
-  const cards = newCardList();
-  const handleUpdate = buildCompleteHandler(
-    await liftEpicCatalogEntry(),
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.events.current
-  );
+test('an Epic catalog merge that changed nothing raises no card', () => {
+  const cards = liftLocalCards();
+  const entry = liftEpicCatalogEntry();
+  const handleUpdate = buildAnnouncementHandler(entry, entry.complete, cards.showAnnouncement);
 
   handleUpdate({ totalGames: 900, newGames: 0, updatedGames: 0 });
-  assert.deepEqual(cards.state, []);
+  assert.deepEqual(cards.localRef.current, []);
 
   handleUpdate({ totalGames: 900, newGames: 4, updatedGames: 1 });
-  assert.equal(cards.state.length, 1);
-  assert.equal(cards.state[0].type, 'epic_catalog_update');
-  assert.equal(cards.state[0].status, 'completed');
-  assert.equal(cards.state[0].message, 'notifications.epicGameMappingsUpdated.title');
-  assert.equal(cards.state[0].detailMessage, 'total:900');
+  assert.equal(cards.localRef.current.length, 1);
+  assert.equal(cards.localRef.current[0].type, 'epic_catalog_update');
+  assert.equal(cards.localRef.current[0].status, 'completed');
+  assert.equal(cards.localRef.current[0].message, 'notifications.epicGameMappingsUpdated.title');
+  assert.equal(cards.localRef.current[0].detailMessage, 'total:900');
+});
+
+test('a toast leaves after the one popup time, and stays while Keep Notifications Visible is on', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    cards.showToast({ type: 'success', message: 'Settings saved' });
+    assert.equal(cards.localRef.current.length, 1);
+    assert.equal(cards.localRef.current[0].type, 'generic');
+    mock.timers.tick(AUTO_DISMISS_DELAY_MS - 1);
+    assert.equal(cards.localRef.current.length, 1);
+    mock.timers.tick(1);
+    assert.deepEqual(cards.removing, ['generic_Settings_saved']);
+    mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+    assert.deepEqual(cards.localRef.current, []);
+
+    const kept = liftLocalCards({ keepVisible: true });
+    kept.showToast({ type: 'error', message: 'Save failed' });
+    mock.timers.tick(10 * 60 * 1000);
+    assert.equal(kept.localRef.current.length, 1);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('with Keep Notifications Visible on no popup leaves by itself, and turning it off gives each the popup time', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    for (const keepVisible of [true, false]) {
+      const cards = liftLocalCards({ keepVisible });
+      cards.showToast({ type: 'success', message: 'Settings saved' });
+      cards.showToast({ type: 'error', message: 'Failed to save theme' });
+      cards.showAnnouncement({
+        type: 'xbox_catalog_update',
+        status: 'completed',
+        message: 'notifications.xboxGameMappingsUpdated.title'
+      });
+      // Two ticks: the fade timer the hold starts does not fire inside the same tick.
+      mock.timers.tick(AUTO_DISMISS_DELAY_MS);
+      mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+      assert.equal(cards.localRef.current.length, keepVisible ? 3 : 0, `keep=${keepVisible}`);
+      if (!keepVisible) continue;
+
+      cards.turnKeepVisibleOff();
+      mock.timers.tick(AUTO_DISMISS_DELAY_MS - 1);
+      assert.equal(cards.localRef.current.length, 3, 'each held popup gets the full popup time');
+      mock.timers.tick(1);
+      mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+      assert.deepEqual(cards.localRef.current, []);
+    }
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('an error toast is red and carries its reason; success and info toasts stay completed', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    cards.showToast({
+      type: 'error',
+      message: 'Failed to close the notification',
+      error: 'Server unreachable'
+    });
+    cards.showToast({ type: 'success', message: 'Settings saved' });
+    cards.showToast({ type: 'info', message: 'Theme applied' });
+    const card = (message) => cards.localRef.current.find((c) => c.message === message);
+    assert.equal(card('Failed to close the notification').status, 'failed');
+    assert.equal(card('Failed to close the notification').error, 'Server unreachable');
+    assert.equal(card('Settings saved').status, 'completed');
+    assert.equal(card('Settings saved').error, undefined);
+    assert.equal(card('Theme applied').status, 'completed');
+    assert.equal(card('Theme applied').error, undefined);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a popup whose popup time started stays when Keep Notifications Visible is turned on', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    cards.showToast({ type: 'success', message: 'Settings saved' });
+    mock.timers.tick(2000);
+    cards.turnKeepVisibleOn();
+    mock.timers.tick(AUTO_DISMISS_DELAY_MS);
+    mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+    assert.equal(cards.localRef.current.length, 1);
+    assert.deepEqual(cards.removing, []);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a canceled batch leaves on its own unless Keep Notifications Visible is on, and a failed batch stays', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    for (const [keepVisible, status, leaves] of [
+      [false, 'cancelled', true],
+      [true, 'cancelled', false],
+      [false, 'failed', false]
+    ]) {
+      const cards = liftLocalCards({ keepVisible });
+      cards.localRef.current = [bulkRemovalCard({})];
+      cards.updateNotification('bulk', {
+        status,
+        details: status === 'cancelled' ? { cancelled: true } : {}
+      });
+      // Two ticks: the fade timer the hold starts does not fire inside the same tick.
+      mock.timers.tick(10 * 60 * 1000);
+      mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+      const label = `${status} keep=${keepVisible}`;
+      assert.deepEqual(cards.removing, leaves ? ['bulk'] : [], label);
+      assert.equal(cards.localRef.current.length, leaves ? 0 : 1, label);
+    }
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+/** The shipped batch finalizer, cancelling the batch card in `cards` after one of three items failed. */
+const cancelBatchWithFailure = (cards) =>
+  bindLifted(
+    liftConstArrow(
+      'src/components/features/management/game-detection/cacheRemovalHelpers.ts',
+      'finalizeBulkRemovalNotification'
+    ),
+    { FULL_PROGRESS_PERCENT: modules.FULL_PROGRESS_PERCENT }
+  )({
+    id: 'bulk',
+    succeeded: 1,
+    failed: 1,
+    total: 3,
+    cancelled: true,
+    t: (key) => key,
+    updateNotification: cards.updateNotification,
+    text: {
+      cancelledKey: 'cancelled',
+      cancelledWithFailuresKey: 'cancelledWithFailures',
+      partialFailureKey: 'partialFailure',
+      completeKey: 'complete'
+    }
+  });
+
+test('a canceled batch keeps an item failure that never reached the server as a red card that stays', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    cards.localRef.current = [bulkRemovalCard({ itemOperationIds: [], failedWithoutRun: true })];
+    cancelBatchWithFailure(cards);
+    mock.timers.tick(10 * 60 * 1000);
+    assert.deepEqual(cards.removing, [], 'no card with a failure only it holds leaves on its own');
+    assert.deepEqual(
+      cards.localRef.current.map((card) => `${card.status}:${card.message}`),
+      ['failed:cancelledWithFailures']
+    );
+    assert.equal(cards.localRef.current[0].details.cancelled, false, 'drawn red, not gray');
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a canceled batch leaves, and an item failure the server kept shows as its own red card', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    cards.localRef.current = [bulkRemovalCard({ itemOperationIds: ['I1'] })];
+    const store = pushRun(
+      modules,
+      modules.createRunStoreState(),
+      operationRunRow('I1', {
+        operationType: 'gameRemoval',
+        name: 'Game Removal',
+        status: 'failed',
+        retained: true
+      }),
+      cards.localRef.current
+    );
+    const drawn = () =>
+      modules
+        .deriveNotifications(store, cards.localRef.current)
+        .map((card) => `${card.id}:${card.status}`);
+    assert.deepEqual(drawn(), ['bulk:running'], 'the kept item is folded into its batch card');
+
+    cancelBatchWithFailure(cards);
+    mock.timers.tick(10 * 60 * 1000);
+    mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+    assert.deepEqual(cards.removing, ['bulk']);
+    assert.deepEqual(drawn(), ['I1:failed']);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a finished or canceled batch stays for the popup time, also when Keep Notifications Visible is turned off', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    for (const status of ['completed', 'cancelled']) {
+      for (const path of ['ends', 'setting turned off']) {
+        const label = `${status}, ${path}`;
+        const cards = liftLocalCards();
+        cards.localRef.current = [bulkRemovalCard({}, path === 'ends' ? {} : { status })];
+        if (path === 'ends') cards.updateNotification('bulk', { status });
+        else cards.turnKeepVisibleOff();
+        mock.timers.tick(AUTO_DISMISS_DELAY_MS - 1);
+        assert.deepEqual(cards.removing, [], `${label}: still shown`);
+        mock.timers.tick(1);
+        assert.deepEqual(cards.removing, ['bulk'], `${label}: the fade starts`);
+        mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+        assert.equal(cards.localRef.current.length, 0, label);
+      }
+    }
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 // ── The database reset lifecycle ────────────────────────────────────────────
 
-test('database reset reports progress and its terminal event never completes the card twice', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const {
-    createStartedHandler,
-    createStatusAwareProgressHandler,
-    createCompletionHandler,
-    applyPredecessor
-  } = await loadHandlers();
+test('database reset events fill in the text of the card its run row opens', async () => {
   const entry = await liftDatabaseResetEntry();
-
   assert.deepEqual(entry.events, {
     started: 'DatabaseResetStarted',
     progress: 'DatabaseResetProgress',
     complete: 'DatabaseResetComplete'
   });
 
-  const cards = newCardList();
-  const handleStarted = liftHandlerBuilder('buildStartedHandler', {
-    createStartedHandler,
-    applyPredecessor
-  })(entry, entry.started, cards.setNotifications, cards.cancelAutoDismissTimer);
-  const handleProgress = liftHandlerBuilder('buildProgressHandler', {
-    createStatusAwareProgressHandler,
-    applyPredecessor
-  })(
-    entry,
-    entry.progress,
-    cards.setNotifications,
-    cards.scheduleAutoDismiss,
-    cards.cancelAutoDismissTimer
-  );
-  const handleComplete = liftHandlerBuilder('buildCompleteHandler', {
-    createCompletionHandler,
-    applyPredecessor
-  })(entry, cards.setNotifications, cards.scheduleAutoDismiss, cards.events.current);
-
-  handleStarted({ operationId: 'reset-1' });
-  assert.equal(cards.state.length, 1);
-  assert.equal(cards.state[0].status, 'running');
-
+  const { patches, dispatchDetail } = recordPatches(undefined);
+  buildStartedHandler(entry.started, dispatchDetail)({ operationId: 'reset-1' });
+  const handleProgress = buildProgressHandler(entry, entry.progress, dispatchDetail);
   handleProgress({ operationId: 'reset-1', status: 'running', percentComplete: 40 });
-  assert.equal(cards.state[0].status, 'running');
-  assert.equal(cards.state[0].progress, 40);
-
   handleProgress({ operationId: 'reset-1', status: 'completed', percentComplete: 100 });
-  assert.equal(cards.state[0].status, 'completed');
-  assert.equal(cards.dismissals.length, 1);
+  buildCompleteHandler(
+    entry,
+    entry.complete,
+    dispatchDetail
+  )({
+    operationId: 'reset-1',
+    success: true
+  });
+  // An event without an operation id belongs to no run.
+  handleProgress({ status: 'running', percentComplete: 50 });
 
-  handleComplete({ operationId: 'reset-1', success: true });
-  assert.equal(cards.state.length, 1, 'the terminal event must not add a second card');
-  assert.equal(cards.state[0].status, 'completed');
-  assert.equal(cards.dismissals.length, 1, 'the terminal event must not re-arm the dismiss timer');
+  assert.deepEqual(
+    patches.map(({ operationId, source, patch }) => [operationId, source, patch.message]),
+    [
+      ['reset-1', 'event', 'signalr.dbReset.starting'],
+      ['reset-1', 'event', 'resetting:40'],
+      ['reset-1', 'completion', 'reset complete'],
+      ['reset-1', 'completion', 'reset complete']
+    ]
+  );
+  assert.equal(patches[1].patch.progress, 40);
+  assert.equal(patches[2].patch.progress, 100);
 });
 
 for (const status of ['completed', 'failed', 'cancelled']) {
   for (const configured of [false, true]) {
-    test(`${status} completion preserves card identity with a ${configured ? 'present' : 'missing'} message callback`, async () => {
-      globalThis.localStorage = new MemoryStorage();
-      const { createCompletionHandler } = await loadHandlers();
-      const cards = newCardList();
-      cards.state = [
-        {
-          id: 'active-card',
-          type: 'database_reset',
-          status: 'running',
-          message: 'Meaningful progress',
-          detailMessage: 'Kept detail',
-          startedAt: 123,
-          details: { operationId: 'operation-1' }
-        }
-      ];
+    test(`${status} completion text with a ${configured ? 'present' : 'missing'} message callback`, () => {
+      const existing = {
+        id: 'active-card',
+        type: 'database_reset',
+        status: 'running',
+        message: 'Meaningful progress',
+        detailMessage: 'Kept detail',
+        startedAt: new Date(123),
+        details: { operationId: 'operation-1' }
+      };
       const callbacks = configured
         ? {
             getSuccessMessage: () => 'Required completion sentence',
@@ -533,27 +744,20 @@ for (const status of ['completed', 'failed', 'cancelled']) {
             getCancelledMessage: () => 'Required cancellation sentence'
           }
         : {};
-      const handle = createCompletionHandler(
-        {
-          type: 'database_reset',
-          getId: () => 'active-card',
-          storageKey: 'contract-completion',
-          ...callbacks
-        },
-        cards.setNotifications,
-        cards.scheduleAutoDismiss
-      );
-      handle({
+      const { patches, dispatchDetail } = recordPatches(existing);
+      buildCompleteHandler(
+        { type: 'database_reset' },
+        callbacks,
+        dispatchDetail
+      )({
         operationId: 'operation-1',
         success: status === 'completed',
         status,
         ...(status === 'cancelled' ? { message: 'Cancellation detail' } : {})
       });
-      assert.equal(cards.state.length, 1);
-      assert.equal(cards.state[0].id, 'active-card');
-      assert.equal(cards.state[0].startedAt, 123);
-      assert.equal(cards.state[0].status, status);
-      assert.equal(cards.state[0].detailMessage, 'Kept detail');
+      const [{ source, patch }] = patches;
+      assert.equal(source, 'completion');
+      assert.ok(!('detailMessage' in patch), 'an unconfigured detail line is left as it was');
       const sentences = configured
         ? {
             completed: 'Required completion sentence',
@@ -565,109 +769,112 @@ for (const status of ['completed', 'failed', 'cancelled']) {
             failed: 'signalr.generic.failed',
             cancelled: 'Cancellation detail'
           };
-      assert.equal(cards.state[0].message, sentences[status]);
-      assert.equal(cards.dismissals.length, 1);
+      assert.equal(patch.message, sentences[status]);
+      assert.equal(patch.error, status === 'failed' ? sentences.failed : undefined);
+      assert.equal(patch.details.cancelled, status === 'cancelled' ? true : undefined);
     });
   }
 }
 
-test('a real terminal error wins over a success-worded stage key and required callbacks', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler } = await loadHandlers();
-  const cards = newCardList();
-  const handle = createCompletionHandler(
+test('a real terminal error wins over a success-worded stage key and required callbacks', () => {
+  const { patches, dispatchDetail } = recordPatches(undefined);
+  buildCompleteHandler(
+    { type: 'cache_clearing' },
     {
-      type: 'cache_clearing',
-      getId: () => 'cache-card',
-      storageKey: 'contract-error',
       getSuccessMessage: () => 'Success sentence',
       getFailureMessage: () => 'Configured failure sentence'
     },
-    cards.setNotifications,
-    cards.scheduleAutoDismiss
-  );
-  handle({
+    dispatchDetail
+  )({
+    operationId: 'clear-1',
     success: false,
     error: 'The cache path cannot be removed',
     stageKey: 'signalr.cacheClear.complete'
   });
-  assert.equal(cards.state.length, 1);
-  assert.equal(cards.state[0].status, 'failed');
-  assert.equal(cards.state[0].message, 'The cache path cannot be removed');
+  assert.equal(patches[0].patch.message, 'The cache path cannot be removed');
+  assert.equal(patches[0].patch.error, 'The cache path cannot be removed');
 });
 
-test('an optional terminal detail formatter can clear a completed counter', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createCompletionHandler } = await loadHandlers();
-  const cards = newCardList();
-  cards.state = [
-    {
-      id: 'active-card',
-      type: 'database_reset',
-      status: 'running',
-      message: 'Working',
-      detailMessage: '12 bytes',
-      startedAt: 123
-    }
-  ];
-  createCompletionHandler(
-    {
-      type: 'database_reset',
-      getId: () => 'active-card',
-      storageKey: 'contract-detail',
-      getDetailMessage: () => undefined,
-      getSuccessMessage: () => 'Reset complete'
-    },
-    cards.setNotifications,
-    cards.scheduleAutoDismiss
-  )({ success: true });
-  assert.equal(cards.state[0].detailMessage, undefined);
-  assert.equal(cards.state[0].message, 'Reset complete');
+test('an optional terminal detail formatter can clear a completed counter', () => {
+  const { patches, dispatchDetail } = recordPatches(undefined);
+  buildCompleteHandler(
+    { type: 'database_reset' },
+    { getDetailMessage: () => undefined, getSuccessMessage: () => 'Reset complete' },
+    dispatchDetail
+  )({ operationId: 'reset-1', success: true });
+  assert.ok('detailMessage' in patches[0].patch);
+  assert.equal(patches[0].patch.detailMessage, undefined);
+  assert.equal(patches[0].patch.message, 'Reset complete');
 });
 
 for (const configured of [false, true])
-  test(`status completion uses the ${configured ? 'completion' : 'progress'} callback`, async () => {
-    globalThis.localStorage = new MemoryStorage();
-    const { createStatusAwareProgressHandler } = await loadHandlers();
-    const cards = newCardList();
-    const handle = createStatusAwareProgressHandler(
+  test(`status completion uses the ${configured ? 'completion' : 'progress'} callback`, () => {
+    const { patches, dispatchDetail } = recordPatches(undefined);
+    const handle = buildProgressHandler(
+      { type: 'database_reset' },
       {
-        type: 'database_reset',
-        getId: () => 'progress-card',
-        storageKey: 'contract-progress',
         getMessage: () => 'Progress sentence',
         getProgress: () => 50,
         getStatus: (event) => event.status,
         ...(configured ? { getCompletedMessage: () => 'Complete sentence' } : {})
       },
-      cards.setNotifications,
-      cards.scheduleAutoDismiss,
-      cards.cancelAutoDismissTimer
+      dispatchDetail
     );
-    handle({ status: 'running' });
-    handle({ status: 'completed' });
-    assert.equal(cards.state.length, 1);
-    assert.equal(cards.state[0].message, configured ? 'Complete sentence' : 'Progress sentence');
+    handle({ operationId: 'reset-1', status: 'running' });
+    handle({ operationId: 'reset-1', status: 'completed' });
+    assert.deepEqual(
+      patches.map(({ source }) => source),
+      ['event', 'completion']
+    );
+    assert.equal(patches[1].patch.message, configured ? 'Complete sentence' : 'Progress sentence');
   });
 
-test('required cache and import summaries remain intact without optional stage keys', async () => {
-  const formatters = await loadNotificationModules(I18N_STUB);
+test('a prefill stage change keeps the line, and an eviction tick keeps its warning line', () => {
+  const prefill = recordPatches(undefined);
+  buildProgressHandler(
+    { type: 'scheduled_prefill' },
+    {
+      getMessage: () => 'Steam: downloading',
+      getProgress: (event) => event.percentComplete,
+      getDetailMessage: () => '1 GB of 4 GB',
+      getStatus: () => undefined,
+      getDetails: (event) => ({ stage: event.stage })
+    },
+    prefill.dispatchDetail
+  )({ operationId: 'p-1', stage: 'recovering' });
+  assert.deepEqual(prefill.patches[0].patch, { details: { stage: 'recovering' } });
+
+  const eviction = recordPatches(undefined);
+  buildProgressHandler(
+    { type: 'eviction_scan' },
+    {
+      getMessage: () => 'Scanning',
+      getProgress: () => 40,
+      getDetailMessage: () => undefined,
+      getStatus: () => undefined
+    },
+    eviction.dispatchDetail
+  )({ operationId: 'e-1' });
+  assert.ok(!('detailMessage' in eviction.patches[0].patch));
+});
+
+test('required cache and import summaries remain intact without optional stage keys', () => {
   assert.equal(
-    formatters.formatCacheClearCompleteMessage({
+    modules.formatCacheClearCompleteMessage({
       success: true,
       message: 'Removed 12 files (42 MiB)'
     }),
     'Removed 12 files (42 MiB)'
   );
   assert.equal(
-    formatters.formatDataImportCompleteMessage({
+    modules.formatDataImportCompleteMessage({
       success: true,
       message: 'Imported 37 entries in 8 seconds'
     }),
     'Imported 37 entries in 8 seconds'
   );
   assert.equal(
-    formatters.formatCacheClearCompleteMessage({
+    modules.formatCacheClearCompleteMessage({
       success: true,
       message: 'Removed 12 files',
       stageKey: 'signalr.cacheClear.complete'

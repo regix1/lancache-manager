@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
-import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -43,8 +43,12 @@ interface DaemonStatusCardProps {
   help: DaemonStatusHelpContent;
   loading: boolean;
   loadingMessage: string;
-  hasError: boolean;
-  errorMessage: string;
+  /** The failed status read's sentence, `null` when the last read answered. */
+  loadError: string | null;
+  /** "Failed to load {service} status", the box title. */
+  loadErrorTitle: string;
+  /** Reads the status again; the box's Retry. */
+  onRetry: () => void;
   /** Drives the badge and selects between the connected and disconnected copy. */
   connected: boolean;
   connectedLabel: string;
@@ -76,8 +80,9 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
   help,
   loading,
   loadingMessage,
-  hasError,
-  errorMessage,
+  loadError,
+  loadErrorTitle,
+  onRetry,
   connected,
   connectedLabel,
   notConnectedLabel,
@@ -121,18 +126,19 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
       iconColor={iconColor}
       isExpanded={expanded}
       onToggle={toggleExpanded}
-      badge={statusBadge}
+      badge={loadError !== null ? expanded ? undefined : <SectionErrorChip /> : statusBadge}
     >
       {loading ? (
         <LoadingState message={loadingMessage} shape="cards" rows={1} />
+      ) : loadError !== null ? (
+        <ErrorBlock
+          title={loadErrorTitle}
+          message={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={onRetry}
+        />
       ) : (
         <div className="space-y-3">
-          {hasError && (
-            <Alert color="error">
-              <p className="text-sm">{errorMessage}</p>
-            </Alert>
-          )}
-
           <div className="p-3 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1 min-w-0">

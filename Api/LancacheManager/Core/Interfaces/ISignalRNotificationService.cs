@@ -8,14 +8,16 @@ namespace LancacheManager.Core.Interfaces;
 public interface ISignalRNotificationService
 {
     /// <summary>
-    /// Send a notification to all connected clients on the primary hub (DownloadHub).
+    /// Send a notification on the primary hub (DownloadHub). A run's start, progress and end and the
+    /// schedule state reach account holders only, except the completions a guest's dashboard refetches
+    /// on; every other event reaches every connected client.
     /// </summary>
     /// <param name="eventName">Use SignalREvents constants</param>
     /// <param name="data">Optional payload data</param>
     Task NotifyAllAsync(string eventName, object? data = null);
 
     /// <summary>
-    /// Fire-and-forget notification to all clients (does not await).
+    /// Fire-and-forget notification to the same audience as <see cref="NotifyAllAsync"/> (does not await).
     /// Use for notifications where you don't need to wait for completion.
     /// </summary>
     /// <param name="eventName">Use SignalREvents constants</param>
@@ -59,18 +61,6 @@ public interface ISignalRNotificationService
     /// </summary>
     Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
 
-    /// <summary>
-    /// Send a notification to all clients on the DownloadHub and the Steam daemon hub only.
-    /// Used for Steam-specific daemon events that should not be sent to the Epic hub.
-    /// </summary>
-    Task NotifySteamHubAsync(string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to all clients on the DownloadHub and the Epic daemon hub only.
-    /// Used for Epic-specific daemon events that should not be sent to the Steam hub.
-    /// </summary>
-    Task NotifyEpicHubAsync(string eventName, object? data = null);
-
     // ===== Battle.net Prefill Hub Methods =====
 
     /// <summary>
@@ -78,12 +68,6 @@ public interface ISignalRNotificationService
     /// Throws exceptions on failure so caller can handle them.
     /// </summary>
     Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to all clients on the DownloadHub and the Battle.net daemon hub only.
-    /// Used for Battle.net-specific daemon events that should not be sent to the Steam/Epic hubs.
-    /// </summary>
-    Task NotifyBattleNetHubAsync(string eventName, object? data = null);
 
     // ===== Riot Prefill Hub Methods =====
 
@@ -93,12 +77,6 @@ public interface ISignalRNotificationService
     /// </summary>
     Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
 
-    /// <summary>
-    /// Send a notification to all clients on the DownloadHub and the Riot daemon hub only.
-    /// Used for Riot-specific daemon events that should not be sent to the Steam/Epic/Battle.net hubs.
-    /// </summary>
-    Task NotifyRiotHubAsync(string eventName, object? data = null);
-
     // ===== Xbox Prefill Hub Methods =====
 
     /// <summary>
@@ -106,12 +84,6 @@ public interface ISignalRNotificationService
     /// Throws exceptions on failure so caller can handle them.
     /// </summary>
     Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to all clients on the DownloadHub and the Xbox daemon hub only.
-    /// Used for Xbox-specific daemon events that should not be sent to the Steam/Epic/Battle.net/Riot hubs.
-    /// </summary>
-    Task NotifyXboxHubAsync(string eventName, object? data = null);
 
     // ===== DownloadHub Group Methods =====
 

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { MonitorSmartphone } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import { Alert } from '@components/ui/Alert';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useCopyFeedback } from '@hooks/useCopyFeedback';
 import { copyText } from '@utils/clipboard';
@@ -33,12 +34,14 @@ const GLYPH_CLASS_BY_STATUS: Record<ClientProbeStatus, string> = {
   blocked: 'status-check-glyph--info'
 };
 
-const DETAIL_BOX_CLASS_BY_STATUS: Record<ClientProbeStatus, string> = {
-  checking: '',
-  intercepted: 'bg-[var(--theme-success-bg)] text-[var(--theme-success-text)]',
-  inconclusive: 'bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]',
-  unreachable: 'bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]',
-  blocked: 'bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]'
+const DETAIL_COLOR_BY_STATUS: Record<
+  Exclude<ClientProbeStatus, 'checking'>,
+  'success' | 'warning' | 'error' | 'info'
+> = {
+  intercepted: 'success',
+  inconclusive: 'warning',
+  unreachable: 'error',
+  blocked: 'info'
 };
 
 const ClientProbeCard: React.FC<ClientProbeCardProps> = ({
@@ -97,12 +100,11 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({
           </Button>
         )}
       </div>
+      {/* The status glyph above already carries this card's icon. */}
       {state.status !== 'checking' && detailByStatus[state.status] && (
-        <div
-          className={`mt-3 text-xs p-2.5 rounded leading-relaxed ${DETAIL_BOX_CLASS_BY_STATUS[state.status]}`}
-        >
+        <Alert color={DETAIL_COLOR_BY_STATUS[state.status]} icon={null} className="mt-3">
           {detailByStatus[state.status]}
-        </div>
+        </Alert>
       )}
       {hostHeartbeatVerified && state.status === 'unreachable' && (
         <div className="mt-2 space-y-1">

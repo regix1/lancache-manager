@@ -443,7 +443,7 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 await NotifyPrefillStartedAsync(session);
                 if (!IsSessionLive(session) || session.AdmissionClosed) throw new DaemonCommandException();
-                await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+                await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
                 if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active || session.AdmissionClosed)
                     throw new DaemonCommandException();
 

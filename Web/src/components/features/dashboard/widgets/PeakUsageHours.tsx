@@ -13,9 +13,9 @@ import {
   getEffectiveTimezone,
   getTimeInTimezone
 } from '@utils/timezone';
-import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { WidgetPanel } from '../WidgetPanel';
 import { hourlyMetricValue, type PeakUsageMetric } from './peakUsageMetric';
@@ -113,6 +113,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
 
   // Consume hourly activity data from batched context
   const { hourlyActivity: displayData, loading, error, failed, refetch } = useHourlyActivity();
+  const loadError = failed ? error : null;
 
   const viewerZone = getEffectiveTimezone();
 
@@ -291,22 +292,18 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     );
   }
 
-  // Error state — the whole fetch failed, or only this section's query did
-  if (failed || (error && !displayData)) {
+  // Error state with nothing to draw — the whole fetch failed, or only this section's query did
+  if (loadError !== null && (!displayData || !hasHourlyActivity)) {
     return (
       <WidgetPanel glass={glassmorphism}>
         <div className="flex items-center gap-2 mb-3">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
-        <EmptyState
-          icon={Clock}
-          title={t('common.failedToLoad')}
-          subtitle={t('common.tryAgain')}
-          action={
-            <Button size="sm" onClick={refetch}>
-              {t('common.retry')}
-            </Button>
-          }
+        <ErrorBlock
+          title={t('widgets.peakUsageHours.loadFailed')}
+          message={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void refetch()}
         />
         {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </WidgetPanel>
@@ -497,6 +494,17 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           />
         </div>
       </div>
+
+      {loadError !== null && (
+        <div className="mb-3">
+          <ErrorBlock
+            title={t('widgets.peakUsageHours.loadFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refetch()}
+          />
+        </div>
+      )}
 
       {/* Heatmap well - 24 hour blocks. flex-1 so the small row-stretch
           remainder lands inside the well instead of as dead card space */}

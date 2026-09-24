@@ -16,8 +16,8 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// Proves that a credential challenge received for a
 /// session (the same event that populates <see cref="DaemonSession.PendingLoginChallenge"/> - see
-/// PersistentLoginChallengeResumeTests.cs) is also pushed to the DownloadHub via
-/// <c>NotifyHubAsync</c>, mirroring the existing AuthStateChanged/SessionUpdated mirror in
+/// PersistentLoginChallengeResumeTests.cs) is also pushed to the account holders via
+/// <c>NotifyAdminAsync</c>, mirroring the existing AuthStateChanged mirror in
 /// <c>NotifyAuthStateChangeAsync</c>. This is what lets the persistent-container config modal -
 /// which never calls <c>SubscribeToSessionAsync</c>, unlike the mapping-flow live login - receive
 /// the challenge instantly instead of waiting on the REST challenge poll.
@@ -25,7 +25,7 @@ namespace LancacheManager.Tests;
 public class PersistentLoginChallengePushTests
 {
     [Fact]
-    public async Task OnCredentialChallengeAsync_PushesChallengeToDownloadHub_ViaNotifyHubAsync()
+    public async Task OnCredentialChallengeAsync_PushesChallengeToDownloadHub()
     {
         var (daemon, session) = CreateSession();
         var recorder = (RecordingNotificationsProxy)daemon.Notifications;
@@ -38,7 +38,7 @@ public class PersistentLoginChallengePushTests
 
         await daemon.InvokeOnCredentialChallengeAsync(session, challenge);
 
-        var pushed = Assert.Single(recorder.SteamHubCalls);
+        var pushed = Assert.Single(recorder.AdminCalls);
         Assert.Equal(SignalREvents.CredentialChallenge, pushed.EventName);
         Assert.Equal(session.Id, pushed.SessionId);
         Assert.Equal("chal-push-1", pushed.ChallengeId);
@@ -62,7 +62,7 @@ public class PersistentLoginChallengePushTests
         Assert.Equal("conn-1", rawSend.ConnectionId);
         Assert.Equal(SignalREvents.CredentialChallenge, rawSend.EventName);
         // Both delivery paths fire for the same challenge.
-        Assert.Single(recorder.SteamHubCalls);
+        Assert.Single(recorder.AdminCalls);
     }
 
     private static (TestableSteamDaemonService Daemon, DaemonSession Session) CreateSession()
@@ -167,25 +167,25 @@ public class PersistentLoginChallengePushTests
     private sealed record RawClientSend(string ConnectionId, string EventName);
 
     /// <summary>
-    /// Records calls to NotifySteamHubAsync (the mirror this test proves fires) and
+    /// Records calls to NotifyAdminAsync (the mirror this test proves fires) and
     /// SendToPrefillClientRawAsync (the pre-existing per-connection broadcast), reading the
     /// sessionId/challenge fields off the anonymous payload by reflection (mirrors the `stage`
     /// property pattern in ScheduledPrefillAnonymousRunPathTests.RecordingNotificationsProxy).
     /// </summary>
     private class RecordingNotificationsProxy : DispatchProxy
     {
-        public List<HubCall> SteamHubCalls { get; } = new();
+        public List<HubCall> AdminCalls { get; } = new();
         public List<RawClientSend> RawClientSends { get; } = new();
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifySteamHubAsync) && args is { Length: >= 2 })
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAdminAsync) && args is { Length: >= 2 })
             {
                 var eventName = args[0] as string ?? string.Empty;
                 var data = args[1];
                 var sessionId = data?.GetType().GetProperty("sessionId")?.GetValue(data) as string ?? string.Empty;
                 var challenge = data?.GetType().GetProperty("challenge")?.GetValue(data) as CredentialChallenge;
-                SteamHubCalls.Add(new HubCall(eventName, sessionId, challenge?.ChallengeId ?? string.Empty));
+                AdminCalls.Add(new HubCall(eventName, sessionId, challenge?.ChallengeId ?? string.Empty));
             }
             else if (targetMethod?.Name == nameof(ISignalRNotificationService.SendToPrefillClientRawAsync) && args is { Length: >= 2 })
             {

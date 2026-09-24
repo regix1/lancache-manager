@@ -1,17 +1,36 @@
-/* Condensed notification strip: a full-bleed thin line under the navigation, one status-coloured
-   segment per compacted service, with an in-flow panel revealing the real cards.
+/* Condensed notification strip: a full-bleed thin line under the navigation, one status-colored
+   segment per compacted service, with a floating panel revealing the real cards.
 
-   The panel opens in normal flow inside the same bar surface as the full-size cards below it,
-   so compacted and full cards share one stack and never overlap. Closing retains the panel for
-   its transform and opacity exit within the space already reserved, then releases that height
-   at unmount. Reduced motion and loss of all segments remove the panel immediately.
+   The panel lies over the page directly under the line, on its own copy of the bar's surface,
+   so opening and closing it never moves the full-size cards or the page below. Closing retains
+   the panel for its transform and opacity exit, then unmounts it. Reduced motion and loss of all
+   segments remove the panel immediately.
 
-   Every class here is self-contained (no shared progress-track classes): same-specificity rules
-   in different bundles resolve by chunk order, which differs between dev and prod. */
+   Each segment's color comes from its shared `notification-status--*` class
+   (styles/utilities/animations.css). Every other class here is self-contained (no shared
+   progress-track classes): same-specificity rules in different bundles resolve by chunk order,
+   which differs between dev and prod. */
 
+/* An invisible gap under the line holds the part of the pointer target that reaches below it: the
+   target reaches 1.375rem under the line (2.25rem for touch) and the first full card's close and
+   cancel buttons sit 1rem under the strip (the card list's py-2 plus the card's p-2), so the gap is
+   the difference and the target ends where those buttons begin. The line itself does not change,
+   and the floating panel still opens directly under it (top: 100% of this box). */
 .condensed-strip {
   position: relative;
   width: 100%;
+  margin-bottom: 0.375rem;
+}
+
+/* The bar paints its background and bottom border around everything inside it, so when the line
+   is all the bar holds, a margin on the line would show as a band under it. The gap moves outside
+   the bar's box there, where nothing draws. */
+.condensed-strip:last-child {
+  margin-bottom: 0;
+}
+
+div:has(> .condensed-strip:last-child) {
+  margin-bottom: 0.375rem;
 }
 
 /* The line's own goodbye: when the last compacted notification goes away, the strip keeps
@@ -48,25 +67,40 @@
 }
 
 /* The line hugs the navigation edge with zero layout padding, so the pointer target is an
-   invisible absolutely-positioned overlay instead: it adds no height to the layout. */
+   invisible absolutely-positioned overlay instead. For a mouse it is unchanged: the 22px below
+   plus the 2.5px line meet the 24px minimum target even where the navigation paints over the
+   upward part (below 768px it sits above the bar), and hovering or clicking it opens the panel
+   as before. While the panel is open the target retracts, so it never covers the first revealed
+   card. */
 .condensed-strip-line::after {
   content: '';
   position: absolute;
-  inset: -0.375rem 0;
+  inset: -0.25rem 0 -1.375rem 0;
 }
 
-/* Touch pointers need a finger-sized target. The navigation above owns hit-testing over its
-   own area, so upward extension is dead space: all usable size comes from below the line, and
-   the zone reaches ~36px down (the page area directly under a 2.5px line, worth borrowing).
+.condensed-strip-line[aria-expanded='true']::after {
+  inset: -0.25rem 0 -0.25rem 0;
+}
+
+/* Touch pointers need a finger-sized target. The navigation tabs sit directly above the line, so
+   the zone no longer reaches up over them: it reaches 2.25rem down, into the wider gap below.
    While the panel is open the zone retracts so the first revealed card keeps its own taps;
    closing needs no big target of its own, because any tap outside the panel closes it. */
 @media (pointer: coarse) {
+  .condensed-strip {
+    margin-bottom: 1.25rem;
+  }
+
+  div:has(> .condensed-strip:last-child) {
+    margin-bottom: 1.25rem;
+  }
+
   .condensed-strip-line::after {
-    inset: -0.75rem 0 -2.25rem 0;
+    inset: 0 0 -2.25rem 0;
   }
 
   .condensed-strip-line[aria-expanded='true']::after {
-    inset: -0.75rem 0 -0.375rem 0;
+    inset: 0 0 -0.375rem 0;
   }
 }
 
@@ -82,9 +116,9 @@
   gap: 1px;
 }
 
-/* Edge-to-edge line: square corners and a low profile. Each segment wears its own status colour;
-   the unfilled part is the same colour dimmed by the ::before underlay, so a finished run reads
-   as one solid colour, never a neutral track grey. */
+/* Edge-to-edge line: square corners and a low profile. Each segment wears its own status color;
+   the unfilled part is the same color dimmed by the ::before underlay, so a finished run reads
+   as one solid color, never a neutral track gray. */
 .condensed-strip-seg {
   position: relative;
   flex: 1 1 0%;
@@ -96,7 +130,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--seg-color);
+  background: var(--notification-status-color);
   opacity: 0.25;
 }
 
@@ -107,7 +141,7 @@
   position: relative;
   height: 100%;
   width: var(--seg-fill, 100%);
-  background: var(--seg-color);
+  background: var(--notification-status-color);
   transition: width 0.3s ease-out;
 }
 
@@ -119,7 +153,7 @@
   position: relative;
   height: 100%;
   width: 40%;
-  background: var(--seg-color);
+  background: var(--notification-status-color);
   animation: condensedStripSweep 1.4s ease-in-out infinite;
 }
 
@@ -202,12 +236,12 @@
 .condensed-strip-glow-seg {
   flex: 1 1 0%;
   height: 100%;
-  background: linear-gradient(to bottom, var(--seg-glow-color), transparent 60%);
+  background: linear-gradient(to bottom, var(--notification-status-glow), transparent 60%);
 }
 
-/* The open panel sits in flow directly under the line, so the glow band would land on the
-   first revealed card. The open state suppresses it: the glow's job is hinting that the line
-   expands, and that is answered once the panel is open. */
+/* The open panel floats directly under the line, over the band the glow paints into. The open
+   state suppresses the glow: its job is hinting that the line expands, and that is answered
+   once the panel is open. */
 .condensed-strip-line[aria-expanded='true'] .condensed-strip-glow {
   opacity: 0;
 }
@@ -216,17 +250,23 @@
   opacity: 1;
 }
 
-/* The revealed cards live in normal flow under the line, inside the same bar surface as the
-   full-size cards further down, so opening pushes those cards (and the page) down and closing
-   hands the space straight back. The bar behind provides the backdrop and owns the bottom
-   border and shadow, so the panel carries no surface styling of its own. */
+/* The revealed cards float over the page directly under the line, so opening never moves the
+   full-size cards or the page below. The panel therefore carries its own copy of the bar's
+   surface (background, bottom border, small shadow), and sits above the page content inside the
+   sticky bar. Its height is bounded by the scroll area the bar wraps the cards in. */
 .condensed-strip-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
   padding-top: 0.375rem;
+  background: var(--theme-nav-bg);
+  border-bottom: 1px solid var(--theme-nav-border);
+  box-shadow: 0 1px 2px 0 var(--theme-shadow-black);
   /* House motion at dropdown speed, unfolding DOWNWARD: scaleY from the pinned top edge, so
      no frame of the animation can place any part of the panel above the line it hangs from
      (a translate-from-above entrance poked over the line into the navigation as it landed).
-     A transform animates within space the layout has already reserved, so the full cards
-     below take their final position immediately and only the revealed content eases in.
      Keyframes rather than transitions: churn rewrites styles every tick and a retargeted
      transition restarts from its interpolated state, but keyframes hold. */
   transform-origin: top center;
@@ -250,12 +290,9 @@
 }
 
 /* Closing collapses the panel INTO the line it hangs from - scaling down from the pinned top
-   edge while sliding up the last few pixels - so the height the layout hands back at unmount
-   reads as the end of that motion rather than a jump. Deeper and quicker than the entrance,
-   because an exit the eye has to hunt for is worse than no exit at all. Transform and opacity
-   only: the height stays reserved for the whole exit and is released in one step at unmount,
-   so an interrupted close cannot leave part of it behind. Pointer events stop at once, since
-   the pointer has already left. */
+   edge while sliding up the last few pixels. Deeper and quicker than the entrance, because an
+   exit the eye has to hunt for is worse than no exit at all. Transform and opacity only.
+   Pointer events stop at once, since the pointer has already left. */
 .condensed-strip-panel.is-closing {
   pointer-events: none;
   animation: condensedStripPanelOut 0.13s cubic-bezier(0.4, 0, 1, 1) forwards;

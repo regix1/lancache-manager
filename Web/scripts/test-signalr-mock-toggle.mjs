@@ -12,7 +12,9 @@ import { compileToUrl, moduleUrl } from './transpile-module.mjs';
  * minimal React and a fake hub connection - and holds the lifecycle properties that separates the
  * connection from the registry: the registry outlives a toggle, the reconnected socket serves it,
  * nothing from the server reaches a subscriber while the toggle is on, repeated and mid-handshake
- * toggles leave exactly one connection, and a Strict Mode double invoke still opens one.
+ * toggles leave exactly one connection, and a Strict Mode double invoke still opens one. It also
+ * holds the outage states the connection banner reads: a refused first start retries, an attempt a
+ * newer connection replaced stays quiet, and a close of the live connection reads as reconnecting.
  */
 
 /**
@@ -33,7 +35,8 @@ export const useState = (initial) => {
     slots[cursor] = { value: initial, render: currentRender };
   }
   const slot = slots[cursor++];
-  const setValue = (next) => {
+  const setValue = (update) => {
+    const next = typeof update === 'function' ? update(slot.value) : update;
     if (Object.is(next, slot.value)) return;
     slot.value = next;
     slot.render();
@@ -154,7 +157,9 @@ const state = {
   connections: [],
   windowListeners: new Map(),
   /** When set, the hub handshake waits on it so a test can flip mock mode part-way through. */
-  startGate: null
+  startGate: null,
+  /** When set, a handshake that gets past the gate rejects with it, as a start the server refuses. */
+  startError: null
 };
 globalThis.signalRMockToggleTestState = state;
 
@@ -172,8 +177,10 @@ globalThis.window = {
 
 /**
  * A hub connection the test drives by hand: `on` collects the dispatcher the provider registers per
- * event name, `start` optionally waits on the gate so the test can act mid-handshake, and `stop`
- * counts, so a test can tell a socket that was opened and thrown away from one never opened.
+ * event name, `start` optionally waits on the gate so the test can act mid-handshake and then
+ * rejects when `startError` is set, and `stop` counts, so a test can tell a socket that was opened
+ * and thrown away from one never opened. Stopping an open connection fires its close callback, as
+ * the real client does.
  */
 const signalRStubSource = `
 export const HubConnectionState = {
@@ -205,12 +212,15 @@ export class HubConnectionBuilder {
       onclose: (callback) => { connection.lifecycle.close = callback; },
       start: async () => {
         if (state.startGate) await state.startGate;
+        if (state.startError) throw state.startError;
         connection.state = HubConnectionState.Connected;
         connection.connectionId = 'connection-' + state.connections.length;
       },
       stop: async () => {
         connection.stopCount += 1;
+        const wasConnected = connection.state === HubConnectionState.Connected;
         connection.state = HubConnectionState.Disconnected;
+        if (wasConnected) connection.lifecycle.close?.();
       }
     };
     state.connections.push(connection);
@@ -284,8 +294,14 @@ const compileProvider = () => {
 
 const { SignalRProvider } = await import(compileProvider());
 
+/**
+ * Node's own timer, kept before any test mocks `setTimeout`, so settling still works while the
+ * retry timer is driven by hand.
+ */
+const realSetTimeout = globalThis.setTimeout;
+
 /** Lets the mount timer and the awaits inside setupConnection run before the test looks. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise((resolve) => realSetTimeout(resolve, 0));
 
 /**
  * Mounts one provider. Nothing is awaited here, so a test can act between the render and the timer
@@ -298,6 +314,7 @@ const mount = ({ holdStart = false, setupRequired = false } = {}) => {
   state.connections = [];
   state.windowListeners = new Map();
   state.startGate = null;
+  state.startError = null;
 
   let openHandshake = () => undefined;
   if (holdStart) {
@@ -522,4 +539,94 @@ test('a Strict Mode double invoke opens exactly one connection', async () => {
 
   assert.equal(harness.all().length, 1, 'the torn-down first pass must not leave a socket behind');
   assert.equal(harness.live().state, CONNECTED);
+});
+
+test('a first start the server refuses keeps retrying and connects once the server answers', async (t) => {
+  t.mock.method(console, 'error', () => undefined);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const harness = mount();
+  state.startError = new Error('Failed to complete negotiation with the server');
+  t.mock.timers.tick(1);
+  await settle();
+
+  assert.equal(harness.all().length, 1);
+  assert.equal(
+    harness.published().connectionState,
+    'reconnecting',
+    'a refused first start is an outage with a retry pending, not a signed-out socket'
+  );
+  assert.equal(harness.published().isConnected, false);
+
+  state.startError = null;
+  t.mock.timers.tick(10000);
+  await settle();
+
+  assert.equal(harness.all().length, 2, 'the retry builds a fresh connection');
+  assert.equal(harness.published().connectionState, 'connected');
+  assert.equal(harness.published().isConnected, true);
+});
+
+test('a start that a newer connection already replaced fails quietly and schedules nothing', async (t) => {
+  t.mock.method(console, 'error', () => undefined);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const harness = mount({ holdStart: true });
+  t.mock.timers.tick(1);
+  await settle();
+
+  harness.setMockMode(true);
+  harness.setMockMode(false);
+  // The newer connection opens at once while the first handshake is still held.
+  state.startGate = null;
+  t.mock.timers.tick(1);
+  await settle();
+  assert.equal(harness.all().length, 2);
+  assert.equal(harness.published().connectionState, 'connected');
+
+  state.startError = new Error('WebSocket closed with status code: 1006');
+  harness.releaseStart();
+  await settle();
+
+  assert.equal(
+    harness.published().connectionState,
+    'connected',
+    'the stale attempt must not publish an outage over the live connection'
+  );
+  assert.equal(harness.published().isConnected, true);
+
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.equal(harness.all().length, 2, 'the stale attempt schedules no retry');
+});
+
+test('a close of the live connection reads as reconnecting through the next start', async () => {
+  const harness = mount();
+  await settle();
+  const first = harness.live();
+  assert.equal(harness.published().connectionState, 'connected');
+
+  // The server went away while the tab was hidden: the retry policy pauses then, so the client
+  // closes instead of reconnecting.
+  first.state = DISCONNECTED;
+  first.lifecycle.close();
+  assert.equal(harness.published().connectionState, 'reconnecting');
+  assert.equal(harness.published().isConnected, false);
+
+  let openHandshake = () => undefined;
+  state.startGate = new Promise((resolve) => {
+    openHandshake = resolve;
+  });
+  harness.setAccessSetup(false);
+  await settle();
+  assert.equal(harness.all().length, 2, 'the next start builds a fresh connection');
+  assert.equal(
+    harness.published().connectionState,
+    'reconnecting',
+    'a start after an outage keeps the outage state until the server answers'
+  );
+
+  state.startGate = null;
+  openHandshake();
+  await settle();
+  assert.equal(harness.published().connectionState, 'connected');
+  assert.equal(harness.published().isConnected, true);
 });

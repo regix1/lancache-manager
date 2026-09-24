@@ -205,7 +205,7 @@ public sealed class CacheDashboardRefreshTests
             "GetRequiredService<IDashboardBatchService>().InvalidateAllCache()",
             StringComparison.Ordinal);
         var broadcastIndex = notificationSource.IndexOf(
-            "_downloadHubContext.Clients.All.SendAsync(eventName, data)",
+            "ClientsFor(eventName).SendAsync(eventName, data)",
             StringComparison.Ordinal);
 
         Assert.Contains(
@@ -230,7 +230,7 @@ public sealed class CacheDashboardRefreshTests
             "eventName == SignalREvents.EvictionRemovalComplete",
             StringComparison.Ordinal);
         var broadcastIndex = notificationSource.IndexOf(
-            "_downloadHubContext.Clients.All.SendAsync(eventName, data)",
+            "ClientsFor(eventName).SendAsync(eventName, data)",
             StringComparison.Ordinal);
 
         Assert.Contains(

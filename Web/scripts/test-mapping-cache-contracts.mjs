@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { bindLifted, liftHookCallback, MemoryStorage, transpile } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback } from './transpile-module.mjs';
 
 const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
@@ -10,7 +10,6 @@ const readWebSource = (relativePath) =>
 const signalRTypes = readWebSource('src/contexts/SignalRContext/types.ts');
 const registry = readWebSource('src/contexts/notifications/notificationRegistry.ts');
 const registryEntries = readWebSource('src/contexts/notifications/registryEntries.ts');
-const handlers = readWebSource('src/contexts/notifications/handlers.ts');
 const xboxAuthHook = readWebSource('src/hooks/useXboxMappingAuth.ts');
 const cacheManager = readWebSource('src/components/features/management/cache/CacheManager.tsx');
 const dashboardContext = readWebSource('src/contexts/DashboardDataContext/index.tsx');
@@ -26,12 +25,6 @@ const corruptionManager = readWebSource(
 const cacheSizeContext = readWebSource('src/contexts/CacheSizeContext.tsx');
 const scanBlockedHook = readWebSource('src/hooks/useCacheScanBlocked.ts');
 const errorUtils = readWebSource('src/utils/error.ts');
-const scanHoldRecovery = readWebSource(
-  'src/components/features/management/game-detection/scanHoldRecovery.ts'
-);
-const waitForSignalRCompletion = readWebSource(
-  'src/contexts/notifications/waitForSignalRCompletion.ts'
-);
 const en = JSON.parse(readWebSource('src/i18n/locales/en.json'));
 const zh = JSON.parse(readWebSource('src/i18n/locales/zh.json'));
 
@@ -122,8 +115,8 @@ const loadOrphanedFetch = () => {
       mockMode: false,
       setOrphanedLoading: (value) => writes.push(['loading', value]),
       setOrphanedGroups: (value) => writes.push(['groups', value]),
-      onError: (message) => writes.push(['error', message]),
-      t: (key) => key,
+      setOrphanedLoadError: (value) => writes.push(['error', value]),
+      getErrorMessage: (error) => error.message,
       isAbortError: (error) => error instanceof Error && error.name === 'AbortError',
       ApiService: {
         getOrphanedDownloads() {
@@ -144,60 +137,6 @@ const mappingPlatforms = [
   ['BattleNet', 'battleNetMapping'],
   ['Riot', 'riotMapping']
 ];
-
-const compileHandlerFactory = () => {
-  const sourceFile = ts.createSourceFile(
-    'handlers.ts',
-    handlers,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
-  const names = new Set([
-    'eventOperationId',
-    'eventUsesBackgroundControl',
-    'excludeChild',
-    'eventTargetsCard',
-    'clearPersistedNotificationIfTargeted',
-    'createCompletionHandler'
-  ]);
-  const declarations = sourceFile.statements
-    .filter(
-      (statement) =>
-        ts.isFunctionDeclaration(statement) && statement.name && names.has(statement.name.text)
-    )
-    .map((statement) => statement.getText(sourceFile));
-
-  for (const name of names) {
-    assert.ok(
-      declarations.some((declaration) => declaration.includes(` ${name}`)),
-      `missing ${name} from handler factory harness`
-    );
-  }
-
-  const harness = `
-    const FULL_PROGRESS_PERCENT = 100;
-    const CANCELLED_NOTIFICATION_DELAY_MS = 5000;
-    const GENERIC_COMPLETION_I18N_KEY = 'complete';
-    const GENERIC_FAILURE_I18N_KEY = 'failed';
-    const i18n = { t: (key) => key };
-    const isTerminalNotificationStatus = (status) =>
-      status === 'completed' || status === 'failed' || status === 'cancelled';
-    ${declarations.join('\n')}
-  `;
-  const compiled = transpile(harness, ts.ModuleKind.CommonJS);
-  const exports = {};
-  // The lifted declarations read the storage wrapper as a free variable; MemoryStorage covers the
-  // three methods they call.
-  const storage = new MemoryStorage();
-  const createCompletionHandler = new Function(
-    'exports',
-    'storage',
-    `${compiled}; return exports.createCompletionHandler;`
-  )(exports, storage);
-
-  return { createCompletionHandler, localStorage: storage };
-};
 
 test('all five mapping platforms expose a typed lifecycle triple and shared registry entry', () => {
   for (const [eventPrefix, serviceKey] of mappingPlatforms) {
@@ -230,23 +169,21 @@ test('mapping registry builder combines tracker recovery with server-operation c
   );
   assert.match(registryEntries, /\/api\/system\/schedules\/\$\{serviceKey\}\/run-status/);
   assert.match(registryEntries, /cancelKind:\s*'serverOp'/);
-  assert.match(registryEntries, /silentRunGate:\s*true/);
 });
 
-test('catalog updates are completion-only registry entries carrying their own card identity', () => {
+test('catalog updates are completion-only registry entries', () => {
   const catalogEntries = [
-    ['epic_catalog_update', 'EPIC_GAME_MAPPING_UPDATE', 'EpicGameMappingsUpdated'],
-    ['xbox_catalog_update', 'XBOX_GAME_MAPPING_UPDATE', 'XboxGameMappingsUpdated']
+    ['epic_catalog_update', 'EpicGameMappingsUpdated'],
+    ['xbox_catalog_update', 'XboxGameMappingsUpdated']
   ];
 
-  for (const [type, idConstant, event] of catalogEntries) {
+  for (const [type, event] of catalogEntries) {
     const at = registry.indexOf(`type: '${type}'`);
     assert.notEqual(at, -1, `${type} is missing from the registry`);
     // The window has to reach past the entry's own getters without running into its neighbour.
-    // All three patterns below sit in the first ~200 characters, but the Epic entry already
+    // Both patterns below sit in the first ~200 characters, but the Epic entry already
     // overruns into the Xbox one by 4, so widening this is no longer free.
     const entry = registry.slice(at, at + 600);
-    assert.match(entry, new RegExp(`id: NOTIFICATION_IDS\\.${idConstant}\\b`));
     assert.match(entry, new RegExp(`events: \\{ complete: '${event}' \\}`));
     assert.match(entry, /succeeded: true/);
   }
@@ -255,69 +192,6 @@ test('catalog updates are completion-only registry entries carrying their own ca
   // the catalog-update cards, which report a finished merge rather than a run in progress.
   assert.match(registry, /eventPrefix: 'EpicMapping'/);
   assert.match(registry, /eventPrefix: 'XboxMapping'/);
-});
-
-test('running progress updates persist the merged notification for reload recovery', () => {
-  assert.match(handlers, /const card[\s\S]*?persistNotification\(\s*config\.storageKey,\s*card/);
-});
-
-test('stale mapping Complete cannot mutate or clear a newer running operation', () => {
-  for (const silent of [false, true]) {
-    const { createCompletionHandler, localStorage } = compileHandlerFactory();
-    const storageKey = `mapping-stale-${silent}`;
-    const notificationId = 'mapping-card';
-    const running = {
-      id: notificationId,
-      type: 'depot_mapping',
-      status: 'running',
-      message: 'Mapping B',
-      progress: 25,
-      startedAt: new Date('2026-07-25T00:00:00.000Z'),
-      details: { operationId: 'operation-b' }
-    };
-    let notifications = [running];
-    const scheduledDismissals = [];
-    localStorage.setItem(storageKey, JSON.stringify(running));
-
-    const handler = createCompletionHandler(
-      {
-        type: 'depot_mapping',
-        getId: () => notificationId,
-        storageKey,
-        shouldDisplay: (event) => event.showNotification,
-        getSuccessDetails: (event) => ({ operationId: event.operationId })
-      },
-      (update) => {
-        notifications = update(notifications);
-      },
-      (...args) => scheduledDismissals.push(args)
-    );
-
-    handler({
-      success: true,
-      operationId: 'operation-a',
-      showNotification: !silent
-    });
-
-    assert.deepEqual(notifications, [running]);
-    assert.equal(localStorage.getItem(storageKey), JSON.stringify(running));
-    assert.deepEqual(scheduledDismissals, []);
-
-    handler({
-      success: true,
-      operationId: 'operation-b',
-      showNotification: !silent
-    });
-
-    if (silent) {
-      assert.deepEqual(notifications, []);
-    } else {
-      assert.equal(notifications[0].status, 'completed');
-      assert.equal(notifications[0].details.operationId, 'operation-b');
-    }
-    assert.equal(localStorage.getItem(storageKey), null);
-    assert.deepEqual(scheduledDismissals, silent ? [] : [[notificationId, undefined]]);
-  }
 });
 
 test('Xbox mapping authentication uses its non-notification compatibility event', () => {
@@ -399,6 +273,7 @@ test('an older orphan response cannot replace a newer one, fail after it, or pub
   await first;
   assert.deepEqual(newer.writes, [
     ['groups', ['newer']],
+    ['error', null],
     ['loading', false]
   ]);
 
@@ -411,7 +286,7 @@ test('an older orphan response cannot replace a newer one, fail after it, or pub
   await older;
   assert.deepEqual(
     staleFailure.writes.filter(([kind]) => kind === 'error'),
-    []
+    [['error', null]]
   );
   assert.deepEqual(
     staleFailure.writes.filter(([kind]) => kind === 'groups'),
@@ -431,7 +306,10 @@ test('an older orphan response cannot replace a newer one, fail after it, or pub
   );
   assert.deepEqual(
     currentFailure.writes.filter(([kind]) => kind === 'error'),
-    [['error', 'management.sections.data.orphanedDownloadsLoadError']]
+    [
+      ['error', null],
+      ['error', 'load failed']
+    ]
   );
 
   const cancelled = loadOrphanedFetch();
@@ -652,7 +530,7 @@ test('unmapped groups count, summarize, and stay visible without mapped removal 
     evalExpression(emptyGuard, {
       hasResults: unmappedOnly,
       loading: false,
-      initialLoadError: null
+      loadError: null
     }),
     false
   );
@@ -660,16 +538,16 @@ test('unmapped groups count, summarize, and stay visible without mapped removal 
     evalExpression(emptyGuard, {
       hasResults: hasResults([], [], []),
       loading: false,
-      initialLoadError: null
+      loadError: null
     }),
     true
   );
   assert.equal(
-    evalExpression(emptyGuard, { hasResults: false, loading: true, initialLoadError: null }),
+    evalExpression(emptyGuard, { hasResults: false, loading: true, loadError: null }),
     false
   );
   assert.equal(
-    evalExpression(emptyGuard, { hasResults: false, loading: false, initialLoadError: 'failed' }),
+    evalExpression(emptyGuard, { hasResults: false, loading: false, loadError: 'failed' }),
     false
   );
 
@@ -752,27 +630,21 @@ test('a declined run does not trigger a refetch in any completion listener', () 
 });
 
 test('a declined game detection releases the section instead of leaving it scanning', () => {
-  // The operation-id waiter owns terminal state. A skipped completion must settle that waiter and
-  // release the local guard; notification-card age is no longer a second state machine.
+  // The server's run list owns the busy state, and a declined run leaves it like any other ending.
+  // The page's own guard lasts only as long as its start request, so nothing is left holding.
   assert.match(
-    waitForSignalRCompletion,
-    /fields\.skipped \|\| fields\.status === 'skipped'[\s\S]*?\? 'skipped'/
+    gameCacheDetector,
+    /finally \{\s*detectionInFlightRef\.current = false;\s*setIsStartingDetection\(false\);/
   );
-  assert.match(
-    scanHoldRecovery,
-    /if \(first\.outcome\.terminal\) \{\s*recoveryAbort\.abort\(\);\s*return 'release';/
-  );
-  assert.match(gameCacheDetector, /if \(decision === 'release'\) \{[\s\S]*?releaseAttempt\(\);/);
+  assert.doesNotMatch(gameCacheDetector, /scanButtonsHeld|heldOperationIdRef|followAdmittedScan/);
+  assert.doesNotMatch(storageSection, /evictionAdmissionHeld|recoverScanHold|followAdmittedScan/);
 });
 
 test('a terminal card from an earlier scan cannot end the one just started', () => {
-  // The HTTP operation id is the owner. A stale singleton card never reaches the waiter because
-  // completion is matched by that exact id, and no notification-list effect clears the guard.
-  assert.match(gameCacheDetector, /heldOperationIdRef\.current = result\.operationId;/);
-  assert.match(
-    waitForSignalRCompletion,
-    /fields\.operationId !== operationId \|\| !match\(event\)/
-  );
+  // No card list drives the scan state, so an old scan's ending on screen cannot touch the new
+  // scan's buttons: busy comes from the live run list alone.
+  assert.match(gameCacheDetector, /const isDetectionFromNotification = useOperationBusy\(/);
+  assert.doesNotMatch(gameCacheDetector, /notifications\.(filter|find|some)\(/);
   assert.doesNotMatch(gameCacheDetector, /gameDetectionEndedNotifs|raisedByThisScan/);
 });
 

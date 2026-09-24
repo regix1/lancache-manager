@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { compileToUrl } from './transpile-module.mjs';
 
-const { applyDashboardBatchResponse, buildRangeKey } = await import(
+const { applyDashboardBatchResponse, buildRangeKey, unconfirmedSections } = await import(
   await compileToUrl('../src/contexts/DashboardDataContext/applyBatchResponse.ts')
 );
 
@@ -274,6 +274,23 @@ test('zeroed download totals and empty option lists apply as successful results'
   assert.deepEqual(next.serviceOptions, []);
   assert.deepEqual(next.clientOptions, []);
   assert.equal(hadPartialFailure, false);
+});
+
+test('two failed batches for a range never loaded leave every section unconfirmed', () => {
+  const all = Object.keys(fullBatch());
+  assert.deepEqual(unconfirmedSections(unconfirmedSections([], all, false), all, true), all);
+});
+
+test('a failure after a good batch for the same range leaves no section unconfirmed', () => {
+  const all = Object.keys(fullBatch());
+  assert.deepEqual(unconfirmedSections(unconfirmedSections([], [], true), all, true), []);
+});
+
+test('a section that failed on a new range stays unconfirmed through a later full failure', () => {
+  const all = Object.keys(fullBatch());
+  assert.deepEqual(unconfirmedSections(unconfirmedSections([], ['clients'], false), all, true), [
+    'clients'
+  ]);
 });
 
 test('buildRangeKey is stable for live mode and distinct across windows', () => {

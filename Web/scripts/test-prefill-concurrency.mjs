@@ -350,7 +350,8 @@ test('terminal completion storage deduplicates identities and dismisses only the
   assert.equal(storage.get('runs').length, 2);
 });
 
-test('all service handlers route keyed progress and terminals without clearing sibling legacy state', async () => {
+/** The Prefill tab's SignalR handlers, compiled with their imports stubbed. */
+const loadEventHandlers = async () => {
   const constants = await compileToUrl(
     '../src/components/features/prefill/hooks/prefillConstants.ts'
   );
@@ -368,6 +369,82 @@ test('all service handlers route keyed progress and terminals without clearing s
       '@utils/storage': moduleUrl('export const sessionStore = {};')
     })
   );
+  return { getEventName, registerPrefillEventHandlers };
+};
+
+test('a Prefill tab reacts only to its own session sign-in state', async () => {
+  const { getEventName, registerPrefillEventHandlers } = await loadEventHandlers();
+  const handlers = new Map();
+  const states = [];
+  registerPrefillEventHandlers(
+    {
+      on: (name, fn) => handlers.set(name, fn),
+      onreconnecting: () => undefined,
+      onreconnected: () => undefined
+    },
+    {
+      serviceId: 'steam',
+      sessionRef: { current: { id: 'A' } },
+      onAuthStateChanged: (state) => states.push(state)
+    }
+  );
+  const onAuthState = handlers.get(getEventName('AuthStateChanged', 'steam'));
+
+  // Another session signing in, or being asked for a password, is not this tab's business. [112]
+  onAuthState({ sessionId: 'B', authState: 'Authenticated' });
+  onAuthState({ sessionId: 'B', authState: 'PasswordRequired' });
+  assert.deepEqual(states, []);
+
+  onAuthState({ sessionId: 'A', authState: 'Authenticated' });
+  assert.deepEqual(states, ['Authenticated']);
+});
+
+test('a refused sign-in shows its reason in the dialog and draws no popup of its own', () => {
+  const effect = liftHookCallback(
+    'src/hooks/usePrefillSteamAuth.ts',
+    'useEffect',
+    'handleAuthStateChanged'
+  );
+  const handlers = new Map();
+  const popups = [];
+  const errors = [];
+  const noop = () => undefined;
+  bindLifted(effect, {
+    hubConnection: { on: (name, fn) => handlers.set(name, fn), off: noop },
+    sessionId: 'A',
+    serviceId: 'steam',
+    getEventName: (name) => name,
+    hasStartedAuthRef: { current: true },
+    loginEpochRef: { current: 0 },
+    retiredChallengeIdsRef: { current: new Set() },
+    waitRef: { current: null },
+    deviceConfirmationTimeoutRef: { current: null },
+    isWaitingForDeviceConfirmationRef: { current: false },
+    finishAuthStep: noop,
+    setLoginDeadline: noop,
+    setPendingChallenge: noop,
+    setWaitingForMobileConfirmation: noop,
+    setNeedsDeviceCode: noop,
+    setNeedsTwoFactor: noop,
+    setNeedsEmailCode: noop,
+    setPassword: noop,
+    setLoading: noop,
+    t: (key) => key,
+    addNotification: (notice) => popups.push(notice),
+    setError: (message) => errors.push(message),
+    onError: noop,
+    onSuccess: noop
+  })();
+
+  handlers.get('AuthStateChanged')({ sessionId: 'A', authState: 'NotAuthenticated' });
+
+  // The server's run card is the one notice; the dialog keeps its own sentence. [110]
+  assert.deepEqual(popups, []);
+  assert.deepEqual(errors, ['prefill.auth.signInRefused']);
+});
+
+test('all service handlers route keyed progress and terminals without clearing sibling legacy state', async () => {
+  const { getEventName, registerPrefillEventHandlers } = await loadEventHandlers();
   for (const serviceId of ['steam', 'epic', 'xbox', 'battlenet', 'riot']) {
     const handlers = new Map();
     const routed = [];

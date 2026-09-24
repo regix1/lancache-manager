@@ -48,6 +48,7 @@ public class CacheController : ControllerBase
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IStateService _stateService;
     private readonly CacheScanGate _cacheScanGate;
+    private readonly CacheSizeScanScheduledService _cacheSizeScan;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -66,11 +67,13 @@ public class CacheController : ControllerBase
         IOperationQueue operationQueue,
         DatasourceCapabilityService capabilityService,
         IStateService stateService,
-        CacheScanGate cacheScanGate)
+        CacheScanGate cacheScanGate,
+        CacheSizeScanScheduledService cacheSizeScan)
     {
         _capabilityService = capabilityService;
         _stateService = stateService;
         _cacheScanGate = cacheScanGate;
+        _cacheSizeScan = cacheSizeScan;
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _corruptionDetectionService = corruptionDetectionService;
@@ -142,15 +145,18 @@ public class CacheController : ControllerBase
             // An explicit full rescan is a heavy operation. Always enter through the queue gate,
             // even when no conflict is visible yet: the gate closes the check/start race, starts
             // immediately when eligible, and parks/deduplicates otherwise. The singleton service
-            // owns the promoted worker, so it outlives this HTTP request.
-            Task<Guid?> StartCacheSizeScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync();
+            // owns the promoted worker, so it outlives this HTTP request. The button is a person's
+            // run of the cache file scan schedule, so it draws in that schedule's mode. [86]
+            var notice = new RunNotice(_cacheSizeScan.EffectiveNotificationMode, RunTrigger.Manual);
+            Task<Guid?> StartCacheSizeScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(notice: notice);
 
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.CacheSizeScan,
                 ConflictScope.Bulk(),
                 "Cache File Scan",
                 StartCacheSizeScanAsync,
-                cancellationToken));
+                cancellationToken,
+                notice: notice));
         }
 
         var result = await _cacheService.GetCacheSizeAsync(force, datasource, cancellationToken);
@@ -209,20 +215,12 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(CacheSizeScanStatusResponse), StatusCodes.Status200OK)]
     public IActionResult GetCacheSizeScanStatus()
     {
-        // Snapshot the run-stable display flag BEFORE the active-operation guard. The flag is
-        // stamped before the operation registers and nulled only in onTerminalCleanup, which runs
-        // after the operation's status turns terminal; snapshot-then-guard therefore can never pair
-        // isProcessing=true with a defaulted flag at a silent scan's last instant. Reading the flag
-        // after the guard reopens that torn pair (the log processing status endpoint had it).
-        var showNotification = _cacheService.CurrentCacheSizeScanShowNotification ?? true;
         var activeScan = _operationTracker.GetActiveOperations(OperationType.CacheSizeScan).FirstOrDefault();
         if (activeScan == null)
         {
             return Ok(new
             {
                 isProcessing = false,
-                showNotification = true,
-                hideNotification = false,
                 status = OperationStatus.Completed,
                 percentComplete = 0.0,
                 message = string.Empty,
@@ -238,21 +236,16 @@ public class CacheController : ControllerBase
         // so CacheManagementService exposes the latest progress context for placeholder-bearing
         // keys like signalr.cacheSizeScan.scanning.
         var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
-        var hideNotification = RunNotice.ReadRunNotice(activeScan.Metadata)?.HideNotification == true;
 
         return Ok(new
         {
             isProcessing = true,
-            showNotification,
-            hideNotification,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
             message = stageKey ?? "Scanning cache files...",
             stageKey,
             context = _cacheService.CurrentCacheSizeScanProgressContext,
-            operationId = activeScan.Id,
-            previousOperationId = activeScan.Metadata is Dictionary<string, object?> scan && scan.TryGetValue("previousOperationId", out var previous) && previous is Guid previousId
-                ? (Guid?)previousId : null
+            operationId = activeScan.Id
         });
     }
 
@@ -2346,10 +2339,8 @@ public class CacheController : ControllerBase
     /// Returns all active removal operations.
     /// </summary>
     /// <remarks>
-    /// Covers games, services, and corruption removals. Used for universal recovery on page
-    /// refresh. Silent automatic eviction removals are deliberately excluded, since they raise no
-    /// SignalR events either, so listing them here would resurrect a notification card for a run
-    /// that was never meant to show one.
+    /// Covers games, services, eviction and corruption removals. Used for universal recovery on
+    /// page refresh. Whether a recovered removal draws a card comes from its run's own row.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("removals/active")]
@@ -2359,12 +2350,7 @@ public class CacheController : ControllerBase
         var gameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
         var serviceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
         var corruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
-        // Silent removals (automatic Remove-mode auto-cleanup) emit no SignalR events and must
-        // stay invisible to recovery too - reporting them here would make recoverEvictionRemovals
-        // create a notification card for a deliberately silent operation.
-        var evictionOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval)
-            .Where(op => !_reconciliationService.IsSilentRemovalOperation(op.Id))
-            .ToList();
+        var evictionOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
 
         return Ok(new AllActiveRemovalsResponse
         {
@@ -2404,6 +2390,9 @@ public class CacheController : ControllerBase
                     EpicAppId = epicAppId,
                     EntityKind = metrics?.EntityKind ?? (epicAppId != null ? "epic" : gameAppId.HasValue ? "steam" : null),
                     GameName = metrics?.EntityName ?? op.Name,
+                    // The service a named or Epic game belongs to, so a reload marks only this
+                    // game busy and not a same-named game on another service. [98]
+                    Service = metrics?.Service,
                     OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,

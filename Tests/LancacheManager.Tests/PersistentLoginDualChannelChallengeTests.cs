@@ -81,7 +81,7 @@ public class PersistentLoginDualChannelChallengeTests
         // Dropped: cache stays empty (WaitForChallengeAsync would NOT re-serve the stale password),
         // nothing was broadcast, and AuthState was not regressed to PasswordRequired.
         Assert.Null(session.PendingLoginChallenge);
-        Assert.Empty(recorder.SteamHubCalls);
+        Assert.Empty(recorder.AdminCalls);
         Assert.Empty(recorder.RawClientSends);
         Assert.Equal(DaemonAuthState.DeviceConfirmationRequired, session.AuthState);
     }
@@ -122,7 +122,7 @@ public class PersistentLoginDualChannelChallengeTests
         Assert.Same(deviceConfirmation, session.PendingLoginChallenge);
         Assert.Equal(DaemonAuthState.DeviceConfirmationRequired, session.AuthState);
 
-        var pushed = Assert.Single(recorder.SteamHubCalls);
+        var pushed = Assert.Single(recorder.AdminCalls);
         Assert.Equal(SignalREvents.CredentialChallenge, pushed.EventName);
         Assert.Equal(DeviceConfirmationChallengeId, pushed.ChallengeId);
 
@@ -156,6 +156,49 @@ public class PersistentLoginDualChannelChallengeTests
         await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
 
         Assert.Null(session.LastConsumedLoginChallengeId);
+    }
+
+    /// <summary>
+    /// A session's sign-in challenge and auth state reach only that session's own subscribed connection
+    /// and the account holders' copy; a second session's subscriber, and every other browser, gets none.
+    /// </summary>
+    [Fact]
+    public async Task SessionEventsReachOnlyTheirOwnConnectionsAndAccountHolders()
+    {
+        var (daemon, sessionA) = CreateSession();
+        var recorder = (RecordingNotificationsProxy)daemon.Notifications;
+        sessionA.SubscribedConnections.Add("conn-A");
+        var sessionB = new DaemonSession
+        {
+            Id = Guid.NewGuid().ToString("N")[..16],
+            UserId = Guid.NewGuid(),
+            Status = DaemonSessionStatus.Active,
+            AuthState = DaemonAuthState.NotAuthenticated,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+            Client = (IDaemonClient)DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
+        };
+        sessionB.SubscribedConnections.Add("conn-B");
+        daemon.InjectSession(sessionB);
+
+        await daemon.InvokeOnCredentialChallengeAsync(sessionA, new CredentialChallenge
+        {
+            ChallengeId = "chal-device-code",
+            CredentialType = "device-code"
+        });
+        sessionA.AuthState = DaemonAuthState.Authenticated;
+        await daemon.InvokeNotifyAuthStateChangeAsync(sessionA);
+
+        Assert.NotEmpty(recorder.Invocations);
+        Assert.All(recorder.Invocations, call => Assert.True(
+            call.Method == nameof(ISignalRNotificationService.SendToPrefillClientRawAsync) && call.Args[0] as string == "conn-A"
+                || call.Method == nameof(ISignalRNotificationService.NotifyAdminAsync),
+            $"{call.Method}({call.Args.FirstOrDefault()})"));
+        Assert.DoesNotContain(recorder.Invocations, call => call.Args.Contains("conn-B"));
+        Assert.Contains(recorder.RawClientSends, send => send.ConnectionId == "conn-A" && send.EventName == SignalREvents.CredentialChallenge);
+        Assert.Contains(recorder.RawClientSends, send => send.ConnectionId == "conn-A" && send.EventName == SignalREvents.AuthStateChanged);
+        Assert.Single(recorder.AdminCalls, call => call.EventName == SignalREvents.CredentialChallenge);
+        Assert.Contains(recorder.AdminCalls, call => call.EventName == SignalREvents.AuthStateChanged);
     }
 
     private static (TestableSteamDaemonService Daemon, DaemonSession Session) CreateSession(IDaemonClient? client = null)
@@ -218,6 +261,8 @@ public class PersistentLoginDualChannelChallengeTests
 
         public Task InvokeOnCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
             => OnCredentialChallengeAsync(session, challenge);
+
+        public Task InvokeNotifyAuthStateChangeAsync(DaemonSession session) => NotifyAuthStateChangeAsync(session);
     }
 
     /// <summary>
@@ -362,24 +407,25 @@ public class PersistentLoginDualChannelChallengeTests
     private sealed record RawClientSend(string ConnectionId, string EventName);
 
     /// <summary>
-    /// Records NotifySteamHubAsync (the hub mirror) and SendToPrefillClientRawAsync (the per-connection
-    /// broadcast) so a test can assert whether a challenge was broadcast (mirrors the recorder in
-    /// PersistentLoginChallengePushTests.cs).
+    /// Records every call (the shared <see cref="RecordingNotificationProxy.Invocations"/>), plus
+    /// NotifyAdminAsync (the account holders' copy) and SendToPrefillClientRawAsync (the per-connection
+    /// broadcast) so a test can assert whether a challenge was broadcast and to whom (mirrors the
+    /// recorder in PersistentLoginChallengePushTests.cs).
     /// </summary>
-    private class RecordingNotificationsProxy : DispatchProxy
+    private class RecordingNotificationsProxy : RecordingNotificationProxy
     {
-        public List<HubCall> SteamHubCalls { get; } = new();
+        public List<HubCall> AdminCalls { get; } = new();
         public List<RawClientSend> RawClientSends { get; } = new();
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifySteamHubAsync) && args is { Length: >= 2 })
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAdminAsync) && args is { Length: >= 2 })
             {
                 var eventName = args[0] as string ?? string.Empty;
                 var data = args[1];
                 var sessionId = data?.GetType().GetProperty("sessionId")?.GetValue(data) as string ?? string.Empty;
                 var challenge = data?.GetType().GetProperty("challenge")?.GetValue(data) as CredentialChallenge;
-                SteamHubCalls.Add(new HubCall(eventName, sessionId, challenge?.ChallengeId ?? string.Empty));
+                AdminCalls.Add(new HubCall(eventName, sessionId, challenge?.ChallengeId ?? string.Empty));
             }
             else if (targetMethod?.Name == nameof(ISignalRNotificationService.SendToPrefillClientRawAsync) && args is { Length: >= 2 })
             {
@@ -388,29 +434,7 @@ public class PersistentLoginDualChannelChallengeTests
                 RawClientSends.Add(new RawClientSend(connectionId, eventName));
             }
 
-            return DefaultReturnValue(targetMethod);
+            return base.Invoke(targetMethod, args);
         }
-    }
-
-    private static object? DefaultReturnValue(MethodInfo? targetMethod)
-    {
-        var returnType = targetMethod?.ReturnType;
-
-        if (returnType is null || returnType == typeof(void))
-        {
-            return null;
-        }
-
-        if (returnType == typeof(Task))
-        {
-            return Task.CompletedTask;
-        }
-
-        if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-        {
-            return Activator.CreateInstance(returnType);
-        }
-
-        return null;
     }
 }

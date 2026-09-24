@@ -63,8 +63,11 @@ public partial class SteamKit2Service
                     _pendingLoginUsername = username;
                     _loginAttempt = login;
                     Interlocked.Exchange(ref _loginActive, 1);
-                    _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
-                    reporter = CreateDepotMappingReporter(_cancellationTokenSource.Token);
+                    // Never started: the reporter is only the sign-in's cancellation handle, so the
+                    // sign-in has no run of its own and draws nothing.
+                    reporter = CreateDepotMappingReporter(
+                        _cancellationTokenSource.Token,
+                        new RunNotice(EffectiveNotificationMode, RunTrigger.Manual));
                     _loginReporter = reporter;
                     admitted = true;
                 })) IntegrationLease.Refuse("attempt-expired");

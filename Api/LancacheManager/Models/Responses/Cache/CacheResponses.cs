@@ -216,6 +216,7 @@ public class GameRemovalInfo
     public string? EpicAppId { get; set; }
     public string? EntityKind { get; set; }
     public string GameName { get; set; } = string.Empty;
+    public string? Service { get; set; }
     public Guid OperationId { get; set; }
     public OperationStatus Status { get; set; }
     public string? Message { get; set; }
@@ -272,8 +273,6 @@ public class RsyncAvailableResponse
 public class CacheSizeScanStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public bool ShowNotification { get; set; } = true;
-    public bool HideNotification { get; set; }
     public OperationStatus Status { get; set; } = OperationStatus.Completed;
     public double PercentComplete { get; set; }
     public string Message { get; set; } = string.Empty;
@@ -286,7 +285,6 @@ public class CacheSizeScanStatusResponse
 
     /// <summary>The active scan's operation id. Null when <see cref="IsProcessing"/> is false.</summary>
     public Guid? OperationId { get; set; }
-    public Guid? PreviousOperationId { get; set; }
 }
 
 /// <summary>Response for DELETE /api/cache/evicted: the bulk eviction removal that was started.</summary>

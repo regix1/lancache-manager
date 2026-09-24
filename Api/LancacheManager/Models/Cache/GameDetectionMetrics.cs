@@ -62,17 +62,4 @@ public class GameDetectionMetrics
     /// interpolate placeholder-bearing progress keys mid-run. Updated on every progress tick.
     /// </summary>
     public Dictionary<string, object?>? CurrentContext { get; set; }
-
-    /// <summary>
-    /// Run-stable display flag captured when the operation was registered. Lifecycle events are
-    /// always emitted so recovery works, but a silent automatic run leaves this false so the
-    /// /api/games/detect/active recovery path can decline to resurrect a card on page reload.
-    /// </summary>
-    public bool ShowNotification { get; set; } = true;
-
-    /// <summary>
-    /// True when this operation is internal work owned by another user-facing operation and must
-    /// never enter notification state, including through recovery or a failure terminal.
-    /// </summary>
-    public bool HideNotification { get; set; }
 }

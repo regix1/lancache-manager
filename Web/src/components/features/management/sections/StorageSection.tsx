@@ -22,7 +22,11 @@ import { GroupHeading } from '@components/ui/GroupHeading';
 import { TabPanel } from '@components/features/management/TabPanel';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import { type AuthMode } from '@services/auth.service';
@@ -33,16 +37,8 @@ import { useConfig } from '@contexts/useConfig';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { getErrorMessage, isAbortError } from '@utils/error';
-import { ApiError } from '@services/apiError';
-import { isConfirmedScanRefusalStatus, readScanAdmission } from '../game-detection/scanAdmission';
-import {
-  followAdmittedScan,
-  recoverScanHold,
-  watchScanHold
-} from '../game-detection/scanHoldRecovery';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
-import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { isSkippedRun } from '@contexts/SignalRContext/types';
 import type { OperationStatus } from '@/types/operations';
@@ -72,10 +68,7 @@ import {
 } from './managementStorageKeys';
 import { getEvictedGames, getEvictedServices } from '../game-detection/cacheEntityFilters';
 import { getGameUniqueId } from '../game-detection/gameUtils';
-import {
-  classifyGameFromCacheInfo,
-  shouldPinOperationIdFromResponse
-} from '../game-detection/gameRemovalEntity';
+import { classifyGameFromCacheInfo } from '../game-detection/gameRemovalEntity';
 import {
   CACHED_DETECTION_RELOAD_DELAY_MS,
   loadCachedDetectionSnapshot,
@@ -116,7 +109,7 @@ interface StorageSectionProps {
   highlightEviction?: boolean;
   highlightCacheScan?: boolean;
   highlightGameDetection?: boolean;
-  onError: (message: string) => void;
+  onError: (message: string, error?: unknown) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
 }
@@ -150,18 +143,17 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictionMode, setEvictionMode] = useState<string>('show');
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
   const [evictionLoading, setEvictionLoading] = useState(false);
+  const [evictionLoadError, setEvictionLoadError] = useState<string | null>(null);
+  // The mount read and the reconnect read can overlap; only the newest one writes.
+  const evictionSettingsRequestRef = useRef(0);
   const [evictionSaving, setEvictionSaving] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
-  const [evictionAdmissionHeld, setEvictionAdmissionHeld] = useState(false);
-  const [evictionHoldUnknown, setEvictionHoldUnknown] = useState(false);
   const evictionScanInFlightRef = useRef(false);
-  const evictionAttemptAbortRef = useRef<AbortController | null>(null);
-  const evictionHeldOperationIdRef = useRef<string | null>(null);
   const [resettingEvictions, setResettingEvictions] = useState(false);
   const isEvictionDirty = evictionMode !== savedEvictionMode;
 
-  const { notifications, addNotification, events } = useNotifications();
+  const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
 
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
@@ -172,6 +164,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
   const [evictedItemsLoading, setEvictedItemsLoading] = useState(true);
+  const [evictedItemsError, setEvictedItemsError] = useState<string | null>(null);
   const allEvictedNginxReopenGate = getNginxReopenGateForEntities(datasources, [
     ...evictedServices,
     ...evictedGames
@@ -214,12 +207,17 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // call shows the loading skeleton - later calls are silent background refreshes (post-removal,
   // post-scan) that should update the list in place rather than blanking it back to a skeleton.
   const hasLoadedEvictedItemsRef = useRef(false);
+  // The refresh-key effect, the scan and removal completions and the reconnect read can overlap;
+  // only the newest one writes.
+  const evictedItemsRequestRef = useRef(0);
   const fetchEvictedItems = useCallback(async () => {
+    const request = ++evictedItemsRequestRef.current;
     // The generated detection carries no evicted entries, so mock mode has an empty list to show
     // and no reason to ask the server for a real one.
     if (mockMode) {
       setEvictedGames([]);
       setEvictedServices([]);
+      setEvictedItemsError(null);
       hasLoadedEvictedItemsRef.current = true;
       setEvictedItemsLoading(false);
       return;
@@ -229,20 +227,24 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     }
     try {
       const snapshot = await loadCachedDetectionSnapshot();
+      if (request !== evictedItemsRequestRef.current) return;
       const games = getEvictedGames(snapshot.games);
       const services = getEvictedServices(snapshot.services);
       setEvictedGames(games);
       setEvictedServices(services);
+      setEvictedItemsError(null);
     } catch (err) {
-      // Background refresh (mount + post-removal/scan); the section already renders an empty
-      // evicted-items state, so a transient failure here is explicit background noise.
+      if (request !== evictedItemsRequestRef.current) return;
+      // The Evicted Items section shows this failure in its own box; the silent line keeps the
+      // console record.
+      setEvictedItemsError(getErrorMessage(err));
       notifyError(t('management.storage.errors.fetchEvictedItems'), err, {
         silent: true,
         logLabel: 'Failed to fetch evicted items'
       });
     } finally {
       hasLoadedEvictedItemsRef.current = true;
-      setEvictedItemsLoading(false);
+      if (request === evictedItemsRequestRef.current) setEvictedItemsLoading(false);
     }
   }, [mockMode, notifyError, t]);
 
@@ -283,10 +285,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Track the eviction target so we know which item to filter on eviction_removal completion
   const removalTargetRef = useRef<CacheRemovalTarget | null>(null);
 
-  // Remove evicted items from local state when notification confirms removal is done
-  // (identical pattern to GameCacheDetector lines 216-241)
+  // Remove evicted items from local state when the server reports the removal done
   useCompletedRemovalPruning({
-    notifications,
     setGames: setEvictedGames,
     setServices: setEvictedServices,
     removalTargetRef
@@ -340,40 +340,21 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
     setRemoveAllRunning(true);
     try {
-      const result = await ApiService.removeAllEvicted();
-      // Seed the eviction_removal card with the 202's operationId so busy-tracking
-      // and the cancel button work immediately instead of racing the SignalR
-      // Started event (same pattern as the eviction-scan seed below).
-      // Wait-queue model: queued/deduplicated responses must not seed a running card.
-      if (shouldPinOperationIdFromResponse(result)) {
-        addNotification(
-          buildSeededRunningNotification(
-            'eviction_removal',
-            result.operationId,
-            t('signalr.evictionRemove.starting.bulk')
-          )
-        );
-      }
+      // The server's run row opens the eviction_removal card.
+      await ApiService.removeAllEvicted();
     } catch (err: unknown) {
-      const errorMsg = getErrorMessage(err);
-      console.error('Bulk evicted removal failed to start:', errorMsg);
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: errorMsg,
-        details: { notificationType: 'error' }
-      });
+      onError(t('management.sections.data.removeAllEvictedFailed'), err);
     } finally {
-      // The eviction_removal notification owns busy-tracking from here
+      // The eviction_removal run owns busy-tracking from here
       // (isAnyEvictedRemovalRunning); the local flag only covers the kick-off.
       setRemoveAllRunning(false);
     }
   }, [
-    addNotification,
     allEvictedNginxReopenGate.available,
     evictedGames.length,
     evictedServices.length,
     isAdmin,
+    onError,
     t
   ]);
 
@@ -390,9 +371,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         await ApiService.removeEvictedForService(service.service_name);
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
-        const errorMsg = getErrorMessage(err);
-        console.error('Evicted service removal error:', errorMsg);
-        onError(errorMsg);
+        onError(t('management.sections.data.removeEvictedFailed'), err);
       }
     } else {
       const game = evictedTarget;
@@ -424,16 +403,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         }
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
-        const errorMsg = getErrorMessage(err);
-        console.error('Evicted game removal error:', errorMsg);
-        onError(errorMsg);
+        onError(t('management.sections.data.removeEvictedFailed'), err);
       }
     }
   };
 
+  // A cancelling scan still holds the button: it stays busy until the run has ended.
   const isEvictionScanNotificationRunning = useOperationBusy({
     types: ['eviction_scan'],
-    status: ['running', 'waiting']
+    status: ['running', 'waiting', 'cancelling']
   });
   const isEvictionRemovalRunning = useOperationBusy({
     types: ['eviction_removal'],
@@ -442,8 +420,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
   // queues behind it - purple card feedback). Same-op only: scan already running or the
   // kick-off request in flight.
-  const isEvictionScanRunning =
-    isEvictionScanNotificationRunning || isStartingEvictionScan || evictionAdmissionHeld;
+  const isEvictionScanRunning = isEvictionScanNotificationRunning || isStartingEvictionScan;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useSectionExpanded(
     MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED,
@@ -482,6 +459,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // server builds.
   const [orphanedGroups, setOrphanedGroups] = useState<OrphanedDownloadGroup[]>([]);
   const [orphanedLoading, setOrphanedLoading] = useState(true);
+  const [orphanedLoadError, setOrphanedLoadError] = useState<string | null>(null);
   const [removingOrphaned, setRemovingOrphaned] = useState(false);
   const [confirmRemoveOrphaned, setConfirmRemoveOrphaned] = useState(false);
   const orphanedSelection: SelectionSet<string> = useSelectionSet<string>();
@@ -602,21 +580,25 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       const fetchId = ++orphanedFetchIdRef.current;
       const isCurrentFetch = () => fetchId === orphanedFetchIdRef.current;
       if (mockMode) {
-        if (isCurrentFetch()) setOrphanedLoading(false);
+        if (isCurrentFetch()) {
+          setOrphanedLoading(false);
+          setOrphanedLoadError(null);
+        }
         return;
       }
       try {
         const response = await ApiService.getOrphanedDownloads(signal);
         if (!isCurrentFetch()) return;
         setOrphanedGroups(response.groups);
+        setOrphanedLoadError(null);
       } catch (err: unknown) {
         if (!isCurrentFetch() || isAbortError(err)) return;
-        onError(t('management.sections.data.orphanedDownloadsLoadError'));
+        setOrphanedLoadError(getErrorMessage(err));
       } finally {
         if (isCurrentFetch()) setOrphanedLoading(false);
       }
     },
-    [mockMode, onError, t]
+    [mockMode]
   );
 
   useEffect(() => {
@@ -660,7 +642,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       );
       onDataRefresh();
     } catch (err: unknown) {
-      onError(getErrorMessage(err));
+      onError(t('management.sections.data.orphanedDownloadsRemoveFailed'), err);
     } finally {
       setRemovingOrphaned(false);
     }
@@ -687,24 +669,29 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
+      const request = ++evictionSettingsRequestRef.current;
       // Mock mode has no stored settings behind it; the state defaults stand.
       if (mockMode) {
         setEvictionLoading(false);
+        setEvictionLoadError(null);
         return;
       }
       setEvictionLoading(true);
       try {
         const response = await ApiService.getEvictionSettings(signal);
+        if (request !== evictionSettingsRequestRef.current) return;
         setEvictionMode(response.evictedDataMode);
         setSavedEvictionMode(response.evictedDataMode);
+        setEvictionLoadError(null);
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
-        onError(t('management.sections.data.evictionLoadError'));
+        if (request !== evictionSettingsRequestRef.current) return;
+        setEvictionLoadError(getErrorMessage(err));
       } finally {
-        setEvictionLoading(false);
+        if (request === evictionSettingsRequestRef.current) setEvictionLoading(false);
       }
     },
-    [mockMode, onError, t]
+    [mockMode]
   );
 
   useEffect(() => {
@@ -720,8 +707,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       setEvictionMode(response.evictedDataMode);
       setSavedEvictionMode(response.evictedDataMode);
       const detail: EvictionSettingsChangedDetail = {
-        evictedDataMode: response.evictedDataMode,
-        evictionScanNotifications: response.evictionScanNotifications
+        evictedDataMode: response.evictedDataMode
       };
       window.dispatchEvent(
         new CustomEvent<EvictionSettingsChangedDetail>(EVICTION_SETTINGS_CHANGED_EVENT, { detail })
@@ -729,7 +715,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       onSuccess(t('management.sections.data.evictionSaveSuccess'));
       onDataRefresh();
     } catch (err: unknown) {
-      onError(getErrorMessage(err));
+      onError(t('management.sections.data.evictionSaveError'), err);
     } finally {
       setEvictionSaving(false);
     }
@@ -748,130 +734,27 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     setShowRemoveConfirm(false);
   };
 
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      evictionAttemptAbortRef.current?.abort();
-    };
-  }, []);
-
-  const releaseEvictionAdmission = useCallback((attempt: AbortController) => {
-    if (evictionAttemptAbortRef.current !== attempt || !isMountedRef.current) return;
-    attempt.abort();
-    setIsStartingEvictionScan(false);
-    setEvictionAdmissionHeld(false);
-    setEvictionHoldUnknown(false);
-    evictionScanInFlightRef.current = false;
-    evictionHeldOperationIdRef.current = null;
-    evictionAttemptAbortRef.current = null;
-  }, []);
-
-  const recoverEvictionAdmission = useCallback(async () => {
-    const attempt = new AbortController();
-    evictionAttemptAbortRef.current?.abort();
-    evictionAttemptAbortRef.current = attempt;
-    evictionScanInFlightRef.current = true;
-    setIsStartingEvictionScan(false);
-    setEvictionAdmissionHeld(true);
-    setEvictionHoldUnknown(false);
-
-    const hold = await watchScanHold({
-      operationId: evictionHeldOperationIdRef.current,
-      kind: 'evictionScan',
-      abortSignal: attempt.signal
-    });
-    if (hold.decision === 'aborted' || attempt.signal.aborted || !isMountedRef.current) return;
-    evictionHeldOperationIdRef.current = hold.operationId;
-    if (hold.decision === 'unknown') {
-      setEvictionHoldUnknown(true);
-      return;
-    }
-    releaseEvictionAdmission(attempt);
-  }, [releaseEvictionAdmission]);
-
-  useEffect(() => {
-    void recoverEvictionAdmission();
-  }, [recoverEvictionAdmission]);
-
-  // A dropped socket can swallow a scan/clear completion event or a hidden scan lifecycle.
-  // Refresh both the data and the authoritative scan hold when the connection returns.
+  // A dropped socket can swallow a scan/clear completion event; refresh the data when the
+  // connection returns.
   useReconnectRefetch(isConnected, () => {
     if (!isAnyEvictedRemovalRunning) void fetchEvictedItems();
-    void recoverEvictionAdmission();
+    void fetchOrphanedDownloads();
+    void loadEvictionSettings();
   });
 
   const handleStartEvictionScan = async () => {
-    if (evictionScanInFlightRef.current || evictionAdmissionHeld) return;
+    if (evictionScanInFlightRef.current) return;
     evictionScanInFlightRef.current = true;
     setIsStartingEvictionScan(true);
-    const attempt = new AbortController();
-    evictionAttemptAbortRef.current?.abort();
-    evictionAttemptAbortRef.current = attempt;
-    const releaseAdmission = () => releaseEvictionAdmission(attempt);
 
     try {
-      const result = await ApiService.startEvictionScan();
-      if (attempt.signal.aborted) return;
-      const admission = readScanAdmission(result);
-      evictionHeldOperationIdRef.current = result.operationId;
-      if (
-        admission === 'started' &&
-        result.showNotification !== false &&
-        shouldPinOperationIdFromResponse(result)
-      ) {
-        addNotification(
-          buildSeededRunningNotification(
-            'eviction_scan',
-            result.operationId,
-            t('signalr.evictionScan.scanning')
-          )
-        );
-      }
-      if (isMountedRef.current) {
-        setEvictionAdmissionHeld(true);
-      }
-      const follow = followAdmittedScan({
-        signalR: { on, off },
-        events,
-        abortSignal: attempt.signal,
-        operationId: result.operationId,
-        admission,
-        completeEvent: 'EvictionScanComplete',
-        kind: 'evictionScan'
-      });
-
-      const confirmation = await recoverScanHold(result.operationId, 'evictionScan');
-      if (attempt.signal.aborted || !isMountedRef.current) return;
-      evictionHeldOperationIdRef.current = confirmation.operationId;
-      setIsStartingEvictionScan(false);
-      if (confirmation.decision === 'release') {
-        releaseAdmission();
-        return;
-      }
-      setEvictionHoldUnknown(confirmation.decision === 'unknown');
-
-      const decision = await follow;
-      if (decision === 'aborted' || attempt.signal.aborted) return;
-      if (decision === 'release') releaseAdmission();
-      else if (isMountedRef.current) {
-        setEvictionAdmissionHeld(true);
-        setEvictionHoldUnknown(decision === 'unknown');
-      }
+      // The server's run row opens the scan's card and keeps the button busy until it ends.
+      await ApiService.startEvictionScan();
     } catch (err: unknown) {
-      if (attempt.signal.aborted) return;
-      if (err instanceof ApiError && isConfirmedScanRefusalStatus(err.status)) {
-        onError(getErrorMessage(err));
-        releaseAdmission();
-        return;
-      }
-      if (!isAbortError(err)) onError(getErrorMessage(err));
-      if (!isMountedRef.current) return;
+      if (!isAbortError(err)) onError(t('management.sections.data.evictionScanStartFailed'), err);
+    } finally {
+      evictionScanInFlightRef.current = false;
       setIsStartingEvictionScan(false);
-      setEvictionAdmissionHeld(true);
-      evictionHeldOperationIdRef.current = null;
-      await recoverEvictionAdmission();
     }
   };
 
@@ -886,7 +769,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       );
       onDataRefresh();
     } catch (err: unknown) {
-      onError(getErrorMessage(err));
+      onError(t('management.sections.data.resetEvictionsFailed'), err);
     } finally {
       setResettingEvictions(false);
     }
@@ -922,17 +805,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       {/* Recheck-permissions action. Only rendered when a directory is actually read-only -
           otherwise this wrapper left an empty margin-box above the first group header, so
           Storage sat lower than the other sections. */}
-      {evictionHoldUnknown && (
-        <ErrorBlock
-          title={t('management.gameDetection.errors.scanHoldUnknownTitle')}
-          message={t('management.gameDetection.errors.scanHoldUnknown')}
-          retryLabel={t('common.retry')}
-          onRetry={() => {
-            void recoverEvictionAdmission();
-          }}
-        />
-      )}
-
       {hasPermissionIssues && (
         <div className="mb-4 sm:mb-6">
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -1018,6 +890,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               onToggle={() => setEvictedDataExpanded((prev) => !prev)}
               badge={
                 <SectionHeaderActions>
+                  {(evictionLoadError !== null ||
+                    evictedItemsError !== null ||
+                    orphanedLoadError !== null) &&
+                    !evictedDataExpanded && <SectionErrorChip />}
                   {selectedEvictedCount > 0 && (
                     <SectionHeaderChip variant="neutral" className="badge-count">
                       {selectedEvictedCount}
@@ -1181,11 +1057,21 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictionSettingsExpanded}
                   onToggle={() => setEvictionSettingsExpanded((prev) => !prev)}
                   surface="well"
+                  badge={
+                    evictionLoadError !== null && !evictionSettingsExpanded && <SectionErrorChip />
+                  }
                 >
                   {evictionLoading ? (
                     <LoadingState
                       message={t('management.sections.data.evictionLoadingSettings')}
                       shape="settings"
+                    />
+                  ) : evictionLoadError !== null ? (
+                    <ErrorBlock
+                      title={t('management.sections.data.evictionLoadError')}
+                      message={evictionLoadError}
+                      retryLabel={t('common.retry')}
+                      onRetry={() => void loadEvictionSettings()}
                     />
                   ) : (
                     <div className="space-y-3">
@@ -1243,19 +1129,35 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   icon={Database}
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
+                  badge={
+                    evictedItemsError !== null && !evictedItemsExpanded && <SectionErrorChip />
+                  }
                 >
-                  <EvictedItemsList
-                    games={evictedGames}
-                    services={evictedServices}
-                    isAdmin={isAdmin}
-                    datasourceConfigs={datasources}
-                    onRemoveGame={handleEvictedGameRemoveClick}
-                    onRemoveService={handleEvictedServiceRemoveClick}
-                    diskActionBlocked={diskActionBlocked}
-                    servicesSelection={evictedServicesSelectionProp}
-                    gamesSelection={evictedGamesSelectionProp}
-                    loading={evictedItemsLoading}
-                  />
+                  <div className="space-y-3">
+                    {evictedItemsError !== null && (
+                      <ErrorBlock
+                        title={t('management.storage.errors.fetchEvictedItems')}
+                        message={evictedItemsError}
+                        retryLabel={t('common.retry')}
+                        onRetry={() => void fetchEvictedItems()}
+                      />
+                    )}
+                    {(evictedItemsError === null ||
+                      evictedGames.length + evictedServices.length > 0) && (
+                      <EvictedItemsList
+                        games={evictedGames}
+                        services={evictedServices}
+                        isAdmin={isAdmin}
+                        datasourceConfigs={datasources}
+                        onRemoveGame={handleEvictedGameRemoveClick}
+                        onRemoveService={handleEvictedServiceRemoveClick}
+                        diskActionBlocked={diskActionBlocked}
+                        servicesSelection={evictedServicesSelectionProp}
+                        gamesSelection={evictedGamesSelectionProp}
+                        loading={evictedItemsLoading}
+                      />
+                    )}
+                  </div>
                 </AccordionSection>
 
                 {/* Sub-accordion 3: records the scan cannot verify, removed by choice */}
@@ -1266,17 +1168,30 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   icon={FileQuestion}
                   isExpanded={orphanedDownloadsExpanded}
                   onToggle={() => setOrphanedDownloadsExpanded((prev) => !prev)}
+                  badge={
+                    orphanedLoadError !== null && !orphanedDownloadsExpanded && <SectionErrorChip />
+                  }
                 >
                   <div className="space-y-3">
                     <p className="text-sm text-themed-secondary">
                       {t('management.sections.data.orphanedDownloadsHelp')}
                     </p>
-                    <OrphanedDownloadsList
-                      groups={orphanedGroups}
-                      isAdmin={isAdmin}
-                      loading={orphanedLoading}
-                      selection={orphanedSelectionProp}
-                    />
+                    {orphanedLoadError !== null && (
+                      <ErrorBlock
+                        title={t('management.sections.data.orphanedDownloadsLoadError')}
+                        message={orphanedLoadError}
+                        retryLabel={t('common.retry')}
+                        onRetry={() => void fetchOrphanedDownloads()}
+                      />
+                    )}
+                    {(orphanedLoadError === null || orphanedGroups.length > 0) && (
+                      <OrphanedDownloadsList
+                        groups={orphanedGroups}
+                        isAdmin={isAdmin}
+                        loading={orphanedLoading}
+                        selection={orphanedSelectionProp}
+                      />
+                    )}
                     {isAdmin && selectedOrphanedCount > 0 && (
                       <div className="flex justify-end">
                         <Button
@@ -1312,7 +1227,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         <p className="text-themed-secondary">
           {t('management.sections.data.evictionRemoveConfirmMessage')}
         </p>
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.sections.data.evictionRemoveConfirmWarning')}</p>
         </Alert>
       </ConfirmationModal>
@@ -1333,7 +1248,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
             count: selectedOrphanedRecordCount
           })}
         </p>
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">
             {t('management.sections.data.orphanedDownloadsRemoveConfirmWarning')}
           </p>
@@ -1350,18 +1265,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       >
         <p className="text-themed-secondary">
           {t('management.sections.data.evictionRemoveAllConfirmMessage', {
-            count: evictedGames.length + evictedServices.length,
-            defaultValue:
-              'This will remove all {{count}} evicted items one at a time. Each item runs through its own removal flow (log rewrite + database cleanup) and the operation cannot be undone.'
+            count: evictedGames.length + evictedServices.length
           })}
         </p>
-        <Alert color="yellow">
-          <p className="text-sm">
-            {t('management.sections.data.evictionRemoveAllConfirmWarning', {
-              defaultValue:
-                'Only the evicted depots are removed - partially-cached games keep their on-disk files.'
-            })}
-          </p>
+        <Alert color="yellow" icon={null}>
+          <p className="text-sm">{t('management.sections.data.evictionRemoveAllConfirmWarning')}</p>
         </Alert>
       </ConfirmationModal>
 

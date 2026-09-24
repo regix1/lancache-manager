@@ -759,7 +759,9 @@ test('same-caller Web API refresh failure retains health but refuses mutation un
       HelpDefinition: () => null,
       HelpNote: passthrough,
       SteamWebApiKeyModal: () => null,
-      ConfirmationModal: () => null
+      ConfirmationModal: () => null,
+      ErrorBlock: ({ title, message }) =>
+        React.createElement('div', { role: 'alert' }, title, message)
     }
   );
   try {
@@ -772,10 +774,11 @@ test('same-caller Web API refresh failure retains health but refuses mutation un
     assert.equal(view.read().status.canManage, true);
     assert.equal(view.read().status.ownershipReason, undefined);
     assert.ok(view.read().error);
-    assert.match(
-      renderToStaticMarkup(React.createElement(Status)),
-      /errors.integration.statusUnavailable/
-    );
+    // A failed read shows its box with the reason; the muted permissions line waits for a good read.
+    const failedMarkup = renderToStaticMarkup(React.createElement(Status));
+    assert.match(failedMarkup, /management\.steamWebApi\.loadError/);
+    assert.ok(failedMarkup.includes(view.read().error));
+    assert.doesNotMatch(failedMarkup, /errors\.integration\.statusUnavailable/);
     f.keyStatus = view.read().status;
     f.keyError = view.read().error;
     key.read().setApiKey('candidate');
@@ -1218,7 +1221,7 @@ test('integration authentication starts mapping only after acceptance', () => {
   );
   assert.match(
     steamControllerSource,
-    /if \(result\.Success\)[\s\S]*?if \(request\.AutoStartPicsRebuild\)[\s\S]*?_steamKit2Service\.TryStartRebuild\(\)/
+    /if \(result\.Success\)[\s\S]*?if \(request\.AutoStartPicsRebuild\)[\s\S]*?_steamKit2Service\.TryStartRebuild\(/
   );
 
   const epicSource = readFileSync(

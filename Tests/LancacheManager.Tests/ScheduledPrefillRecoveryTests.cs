@@ -33,7 +33,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [run, tracker, services, notifications, ScheduledPrefillConfigFactory.CreateDefault(),
-                true, CancellationToken.None, false])!;
+                CancellationToken.None, false])!;
         Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, await task);
         var events = capture.Events.ToArray();
         Assert.Equal([SignalREvents.ScheduledPrefillStarted, SignalREvents.ScheduledPrefillProgress,
@@ -44,7 +44,9 @@ public sealed class ScheduledPrefillRecoveryTests
             Assert.Equal(run.State.Snapshot.EventEpoch, item.Value.GetProperty("eventEpoch").GetGuid());
             Assert.Equal(run.OperationIdString, item.Value.GetProperty("operationId").GetString());
             Assert.Equal(JsonValueKind.Null, item.Value.GetProperty("daemonInstanceId").ValueKind);
-            Assert.True(item.Value.GetProperty("showNotification").GetBoolean());
+            // The run's row decides how it shows, so no event carries a visibility of its own.
+            Assert.DoesNotContain(item.Value.EnumerateObject(),
+                property => property.Name.EndsWith("Notification", StringComparison.Ordinal));
         });
         Assert.Equal(OperationStatus.Skipped, tracker.GetOperation(run.OperationId)!.Status);
     }
@@ -131,13 +133,13 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.True(tracker.TryRestoreOperation(run.OperationId, OperationType.ScheduledPrefill, run.State.Name,
             new CancellationTokenSource(), run.State));
         var complete = typeof(ScheduledPrefillService).GetMethod("CompleteServiceRunAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
-        await (Task)complete.Invoke(null, [run, tracker, notifications, ScheduledPrefillServiceRunResult.Failed, true, "Download failed"])!;
+        await (Task)complete.Invoke(null, [run, tracker, notifications, ScheduledPrefillServiceRunResult.Failed, "Download failed"])!;
         var terminal = run.State.Snapshot;
         Assert.Equal(2, terminal.EventSequence);
         Assert.Equal("failed", terminal.Stage);
         Assert.Equal("Download failed", terminal.Message);
         Assert.Null(run.State.Record("running", "Late", null, 99));
-        await (Task)complete.Invoke(null, [run, tracker, notifications, ScheduledPrefillServiceRunResult.Ran, true, null])!;
+        await (Task)complete.Invoke(null, [run, tracker, notifications, ScheduledPrefillServiceRunResult.Ran, null])!;
         Assert.Same(terminal, run.State.Snapshot);
         Assert.Equal(OperationStatus.Failed, tracker.GetOperation(run.OperationId)!.Status);
         release.SetResult();
@@ -159,7 +161,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var capture = (ScheduleNotifications)(object)notifications;
         var relayType = typeof(ScheduledPrefillService).GetNestedType("ScheduledPrefillProgressRelay", BindingFlags.NonPublic)!;
         var relay = Activator.CreateInstance(relayType, BindingFlags.Instance | BindingFlags.NonPublic,
-            null, [scheduler, notifications, fixture.Session, run, fixture.Session.Id, true], null)!;
+            null, [scheduler, notifications, fixture.Session, run, fixture.Session.Id], null)!;
         relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
         var send = relayType.GetMethod("OnProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var progress = new PrefillProgress
@@ -220,7 +222,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var sequence = run.State.Snapshot.EventSequence;
         var relayType = typeof(ScheduledPrefillService).GetNestedType("ScheduledPrefillProgressRelay", BindingFlags.NonPublic)!;
         var relay = Activator.CreateInstance(relayType, BindingFlags.Instance | BindingFlags.NonPublic,
-            null, [scheduler, notifications, fixture.Session, run, fixture.Session.Id, true], null)!;
+            null, [scheduler, notifications, fixture.Session, run, fixture.Session.Id], null)!;
         relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
         var send = relayType.GetMethod("OnProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         for (var index = 10; index < 13; index++)
@@ -356,7 +358,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var method = typeof(ScheduledPrefillService).GetMethod("RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         Task<ScheduledPrefillServiceRunResult> StartService(ScheduledPrefillServiceRun run)
             => (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-                [run, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), true])!;
+                [run, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault()])!;
         var firstTask = StartService(first);
         var secondTask = StartService(second);
         await daemon.RefreshRunsAsync(fixture.Session.Id);
@@ -519,7 +521,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [serviceRun, DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
-                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), true, CancellationToken.None, true])!;
+                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), CancellationToken.None, true])!;
         await fixture.RefreshAsync();
         var run = fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
         fixture.Client.Set(run, "completed", succeeded ? 100 : 0, succeeded ? "success" : "skipped");
@@ -543,7 +545,8 @@ public sealed class ScheduledPrefillRecoveryTests
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
         var daemonRun = await fixture.StartAsync("20", id);
-        var prior = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam, id, "Nightly", false);
+        var prior = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam, id, "Nightly",
+            new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
         prior.Record("recovering", "Waiting", null, 30, run: daemonRun);
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var config = ScheduledPrefillConfigFactory.CreateDefault();
@@ -560,7 +563,8 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(daemonRun.Snapshot.StartedAt.UtcDateTime, operation.StartedAt);
         var display = Assert.IsType<ScheduledPrefillServiceRunState>(operation.Metadata);
         Assert.Equal(id, display.ScheduleId);
-        Assert.False(display.ShowNotification);
+        Assert.Equal(NotificationMode.Silent, display.Notice.Mode);
+        Assert.Same(display.Notice, operation.Notice);
         var cts = operation.CancellationTokenSource;
         Restore(scheduler, config);
         Assert.Same(cts, tracker.GetOperation(daemonRun.PrefillRunId)!.CancellationTokenSource);
@@ -602,6 +606,72 @@ public sealed class ScheduledPrefillRecoveryTests
         tracker.CompleteOperation(run.PrefillRunId, true);
     }
 
+    [Theory]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, "visible")]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, "visible")]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, "silent")]
+    [InlineData(NotificationMode.Manual, RunTrigger.RunAll, "silent")]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, "silent")]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, "hidden")]
+    public async Task StartSavesTheRunNoticeAsTheDaemonModeStringAsync(
+        NotificationMode mode, RunTrigger trigger, string expected)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        var serviceRun = MakeRun("20");
+        serviceRun = serviceRun with
+        {
+            State = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam, serviceRun.State.ScheduleId, "Nightly",
+                new RunNotice(mode, trigger))
+        };
+        var task = Start(scheduler, fixture, serviceRun);
+        await fixture.RefreshAsync();
+        var run = fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
+        Assert.Equal(expected, run.NotificationMode);
+        fixture.Client.Set(run, "completed", 100, "success");
+        await fixture.RefreshAsync();
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Theory]
+    [InlineData("visible", NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData("silent", NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData("hidden", NotificationMode.Hidden, RunTrigger.Scheduled, RunVisibility.Hidden)]
+    [InlineData(null, NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
+    public async Task RestoreTurnsEachSavedModeBackIntoTheSameRowAsync(
+        string? saved, NotificationMode mode, RunTrigger trigger, RunVisibility visibility)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        var response = await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["20"], scheduleId: id,
+            scheduleName: "Named schedule", notificationMode: saved);
+        await fixture.RefreshAsync();
+        var daemonRun = Assert.IsType<DaemonRun>(fixture.Daemon.GetRun(fixture.Session.Id, response.RunId!.Value));
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var state = DispatchProxy.Create<IStateService, ScheduleState>();
+        ((ScheduleState)(object)state).Config = config;
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon)
+            .AddSingleton<IUnifiedOperationTracker>(tracker).AddSingleton(Notifications()).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services, state);
+        try
+        {
+            Restore(scheduler, config);
+            var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(daemonRun.PrefillRunId));
+            var display = Assert.IsType<ScheduledPrefillServiceRunState>(operation.Metadata);
+            Assert.Equal(mode, display.Notice.Mode);
+            Assert.Equal(trigger, display.Notice.Trigger);
+            Assert.Same(display.Notice, operation.Notice);
+            var row = Assert.Single(tracker.GetRuns().Runs, item => item.OperationId == daemonRun.PrefillRunId);
+            Assert.Equal(visibility, row.Visibility);
+        }
+        finally
+        {
+            await scheduler.StopAsync(CancellationToken.None);
+        }
+    }
+
     [Fact]
     public async Task RelayRejectsSiblingAndStaleProgressBeforeChangingCountersAsync()
     {
@@ -615,7 +685,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var serviceRun = MakeRun("10") with { OperationId = first.PrefillRunId, OperationIdString = first.PrefillRunId.ToString() };
         var relayType = typeof(ScheduledPrefillService).GetNestedType("ScheduledPrefillProgressRelay", BindingFlags.NonPublic)!;
         var relay = Activator.CreateInstance(relayType, BindingFlags.Instance | BindingFlags.NonPublic,
-            null, [scheduler, Notifications(), fixture.Session, serviceRun, fixture.Session.Id, true], null)!;
+            null, [scheduler, Notifications(), fixture.Session, serviceRun, fixture.Session.Id], null)!;
         relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
         var progress = new PrefillProgress
         {
@@ -650,7 +720,7 @@ public sealed class ScheduledPrefillRecoveryTests
         long? totalBytes = null, bool clearPercent = false)
         => (Task<ScheduledPrefillSnapshot?>)typeof(ScheduledPrefillService)
             .GetMethod("ReportProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(scheduler, [notifications, run, stage, message, true, null, bytes, "session", percent,
+            .Invoke(scheduler, [notifications, run, stage, message, null, bytes, "session", percent,
                 totalBytes, "signalr.scheduledPrefill.downloadingGame", context, clearPercent, null, null, false, false])!;
 
     private static ISignalRNotificationService Notifications()
@@ -677,7 +747,8 @@ public sealed class ScheduledPrefillRecoveryTests
             MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
         };
         return new ScheduledPrefillServiceRun(config, operation, operation.ToString(), operation.ToString(),
-            new ScheduledPrefillServiceRunState(platform, id, "Nightly", true), CancellationToken.None);
+            new ScheduledPrefillServiceRunState(platform, id, "Nightly", new RunNotice(NotificationMode.All, RunTrigger.Manual)),
+            CancellationToken.None);
     }
 
     private static PrefillDaemonServiceBase CreateDaemon(RunFixture fixture, PrefillPlatform platform)
@@ -772,12 +843,15 @@ internal class ScheduleTracker : DispatchProxy
 {
     public IUnifiedOperationTracker Tracker { get; set; } = null!;
     public CancellationTokenSource? Rejected { get; private set; }
+    public ConcurrentQueue<Guid> Registered { get; } = new();
 
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         var result = targetMethod!.Invoke(Tracker, args);
         if (targetMethod.Name == nameof(IUnifiedOperationTracker.TryRestoreOperation) && result is false)
             Rejected = (CancellationTokenSource)args![3]!;
+        if (targetMethod.Name == nameof(IUnifiedOperationTracker.RegisterOperation))
+            Registered.Enqueue((Guid)result!);
         return result;
     }
 }

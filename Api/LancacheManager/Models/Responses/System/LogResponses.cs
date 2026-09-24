@@ -172,7 +172,6 @@ public class DatasourceLogPositionResponse
 public class LogProcessingStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public bool SilentMode { get; set; }
     public string Status { get; set; } = string.Empty;
 
     /// <summary>

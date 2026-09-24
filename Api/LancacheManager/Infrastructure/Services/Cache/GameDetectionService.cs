@@ -50,10 +50,8 @@ public class GameDetectionService : ScheduledBackgroundService
     /// </summary>
     private async Task QueueDetectionAsync(string runKind, CancellationToken ct)
     {
-        // Stamp the run-stable display flag from the effective mode and the trigger that produced this
-        // run; the detection service carries it verbatim through every lifecycle event.
+        // The effective mode and the trigger that produced this run; the tracker draws the run from it.
         var notice = CurrentRunNotice;
-        var showNotification = notice.ShowNotification;
 
         // Resolve the run once. Hybrid picks incremental or full from the clock, so asking twice could
         // log one scan and start the other. Read at the top of each run rather than held on this
@@ -78,7 +76,7 @@ public class GameDetectionService : ScheduledBackgroundService
         // shows a stale blocker, before failing with an unrelated "start gate" error. A null
         // return stays reserved for the genuinely transient case (a detection already active).
         Task<Guid?> StartDetectionAsync() =>
-            _detectionService.StartDetectionAsync(incremental: incremental, showNotification: showNotification, notice: notice);
+            _detectionService.StartDetectionAsync(notice, incremental: incremental);
 
         var outcome = await _operationQueue.EnqueueAsync(
             OperationType.GameDetection,
@@ -87,7 +85,6 @@ public class GameDetectionService : ScheduledBackgroundService
             StartDetectionAsync,
             ct,
             reportRefusal: true,
-            showWaitingCard: showNotification,
             notice: notice);
 
         var disposition = outcome.Queued
@@ -200,7 +197,11 @@ public class GameDetectionService : ScheduledBackgroundService
             _logger.LogInformation("[GameDetection] Requesting scheduled game detection scan");
             await QueueDetectionAsync("Scheduled", stoppingToken);
         }
-        catch (Exception ex)
+        // A Run Now the detection refuses before it registers goes on to the schedule's failure
+        // handling, which shows it as a red card. An automatic refusal is only logged: a failed run
+        // retries after a minute and the refusal (a datasource whose cache-key scheme is unknown)
+        // repeats each time.
+        catch (Exception ex) when (CurrentRunNotice.Trigger != RunTrigger.Manual)
         {
             _logger.LogError(ex, "[GameDetection] Error during scheduled game detection scan");
         }

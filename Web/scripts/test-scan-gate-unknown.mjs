@@ -267,6 +267,32 @@ test('no card announces a download by itself; they disable the control and expla
   assert.deepEqual(uses, [], 'deciding whether to offer a control reads available, not blocked');
 });
 
+test('the rsync probe runs again when the connection returns', () => {
+  const sourceFile = parseSource(FILES[0], typescript.ScriptKind.TSX);
+  // A named callback is followed to its declaration, so the check reads what the call runs.
+  const bodyOf = (callback) => {
+    if (!typescript.isIdentifier(callback)) return callback.getText(sourceFile);
+    const name = callback.getText(sourceFile);
+    return findSoleNode(
+      sourceFile,
+      `${name} declaration`,
+      (node) => typescript.isVariableDeclaration(node) && node.name.getText(sourceFile) === name
+    ).initializer.getText(sourceFile);
+  };
+  const reconnectCallbacks = collectNodes(
+    sourceFile,
+    (node) =>
+      typescript.isCallExpression(node) &&
+      node.expression.getText(sourceFile) === 'useReconnectRefetch'
+  ).map((call) => bodyOf(call.arguments[1]));
+
+  assert.equal(
+    reconnectCallbacks.some((body) => body.includes('ApiService.isRsyncAvailable(')),
+    true,
+    'a page opened during an outage offers rsync once the probe can answer'
+  );
+});
+
 test('the checking sentences are translated in both shipped locales', () => {
   for (const locale of ['en', 'zh']) {
     const strings = JSON.parse(

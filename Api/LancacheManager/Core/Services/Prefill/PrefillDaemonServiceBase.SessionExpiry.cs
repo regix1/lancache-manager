@@ -74,7 +74,7 @@ public abstract partial class PrefillDaemonServiceBase
                     // the state mutation that already happened above.
                     try
                     {
-                        await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+                        await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
                     }
                     catch (Exception ex)
                     {

@@ -18,19 +18,13 @@ public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly OperationCancellationService _cancellationService;
-    private readonly IOperationQueue _operationQueue;
-    private readonly IServiceScheduleRegistry _scheduleRegistry;
 
     public OperationsController(
         IUnifiedOperationTracker operationTracker,
-        OperationCancellationService cancellationService,
-        IOperationQueue operationQueue,
-        IServiceScheduleRegistry scheduleRegistry)
+        OperationCancellationService cancellationService)
     {
         _operationTracker = operationTracker;
         _cancellationService = cancellationService;
-        _operationQueue = operationQueue;
-        _scheduleRegistry = scheduleRegistry;
     }
 
     /// <summary>
@@ -99,19 +93,28 @@ public class OperationsController : ControllerBase
                 OperationId = op.Id,
                 OperationType = op.Type.ToWireString(),
                 Name = op.Name,
-                ShowNotification = RunNotice.ReadRunNotice(op.Metadata)?.ShowNotification ?? !_operationQueue.IsWaiterSilent(op.Id),
-                HideNotification = RunNotice.ReadRunNotice(op.Metadata)?.HideNotification ?? _operationQueue.IsWaiterHidden(op.Id),
                 Status = op.Status.ToWireString(),
-                // Two owners park operations and each answers for its own: the queue for a run
-                // waiting on another operation, the schedule registry for one held for a download.
-                // Asking only the queue lost the blocker's name on every refresh of a held run.
-                BlockedByName = _operationQueue.GetWaitingBlockerName(op.Id)
-                    ?? _scheduleRegistry.GetHeldRunBlockerName(op.Id)
+                // Both owners that park operations (the queue and the schedule registry's download
+                // hold) record the blocker on the tracked row, so one read covers both.
+                BlockedByName = op.BlockedByName
             })
             .ToList();
 
         return Ok(waiting);
     }
+
+    /// <summary>
+    /// Lists every tracked run the notification bar draws.
+    /// </summary>
+    /// <remarks>
+    /// The browser's run list after page load, reconnect and tab return: live, waiting and
+    /// background runs plus endings kept until someone closes their card. The snapshot's revision
+    /// is read before the runs are listed, so the browser can merge it with the
+    /// <c>OperationUpdated</c> rows it already has. Kept endings do not survive an app restart.
+    /// </remarks>
+    [HttpGet("runs")]
+    [ProducesResponseType(typeof(OperationRunsSnapshot), StatusCodes.Status200OK)]
+    public ActionResult<OperationRunsSnapshot> GetRuns() => Ok(_operationTracker.GetRuns());
 
     /// <summary>
     /// Cancels a running operation.
@@ -128,6 +131,10 @@ public class OperationsController : ControllerBase
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
     public async Task<ActionResult<OperationCancelResponse>> CancelOperation(Guid id)
     {
+        // The caller is resolved before the lookup: a handoff recorded during that await would
+        // otherwise leave this request holding the waiting record, already completed as promoted,
+        // and answer "already finished" for a run the cancel actually reached.
+        var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
         var operation = _operationTracker.GetOperation(id, followHandoff: true);
         if (operation == null)
         {
@@ -136,16 +143,18 @@ public class OperationsController : ControllerBase
 
         try
         {
-            var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
-            switch (_cancellationService.Cancel(operation.Id, caller))
+            var result = _cancellationService.Cancel(operation.Id, caller);
+            // The answer describes the operation the cancel reached, which a handoff may have moved.
+            var target = _operationTracker.GetOperation(operation.Id, followHandoff: true) ?? operation;
+            switch (result)
             {
                 case OperationCancelResult.Requested:
                     return Ok(new OperationCancelResponse
                     {
                         Message = "Cancellation requested (process kill + token cancel)",
                         OperationId = id,
-                        Status = operation.Status,
-                        AlreadyFinished = operation.Status.IsTerminal()
+                        Status = target.Status,
+                        AlreadyFinished = target.Status.IsTerminal()
                     });
 
                 case OperationCancelResult.AlreadyFinished:
@@ -153,8 +162,8 @@ public class OperationsController : ControllerBase
                     {
                         Message = "Operation already finished",
                         OperationId = id,
-                        Status = operation.Status,
-                        AlreadyFinished = true
+                        Status = target.Status,
+                        AlreadyFinished = target.Status.IsTerminal()
                     });
 
                 default:
@@ -170,15 +179,29 @@ public class OperationsController : ControllerBase
             // satisfied — report success instead of leaking an unhandled 500. The disposed-Process
             // race is answered where the wait happens, in ProcessManager, because reporting every
             // InvalidOperationException as finished would drop the card on a live operation.
+            var target = _operationTracker.GetOperation(operation.Id, followHandoff: true) ?? operation;
             return Ok(new OperationCancelResponse
             {
                 Message = "Operation already completed",
                 OperationId = id,
-                Status = operation.Status,
-                AlreadyFinished = true
+                Status = target.Status,
+                AlreadyFinished = target.Status.IsTerminal()
             });
         }
     }
+
+    /// <summary>
+    /// Closes a card that stays until someone closes it.
+    /// </summary>
+    /// <remarks>
+    /// Called by the dismiss button of a kept ending (a failure, a success with a warning, or a
+    /// cancelled or skipped run that showed a card). Closing it removes it for every admin.
+    /// Returns 404 when the run was already closed elsewhere, was never kept, or is unknown.
+    /// </remarks>
+    [HttpPost("{id}/close")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public IActionResult CloseRun(Guid id) =>
+        _operationTracker.CloseRun(id) ? NoContent() : NotFound(ApiResponse.NotFound("Operation", id));
 
     /// <summary>
     /// Force-kills a running operation when cancel alone does not unblock the UI.

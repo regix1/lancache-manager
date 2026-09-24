@@ -1,509 +1,381 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile } from 'node:fs/promises';
-import { compileToUrl, moduleUrl, notificationEvents } from './transpile-module.mjs';
+import typescript from 'typescript';
+import {
+  bindLifted,
+  compileToUrl,
+  findSoleNode,
+  liftConstArrow,
+  liftHookCallback,
+  loadNotificationModules,
+  moduleUrl,
+  parseSource
+} from './transpile-module.mjs';
 
-const { decideScanHold, isConfirmedScanRefusalStatus, readScanAdmission } = await import(
-  await compileToUrl('../src/components/features/management/game-detection/scanAdmission.ts', {
-    '@contexts/notifications/notificationStatus': await compileToUrl(
-      '../src/contexts/notifications/notificationStatus.ts'
-    )
+/**
+ * A scan button is busy while the server's run list says its run waits, runs or is cancelling,
+ * and for the length of its own start request - nothing else holds it. These cases build the run
+ * list with the real run store, feed it to the real `useOperationBusy`, and drive the scan
+ * handlers and reconnect callbacks lifted from the components that ship them.
+ */
+
+const { isConfirmedScanRefusalStatus } = await import(
+  await compileToUrl('../src/components/features/management/game-detection/scanAdmission.ts')
+);
+
+const { applyRun, createRunStoreState, deriveRuns } = await loadNotificationModules(
+  moduleUrl('export default { t: (key) => key, exists: () => true };')
+);
+
+// Runs the factory on every call and ignores the dependency array, so these cases check what the
+// hook computes, never whether the memo is keyed on the right values.
+const reactStubUrl = moduleUrl('export const useMemo = (fn) => fn();');
+const notificationsStubUrl = moduleUrl(`
+  export const box = { runs: [] };
+  export const useNotifications = () => ({ runs: box.runs });
+`);
+const { useOperationBusy } = await import(
+  await compileToUrl('../src/hooks/useOperationBusy.ts', {
+    react: reactStubUrl,
+    '@contexts/notifications/useNotifications': notificationsStubUrl
   })
 );
+const { box } = await import(notificationsStubUrl);
 
-const notificationStatusUrl = await compileToUrl(
-  '../src/contexts/notifications/notificationStatus.ts'
-);
-const scanAdmissionUrl = await compileToUrl(
-  '../src/components/features/management/game-detection/scanAdmission.ts',
-  { '@contexts/notifications/notificationStatus': notificationStatusUrl }
-);
-const waitUrl = await compileToUrl('../src/contexts/notifications/waitForSignalRCompletion.ts');
-const apiUrl = moduleUrl(`
-  export default {
-    getTrackedOperation: (...args) => globalThis.__scanApi.getTrackedOperation(...args),
-    getWaitingOperations: (...args) => globalThis.__scanApi.getWaitingOperations(...args),
-    getActiveGameDetection: (...args) => globalThis.__scanApi.getActiveGameDetection(...args),
-    getEvictionScanStatus: (...args) => globalThis.__scanApi.getEvictionScanStatus(...args)
-  };
-`);
-const apiErrorUrl = moduleUrl(`
-  export class ApiError extends Error {
-    constructor(status) { super(String(status)); this.status = status; }
-  }
-`);
-const { followAdmittedScan, watchScanHold } = await import(
-  await compileToUrl('../src/components/features/management/game-detection/scanHoldRecovery.ts', {
-    '@services/api.service': apiUrl,
-    '@services/apiError': apiErrorUrl,
-    '@contexts/notifications/waitForSignalRCompletion': waitUrl,
-    './scanAdmission': scanAdmissionUrl
-  })
-);
+const GAME_DETECTOR = 'src/components/features/management/game-detection/GameCacheDetector.tsx';
+const STORAGE = 'src/components/features/management/sections/StorageSection.tsx';
+const DATASOURCES = 'src/components/features/management/datasources/DatasourcesInfo.tsx';
 
-const idleApi = () => ({
-  getTrackedOperation: async (operationId) => ({ id: operationId, active: false }),
-  getWaitingOperations: async () => [],
-  getActiveGameDetection: async () => ({ isProcessing: false, operation: null }),
-  getEvictionScanStatus: async () => ({ isProcessing: false, operationId: null })
+let revision = 0;
+const row = (operationId, fields = {}) => ({
+  operationId,
+  operationType: 'evictionScan',
+  name: 'Eviction Scan',
+  status: 'running',
+  visibility: 'card',
+  percentComplete: 0,
+  message: 'signalr.evictionScan.scanning',
+  startedAt: new Date(Date.UTC(2026, 8, 22, 10, 0, 0)).toISOString(),
+  revision: ++revision,
+  ...fields
 });
 
-const createSignalR = () => {
-  const handlers = new Map();
-  return {
-    events: notificationEvents(),
-    on(name, handler) {
-      if (!handlers.has(name)) handlers.set(name, new Set());
-      handlers.get(name).add(handler);
-    },
-    off(name, handler) {
-      handlers.get(name)?.delete(handler);
-    },
-    emit(name, event) {
-      for (const handler of handlers.get(name) ?? []) handler(event);
-    },
-    listenerCount(name) {
-      return handlers.get(name)?.size ?? 0;
-    }
-  };
+/** The live runs the provider would hand the pages after these rows arrived. */
+const runsAfter = (...rows) => {
+  let state = createRunStoreState();
+  for (const value of rows) {
+    state = applyRun(state, value, {
+      keepSuccessVisible: false,
+      localCards: [],
+      pushed: true
+    }).next;
+  }
+  return deriveRuns(state);
 };
 
-test('a waiting status holds even when the active flag is false', () => {
-  assert.equal(
-    decideScanHold({
-      operation: { status: 'waiting', nextOperationId: null, nextStatus: null },
-      waitingListed: false,
-      activeScanMatches: false,
-      endpointFailed: false
-    }),
-    'hold'
+/** The options object a component passes to `useOperationBusy` for `variableName`, as shipped. */
+const busyOptions = (relativePath, variableName) => {
+  const source = parseSource(relativePath, typescript.ScriptKind.TSX);
+  const declaration = findSoleNode(
+    source,
+    `${variableName} declaration`,
+    (node) =>
+      typescript.isVariableDeclaration(node) &&
+      node.name.getText(source) === variableName &&
+      node.initializer !== undefined &&
+      typescript.isCallExpression(node.initializer)
   );
-});
+  return bindLifted(`() => (${declaration.initializer.arguments[0].getText(source)})`, {})();
+};
 
-test('a terminal status releases', () => {
-  assert.equal(
-    decideScanHold({
-      operation: { status: 'completed' },
-      waitingListed: false,
-      activeScanMatches: false,
-      endpointFailed: false
-    }),
-    'release'
+/** The callback a component hands `useReconnectRefetch` (its second argument), as shipped. */
+const reconnectCallback = (relativePath) => {
+  const source = parseSource(relativePath, typescript.ScriptKind.TSX);
+  const call = findSoleNode(
+    source,
+    'useReconnectRefetch call',
+    (node) =>
+      typescript.isCallExpression(node) && node.expression.getText(source) === 'useReconnectRefetch'
   );
-});
+  return call.arguments[1].getText(source);
+};
 
-test('a terminal waiting record holds while its successor scan is active', () => {
-  assert.equal(
-    decideScanHold({
-      operation: { status: 'completed' },
-      waitingListed: false,
-      activeScanMatches: true,
-      endpointFailed: false
-    }),
-    'hold'
-  );
-});
-
-test('a missing operation with no waiting or active scan releases', () => {
-  assert.equal(
-    decideScanHold({
-      operation: null,
-      waitingListed: false,
-      activeScanMatches: false,
-      endpointFailed: false
-    }),
-    'release'
-  );
-});
-
-test('a failed recovery stays unknown', () => {
-  assert.equal(
-    decideScanHold({
-      operation: null,
-      waitingListed: false,
-      activeScanMatches: false,
-      endpointFailed: true
-    }),
-    'unknown'
-  );
-});
-
-test('a busy successor holds', () => {
-  assert.equal(
-    decideScanHold({
-      operation: { status: 'completed', nextOperationId: 'next', nextStatus: 'running' },
-      waitingListed: false,
-      activeScanMatches: false,
-      endpointFailed: false
-    }),
-    'hold'
-  );
-});
+const busyFor = (runs, options) => {
+  box.runs = runs;
+  return useOperationBusy(options);
+};
 
 test('only a 400 is a confirmed scan refusal', () => {
   assert.equal(isConfirmedScanRefusalStatus(400), true);
+  assert.equal(isConfirmedScanRefusalStatus(500), false);
   assert.equal(isConfirmedScanRefusalStatus(undefined), false);
-  assert.equal(readScanAdmission({ queued: true, operationId: 'a' }), 'queued');
-  assert.equal(readScanAdmission({ alreadyRunning: true, operationId: 'a' }), 'alreadyRunning');
-  assert.equal(readScanAdmission({ operationId: 'a' }), 'started');
 });
 
-test('a recovered hold is polled until its operation becomes terminal', async () => {
-  let reads = 0;
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => {
-      reads += 1;
-      return {
-        id: operationId,
-        active: reads === 1,
-        status: reads === 1 ? 'running' : 'completed'
-      };
-    }
-  };
-
-  const result = await watchScanHold({
-    operationId: 'scan-1',
-    kind: 'gameDetection',
-    abortSignal: new AbortController().signal,
-    pollMs: 1
-  });
-
-  assert.equal(result.decision, 'release');
-  assert.equal(result.operationId, 'scan-1');
-  assert.equal(reads, 2);
-});
-
-test('mount recovery adopts a hidden active scan before following it', async () => {
-  let activeReads = 0;
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => ({
-      id: operationId,
-      active: false,
-      status: 'completed'
-    }),
-    getActiveGameDetection: async () => {
-      activeReads += 1;
-      return activeReads === 1
-        ? {
-            isProcessing: true,
-            operation: { operationId: 'hidden-scan', parentOperationId: 'eviction-parent' }
-          }
-        : { isProcessing: false, operation: null };
-    }
-  };
-
-  const result = await watchScanHold({
-    operationId: null,
-    kind: 'gameDetection',
-    abortSignal: new AbortController().signal,
-    pollMs: 1
-  });
-
-  assert.equal(result.decision, 'release');
-  assert.equal(result.operationId, 'hidden-scan');
-});
-
-test('eviction recovery adopts the running scan that replaced its waiting operation', async () => {
-  let operationReads = 0;
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => {
-      operationReads += 1;
-      return operationReads === 1
-        ? { id: operationId, active: false }
-        : { id: operationId, active: false, status: 'completed' };
-    },
-    getEvictionScanStatus: async () =>
-      operationReads === 1
-        ? {
-            isProcessing: true,
-            operationId: 'eviction-running',
-            previousOperationId: 'eviction-waiting'
-          }
-        : { isProcessing: false, operationId: null, previousOperationId: null }
-  };
-
-  const result = await watchScanHold({
-    operationId: 'eviction-waiting',
-    kind: 'evictionScan',
-    abortSignal: new AbortController().signal,
-    pollMs: 1
-  });
-
-  assert.equal(result.decision, 'release');
-  assert.equal(result.operationId, 'eviction-running');
-  assert.equal(operationReads, 2);
-});
-
-test('a completed waiting operation holds while its successor scan is running', async () => {
-  let reads = 0;
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => {
-      reads += 1;
-      if (operationId === 'eviction-waiting') {
-        return { id: operationId, active: false, status: 'completed' };
-      }
-      return reads < 4
-        ? { id: operationId, active: true, status: 'running' }
-        : { id: operationId, active: false, status: 'completed' };
-    },
-    getEvictionScanStatus: async () =>
-      reads < 4
-        ? {
-            isProcessing: true,
-            operationId: 'eviction-running',
-            previousOperationId: 'eviction-waiting'
-          }
-        : { isProcessing: false, operationId: null, previousOperationId: null }
-  };
-
-  const result = await watchScanHold({
-    operationId: 'eviction-waiting',
-    kind: 'evictionScan',
-    abortSignal: new AbortController().signal,
-    pollMs: 1
-  });
-
-  assert.equal(result.decision, 'release');
-  assert.equal(result.operationId, 'eviction-running');
-  assert.ok(reads > 1);
-});
-
-test('the page watcher stops on an uncertain read so its caller can retry', async () => {
-  let reads = 0;
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async () => {
-      reads += 1;
-      throw new Error('offline');
-    }
-  };
-
-  const result = await watchScanHold({
-    operationId: 'scan-unknown',
-    kind: 'gameDetection',
-    abortSignal: new AbortController().signal,
-    pollMs: 1
-  });
-
-  assert.equal(result.decision, 'unknown');
-  assert.equal(reads, 1);
-});
-
-test('unmount aborts a recovery poll without another endpoint read', async () => {
-  let reads = 0;
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => {
-      reads += 1;
-      return { id: operationId, active: true, status: 'running' };
-    }
-  };
-  const abort = new AbortController();
-  const resultPromise = watchScanHold({
-    operationId: 'scan-running',
-    kind: 'gameDetection',
-    abortSignal: abort.signal,
-    pollMs: 1000
-  });
-  setTimeout(() => abort.abort(), 5);
-
-  const result = await resultPromise;
-  assert.equal(result.decision, 'aborted');
-  assert.equal(reads, 1);
-});
-
-test('an eviction Started predecessor releases the queued hold without WaitingComplete', async () => {
-  const signalR = createSignalR();
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => ({
-      id: operationId,
-      active: false,
-      status: 'waiting'
-    }),
-    getWaitingOperations: async () => [
-      { operationId: 'eviction-waiting', operationType: 'evictionScan' }
-    ],
-    getEvictionScanStatus: async () => ({
-      isProcessing: true,
-      operationId: 'eviction-running'
-    })
-  };
-
-  const resultPromise = followAdmittedScan({
-    signalR,
-    events: signalR.events,
-    abortSignal: new AbortController().signal,
-    operationId: 'eviction-waiting',
-    admission: 'queued',
-    completeEvent: 'EvictionScanComplete',
-    kind: 'evictionScan'
-  });
-  signalR.emit('EvictionScanStarted', {
-    operationId: 'eviction-running',
-    previousOperationId: 'eviction-waiting'
-  });
-  signalR.emit('EvictionScanComplete', {
-    operationId: 'eviction-running',
-    success: true
-  });
-
-  assert.equal(await resultPromise, 'release');
-  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
-  assert.equal(signalR.listenerCount('EvictionScanStarted'), 0);
-  assert.equal(signalR.listenerCount('EvictionScanProgress'), 0);
-});
-
-for (const eventName of ['EvictionScanProgress', 'EvictionScanComplete']) {
-  test(`${eventName} rebinds a queued eviction hold without Started`, async () => {
-    const signalR = createSignalR();
-    globalThis.__scanApi = {
-      ...idleApi(),
-      getTrackedOperation: async () => {
-        throw new Error('offline');
-      }
-    };
-
-    const resultPromise = followAdmittedScan({
-      signalR,
-      events: signalR.events,
-      abortSignal: new AbortController().signal,
-      operationId: 'eviction-waiting',
-      admission: 'queued',
-      completeEvent: 'EvictionScanComplete',
-      kind: 'evictionScan'
-    });
-    signalR.emit(eventName, {
-      operationId: 'eviction-running',
-      previousOperationId: 'eviction-waiting',
-      success: true
-    });
-    if (eventName !== 'EvictionScanComplete') {
-      signalR.emit('EvictionScanComplete', {
-        operationId: 'eviction-running',
-        success: true
-      });
-    }
-
-    assert.equal(await resultPromise, 'release');
-    assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
-  });
-}
-
-test('an eviction Started for the queued id follows that same operation', async () => {
-  const signalR = createSignalR();
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => ({
-      id: operationId,
-      active: true,
-      status: 'waiting'
-    }),
-    getWaitingOperations: async () => [
-      { operationId: 'eviction-waiting', operationType: 'evictionScan' }
-    ],
-    getEvictionScanStatus: async () => ({ isProcessing: false, operationId: null })
-  };
-
-  const resultPromise = followAdmittedScan({
-    signalR,
-    events: signalR.events,
-    abortSignal: new AbortController().signal,
-    operationId: 'eviction-waiting',
-    admission: 'queued',
-    completeEvent: 'EvictionScanComplete',
-    kind: 'evictionScan'
-  });
-  signalR.emit('EvictionScanStarted', { operationId: 'eviction-waiting' });
-  signalR.emit('EvictionScanComplete', { operationId: 'eviction-waiting', success: true });
-
-  assert.equal(await resultPromise, 'release');
-  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
-});
-
-test('a failed recovery read does not abandon the SignalR wait', async () => {
-  const signalR = createSignalR();
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async () => {
-      throw new Error('offline');
-    }
-  };
-
-  const resultPromise = followAdmittedScan({
-    signalR,
-    events: signalR.events,
-    abortSignal: new AbortController().signal,
-    operationId: 'eviction-running',
-    admission: 'started',
-    completeEvent: 'EvictionScanComplete',
-    kind: 'evictionScan'
-  });
-  signalR.emit('EvictionScanComplete', {
-    operationId: 'eviction-running',
-    success: true
-  });
-
-  assert.equal(await resultPromise, 'release');
-  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
-});
-
-test('authoritative recovery releases a scan without waiting for a SignalR timeout', async () => {
-  const signalR = createSignalR();
-  globalThis.__scanApi = {
-    ...idleApi(),
-    getTrackedOperation: async (operationId) => ({
-      id: operationId,
-      active: false,
-      status: 'completed'
-    })
-  };
-
-  const result = await Promise.race([
-    followAdmittedScan({
-      signalR,
-      events: signalR.events,
-      abortSignal: new AbortController().signal,
-      operationId: 'eviction-completed',
-      admission: 'started',
-      completeEvent: 'EvictionScanComplete',
-      kind: 'evictionScan'
-    }),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('recovery did not start with the SignalR wait')), 100)
-    )
-  ]);
-
-  assert.equal(result, 'release');
-  assert.equal(signalR.listenerCount('EvictionScanComplete'), 0);
-});
-
-test('management components hydrate scan holds and show eviction kickoff progress', async () => {
-  const [game, storage] = await Promise.all([
-    readFile(
-      new URL(
-        '../src/components/features/management/game-detection/GameCacheDetector.tsx',
-        import.meta.url
-      ),
-      'utf8'
-    ),
-    readFile(
-      new URL('../src/components/features/management/sections/StorageSection.tsx', import.meta.url),
-      'utf8'
-    )
-  ]);
-
-  assert.match(game, /useEffect\(\(\) => \{\s+void recoverDetectionAdmission\(\)/);
-  assert.match(
-    game,
-    /useReconnectRefetch\(isConnected, \(\) => \{\s+void recoverDetectionAdmission\(\)/
+test("an eviction scan's folded detection phase never marks game detection busy", () => {
+  const runs = runsAfter(
+    row('E'),
+    row('D', { operationType: 'gameDetection', name: 'Game Detection', parentOperationId: 'E' })
   );
-  assert.doesNotMatch(game, /if \(isStartingDetection\) \{/);
-  assert.match(storage, /useEffect\(\(\) => \{\s+void recoverEvictionAdmission\(\)/);
-  assert.match(storage, /const confirmation = await recoverScanHold/);
-  assert.match(storage, /isStartingEvictionScan \? \([\s\S]*?<LoadingSpinner inline size="xs"/);
+  const detectionBusy = busyOptions(GAME_DETECTOR, 'isDetectionFromNotification');
+  const evictionBusy = busyOptions(STORAGE, 'isEvictionScanNotificationRunning');
+
+  assert.deepEqual(
+    runs.map((run) => run.type),
+    ['eviction_scan'],
+    'the child phase is folded under its scan'
+  );
+  assert.equal(busyFor(runs, detectionBusy), false);
+  assert.equal(busyFor(runs, evictionBusy), true);
+});
+
+test('a Hidden game detection run keeps the scan buttons busy though it draws no card', () => {
+  const runs = runsAfter(
+    row('G', { operationType: 'gameDetection', name: 'Game Detection', visibility: 'hidden' })
+  );
+  assert.equal(busyFor(runs, busyOptions(GAME_DETECTOR, 'isDetectionFromNotification')), true);
+});
+
+test('a cancelling eviction scan keeps the Storage Scan button busy until its run ends', () => {
+  const options = busyOptions(STORAGE, 'isEvictionScanNotificationRunning');
+  assert.equal(busyFor(runsAfter(row('E', { status: 'cancelling' })), options), true);
+  assert.equal(
+    busyFor(
+      runsAfter(row('E', { status: 'cancelling' }), row('E', { status: 'cancelled' })),
+      options
+    ),
+    false,
+    'the ended run leaves the list'
+  );
+});
+
+test('a cancelling game detection run keeps the detector busy', () => {
+  const runs = runsAfter(
+    row('G', { operationType: 'gameDetection', name: 'Game Detection', status: 'cancelling' })
+  );
+  assert.equal(busyFor(runs, busyOptions(GAME_DETECTOR, 'isDetectionFromNotification')), true);
+});
+
+test('the detector reloads its results on reconnect and holds nothing', () => {
+  const calls = [];
+  const syncCachedDetection = async (...args) => {
+    calls.push(args);
+  };
+  const loadErrors = [];
+  // Every free name the callback reads must be bound here; a hold setter it still called would
+  // throw a ReferenceError.
+  const bindings = {
+    mockMode: false,
+    syncCachedDetection,
+    setLoadError: (value) => loadErrors.push(value),
+    getErrorMessage: (error) => `reason: ${error.message}`
+  };
+  bindLifted(reconnectCallback(GAME_DETECTOR), bindings)();
+  assert.equal(calls.length, 1);
+  const [errorContext, options] = calls[0];
+  assert.equal(errorContext, 'Failed to refresh cached results after reconnect');
+  assert.equal(options.invalidateImages, true);
+  options.onError(new Error('offline'));
+  assert.deepEqual(loadErrors, ['reason: offline'], 'a failed reload shows the section error');
+
+  bindLifted(reconnectCallback(GAME_DETECTOR), { ...bindings, mockMode: true })();
+  assert.equal(calls.length, 1, 'mock mode never pulls real cache data');
+});
+
+test('the Storage page reloads its lists and eviction settings on reconnect and holds nothing', () => {
+  const reloads = { evictedItems: 0, orphanedDownloads: 0, evictionSettings: 0 };
+  const bindings = {
+    isAnyEvictedRemovalRunning: false,
+    fetchEvictedItems: async () => {
+      reloads.evictedItems += 1;
+    },
+    fetchOrphanedDownloads: async () => {
+      reloads.orphanedDownloads += 1;
+    },
+    loadEvictionSettings: async () => {
+      reloads.evictionSettings += 1;
+    }
+  };
+  bindLifted(reconnectCallback(STORAGE), bindings)();
+  assert.deepEqual(reloads, { evictedItems: 1, orphanedDownloads: 1, evictionSettings: 1 });
+
+  bindLifted(reconnectCallback(STORAGE), { ...bindings, isAnyEvictedRemovalRunning: true })();
+  assert.deepEqual(
+    reloads,
+    { evictedItems: 1, orphanedDownloads: 2, evictionSettings: 2 },
+    'a running evicted removal still owns the evicted list'
+  );
+});
+
+test('an older eviction settings read that fails after a newer one succeeded shows no error', async () => {
+  const state = { modes: [], savedModes: [], errors: [], loading: [] };
+  const reads = [];
+  const loadEvictionSettings = bindLifted(
+    liftHookCallback(STORAGE, 'useCallback', 'getEvictionSettings'),
+    {
+      mockMode: false,
+      evictionSettingsRequestRef: { current: 0 },
+      ApiService: {
+        getEvictionSettings: () =>
+          new Promise((resolve, reject) => {
+            reads.push({ resolve, reject });
+          })
+      },
+      setEvictionLoading: (value) => state.loading.push(value),
+      setEvictionMode: (value) => state.modes.push(value),
+      setSavedEvictionMode: (value) => state.savedModes.push(value),
+      setEvictionLoadError: (value) => state.errors.push(value),
+      getErrorMessage: (error) => error.message
+    }
+  );
+
+  const older = loadEvictionSettings();
+  const newer = loadEvictionSettings();
+  reads[1].resolve({ evictedDataMode: 'remove' });
+  await newer;
+  reads[0].reject(new Error('stale read failed'));
+  await older;
+
+  assert.deepEqual(state.modes, ['remove']);
+  assert.deepEqual(state.savedModes, ['remove']);
+  assert.deepEqual(state.errors, [null], 'the stale failure never reaches the section');
+  assert.equal(state.loading.at(-1), false);
+});
+
+test('an older evicted items read that fails after a newer one succeeded shows no error', async () => {
+  const state = { games: [], services: [], errors: [], loading: [], logged: [] };
+  const reads = [];
+  const fetchEvictedItems = bindLifted(
+    liftHookCallback(STORAGE, 'useCallback', 'getEvictedGames'),
+    {
+      mockMode: false,
+      evictedItemsRequestRef: { current: 0 },
+      hasLoadedEvictedItemsRef: { current: true },
+      loadCachedDetectionSnapshot: () =>
+        new Promise((resolve, reject) => {
+          reads.push({ resolve, reject });
+        }),
+      getEvictedGames: (games) => games,
+      getEvictedServices: (services) => services,
+      setEvictedGames: (value) => state.games.push(value),
+      setEvictedServices: (value) => state.services.push(value),
+      setEvictedItemsLoading: (value) => state.loading.push(value),
+      setEvictedItemsError: (value) => state.errors.push(value),
+      getErrorMessage: (error) => error.message,
+      notifyError: (message, error) => state.logged.push(error.message),
+      t: (key) => key
+    }
+  );
+
+  const older = fetchEvictedItems();
+  const newer = fetchEvictedItems();
+  reads[1].resolve({ games: ['game'], services: ['service'] });
+  await newer;
+  reads[0].reject(new Error('stale read failed'));
+  await older;
+
+  assert.deepEqual(state.games, [['game']]);
+  assert.deepEqual(state.services, [['service']]);
+  assert.deepEqual(state.errors, [null], 'the stale failure never reaches the section');
+  assert.equal(state.loading.at(-1), false);
+});
+
+test('a reset whose follow-up position read fails reports the reset, never a failed reset', async () => {
+  const calls = { success: [], errors: [], refreshes: 0, actionLoading: [], modal: [] };
+  const handleResetPosition = bindLifted(liftConstArrow(DATASOURCES, 'handleResetPosition'), {
+    isAdmin: true,
+    t: (key) => key,
+    setActionLoading: (value) => calls.actionLoading.push(value),
+    setResetModal: (value) => calls.modal.push(value),
+    ApiService: {
+      resetDatasourceLogPosition: async () => ({}),
+      resetLogPosition: async () => ({})
+    },
+    fetchLogPositions: async () => {
+      throw new Error('positions read failed');
+    },
+    setLogPositions: (value) => calls.errors.push(['positions written', value]),
+    refreshPositions: async () => {
+      calls.refreshes += 1;
+    },
+    onSuccess: (message) => calls.success.push(message),
+    onError: (message, error) => calls.errors.push([message, error?.message]),
+    onDataRefresh: () => calls.success.push('refreshed')
+  });
+
+  await handleResetPosition('Default', 'bottom');
+
+  assert.deepEqual(calls.errors, [], 'the reset succeeded, so nothing says it failed');
+  assert.deepEqual(calls.success, ['management.datasources.messages.positionReset', 'refreshed']);
+  assert.equal(calls.refreshes, 1, 'the owned position read runs once');
+  assert.deepEqual(calls.actionLoading, ['reset-Default', null]);
+});
+
+/** The detector's `startDetection`, lifted, with its React state as plain recorders. */
+const liftStartDetection = ({ startGameCacheDetection }) => {
+  const state = { starting: [], scanType: [], toasts: [], errors: [] };
+  const detectionInFlightRef = { current: false };
+  class ApiError extends Error {
+    constructor(status) {
+      super(`refused ${status}`);
+      this.status = status;
+    }
+  }
+  const startDetection = bindLifted(
+    liftHookCallback(GAME_DETECTOR, 'useCallback', 'startGameCacheDetection'),
+    {
+      mockMode: false,
+      loading: false,
+      t: (key) => key,
+      addNotification: (card) => state.toasts.push(card),
+      notifyError: (message, error) => state.errors.push([message, error]),
+      detectionInFlightRef,
+      setIsStartingDetection: (value) => state.starting.push(value),
+      setScanType: (value) => state.scanType.push(value),
+      ApiService: { startGameCacheDetection },
+      ApiError,
+      isConfirmedScanRefusalStatus,
+      getErrorMessage: (err) => err.message,
+      isAbortError: () => false
+    }
+  );
+  return { startDetection, state, detectionInFlightRef, ApiError };
+};
+
+test('a started detection opens no card of its own and is busy only while its request is out', async () => {
+  let release;
+  const { startDetection, state, detectionInFlightRef } = liftStartDetection({
+    startGameCacheDetection: () =>
+      new Promise((resolve) => {
+        release = () => resolve({ operationId: 'G', status: 'running' });
+      })
+  });
+
+  const pending = startDetection(true, 'full');
+  assert.deepEqual(state.starting, [true]);
+  assert.equal(detectionInFlightRef.current, true, 'a second click is ignored meanwhile');
+
+  release();
+  await pending;
+  assert.deepEqual(state.starting, [true, false]);
+  assert.deepEqual(state.scanType, ['full', null]);
+  assert.equal(detectionInFlightRef.current, false);
+  assert.deepEqual(state.toasts, [], 'the server run row opens the only card');
+});
+
+test('a refused detection says why and frees the buttons', async () => {
+  let ApiErrorClass;
+  let refusal;
+  const lifted = liftStartDetection({
+    startGameCacheDetection: async () => {
+      refusal = new ApiErrorClass(400);
+      throw refusal;
+    }
+  });
+  ApiErrorClass = lifted.ApiError;
+
+  await lifted.startDetection(false, 'incremental');
+  assert.deepEqual(lifted.state.errors, [['management.gameDetection.errors.startFailed', refusal]]);
+  assert.deepEqual(lifted.state.toasts, [], 'the titled error popup is the only one');
+  assert.deepEqual(lifted.state.starting, [true, false]);
+  assert.equal(lifted.detectionInFlightRef.current, false);
 });

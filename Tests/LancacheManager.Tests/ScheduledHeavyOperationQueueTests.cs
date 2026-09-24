@@ -21,15 +21,9 @@ public sealed class ScheduledHeavyOperationQueueTests
     {
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
-        var events = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting) events.Add(waiting);
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-            notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         var starts = 0;
         Guid active = default;
         var result = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan", () =>
@@ -42,7 +36,6 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.False(result.Queued);
         Assert.Equal(active, result.OperationId);
         Assert.Equal(1, starts);
-        Assert.Empty(events);
         Assert.Empty(tracker.GetWaitingOperations());
     }
 
@@ -147,7 +140,7 @@ public sealed class ScheduledHeavyOperationQueueTests
     }
 
     [Fact]
-    public async Task QueuePromotion_EmitsExplicitPromotedCardHandoffAsync()
+    public async Task QueuePromotion_HandsOffTheWaitingRunAsync()
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(
@@ -156,27 +149,9 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = new OperationConflictChecker(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var handoffReceived = new TaskCompletionSource<OperationWaitingCompleteNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
-                    && args[1] is OperationWaitingCompleteNotification handoff)
-                {
-                    handoffReceived.TrySetResult(handoff);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,
-            notifications,
             NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
@@ -195,14 +170,15 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.True(queued.Queued);
         tracker.CompleteOperation(blockerId, success: true);
 
-        var handoff = await handoffReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(queued.OperationId, handoff.OperationId);
-        Assert.Equal(OperationType.CacheSizeScan.ToWireString(), handoff.OperationType);
-        Assert.True(handoff.Promoted);
-        Assert.False(handoff.Cancelled);
-        Assert.Null(handoff.Error);
-        Assert.Equal(startedId, handoff.NextOperationId);
-        Assert.Equal("running", handoff.NextStatus);
+        var handedOn = await WaitForEndingAsync(tracker, queued.OperationId);
+        Assert.Equal(OperationStatus.Completed, handedOn.Status);
+        Assert.False(handedOn.Cancelled);
+        Assert.Equal(startedId, handedOn.NextOperationId);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal(OperationType.CacheSizeScan.ToWireString(), row.OperationType);
+        Assert.Null(row.Error);
+        Assert.Equal(startedId, row.NextOperationId);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(startedId)!.Status);
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
         Assert.True(tracker.GetOperation(startedId)!.Cancelled);
         tracker.CompleteOperation(startedId, success: false, cancelled: true);
@@ -225,27 +201,9 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = new OperationConflictChecker(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var handoffReceived = new TaskCompletionSource<OperationWaitingCompleteNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
-                    && args[1] is OperationWaitingCompleteNotification handoff)
-                {
-                    handoffReceived.TrySetResult(handoff);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,
-            notifications,
             NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
@@ -273,10 +231,9 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.Equal(OperationStatus.Skipped, tracker.GetOperation(blockerId)?.Status);
         Assert.DoesNotContain(tracker.GetActiveOperations(), op => op.Id == blockerId);
 
-        var promoted = await handoffReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(queued.OperationId, promoted.OperationId);
-        Assert.True(promoted.Promoted);
-        Assert.False(promoted.Cancelled);
+        var promoted = await WaitForEndingAsync(tracker, queued.OperationId);
+        Assert.Equal(OperationStatus.Completed, promoted.Status);
+        Assert.Equal(startedId, promoted.NextOperationId);
         Assert.Equal(1, Volatile.Read(ref startCalls));
     }
 
@@ -290,27 +247,9 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = new OperationConflictChecker(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var cancelledReceived = new TaskCompletionSource<OperationWaitingCompleteNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
-                    && args[1] is OperationWaitingCompleteNotification { Cancelled: true } cancelled)
-                {
-                    cancelledReceived.TrySetResult(cancelled);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,
-            notifications,
             NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
@@ -331,8 +270,9 @@ public sealed class ScheduledHeavyOperationQueueTests
 
         Assert.True(queued.Queued);
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
-        var cancelled = await cancelledReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.False(cancelled.Promoted);
+        var cancelled = await WaitForEndingAsync(tracker, queued.OperationId);
+        Assert.Equal(OperationStatus.Cancelled, cancelled.Status);
+        Assert.Null(cancelled.NextOperationId);
 
         tracker.CompleteOperation(blockerId, success: true);
         await Task.Delay(200);
@@ -349,27 +289,9 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = new OperationConflictChecker(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var handoffReceived = new TaskCompletionSource<OperationWaitingCompleteNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
-                    && args[1] is OperationWaitingCompleteNotification { Promoted: true } handoff)
-                {
-                    handoffReceived.TrySetResult(handoff);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,
-            notifications,
             NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
@@ -389,10 +311,10 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.True(queued.Queued);
         tracker.CompleteOperation(blockerId, success: true);
 
-        var handoff = await handoffReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(queued.OperationId, handoff.OperationId);
+        var handedOn = await WaitForEndingAsync(tracker, queued.OperationId);
         Assert.Equal(2, Volatile.Read(ref startCalls));
-        Assert.True(handoff.Promoted);
+        Assert.Equal(OperationStatus.Completed, handedOn.Status);
+        Assert.Equal(startedId, handedOn.NextOperationId);
     }
 
     [Fact]
@@ -405,27 +327,9 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = new OperationConflictChecker(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var handoffReceived = new TaskCompletionSource<OperationWaitingCompleteNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
-                    && args[1] is OperationWaitingCompleteNotification { Promoted: true } handoff)
-                {
-                    handoffReceived.TrySetResult(handoff);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,
-            notifications,
             NullLogger<OperationQueueService>.Instance);
 
         var startCalls = 0;
@@ -441,10 +345,22 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.True(queued.Queued);
         Assert.NotEqual(Guid.Empty, queued.OperationId);
 
-        var handoff = await handoffReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(queued.OperationId, handoff.OperationId);
+        var handedOn = await WaitForEndingAsync(tracker, queued.OperationId);
         Assert.Equal(2, Volatile.Read(ref startCalls));
-        Assert.True(handoff.Promoted);
+        Assert.Equal(OperationStatus.Completed, handedOn.Status);
+        Assert.Equal(startedId, handedOn.NextOperationId);
+    }
+
+    // A bounded wait used as a failure detector: promotion runs off the terminal that triggers it.
+    private static async Task<OperationInfo> WaitForEndingAsync(UnifiedOperationTracker tracker, Guid operationId)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (true)
+        {
+            if (tracker.GetOperation(operationId) is { } operation && operation.Status.IsTerminal()) return operation;
+            Assert.True(DateTime.UtcNow < deadline, $"Operation {operationId} never ended");
+            await Task.Delay(10);
+        }
     }
 
     private static void AssertQueueRequest(
@@ -464,7 +380,6 @@ public sealed class ScheduledHeavyOperationQueueTests
             nameof(IStateService.GetServiceInterval) => null,
             nameof(IStateService.GetServiceRunOnStartup) => null,
             nameof(IStateService.GetEvictedDataMode) => EvictedDataMode.Show.ToWireString(),
-            nameof(IStateService.GetEvictionScanNotifications) => false,
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -539,7 +454,6 @@ public sealed class ScheduledHeavyOperationQueueTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            bool showWaitingCard = true,
             RunNotice? notice = null)
         {
             Type = type;
@@ -549,12 +463,6 @@ public sealed class ScheduledHeavyOperationQueueTests
             Notice = notice;
             return Task.FromResult(_response);
         }
-
-        public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
-
-        public bool IsWaiterSilent(Guid waitingOperationId) => false;
-
-        public bool IsWaiterHidden(Guid waitingOperationId) => false;
     }
 
     private sealed class TestCacheSizeScanScheduledService : CacheSizeScanScheduledService
@@ -568,6 +476,8 @@ public sealed class ScheduledHeavyOperationQueueTests
                 pathResolver,
                 operationQueue,
                 stateService,
+                // Read only when the scan binary is missing; this test's binary path exists.
+                null!,
                 NullLogger<CacheSizeScanScheduledService>.Instance,
                 new ConfigurationBuilder().Build())
         {

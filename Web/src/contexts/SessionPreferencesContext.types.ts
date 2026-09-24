@@ -4,6 +4,10 @@ import type { UserPreferences } from '@/types/userPreferences';
 interface SessionPreferencesContextType {
   getSessionPreferences: (sessionId: string) => UserPreferences | null;
   currentPreferences: UserPreferences | null;
+  /** The sentence for the current session's last failed preferences read, `null` after one that answered. */
+  error: string | null;
+  /** Asks again for the current session's preferences; Retry for Display preferences. */
+  resyncPreferences: () => void;
   isLoaded: (sessionId: string) => boolean;
   isLoading: (sessionId: string) => boolean;
   loadSessionPreferences: (sessionId: string) => Promise<void>;

@@ -4,6 +4,7 @@ import { Plus, List, LayoutGrid } from 'lucide-react';
 import { useEvents } from '@contexts/useEvents';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { eventColorToken, themeColorVar } from '@utils/eventColors';
@@ -88,11 +89,13 @@ const EventsTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Error message */}
       {error && (
-        <div className="p-4 rounded-lg animate-fadeIn bg-[var(--theme-error-faint)] border border-[var(--theme-error-strong)]">
-          <p className="text-sm text-[var(--theme-status-error)]">{error}</p>
-        </div>
+        <ErrorBlock
+          title={t('events.errors.fetchFailed')}
+          message={error}
+          retryLabel={t('common.retry')}
+          onRetry={() => void refreshEvents()}
+        />
       )}
 
       {/* Active Events. The count and its chips sit on the shared quiet well rather than on the
@@ -125,21 +128,24 @@ const EventsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content */}
-      <Card padding="lg">
-        {viewMode === 'calendar' ? (
-          <EventCalendar
-            events={events}
-            onEventClick={handleEditEvent}
-            onDayClick={() => {
-              setEditingEvent(null);
-              setShowCreateModal(true);
-            }}
-          />
-        ) : (
-          <EventList events={events} onEventClick={handleEditEvent} />
-        )}
-      </Card>
+      {/* Main Content. A failed load with nothing loaded shows only the box above, so an empty
+          calendar or "No events" never reads as the answer. */}
+      {!(error && events.length === 0) && (
+        <Card padding="lg">
+          {viewMode === 'calendar' ? (
+            <EventCalendar
+              events={events}
+              onEventClick={handleEditEvent}
+              onDayClick={() => {
+                setEditingEvent(null);
+                setShowCreateModal(true);
+              }}
+            />
+          ) : (
+            <EventList events={events} onEventClick={handleEditEvent} />
+          )}
+        </Card>
+      )}
 
       {/* Create/Edit Modal */}
       {showCreateModal && (

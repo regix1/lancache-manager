@@ -257,34 +257,13 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
 
       {/* Summary Banner */}
       {!isChecking && !error && (
-        <div
-          className={`p-3 rounded-lg flex items-center gap-3 ${
-            allSuccess ? 'bg-themed-success' : hasErrors ? 'bg-themed-error' : 'bg-themed-warning'
-          }`}
-        >
-          {allSuccess ? (
-            <CheckCircle className="w-5 h-5 icon-success flex-shrink-0" />
-          ) : hasErrors ? (
-            <XCircle className="w-5 h-5 icon-error flex-shrink-0" />
-          ) : (
-            <AlertTriangle className="w-5 h-5 icon-warning flex-shrink-0" />
-          )}
-          <p
-            className={`text-sm ${
-              allSuccess
-                ? 'text-themed-success'
-                : hasErrors
-                  ? 'text-themed-error'
-                  : 'text-themed-warning'
-            }`}
-          >
-            {allSuccess
-              ? t('initialization.permissionsCheck.allGood')
-              : hasErrors
-                ? t('initialization.permissionsCheck.hasErrors')
-                : t('initialization.permissionsCheck.hasWarnings')}
-          </p>
-        </div>
+        <Alert color={allSuccess ? 'success' : hasErrors ? 'error' : 'warning'}>
+          {allSuccess
+            ? t('initialization.permissionsCheck.allGood')
+            : hasErrors
+              ? t('initialization.permissionsCheck.hasErrors')
+              : t('initialization.permissionsCheck.hasWarnings')}
+        </Alert>
       )}
 
       {/* Action Buttons */}

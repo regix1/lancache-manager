@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
@@ -12,7 +13,7 @@ import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useNotifications } from '@contexts/notifications';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { ApiError } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { getIntegrationReasonKey } from '../../../../types';
 
@@ -47,6 +48,7 @@ const SteamWebApiStatus: React.FC = () => {
 
   const needsApiKey =
     status?.version === 'V1NoKey' || (status?.version === 'BothFailed' && !status?.hasApiKey);
+  const showKeyRow = needsApiKey || status?.hasApiKey === true;
   const showWarning = !status?.isFullyOperational && !loading;
 
   const confirmRemoveApiKey = async () => {
@@ -86,13 +88,10 @@ const SteamWebApiStatus: React.FC = () => {
       scheduleAutoDismiss(cardId);
     } catch (error: unknown) {
       if (identityRef.current !== caller) return;
-      const errorDetail =
-        error instanceof ApiError && error.body?.stageKey
-          ? t(error.body.stageKey, error.body.context ?? {})
-          : t('modals.steamAuth.errors.failedToRemoveApiKey');
       updateNotification(cardId, {
         status: 'failed',
-        message: t('signalr.steamWebApi.keyRemoveFailed', { errorDetail }),
+        message: t('signalr.steamWebApi.keyRemoveFailed'),
+        error: getErrorMessage(error),
         details: { notificationType: 'error' }
       });
       scheduleAutoDismiss(cardId);
@@ -150,7 +149,16 @@ const SteamWebApiStatus: React.FC = () => {
   return (
     <>
       <div className="steam-integration">
-        {!canManage && (
+        {error !== null && (
+          <ErrorBlock
+            title={t('management.steamWebApi.loadError')}
+            message={error}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refresh()}
+          />
+        )}
+        {/* A failed status read already shows its reason in the box above. */}
+        {!canManage && error === null && (
           <p className="text-sm text-themed-muted" role="status">
             {!isLoading && error === null && status?.canManage === false
               ? t(getIntegrationReasonKey(status.ownershipReason))
@@ -203,85 +211,91 @@ const SteamWebApiStatus: React.FC = () => {
           </Alert>
         )}
 
-        <div className="mgmt-list">
-          <div className="mgmt-row">
-            <div className="mgmt-row__body">
-              <p className={statusTitleClass}>
-                {loading && <LoadingSpinner inline size="xs" />}
-                {stateLabel}
-              </p>
-              {!loading && status && (
-                <p className="mgmt-row__meta">
-                  {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
-                </p>
-              )}
-            </div>
-            <div className="mgmt-row__actions">
-              <Button
-                variant="filled"
-                color="secondary"
-                size="sm"
-                stableWidth
-                className="steam-integration__single"
-                onClick={async () => {
-                  if (!hasAccess || loading || refreshing) return;
-                  const caller = identity;
-                  setRefreshing(true);
-                  try {
-                    await refresh();
-                  } finally {
-                    if (identityRef.current === caller) setRefreshing(false);
-                  }
-                }}
-                disabled={!hasAccess || loading || refreshing}
-                loading={refreshing}
-              >
-                {t('common.refresh')}
-              </Button>
-            </div>
-          </div>
-
-          {(needsApiKey || status?.hasApiKey) && (
-            <div className="mgmt-row">
-              <div className="mgmt-row__body">
-                <p className="mgmt-row__title">{t('management.steamWebApi.keyRow')}</p>
-                <p className="mgmt-row__meta">
-                  {status?.hasApiKey
-                    ? t('management.steamWebApi.keyConfigured')
-                    : t('management.steamWebApi.keyMissing')}
-                </p>
-              </div>
-              <div className="mgmt-row__actions steam-integration__pair">
-                <Button
-                  variant="filled"
-                  color="secondary"
-                  size="sm"
-                  onClick={() => {
-                    if (canManage) setShowConfigModal(true);
-                  }}
-                  disabled={!canManage || removing}
-                >
-                  {status?.hasApiKey
-                    ? t('management.steamWebApi.updateApiKey')
-                    : t('management.steamWebApi.configureApiKey')}
-                </Button>
-                {status?.hasApiKey && (
+        {/* While the read has failed, the box above is the status and its Retry the refresh, so
+            the status row goes; the key row from an earlier read stays. */}
+        {(error === null || showKeyRow) && (
+          <div className="mgmt-list">
+            {error === null && (
+              <div className="mgmt-row">
+                <div className="mgmt-row__body">
+                  <p className={statusTitleClass}>
+                    {loading && <LoadingSpinner inline size="xs" />}
+                    {stateLabel}
+                  </p>
+                  {!loading && status && (
+                    <p className="mgmt-row__meta">
+                      {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
+                    </p>
+                  )}
+                </div>
+                <div className="mgmt-row__actions">
                   <Button
                     variant="filled"
-                    color="destructive"
+                    color="secondary"
+                    size="sm"
+                    stableWidth
+                    className="steam-integration__single"
+                    onClick={async () => {
+                      if (!hasAccess || loading || refreshing) return;
+                      const caller = identity;
+                      setRefreshing(true);
+                      try {
+                        await refresh();
+                      } finally {
+                        if (identityRef.current === caller) setRefreshing(false);
+                      }
+                    }}
+                    disabled={!hasAccess || loading || refreshing}
+                    loading={refreshing}
+                  >
+                    {t('common.refresh')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {showKeyRow && (
+              <div className="mgmt-row">
+                <div className="mgmt-row__body">
+                  <p className="mgmt-row__title">{t('management.steamWebApi.keyRow')}</p>
+                  <p className="mgmt-row__meta">
+                    {status?.hasApiKey
+                      ? t('management.steamWebApi.keyConfigured')
+                      : t('management.steamWebApi.keyMissing')}
+                  </p>
+                </div>
+                <div className="mgmt-row__actions steam-integration__pair">
+                  <Button
+                    variant="filled"
+                    color="secondary"
                     size="sm"
                     onClick={() => {
-                      if (canManage) setShowRemoveModal(true);
+                      if (canManage) setShowConfigModal(true);
                     }}
-                    disabled={!canManage || removing || loading}
+                    disabled={!canManage || removing}
                   >
-                    {t('management.steamWebApi.remove')}
+                    {status?.hasApiKey
+                      ? t('management.steamWebApi.updateApiKey')
+                      : t('management.steamWebApi.configureApiKey')}
                   </Button>
-                )}
+                  {status?.hasApiKey && (
+                    <Button
+                      variant="filled"
+                      color="destructive"
+                      size="sm"
+                      onClick={() => {
+                        if (canManage) setShowRemoveModal(true);
+                      }}
+                      disabled={!canManage || removing || loading}
+                    >
+                      {t('management.steamWebApi.remove')}
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <SteamWebApiKeyModal
@@ -301,7 +315,7 @@ const SteamWebApiStatus: React.FC = () => {
       >
         <p className="text-themed-secondary">{t('management.steamWebApi.removeModal.message')}</p>
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.steamWebApi.removeModal.warning')}</p>
         </Alert>
       </ConfirmationModal>

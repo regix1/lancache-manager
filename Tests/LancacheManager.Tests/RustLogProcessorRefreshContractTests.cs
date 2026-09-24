@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Tests;
@@ -106,9 +107,47 @@ public sealed class RustLogProcessorRefreshContractTests
         var source = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
 
         var invalidate = source.IndexOf("InvalidateLiveCache()", StringComparison.Ordinal);
-        var hubSend = source.IndexOf("_downloadHubContext.Clients.All.SendAsync(eventName, data)", StringComparison.Ordinal);
+        var hubSend = source.IndexOf("ClientsFor(eventName).SendAsync(eventName, data)", StringComparison.Ordinal);
         Assert.True(invalidate >= 0, "NotifyAllAsync must invalidate the live dashboard cache");
         Assert.True(hubSend > invalidate, "cache invalidation must precede the hub send");
+    }
+
+    [Fact]
+    public void AnInteractiveRunCompletesTheMomentTheProcessorFinishes()
+    {
+        var source = ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs");
+
+        // The busy flag still clears before the operation completes, so polling sees the run end,
+        // and nothing waits in between.
+        var finalize = source.IndexOf("if (!liveIngest && shouldFinalizeOperation)", StringComparison.Ordinal);
+        Assert.True(finalize >= 0, "the interactive finalize branch is missing");
+        var cleared = source.IndexOf("if (_currentOperationId == ownerOperationId) IsProcessing = false;", finalize, StringComparison.Ordinal);
+        var completed = source.IndexOf("_operationTracker.CompleteOperation(ownerOperationId.Value, true", finalize, StringComparison.Ordinal);
+        Assert.True(cleared > finalize, "the interactive finalize branch must clear IsProcessing");
+        Assert.True(completed > cleared, "IsProcessing must clear before the operation completes");
+        Assert.DoesNotContain("Task.Delay(", source[finalize..completed], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MappingRunsInsideLogProcessingKeepTheirNotices()
+    {
+        // The Rust processor is not built for tests, so these call sites are read, not run.
+        var processor = Regex.Replace(
+            ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs"), @"\s+", "");
+        var startup = Regex.Replace(
+            ReadSource("Infrastructure", "Services", "Mapping", "BattleNetMappingStartupResolveService.cs"), @"\s+", "");
+
+        // Riot: a full card during an interactive run; nothing unless it fails during live ingest.
+        Assert.Contains(
+            "processingToken,liveIngest?newRunNotice(NotificationMode.Hidden,RunTrigger.Scheduled):newRunNotice(NotificationMode.All,RunTrigger.Manual),",
+            processor, StringComparison.Ordinal);
+        // Battle.net: a background row during an interactive run; nothing unless it fails otherwise.
+        Assert.Contains(
+            "battleNetMappingService.ResolveDownloadsAsync(liveIngest?newRunNotice(NotificationMode.Hidden,RunTrigger.Scheduled):newRunNotice(NotificationMode.Silent,RunTrigger.Manual))",
+            processor, StringComparison.Ordinal);
+        Assert.Contains(
+            "_mappingService.ResolveDownloadsAsync(newRunNotice(NotificationMode.Hidden,RunTrigger.Startup),stoppingToken)",
+            startup, StringComparison.Ordinal);
     }
 
     [Theory]

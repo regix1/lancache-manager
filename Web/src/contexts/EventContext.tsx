@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import i18n from '@/i18n';
 import { storage } from '@utils/storage';
+import { getErrorMessage } from '@utils/error';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -134,11 +134,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
       if (activeResult.status === 'fulfilled') {
         setActiveEvents(activeResult.value);
       } else {
-        setActiveEvents([]);
-        const message =
-          activeResult.reason instanceof Error
-            ? activeResult.reason.message
-            : i18n.t('events.errors.fetchActiveFailed');
+        const message = getErrorMessage(activeResult.reason);
         setError(message);
         console.error('Failed to fetch active events:', activeResult.reason);
       }
@@ -152,19 +148,16 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
           setSelectedEventId(null);
         }
       } else {
-        // The full list is the privileged half of the pair. Leaving the previous value in place is
-        // what kept an administrator's events on screen for the guest who replaced them, because a
-        // guest's fetch of this endpoint is expected to fail, so the failure empties it whoever
-        // asked. Only an authenticated reader is told about it; for a guest the rejection is the
-        // normal answer and not worth an error banner.
-        setEvents([]);
+        // The full list is the privileged half of the pair. The identity reset below is what keeps
+        // an administrator's events from reaching the guest who replaces them, so a failed read
+        // empties the list only for a guest, whose rejection is the normal answer and not worth an
+        // error banner. An administrator keeps the events on screen and is told the read failed.
         if (authMode === 'authenticated') {
-          const message =
-            allEventsResult.reason instanceof Error
-              ? allEventsResult.reason.message
-              : i18n.t('events.errors.fetchFailed');
+          const message = getErrorMessage(allEventsResult.reason);
           setError((prev) => prev ?? message);
           console.error('Failed to fetch events:', allEventsResult.reason);
+        } else {
+          setEvents([]);
         }
       }
     } finally {

@@ -80,7 +80,7 @@ test('recovery keys exist in both locales and production translations do not hid
       }
     }
   }
-  assert.equal(affectedCalls, 9);
+  assert.equal(affectedCalls, 3);
 });
 
 const translator = i18next.createInstance();
@@ -285,16 +285,21 @@ test('both picker load failures translate typed reasons and expose missing requi
     const t = (language === 'missing' ? empty : translator).t.bind(
       language === 'missing' ? empty : translator
     );
+    // undefined: a body with the server's own text and no stage key; null: a bodyless 503.
     for (const stageKey of [
       'errors.steam.signInLost',
       'errors.steam.gameDetailsUnavailable',
       'errors.prefill.requestFailed',
-      undefined
+      undefined,
+      null
     ]) {
       const failure = await buildApiError({
         status: 503,
         statusText: 'Unavailable',
-        text: async () => JSON.stringify({ stageKey, error: 'SteamKit2.AsyncJobFailedException' })
+        text: async () =>
+          stageKey === null
+            ? ''
+            : JSON.stringify({ stageKey, error: 'SteamKit2.AsyncJobFailedException' })
       });
       const key = stageKey ?? 'errors.prefill.requestFailed';
       const expected = language === 'missing' ? key : translator.t(key);
@@ -344,7 +349,7 @@ test('both picker load failures translate typed reasons and expose missing requi
       assert.equal(scheduledMessage, expected);
       let ordinaryMessage;
       await bindLifted(ordinarySource, {
-        ApiError,
+        getErrorMessage,
         t,
         signalR: { session: { id: 's1' } },
         serviceId: 'steam',
@@ -372,8 +377,16 @@ test('both picker load failures translate typed reasons and expose missing requi
           throw failure;
         }
       })();
-      assert.equal(ordinaryMessage, expected);
-      assert.doesNotMatch(ordinaryMessage, /SteamKit2|AsyncJobFailedException/);
+      // The ordinary picker shows the shared sentence set: a stage key's translation, the server's
+      // own text when there is no stage key, and the class sentence for a bodyless failure.
+      const ordinaryExpected =
+        stageKey === null
+          ? translator.t('common.errors.serverUnreachable')
+          : stageKey === undefined
+            ? 'SteamKit2.AsyncJobFailedException'
+            : translator.t(stageKey);
+      assert.equal(ordinaryMessage, ordinaryExpected);
+      assert.equal(ordinaryMessage, getErrorMessage(failure));
     }
   }
 });
@@ -420,13 +433,18 @@ const arrowFor = (label, marker) =>
       node.initializer.getText(registryFile).includes(marker)
   ).initializer.getText(registryFile);
 
-/** Source of a module-level `function <name>(...)`, which lifts like an arrow does. */
+/**
+ * Source of a module-level `function <name>(...)`, which lifts like an arrow does. An `export`
+ * keyword is left off: the lifted text runs as an expression, where `export` does not parse.
+ */
 const functionFor = (name) =>
   findSoleNode(
     registryFile,
     `${name} declaration`,
     (node) => ts.isFunctionDeclaration(node) && node.name?.getText(registryFile) === name
-  ).getText(registryFile);
+  )
+    .getText(registryFile)
+    .replace(/^export\s+/, '');
 
 const scheduledPrefillServiceLabel = bindLifted(functionFor('scheduledPrefillServiceLabel'), {
   i18n: translator,

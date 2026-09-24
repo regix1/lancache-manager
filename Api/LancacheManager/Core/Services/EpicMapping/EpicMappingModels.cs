@@ -35,13 +35,6 @@ public class EpicScheduleStatus
     public EpicMappingStatus Status { get; set; } = EpicMappingStatus.Idle;
     public double ProgressPercent { get; set; }
     public string? StatusMessage { get; set; }
-
-    /// <summary>
-    /// Run-stable display flag for the active refresh. Lifecycle events are always emitted so
-    /// recovery works, but a silent automatic run reports false here so the recovery path can skip
-    /// resurrecting a card on page reload instead of leaving it stuck once the silent terminal arrives.
-    /// </summary>
-    public bool ShowNotification { get; set; } = true;
 }
 
 /// <summary>

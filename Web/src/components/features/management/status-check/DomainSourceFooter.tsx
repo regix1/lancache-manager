@@ -55,12 +55,12 @@ const DomainSourceFooter: React.FC<DomainSourceFooterProps> = ({
         </Button>
       </div>
       {refreshError && (
-        <p className="text-xs text-[var(--theme-warning)] mt-1">
+        <p className="text-xs text-themed-warning mt-1">
           {t(`${keys}.refreshFailed`, { error: refreshError })}
         </p>
       )}
       {!refreshError && source?.error && (
-        <p className="text-xs text-[var(--theme-warning)] mt-1">
+        <p className="text-xs text-themed-warning mt-1">
           {t(`${keys}.footerError`, { error: source.error })}
         </p>
       )}

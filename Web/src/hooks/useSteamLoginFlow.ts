@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from './useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
@@ -84,14 +85,13 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       integration.access?.canRecover === true ||
       (integration.access?.canCancel === true && integration.access.attemptId === attemptId));
   const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
 
   const notifyLoginFailure = (message: string): void => {
-    addNotification({
-      type: 'generic',
-      status: 'failed',
-      message,
-      details: { notificationType: 'error' }
-    });
+    notifyError(
+      t('common.errors.signInFailed', { platform: t('prefill.persistent.services.steam') }),
+      message
+    );
   };
 
   const [loading, setLoading] = useState(false);

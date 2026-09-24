@@ -10,10 +10,6 @@ namespace LancacheManager.Models;
 /// </summary>
 public sealed class QueuedOperationResponse
 {
-    public bool? ShowNotification { get; init; }
-
-    public bool? HideNotification { get; init; }
-
     public bool? FollowUpQueued { get; init; }
 
     public Guid OperationId { get; init; }

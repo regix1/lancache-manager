@@ -20,17 +20,12 @@ const RIOT_DAEMON: AnonymousDaemonService = {
   refreshEvents: ['RiotStatusChanged', 'RiotDaemonSessionCreated', 'RiotDaemonSessionTerminated']
 };
 
-interface RiotDaemonStatusProps {
-  onError?: (message: string) => void;
-}
-
-const RiotDaemonStatus: React.FC<RiotDaemonStatusProps> = ({ onError }) => {
+const RiotDaemonStatus: React.FC = () => {
   const { t } = useTranslation();
 
   return (
     <AnonymousDaemonStatus
       service={RIOT_DAEMON}
-      onError={onError}
       copy={{
         title: t('management.sections.integrations.riotDaemonStatus.title'),
         summary: t('management.sections.integrations.riotDaemonStatus.summary'),

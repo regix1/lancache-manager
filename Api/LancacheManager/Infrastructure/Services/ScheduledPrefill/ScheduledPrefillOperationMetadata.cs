@@ -5,32 +5,12 @@ using System.Collections.ObjectModel;
 namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
 
 /// <summary>
-/// Run-level display state for the aggregate scheduled-prefill operation. Visibility is fixed for
-/// the whole run, so a silent platform can neither remove a visible sibling's card nor make the
-/// terminal event disagree with the Started event. The run-status endpoint reads this concurrently
-/// with the run advancing, so the value uses volatile reads and writes.
+/// Marks the aggregate scheduled-prefill operation that groups one tick's platform runs. It carries
+/// no visibility of its own and never gets a row: each platform run's own notice decides how that
+/// platform shows.
 /// </summary>
 public sealed class ScheduledPrefillOperationMetadata
 {
-    private int _showNotification;
-    private readonly bool _hideNotification;
-
-    public ScheduledPrefillOperationMetadata(bool showNotification, bool hideNotification = false)
-    {
-        _showNotification = showNotification ? 1 : 0;
-        _hideNotification = hideNotification;
-    }
-
-    /// <summary>
-    /// True when this run should appear in the universal notification bar.
-    /// </summary>
-    public bool ShowNotification
-    {
-        get => Volatile.Read(ref _showNotification) == 1;
-        set => Volatile.Write(ref _showNotification, value ? 1 : 0);
-    }
-
-    public bool HideNotification => _hideNotification;
 }
 
 /// <summary>
@@ -53,14 +33,12 @@ public sealed class ScheduledPrefillServiceRunState
         PrefillPlatform serviceId,
         Guid scheduleId,
         string name,
-        bool showNotification,
-        bool hideNotification = false)
+        RunNotice notice)
     {
         ServiceId = serviceId;
         ScheduleId = scheduleId;
         Name = name;
-        ShowNotification = showNotification;
-        HideNotification = hideNotification;
+        Notice = notice;
     }
 
     /// <summary>The platform this operation prefills.</summary>
@@ -70,9 +48,8 @@ public sealed class ScheduledPrefillServiceRunState
 
     public string Name { get; }
 
-    public bool ShowNotification { get; }
-
-    public bool HideNotification { get; }
+    /// <summary>The schedule's notification mode and the trigger that started this run.</summary>
+    public RunNotice Notice { get; }
 
     public DateTime? CompletedAtUtc { get; set; }
     public bool Detached { get; set; }

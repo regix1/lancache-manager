@@ -30,11 +30,6 @@ public sealed class ScheduledPrefillRunStatusDto
     /// <summary>Operation id of the active run (for cancel wiring), or null when idle.</summary>
     public string? OperationId { get; init; }
 
-    /// <summary>Whether this run should have a universal notification.</summary>
-    public required bool ShowNotification { get; init; }
-
-    public required bool HideNotification { get; init; }
-
     /// <summary>
     /// One entry per platform currently prefilling in this run. Recovery rebuilds a notification card
     /// from each after a page reload, so a browser that reconnected mid-run sees every running
@@ -58,10 +53,6 @@ public sealed class ScheduledPrefillRunServiceStatus
 
     /// <summary>This platform's own operation id, which its card is keyed on and its cancel targets.</summary>
     public required string OperationId { get; init; }
-
-    public required bool ShowNotification { get; init; }
-
-    public required bool HideNotification { get; init; }
 
     /// <summary>The stage its last progress event reported, e.g. "running" or "needs-login".</summary>
     public required string Stage { get; init; }

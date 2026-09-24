@@ -82,7 +82,10 @@ test('a revoked session stops reporting itself signed in and drops its live feed
     '@utils/userInteractionTracker': moduleUrl(
       `export const hasRecentUserInteraction = () => false;`
     ),
-    './apiError': moduleUrl(`export const assertOk = async (response) => response;`)
+    './apiError': moduleUrl(
+      `export class ApiError extends Error {}
+      export const assertOk = async (response) => response;`
+    )
   });
   const { default: authService } = await import(authServiceUrl);
 

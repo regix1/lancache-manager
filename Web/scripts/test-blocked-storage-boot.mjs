@@ -6,6 +6,7 @@ import {
   collectNodes,
   compileToUrl,
   liftHookCallback,
+  loadNotificationModules,
   moduleUrl,
   parseSource
 } from './transpile-module.mjs';
@@ -198,34 +199,29 @@ for (const section of SECTIONS) {
   });
 }
 
-test('a started notification still opens its card when storage is blocked', async () => {
-  const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
-  const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
-  const storageUrl = await compileToUrl('../src/utils/storage.ts');
-  const { createStartedHandler } = await import(
-    await compileToUrl('../src/contexts/notifications/handlers.ts', {
-      './constants': constantsUrl,
-      './notificationStatus': statusUrl,
-      '@utils/storage': storageUrl,
-      '@/i18n': moduleUrl(`export default { t: (key) => key };`)
-    })
+test('a started run still opens its card when storage is blocked', async () => {
+  const { applyRun, createRunStoreState, deriveNotifications } = await loadNotificationModules(
+    moduleUrl('export default { t: (key) => key, exists: () => true };')
   );
 
-  let state = [];
-  const handler = createStartedHandler(
+  const { next } = applyRun(
+    createRunStoreState(),
     {
-      type: 'cache_clear',
-      getId: () => 'cache_clear_card',
-      storageKey: 'test-cache-clear',
-      defaultMessage: 'Clearing...'
+      operationId: 'op-1',
+      operationType: 'cacheClearing',
+      name: 'Cache Clearing',
+      status: 'running',
+      visibility: 'card',
+      percentComplete: 0,
+      message: 'signalr.cacheClear.starting',
+      startedAt: new Date(Date.UTC(2026, 8, 22, 10, 0, 0)).toISOString(),
+      revision: 1
     },
-    (update) => {
-      state = update(state);
-    }
+    { keepSuccessVisible: false, localCards: [], pushed: true }
   );
+  const drawn = deriveNotifications(next, []);
 
-  handler({ operationId: 'op-1' });
-
-  assert.equal(state.length, 1);
-  assert.equal(state[0].status, 'running');
+  assert.equal(drawn.length, 1);
+  assert.equal(drawn[0].type, 'cache_clearing');
+  assert.equal(drawn[0].status, 'running');
 });

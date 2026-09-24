@@ -477,7 +477,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
       )}
 
       {showMeta && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
-        <p className="text-xs text-[var(--theme-warning)] mt-2">
+        <p className="text-xs text-themed-warning mt-2">
           {t(`${keys}.heartbeatFailed`, {
             error: translateStageKeyMessage(heartbeat.error, undefined, `${keys}.unknownError`)
           })}

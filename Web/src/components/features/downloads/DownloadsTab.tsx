@@ -32,6 +32,7 @@ import { useReaderClock } from '@hooks/useReaderClock';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { buildClientFilterOptions, findClientFilterGroup } from '@utils/clientFilterOptions';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -916,6 +917,9 @@ const DownloadsTab: React.FC = () => {
     groupId: string;
     downloads: Download[];
   } | null>(null);
+  // Why the last group expand failed. A new expand clears it; the collapse the failure causes
+  // does not.
+  const [expandError, setExpandError] = useState<string | null>(null);
 
   useEffect(() => {
     if (expandedItem === null) {
@@ -938,13 +942,19 @@ const DownloadsTab: React.FC = () => {
     }
 
     const controller = new AbortController();
+    setExpandError(null);
     ApiService.getDownloadsByIds(row.downloadIds, controller.signal)
       .then((downloads) => setExpandedMembers({ groupId: row.id, downloads }))
       .catch((err: unknown) => {
-        // notifyError drops an aborted request itself, so switching pages mid-fetch is silent.
+        // The effect's cleanup aborted this request when the page's rows changed; a newer request
+        // owns the row now.
+        if (controller.signal.aborted) return;
         notifyError(t('downloads.tab.errors.loadFailed'), err, {
           logLabel: '[DownloadsTab] Failed to load the sessions of the expanded group'
         });
+        // Guests have no notification bar, so the page shows them the same reason.
+        setExpandError(getErrorMessage(err));
+        setExpandedItem((current) => (current === row.id ? null : current));
       });
     return () => controller.abort();
   }, [expandedItem, mockMode, serverPage.items, notifyError, t]);
@@ -1291,7 +1301,12 @@ const DownloadsTab: React.FC = () => {
       <div className="space-y-4 animate-fade-in">
         <DownloadsHeader activeTab={activeTab} onTabChange={setActiveTab} />
         {serverPage.error ? (
-          <Alert color="red">{t('downloads.tab.errors.loadFailed')}</Alert>
+          <ErrorBlock
+            title={t('downloads.tab.errors.loadFailed')}
+            message={getErrorMessage(serverPage.error)}
+            retryLabel={t('common.retry')}
+            onRetry={serverPage.reload}
+          />
         ) : (
           <Alert color="blue" icon={<Database className="w-5 h-5" />}>
             {t('downloads.tab.emptyRecorded')}
@@ -1899,13 +1914,8 @@ const DownloadsTab: React.FC = () => {
 
           {/* Help message for empty time ranges */}
           {visibleTotalItems === 0 && timeRange !== 'live' && (
-            <Alert color="yellow">
-              <div className="flex flex-col gap-2">
-                <div className="font-medium">{t('downloads.tab.emptyRange.title')}</div>
-                <div className="text-sm opacity-90">
-                  {t('downloads.tab.emptyRange.description')}
-                </div>
-              </div>
+            <Alert color="yellow" title={t('downloads.tab.emptyRange.title')}>
+              {t('downloads.tab.emptyRange.description')}
             </Alert>
           )}
 
@@ -1914,7 +1924,22 @@ const DownloadsTab: React.FC = () => {
               under "All", where the walk can fail on its seventh request of twelve and the rows
               still showing are a page of fifty. The empty-table branch above returns before this,
               so only one of the two ever draws. */}
-          {serverPage.error && <Alert color="red">{t('downloads.tab.errors.loadFailed')}</Alert>}
+          {serverPage.error && (
+            <ErrorBlock
+              title={t('downloads.tab.errors.loadFailed')}
+              message={getErrorMessage(serverPage.error)}
+              retryLabel={t('common.retry')}
+              onRetry={serverPage.reload}
+            />
+          )}
+
+          {/* A guest has no notification bar, so the popup for a failed group expand would never
+              reach them; the same reason shows here until the next expand. */}
+          {isGuest && expandError !== null && (
+            <Alert color="error" title={t('downloads.tab.errors.loadFailed')}>
+              {expandError}
+            </Alert>
+          )}
 
           {/* Sticky Pagination Controls (above content) - retro view manages its own pagination */}
           {settings.viewMode !== 'retro' && totalPages > 1 && (

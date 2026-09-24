@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React from 'react';
 import typescript from 'typescript';
 import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './transpile-module.mjs';
 
@@ -115,6 +116,7 @@ test('a reply that lands after the user starts typing is dropped', async () => {
   const editing = { current: false };
   let shown = typed;
   let saved = [];
+  const loadErrors = [];
 
   const loadExcludedIps = bindLifted(
     liftHookCallback(COMPONENT_PATH, 'useCallback', 'ApiService.getStatsExclusions'),
@@ -122,6 +124,7 @@ test('a reply that lands after the user starts typing is dropped', async () => {
       isAdmin: true,
       mockMode: false,
       hasExcludedChangesRef: editing,
+      excludedRequestRef: { current: 0 },
       setLoadingExcluded: () => undefined,
       ApiService: {
         getStatsExclusions: async () => {
@@ -136,7 +139,7 @@ test('a reply that lands after the user starts typing is dropped', async () => {
       setSavedExcludedRules: (rules) => {
         saved = rules;
       },
-      onError: () => undefined,
+      setExcludedLoadError: (value) => loadErrors.push(value),
       getErrorMessage: () => '',
       t: (key) => key
     }
@@ -146,6 +149,227 @@ test('a reply that lands after the user starts typing is dropped', async () => {
 
   assert.deepEqual(shown, typed, 'the reply is a request old and the draft is what is on screen');
   assert.deepEqual(saved, [], 'writing the saved copy alone would silently arm the next save');
+  assert.deepEqual(loadErrors, [null], 'the read succeeded, so an earlier load error is cleared');
+});
+
+test('a failed read keeps the reason for the section box and raises no popup', async () => {
+  const loadErrors = [];
+  const popups = [];
+  const shown = [];
+
+  const loadExcludedIps = bindLifted(
+    liftHookCallback(COMPONENT_PATH, 'useCallback', 'ApiService.getStatsExclusions'),
+    {
+      isAdmin: true,
+      mockMode: false,
+      hasExcludedChangesRef: { current: false },
+      excludedRequestRef: { current: 0 },
+      setLoadingExcluded: () => undefined,
+      ApiService: {
+        getStatsExclusions: async () => {
+          throw new Error('server down');
+        }
+      },
+      setExcludedRules: (rules) => shown.push(rules),
+      setSavedExcludedRules: () => undefined,
+      setExcludedLoadError: (value) => loadErrors.push(value),
+      onError: (message) => popups.push(message),
+      getErrorMessage: (error) => `reason: ${error.message}`,
+      t: (key) => key
+    }
+  );
+
+  await loadExcludedIps(true);
+
+  assert.deepEqual(loadErrors, ['reason: server down']);
+  assert.deepEqual(popups, [], 'a failed load shows the section box, never a popup');
+  assert.deepEqual(shown, [], 'a failed load leaves the last rules on screen');
+});
+
+test('an older exclusions read that fails after a newer one succeeded shows no error', async () => {
+  const loadErrors = [];
+  const shown = [];
+  const reads = [];
+
+  const loadExcludedIps = bindLifted(
+    liftHookCallback(COMPONENT_PATH, 'useCallback', 'ApiService.getStatsExclusions'),
+    {
+      isAdmin: true,
+      mockMode: false,
+      hasExcludedChangesRef: { current: false },
+      excludedRequestRef: { current: 0 },
+      setLoadingExcluded: () => undefined,
+      ApiService: {
+        getStatsExclusions: () =>
+          new Promise((resolve, reject) => {
+            reads.push({ resolve, reject });
+          })
+      },
+      setExcludedRules: (rules) => shown.push(rules),
+      setSavedExcludedRules: () => undefined,
+      setExcludedLoadError: (value) => loadErrors.push(value),
+      getErrorMessage: (error) => `reason: ${error.message}`
+    }
+  );
+
+  const older = loadExcludedIps(false);
+  const newer = loadExcludedIps(false);
+  reads[1].resolve({ rules: [{ ip: '10.0.0.1', mode: 'exclude' }] });
+  await newer;
+  reads[0].reject(new Error('stale read failed'));
+  await older;
+
+  assert.deepEqual(loadErrors, [null], 'the stale failure never reaches the section');
+  assert.deepEqual(shown, [[{ ip: '10.0.0.1', mode: 'exclude' }]]);
+});
+
+test('a superseded first read that fails leaves the list loading until the newer read answers', async () => {
+  const loading = [];
+  const loadErrors = [];
+  const shown = [];
+  const reads = [];
+
+  const loadExcludedIps = bindLifted(
+    liftHookCallback(COMPONENT_PATH, 'useCallback', 'ApiService.getStatsExclusions'),
+    {
+      isAdmin: true,
+      mockMode: false,
+      hasExcludedChangesRef: { current: false },
+      excludedRequestRef: { current: 0 },
+      setLoadingExcluded: (value) => loading.push(value),
+      ApiService: {
+        getStatsExclusions: () =>
+          new Promise((resolve, reject) => {
+            reads.push({ resolve, reject });
+          })
+      },
+      setExcludedRules: (rules) => shown.push(rules),
+      setSavedExcludedRules: () => undefined,
+      setExcludedLoadError: (value) => loadErrors.push(value),
+      getErrorMessage: (error) => `reason: ${error.message}`
+    }
+  );
+
+  // The mount read shows the skeleton; the reconnect read behind it does not.
+  const mount = loadExcludedIps(true);
+  const reconnect = loadExcludedIps(false);
+  reads[0].reject(new Error('mount read failed'));
+  await mount;
+
+  // Loading ending here would show "No excluded IPs" and enable the editing controls over rules
+  // nobody has read yet.
+  assert.deepEqual(loading, [true]);
+  assert.deepEqual(loadErrors, []);
+
+  reads[1].resolve({ rules: [{ ip: '10.0.0.1', mode: 'exclude' }] });
+  await reconnect;
+
+  assert.deepEqual(loading, [true, false], 'the newer read ends the loading the mount read began');
+  assert.deepEqual(shown, [[{ ip: '10.0.0.1', mode: 'exclude' }]]);
+});
+
+// Renders the Client Hostnames body the admin sees, from the branch the component ships, and
+// returns every element in it. The shared components are stand-ins so each can be counted.
+const renderHostnamesBody = (hostnamesError) => {
+  const sourceFile = parseComponent();
+  const body = findSoleNode(
+    sourceFile,
+    'hostnames panel body',
+    (node) =>
+      typescript.isConditionalExpression(node) &&
+      node.condition.getText(sourceFile) === '!isAdmin' &&
+      node.getText(sourceFile).includes('HOSTNAME_SWITCHES')
+  );
+  const switches = findSoleNode(
+    sourceFile,
+    'HOSTNAME_SWITCHES declaration',
+    (node) =>
+      typescript.isVariableDeclaration(node) &&
+      node.name.getText(sourceFile) === 'HOSTNAME_SWITCHES'
+  );
+  const components = {
+    ErrorBlock: function ErrorBlock() {
+      return null;
+    },
+    SettingRow: function SettingRow() {
+      return null;
+    },
+    Alert: function Alert() {
+      return null;
+    },
+    Button: function Button() {
+      return null;
+    }
+  };
+  const render = bindLifted(
+    `() => (${body.getText(sourceFile)})`,
+    {
+      React,
+      ...components,
+      HOSTNAME_SWITCHES: bindLifted(`() => (${switches.initializer.getText(sourceFile)})`, {})(),
+      isAdmin: true,
+      hostnamesError,
+      t: (key) => key,
+      refreshHostnames: async () => undefined,
+      visibleHostnamesReasonKey: null,
+      hostnamesReason: 'none',
+      dismissSomeUnnamed: () => undefined,
+      hostnameForm: {
+        enabled: false,
+        guestAccess: false,
+        routerLookup: true,
+        dockerLookup: true,
+        resolver: ''
+      },
+      setHostnameForm: () => undefined,
+      savingHostnames: false,
+      noAutofill: {},
+      hostnamesChanged: false,
+      handleHostnamesSave: async () => undefined,
+      hostnamesLoading: false
+    },
+    { jsx: typescript.JsxEmit.React }
+  );
+
+  const elements = [];
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!React.isValidElement(node)) return;
+    elements.push(node);
+    visit(node.props.children);
+  };
+  visit(render());
+  return { elements, components };
+};
+
+test('a failed hostnames read shows the box in place of the switches', () => {
+  const { elements, components } = renderHostnamesBody('reason: server down');
+
+  const boxes = elements.filter((element) => element.type === components.ErrorBlock);
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0].props.title, 'management.sections.clients.hostnames.loadFailed');
+  assert.equal(boxes[0].props.message, 'reason: server down');
+  assert.equal(boxes[0].props.retryLabel, 'common.retry');
+  assert.equal(
+    elements.filter((element) => element.type === components.SettingRow).length,
+    0,
+    'the switches hold default values until a read succeeds, so none may show under the box'
+  );
+  assert.equal(
+    elements.filter((element) => element.type === components.Button).length,
+    0,
+    'Save would write those default values back to the server'
+  );
+});
+
+test('the switches come back once a hostnames read succeeds', () => {
+  const { elements, components } = renderHostnamesBody(null);
+
+  assert.equal(elements.filter((element) => element.type === components.ErrorBlock).length, 0);
+  assert.equal(elements.filter((element) => element.type === components.SettingRow).length, 4);
 });
 
 test('unmounting removes every subscription with the handler it added', () => {

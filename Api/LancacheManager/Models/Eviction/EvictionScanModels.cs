@@ -3,17 +3,11 @@ namespace LancacheManager.Models;
 
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation starts.
-/// <c>ShowNotification</c> is the display flag: lifecycle events are ALWAYS emitted so recovery and
-/// progress stay coherent, and the frontend gates whether the card is shown. A silent scan (schedule
-/// notification mode) sends the same events with the flag false.
 /// </summary>
 public record EvictionScanStarted(
     string StageKey,
     Guid OperationId,
-    Dictionary<string, object?>? Context = null,
-    bool ShowNotification = true,
-    Guid? PreviousOperationId = null,
-    bool HideNotification = false);
+    Dictionary<string, object?>? Context = null);
 
 /// <summary>
 /// SignalR event payload emitted after each batch during an eviction scan.
@@ -28,10 +22,7 @@ public record EvictionScanProgress(
     int TotalEstimate,
     int Evicted,
     int UnEvicted,
-    Dictionary<string, object?>? Context = null,
-    bool ShowNotification = true,
-    bool HideNotification = false,
-    Guid? PreviousOperationId = null);
+    Dictionary<string, object?>? Context = null);
 
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation completes.
@@ -50,11 +41,8 @@ public record EvictionScanComplete(
     int UnEvicted,
     string? Error = null,
     Dictionary<string, object?>? Context = null,
-    bool ShowNotification = true,
     bool Cancelled = false,
-    bool Skipped = false,
-    bool HideNotification = false,
-    Guid? PreviousOperationId = null) : IOperationComplete
+    bool Skipped = false) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
 
@@ -73,7 +61,7 @@ public record EvictionScanComplete(
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation starts.
 /// </summary>
-public record EvictionRemovalStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null, string? EpicAppId = null, bool ShowNotification = true);
+public record EvictionRemovalStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null, string? EpicAppId = null);
 
 /// <summary>
 /// SignalR event payload emitted during an eviction removal operation.
@@ -85,8 +73,7 @@ public record EvictionRemovalProgress(
     double PercentComplete,
     int DownloadsRemoved,
     int LogEntriesRemoved,
-    Dictionary<string, object?>? Context = null,
-    bool ShowNotification = true);
+    Dictionary<string, object?>? Context = null);
 
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation completes.
@@ -101,8 +88,7 @@ public record EvictionRemovalComplete(
     int LogEntriesRemoved,
     string? Error = null,
     bool Cancelled = false,
-    Dictionary<string, object?>? Context = null,
-    bool ShowNotification = true) : IOperationComplete
+    Dictionary<string, object?>? Context = null) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
     OperationStatus IOperationComplete.Status =>

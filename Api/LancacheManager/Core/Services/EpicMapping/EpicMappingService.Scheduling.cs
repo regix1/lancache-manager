@@ -13,8 +13,6 @@ public partial class EpicMappingService
     protected override bool SupportsNotifications => true;
     protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
-    private bool _showNotification = true;
-
     /// <summary>Terminal stage key for a run that collected nothing because Epic is signed out.</summary>
     private const string EpicSignInSkipStageKey = "signalr.epicMapping.skippedNotSignedIn";
 
@@ -61,7 +59,7 @@ public partial class EpicMappingService
             return false;
         }
 
-        _showNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
+        var runNotice = notice ?? new RunNotice(EffectiveNotificationMode, trigger);
         CancellationTokenSource runCts;
         try
         {
@@ -83,6 +81,7 @@ public partial class EpicMappingService
         {
             await using var reporter = CreateEpicMappingReporter(
                 runCts.Token,
+                runNotice,
                 () =>
                 {
                     if (ReferenceEquals(_currentRefreshCts, runCts))
@@ -95,7 +94,7 @@ public partial class EpicMappingService
                     _currentProgressPercent = 0;
                     _currentStatus = EpicMappingStatus.Idle;
                     Interlocked.Exchange(ref _isProcessingInt, 0);
-                }, notice);
+                });
             _currentMappingReporter = reporter;
 
             try
@@ -158,13 +157,12 @@ public partial class EpicMappingService
     {
         _logger.LogInformation(
             "Epic catalog refresh: no Epic account is signed in, so no new catalog is collected - resolving downloads against the stored patterns instead");
-        _showNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
         // No catalog is collected on this path, so the counts a signed-in run left behind are not
         // this run's. The two signed-in paths clear them at the top of their own run for the same
         // reason; without this the terminal carries the previous run's numbers.
         _lastNewGames = 0;
         _lastUpdatedGames = 0;
-        await using var reporter = CreateEpicMappingReporter(stoppingToken, notice: notice);
+        await using var reporter = CreateEpicMappingReporter(stoppingToken, notice ?? CurrentRunNotice);
         // This pass may finish having changed nothing, so it stays quiet either way rather than
         // claiming progress it might then report as skipped.
         reporter.SuppressProgress();
@@ -193,17 +191,16 @@ public partial class EpicMappingService
 
     private MappingOperationReporter CreateEpicMappingReporter(
         CancellationToken token,
-        Action? onTerminalCleanup = null,
-        RunNotice? notice = null) =>
+        RunNotice notice,
+        Action? onTerminalCleanup = null) =>
         new(
             _notifications,
             _operationTracker,
             MappingOperations.Epic,
-            _showNotification,
+            notice,
             token,
             _logger,
-            onTerminalCleanup: onTerminalCleanup,
-            notice: notice);
+            onTerminalCleanup: onTerminalCleanup);
 
     private Dictionary<string, object?> CreateEpicContext(string? errorDetail = null) =>
         new()

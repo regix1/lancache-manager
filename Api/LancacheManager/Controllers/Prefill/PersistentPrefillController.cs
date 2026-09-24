@@ -769,17 +769,21 @@ public class PersistentPrefillController : ControllerBase
                 loginCommandDispatched = true;
             }
 
+            // The sign-in belongs to the auth session that asked for it, not to the system owner
+            // the persistent session runs under.
             var challenge = request.ReuseIntegration
                 ? await daemon!.ReuseIntegrationLoginForEditAsync(
                     session!.Id,
                     caller!.AccountId,
                     ConfirmLoginDispatch,
+                    HttpContext.GetRequiredSessionId(),
                     cancellationToken,
                     lease)
                 : await daemon!.StartLoginForEditAsync(
                     session!.Id,
                     TimeSpan.FromSeconds(30),
                     ConfirmLoginDispatch,
+                    HttpContext.GetRequiredSessionId(),
                     cancellationToken);
 
             if (challenge == null)

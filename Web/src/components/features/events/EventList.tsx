@@ -397,10 +397,14 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
           logLabel: 'Failed to fetch event downloads'
         });
         fetchingRef.current.delete(eventId); // Allow retry on error
-        setDownloadsCache((prev) => ({
-          ...prev,
-          [eventId]: { downloads: [], loading: false, loaded: true }
-        }));
+        // A failed read has no list to show, so the row closes rather than claiming the event has
+        // no downloads; the next expand fetches again.
+        setDownloadsCache((prev) => {
+          const next = { ...prev };
+          delete next[eventId];
+          return next;
+        });
+        setExpandedEventId((current) => (current === eventId ? null : current));
       }
     },
     [mockMode, t, notifyError]

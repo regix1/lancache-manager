@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
@@ -30,11 +33,31 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     private readonly ProcessManager _processManager;
     private readonly ILogger<UnifiedOperationTracker> _logger;
+    private readonly ISignalRNotificationService? _notifications;
 
-    public UnifiedOperationTracker(ProcessManager processManager, ILogger<UnifiedOperationTracker> logger)
+    // Revision of the last row stamped. Written only under _pendingRunsLock; GetRuns reads it
+    // before listing so the browser can tell a run that ended from one it has not heard of yet.
+    private long _revision;
+    // Rows waiting to be sent, in revision order. Lock order on every path: the schedule
+    // registry's kept-endings lock -> an operation lock -> _pendingRunsLock, and an operation
+    // lock -> a notice lock (through token callbacks). Nothing takes an operation lock while
+    // holding _pendingRunsLock or a notice lock, and no new path holds two operation locks.
+    private readonly Queue<OperationRun> _pendingRuns = new();
+    private readonly object _pendingRunsLock = new();
+    // Serializes the async sends so rows leave in the order their revisions were stamped.
+    private readonly SemaphoreSlim _publishGate = new(1, 1);
+
+    // The waiting operation whose start delegate is running in this async flow, so the run it
+    // registers names it as its predecessor.
+    private readonly AsyncLocal<(Guid WaitingId, OperationType Type)?> _promotion = new();
+
+    // Notifications are optional so the unit tests that construct the tracker directly keep
+    // compiling; at runtime the DI container always supplies the registered singleton.
+    public UnifiedOperationTracker(ProcessManager processManager, ILogger<UnifiedOperationTracker> logger, ISignalRNotificationService? notifications = null)
     {
         _processManager = processManager;
         _logger = logger;
+        _notifications = notifications;
     }
 
     /// <inheritdoc />
@@ -44,7 +67,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                                   object? metadata = null, Action? onTerminalCleanup = null,
                                   Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
                                   OperationStatus initialStatus = OperationStatus.Running,
-                                  Guid? parentOperationId = null, DateTime? startedAt = null)
+                                  Guid? parentOperationId = null, DateTime? startedAt = null,
+                                  string? blockedByName = null, RunNotice? notice = null,
+                                  bool liveIngest = false, Guid? ownerSessionId = null)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
@@ -59,29 +84,44 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             CancellationTokenSource = cts,
             Metadata = metadata,
             OnTerminalCleanup = onTerminalCleanup,
-            OnTerminalEmit = onTerminalEmit
+            OnTerminalEmit = onTerminalEmit,
+            BlockedByName = blockedByName,
+            Notice = notice,
+            LiveIngest = liveIngest,
+            OwnerSessionId = ownerSessionId,
+            WorkerStarted = initialStatus != OperationStatus.Waiting
         };
 
-        if (_operations.TryAdd(operationId, operation))
+        // Held from before the insert until the first row is stamped, so a snapshot taken
+        // meanwhile waits for it and never lists a run without a revision.
+        lock (operation)
         {
+            operation.PreviousOperationId = FindPreviousOperationId(type, notice);
+            if (!_operations.TryAdd(operationId, operation))
+            {
+                _logger.LogError("Failed to register operation: {Name} (ID: {Id})", name, operationId);
+                throw new InvalidOperationException($"Failed to register operation {operationId}");
+            }
+
             var indexKey = BuildIndexKey(type, metadata);
             if (indexKey != null)
             {
                 _entityKeyIndex[(type, indexKey)] = operationId;
             }
 
-            _logger.LogInformation("Registered {Type} operation: {Name} (ID: {Id})", type, name, operationId);
-            return operationId;
+            Publish(operation);
         }
 
-        _logger.LogError("Failed to register operation: {Name} (ID: {Id})", name, operationId);
-        throw new InvalidOperationException($"Failed to register operation {operationId}");
+        _ = DrainRunsAsync();
+        _logger.LogInformation("Registered {Type} operation: {Name} (ID: {Id})", type, name, operationId);
+        return operationId;
     }
 
     public bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
                                     object? metadata = null, Action? onTerminalCleanup = null,
                                     Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
-                                    Guid? parentOperationId = null, DateTime? startedAt = null)
+                                    Guid? parentOperationId = null, DateTime? startedAt = null,
+                                    RunNotice? notice = null)
     {
         var operation = new OperationInfo
         {
@@ -95,17 +135,32 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             CancellationTokenSource = cts,
             Metadata = metadata,
             OnTerminalCleanup = onTerminalCleanup,
-            OnTerminalEmit = onTerminalEmit
+            OnTerminalEmit = onTerminalEmit,
+            Notice = notice,
+            WorkerStarted = true
         };
 
-        if (_operations.TryAdd(operationId, operation))
+        var restored = false;
+        // Same reason as RegisterOperation: no snapshot may list the run before its first row.
+        lock (operation)
         {
-            var indexKey = BuildIndexKey(type, metadata);
-            if (indexKey != null)
+            operation.PreviousOperationId = FindPreviousOperationId(type, notice);
+            if (_operations.TryAdd(operationId, operation))
             {
-                _entityKeyIndex[(type, indexKey)] = operationId;
-            }
+                var indexKey = BuildIndexKey(type, metadata);
+                if (indexKey != null)
+                {
+                    _entityKeyIndex[(type, indexKey)] = operationId;
+                }
 
+                Publish(operation);
+                restored = true;
+            }
+        }
+
+        if (restored)
+        {
+            _ = DrainRunsAsync();
             _logger.LogInformation("Restored {Type} operation: {Name} (ID: {Id})", type, name, operationId);
             return true;
         }
@@ -155,8 +210,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Metadata = state;
             operation.OnTerminalCleanup = onTerminalCleanup;
             operation.OnTerminalEmit = onTerminalEmit;
+            operation.WorkerStarted = true;
+            Publish(operation);
         }
 
+        _ = DrainRunsAsync();
         _logger.LogInformation(
             "Operation {Id} ({Type}: {Name}) left the queue and is running",
             operationId, operation.Type, operation.Name);
@@ -186,16 +244,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     /// <summary>
-    /// True while an operation is the wait-queue's to finish: parked with no worker behind it.
-    /// A cancel moves it to <see cref="OperationStatus.Cancelling"/> without giving it one, so
-    /// that state counts as parked while it still carries a queue marker.
+    /// True while an operation is its parker's to finish: registered as waiting and never begun by a
+    /// worker. A cancel moves it to <see cref="OperationStatus.Cancelling"/> without giving it one,
+    /// so that state still counts as parked; once <see cref="BeginQueuedOperation"/> runs it, its
+    /// worker reports the terminal.
     /// </summary>
     private static bool IsParked(OperationInfo operation) =>
-        operation.Status == OperationStatus.Waiting ||
-        (operation.Status == OperationStatus.Cancelling &&
-            (RunNotice.ReadRunNotice(operation.Metadata)?.PendingId == operation.Id ||
-                operation.Metadata is IReadOnlyDictionary<string, object?> values &&
-                values.TryGetValue("waiting", out var waiting) && waiting is true));
+        !operation.WorkerStarted &&
+        (operation.Status == OperationStatus.Waiting || operation.Status == OperationStatus.Cancelling);
 
     /// <summary>
     /// Follow any recorded handoff to the operation actually doing the work. Returns the id
@@ -251,8 +307,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Status = OperationStatus.Cancelling;
             operation.Cancelled = true;
             operation.Message = "Cancellation requested...";
+            Publish(operation);
         }
 
+        _ = DrainRunsAsync();
         try
         {
             _logger.LogInformation(
@@ -331,8 +389,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Status = OperationStatus.Cancelling;
             operation.Cancelled = true;
             operation.Message = "Force killed by user";
+            Publish(operation);
         }
 
+        _ = DrainRunsAsync();
         _logger.LogWarning(
             "Force killing operation {Id} ({Type}: {Name})",
             operationId, operation.Type, operation.Name);
@@ -382,11 +442,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     {
         // Waiting ops are queued, not running: they must not block conflict checks and must
         // stay invisible to the per-type status/recovery endpoints (see IUnifiedOperationTracker).
-        var operations = _operations.Values.Where(op =>
-            !op.Status.IsTerminal() && op.Status != OperationStatus.Waiting &&
-            !(op.Status == OperationStatus.Cancelling &&
-              (RunNotice.ReadRunNotice(op.Metadata)?.PendingId == op.Id ||
-               op.Metadata is IReadOnlyDictionary<string, object?> values && values.TryGetValue("waiting", out var waiting) && waiting is true)));
+        var operations = _operations.Values.Where(op => !op.Status.IsTerminal() && !IsParked(op));
 
         if (filterType.HasValue)
         {
@@ -399,6 +455,113 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     public IEnumerable<OperationInfo> GetWaitingOperations()
     {
         return _operations.Values.Where(IsParked).ToList();
+    }
+
+    public OperationRunsSnapshot GetRuns()
+    {
+        // Read before listing: a run that is missing from the list is dropped by the browser only
+        // when its own last revision is not newer than this one.
+        var revision = Volatile.Read(ref _revision);
+        var runs = new List<OperationRun>();
+        foreach (var operation in _operations.Values)
+        {
+            lock (operation)
+            {
+                if (ToRun(operation) is { } run) runs.Add(run);
+            }
+        }
+
+        return new OperationRunsSnapshot(runs, revision);
+    }
+
+    public void SetBlockedByName(Guid operationId, string? name)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return;
+        lock (operation)
+        {
+            if (operation.Status.IsTerminal() || operation.BlockedByName == name) return;
+            operation.BlockedByName = name;
+            Publish(operation);
+        }
+
+        _ = DrainRunsAsync();
+    }
+
+    public void RefreshRun(Guid operationId)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return;
+        lock (operation)
+        {
+            if (operation.Status.IsTerminal()) return;
+            Publish(operation);
+        }
+
+        _ = DrainRunsAsync();
+    }
+
+    public void UpdateKeptEnding(Guid operationId, int consecutiveFailures, bool latestRunSucceeded)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return;
+        lock (operation)
+        {
+            if (!KeepsUntilClosed(operation) || operation.Closed
+                || (operation.ConsecutiveFailures == consecutiveFailures && operation.LatestRunSucceeded == latestRunSucceeded))
+            {
+                return;
+            }
+
+            operation.ConsecutiveFailures = consecutiveFailures;
+            operation.LatestRunSucceeded = latestRunSucceeded;
+            Publish(operation);
+        }
+
+        _ = DrainRunsAsync();
+    }
+
+    public bool CloseRun(Guid operationId)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return false;
+        lock (operation)
+        {
+            if (!KeepsUntilClosed(operation) || operation.Closed) return false;
+            operation.Closed = true;
+            Publish(operation);
+        }
+
+        _ = DrainRunsAsync();
+        ReapOperation(operationId);
+        return true;
+    }
+
+    public IDisposable BeginPromotion(Guid waitingOperationId, OperationType type)
+    {
+        // Set here, in a synchronous call, so the value flows into the start delegate the caller
+        // awaits next and is restored when the scope is disposed.
+        var scope = new PromotionScope(_promotion, _promotion.Value);
+        _promotion.Value = (waitingOperationId, type);
+        return scope;
+    }
+
+    private sealed class PromotionScope(
+        AsyncLocal<(Guid WaitingId, OperationType Type)?> promotion,
+        (Guid WaitingId, OperationType Type)? previous) : IDisposable
+    {
+        public void Dispose() => promotion.Value = previous;
+    }
+
+    /// <summary>
+    /// The waiting operation a new registration takes over from: the promotion running in this
+    /// async flow for the same type, otherwise the still-waiting operation its run notice was
+    /// attached to (a held or acknowledged schedule run).
+    /// </summary>
+    private Guid? FindPreviousOperationId(OperationType type, RunNotice? notice)
+    {
+        if (_promotion.Value is { } promotion && promotion.Type == type) return promotion.WaitingId;
+        return notice?.OperationId is { } noticeId
+            && _operations.TryGetValue(noticeId, out var previous)
+            && previous.Status == OperationStatus.Waiting
+                ? noticeId
+                : null;
     }
 
     public void CompleteOperation(
@@ -416,12 +579,35 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return;
         }
 
+        // A waiting run that handed its work on lifts the run doing it to its own visibility when
+        // that is more visible, and that row goes out before this run's terminal row, so the
+        // browser merges the waiting card into an entry that is already a card. The two locks are
+        // taken one after the other, never nested; an ended successor reads its frozen
+        // visibility, so the floor changes nothing there.
+        var successorId = ResolveHandoff(operationId);
+        if (successorId != operationId && _operations.TryGetValue(successorId, out var successor))
+        {
+            RunVisibility handedOn;
+            lock (operation) handedOn = ReadVisibility(operation);
+            lock (successor)
+            {
+                var before = ReadVisibility(successor);
+                if (handedOn < before)
+                {
+                    successor.VisibilityFloor = handedOn;
+                    if (ReadVisibility(successor) != before) Publish(successor);
+                }
+            }
+            _ = DrainRunsAsync();
+        }
+
         CancellationTokenSource? cts;
         Func<OperationTerminalInfo, Task>? emit;
         Action? cleanup;
         OperationTerminalInfo terminal;
         Action<OperationInfo>? terminalSubscribers;
         Exception? publicationError = null;
+        bool keep;
         lock (operation)
         {
             if (commit != null)
@@ -435,6 +621,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             }
             if (Interlocked.CompareExchange(ref operation.CompletedFlag, 1, 0) != 0) return;
 
+            // Frozen now so no later write (the terminal callback below replacing the metadata the
+            // flags live in, a notice trigger raised without this lock, a handoff floor, the link
+            // removed when the successor is reaped) changes how the ended run is drawn or whether it
+            // is kept; every later KeepsUntilClosed call gives this answer. [55]
+            operation.CompletedVisibility = ReadVisibility(operation);
             try { onCompleting?.Invoke(operation); }
             catch (Exception ex) { publicationError = ex; }
 
@@ -445,10 +636,15 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
                 : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed);
             operation.Message = success
-                ? (skipped ? (error ?? "Operation skipped - nothing to do") : "Operation completed successfully")
+                ? (skipped ? (error ?? ScheduledRunReporter.NothingToDoStageKey) : "Operation completed successfully")
                 : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));
             operation.Success = success;
             operation.CompletedAt = DateTime.UtcNow;
+
+            var nextId = ResolveHandoff(operationId);
+            operation.NextOperationId = nextId != operationId ? nextId : null;
+            keep = KeepsUntilClosed(operation);
+            Publish(operation);
 
             // Detach resources and callbacks atomically; disposal and outward effects happen below.
             cts = operation.CancellationTokenSource;
@@ -462,6 +658,18 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             terminalSubscribers = OperationTerminal;
         }
 
+        _ = DrainRunsAsync();
+        // Live log ingest keeps one failure card. This failure's row is already queued, so closing
+        // the older ones after it lets the browser replace the older card in the same update. [55]
+        if (keep && operation.LiveIngest)
+        {
+            foreach (var other in _operations.Values)
+            {
+                bool older;
+                lock (other) older = other.CompletedRevision < operation.CompletedRevision && other.LiveIngest;
+                if (older) CloseRun(other.Id);
+            }
+        }
         if (publicationError != null)
         {
             _logger.LogWarning(publicationError, "Terminal publication threw for operation {Id}", operationId);
@@ -490,7 +698,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             });
         }
 
-        ScheduleReaper(operationId); // core-2: delayed cleanup, see ScheduleReaper
+        // A kept ending stays tracked, so the run list still returns it after a reload or
+        // reconnect, until someone closes its card (CloseRun reaps it).
+        if (!keep) ScheduleReaper(operationId); // core-2: delayed cleanup, see ScheduleReaper
     }
 
     /// <summary>
@@ -545,6 +755,197 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             ((ICollection<KeyValuePair<Guid, Guid>>)_handoffs).Remove(link);
         }
+    }
+
+    /// <summary>
+    /// Stamps the next revision on the operation and queues its row. The caller holds
+    /// <c>lock (operation)</c>, so the row and its revision describe one state, and runs
+    /// <see cref="DrainRunsAsync"/> after releasing it. A revision is stamped only for a row that is
+    /// sent, so the admin group sees revisions rise by exactly one in send order.
+    /// </summary>
+    private void Publish(OperationInfo operation)
+    {
+        if (HasNoRow(operation)) return;
+        lock (_pendingRunsLock)
+        {
+            operation.Revision = ++_revision;
+            if (operation.Status.IsTerminal() && operation.CompletedRevision == 0)
+            {
+                operation.CompletedRevision = operation.Revision;
+            }
+
+            if (_notifications != null) _pendingRuns.Enqueue(ToRun(operation)!);
+        }
+    }
+
+    // Same shape as ServiceScheduleRegistry.BroadcastSchedulesAsync: whichever caller wins the gate
+    // sends the whole queue in order, including rows other callers queued while it waited.
+    private async Task DrainRunsAsync()
+    {
+        if (_notifications is null) return;
+        await _publishGate.WaitAsync();
+        try
+        {
+            while (true)
+            {
+                OperationRun? next;
+                lock (_pendingRunsLock)
+                {
+                    next = _pendingRuns.Count > 0 ? _pendingRuns.Dequeue() : null;
+                }
+                if (next is null)
+                {
+                    break;
+                }
+
+                // NotifyAdminAsync already swallows its own failures, so this only guards a future
+                // change that lets one through: it must not strand every row queued behind this one.
+                try
+                {
+                    await _notifications.NotifyAdminAsync(SignalREvents.OperationUpdated, next);
+                }
+                catch
+                {
+                    // Non-fatal - move on to whatever else is queued rather than losing it too.
+                }
+            }
+        }
+        finally
+        {
+            _publishGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The browser's row for an operation, read under <c>lock (operation)</c>; null for an operation
+    /// that is neither listed nor sent (see <see cref="HasNoRow"/>).
+    /// </summary>
+    private OperationRun? ToRun(OperationInfo operation)
+    {
+        if (HasNoRow(operation)) return null;
+        var terminal = operation.Status.IsTerminal();
+        Guid? nextId = operation.NextOperationId;
+        if (!terminal)
+        {
+            var resolved = ResolveHandoff(operation.Id);
+            nextId = resolved != operation.Id ? resolved : null;
+        }
+
+        var prefill = operation.Metadata as ScheduledPrefillServiceRunState;
+        return new OperationRun(
+            operation.Id,
+            operation.Type.ToWireString(),
+            operation.Name,
+            operation.Status.ToWireString(),
+            ReadVisibility(operation),
+            operation.PercentComplete,
+            operation.Message,
+            operation.Status == OperationStatus.Failed ? operation.Message : null,
+            operation.BlockedByName,
+            operation.PreviousOperationId,
+            operation.ParentOperationId,
+            nextId,
+            ReadWarning(operation.Metadata),
+            KeepsUntilClosed(operation),
+            operation.Closed,
+            operation.ConsecutiveFailures,
+            operation.LatestRunSucceeded,
+            prefill?.ScheduleId,
+            operation.Metadata switch
+            {
+                ScheduledPrefillServiceRunState run => run.ServiceId,
+                // The prefill sign-in registers its platform as its metadata.
+                PrefillPlatform platform => platform,
+                _ => null
+            },
+            operation.LiveIngest,
+            ReadIntegrationLogin(operation.Metadata) is not null,
+            operation.OwnerSessionId,
+            terminal ? operation.CompletedRevision : null,
+            operation.StartedAt,
+            operation.Revision);
+    }
+
+    /// <summary>
+    /// The three operation types the notification bar never draws a card for, so none of their
+    /// endings is kept until closed.
+    /// </summary>
+    private static readonly HashSet<OperationType> _operationTypesWithoutCard = new() { OperationType.StatusCheck, OperationType.CacheFileCount, OperationType.PerformanceOptimization };
+
+    /// <summary>
+    /// True for an ending the browser draws as a red or amber card that stays until someone closes
+    /// it: a failure, a success with a warning, or a skip that showed a full card. A cancel and a
+    /// plain success are not kept; the browser lets them leave on their own unless Keep
+    /// Notifications Visible holds them. Phases (operations with a parent) are not kept, except a
+    /// per-platform scheduled prefill run, which owns its card even when restored under its
+    /// run-level container.
+    /// </summary>
+    internal static bool KeepsUntilClosed(OperationInfo operation) =>
+        (operation.ParentOperationId == null || operation.Metadata is ScheduledPrefillServiceRunState)
+        && !(operation.Metadata is ScheduledPrefillOperationMetadata)
+        && !_operationTypesWithoutCard.Contains(operation.Type)
+        && operation.Status switch
+        {
+            OperationStatus.Failed => true,
+            OperationStatus.Completed => ReadWarning(operation.Metadata) != null,
+            OperationStatus.Skipped => ReadVisibility(operation) == RunVisibility.Card,
+            _ => false
+        };
+
+    /// <summary>
+    /// True for an operation the browser gets no row for: the scheduled-prefill run-level container,
+    /// whose platforms carry the cards.
+    /// </summary>
+    private static bool HasNoRow(OperationInfo operation) =>
+        operation.Metadata is ScheduledPrefillOperationMetadata;
+
+    /// <summary>
+    /// The one place that turns an operation into a <see cref="RunVisibility"/>: the notice it was
+    /// admitted with (none draws a full card), raised to <see cref="OperationInfo.VisibilityFloor"/>
+    /// when that is more visible, or the value frozen at completion once it ended.
+    /// </summary>
+    private static RunVisibility ReadVisibility(OperationInfo operation)
+    {
+        if (operation.CompletedVisibility is { } frozen) return frozen;
+        var own = operation.Notice is not { } notice ? RunVisibility.Card
+            : notice.HideNotification ? RunVisibility.Hidden
+            : notice.ShowNotification ? RunVisibility.Card
+            : RunVisibility.Background;
+        return own < operation.VisibilityFloor ? own : operation.VisibilityFloor;
+    }
+
+    // A run that succeeded with a warning: today the eviction scan whose game detection phase
+    // failed, which writes the raw error into its progress context.
+    private static string? ReadWarning(object? state) =>
+        ReadContext(state)?.GetValueOrDefault("detectionError") is string { Length: > 0 } warning ? warning : null;
+
+    // The reporter mirrors each run's latest interpolation context into the operation metadata under
+    // "context" so a mid-run page refresh can rehydrate the card with its {{processed}}/{{total}}
+    // values instead of rendering a bare stage key.
+    internal static IReadOnlyDictionary<string, object?>? ReadContext(object? state)
+    {
+        var value = state switch
+        {
+            IReadOnlyDictionary<string, object?> readOnly when readOnly.TryGetValue("context", out var v) => v,
+            IDictionary<string, object> mutable when mutable.TryGetValue("context", out var v) => v,
+            _ => null,
+        };
+
+        return value as IReadOnlyDictionary<string, object?>;
+    }
+
+    // A mapping sign-in run carries its login under "integrationLogin"; such a run belongs to no
+    // schedule, and only its signed-in caller may cancel it.
+    internal static IntegrationLogin? ReadIntegrationLogin(object? state)
+    {
+        var value = state switch
+        {
+            IReadOnlyDictionary<string, object?> readOnly when readOnly.TryGetValue("integrationLogin", out var v) => v,
+            IDictionary<string, object> mutable when mutable.TryGetValue("integrationLogin", out var v) => v,
+            _ => null,
+        };
+
+        return value as IntegrationLogin;
     }
 
     public void UpdateProgress(Guid operationId, double percent, string message, Action<OperationInfo>? onProgress = null)

@@ -109,6 +109,9 @@ export default {
     if (globalThis.__server.loginGate) {
       await globalThis.__server.loginGate;
     }
+    if (globalThis.__server.loginFailing) {
+      throw new Error('502');
+    }
     globalThis.__server.attemptId = request.attemptId;
     return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, expiresAtUtc: '2030-01-01T00:00:00Z' };
   },
@@ -195,7 +198,8 @@ const startServer = (isAuthenticated) => {
     loginInProgress: true,
     failing: false,
     gate: null,
-    loginGate: null
+    loginGate: null,
+    loginFailing: false
   };
   globalThis.__reported = [];
   return globalThis.__server;
@@ -472,4 +476,19 @@ test('a status ask that fails keeps the login for the next recovery', async () =
 
   assert.equal(server.requests, 2);
   assert.equal(xbox.succeeded.count, 1);
+});
+
+test('a refused sign-in start reports the shared reason, not a fixed sentence', async () => {
+  const server = startServer(false);
+  server.loginFailing = true;
+  const xbox = await mount(true);
+
+  await xbox.read().startLogin();
+
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(
+    xbox.failed.message,
+    'Error: 502',
+    'the reason under "Failed to sign in to Xbox" is the one every other failure uses'
+  );
 });

@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useCallback, useDeferredValue } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
-import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
 import { Card } from '@components/ui/Card';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
-import { useNotifySuccess } from '@/hooks/useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { storage } from '@utils/storage';
 import { clearScanJump, readScanJump } from '@utils/scanJump';
 
@@ -30,7 +29,7 @@ import {
 const ManagementTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshStats } = useStats();
-  const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const { notifySuccess } = useNotifySuccess();
   const { mockMode } = useMockMode();
   const { isAdmin, authMode } = useAuth();
@@ -62,19 +61,6 @@ const ManagementTab: React.FC = () => {
     refreshStats();
     setGameCacheRefreshKey((prev) => prev + 1);
   }, [refreshStats]);
-
-  // Notification management
-  const addError = useCallback(
-    (message: string) => {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message,
-        details: { notificationType: 'error' }
-      });
-    },
-    [addNotification]
-  );
 
   const setSuccess = useCallback(
     (message: string) => {
@@ -164,7 +150,7 @@ const ManagementTab: React.FC = () => {
           <IntegrationsSection
             authMode={authMode}
             mockMode={mockMode}
-            onError={addError}
+            onError={notifyError}
             onSuccess={setSuccess}
             highlightSteamApi={highlightSteamApi}
             highlightBattleNet={highlightBattleNet}
@@ -184,7 +170,7 @@ const ManagementTab: React.FC = () => {
             highlightEviction={highlightEviction}
             highlightCacheScan={scanJump === 'cacheFiles'}
             highlightGameDetection={scanJump === 'gameDetection'}
-            onError={addError}
+            onError={notifyError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
           />
@@ -196,7 +182,7 @@ const ManagementTab: React.FC = () => {
             isAdmin={isAdmin}
             authMode={authMode}
             mockMode={mockMode}
-            onError={addError}
+            onError={notifyError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
@@ -222,14 +208,14 @@ const ManagementTab: React.FC = () => {
             isAdmin={isAdmin}
             authMode={authMode}
             mockMode={mockMode}
-            onError={addError}
+            onError={notifyError}
             onSuccess={setSuccess}
           />
         );
 
       case 'prefill-sessions':
         return (
-          <PrefillSessionsSection isAdmin={isAdmin} onError={addError} onSuccess={setSuccess} />
+          <PrefillSessionsSection isAdmin={isAdmin} onError={notifyError} onSuccess={setSuccess} />
         );
 
       case 'status-check':

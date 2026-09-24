@@ -40,14 +40,13 @@ public partial class XboxCatalogMappingService
         await _refreshGate.WaitAsync(ct);
         try
         {
-            _refreshShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
             await using var reporter = new MappingOperationReporter(
                 _notifications,
                 _operationTracker,
                 MappingOperations.Xbox,
-                _refreshShowNotification,
+                notice ?? new RunNotice(EffectiveNotificationMode, trigger),
                 ct,
-                _logger, notice: notice);
+                _logger);
             _currentMappingReporter = reporter;
 
             try

@@ -13,6 +13,8 @@ public class ServiceScheduleInfo
     public NotificationMode NotificationMode { get; set; }
     public bool SupportsNotifications { get; set; }
     public NotificationDisplayMode NotificationDisplayMode { get; set; }
+    // True when this schedule has its own style; false when it follows the global default.
+    public bool NotificationDisplayModeOverridden { get; set; }
 
     /// <summary>
     /// The custom schedule driving this service, or null when it runs on <see cref="IntervalHours"/>.
@@ -82,6 +84,10 @@ public class ScheduleRunStatus
     public double PercentComplete { get; set; }
     public string? StageKey { get; set; }
     public IReadOnlyDictionary<string, object?>? Context { get; set; }
-    public bool ShowNotification { get; set; }
-    public bool HideNotification { get; set; }
 }
+
+/// <summary>
+/// How every notification without a style of its own renders. The body of the global display-mode
+/// endpoint and the payload pushed to every client when it changes, so both read one shape.
+/// </summary>
+public sealed record GlobalNotificationDisplayMode(NotificationDisplayMode Mode);

@@ -18,8 +18,9 @@ interface NotifyErrorOptions {
 interface ErrorHandler {
   /**
    * Surface a failure to the user.
-   * @param userMessage Already-translated, friendly message that is what actually renders.
-   * @param error       The raw caught value; its technical detail goes to the console only.
+   * @param userMessage Already-translated, friendly message: the popup's first line.
+   * @param error       The raw caught value; `getErrorMessage` of it is the popup's second line
+   *                    and is logged to the console.
    * @param opts        Optional silencing / logging controls.
    */
   notifyError: (userMessage: string, error?: unknown, opts?: NotifyErrorOptions) => void;
@@ -42,8 +43,9 @@ interface SuccessNotifier {
  *
  * Routing (see the error-handling standard §4.2): transient / one-shot action failures (button
  * clicks: auth, save, revoke, import) go here. Cancellation (`AbortError`) is swallowed - it is a
- * distinct terminal outcome, not a failure. The raw technical detail is logged to the console for
- * debugging; the translated `userMessage` is what the user sees (never a raw `err.message`).
+ * distinct terminal outcome, not a failure. The translated `userMessage` is the first line the user
+ * sees and `getErrorMessage(error)` is the reason on the second line (never a raw `err.message`);
+ * with no error the popup has one line. The reason is also logged to the console for debugging.
  */
 export function useErrorHandler(): ErrorHandler {
   const { addNotification } = useNotifications();
@@ -55,8 +57,8 @@ export function useErrorHandler(): ErrorHandler {
         return;
       }
 
-      // Raw technical detail goes to the console only (never rendered); the translated userMessage
-      // is what surfaces. Logged even when silent so nothing is truly swallowed.
+      // The reason renders as the popup's second line; the console gets it too, even when silent,
+      // so nothing is truly swallowed.
       const detail = error !== undefined ? getErrorMessage(error) : undefined;
       console.error(opts.logLabel ?? userMessage, detail ?? error);
 
@@ -68,6 +70,7 @@ export function useErrorHandler(): ErrorHandler {
         type: 'generic',
         status: 'failed',
         message: userMessage,
+        error: detail,
         details: { notificationType: 'error' }
       });
     },

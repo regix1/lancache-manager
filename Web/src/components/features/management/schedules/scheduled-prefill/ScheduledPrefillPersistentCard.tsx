@@ -228,8 +228,14 @@ export function ScheduledPrefillPersistentCard({
             )}
 
             {loginError && !isSessionUnavailable && (
-              <Alert color="red" className="scheduled-prefill-persistent-card__auth-alert">
-                {t('prefill.persistent.loginFailed', { error: loginError })}
+              <Alert
+                color="red"
+                className="scheduled-prefill-persistent-card__auth-alert"
+                title={t('common.errors.signInFailed', {
+                  platform: t(`prefill.persistent.services.${serviceKey}`)
+                })}
+              >
+                {loginError}
               </Alert>
             )}
 

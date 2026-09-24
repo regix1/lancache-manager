@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
+import { Tooltip } from '@components/ui/Tooltip';
 import {
   ActionMenu,
   ActionMenuDangerItem,
@@ -22,6 +23,8 @@ import { formatLastRun } from '../scheduleFormatting';
 import type { CustomSchedule } from '../custom-schedule/types';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useErrorHandler } from '@hooks/useErrorHandler';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
 import {
   getPersistentServiceId,
@@ -358,6 +361,7 @@ export function ScheduledPrefillScheduleDetail({
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const { on, off, isConnected } = useSignalR();
+  const { notifyError } = useErrorHandler();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
   const records = useRef(new Map<string, ScheduledPrefillSchedule>());
   const [schedule, setSchedule] = useState<ScheduledPrefillServiceScheduleDto[]>([]);
@@ -436,8 +440,13 @@ export function ScheduledPrefillScheduleDetail({
         }
       })
       .catch((failure: unknown) => {
+        // The dialogs and a new draft read the config again, so a failed pre-load changes
+        // nothing on screen and is only logged.
         if (!controller.signal.aborted && !isAbortError(failure))
-          setError(getErrorMessage(failure));
+          notifyError(t(`${baseKey}.loadFailed`), failure, {
+            silent: true,
+            logLabel: '[ScheduledPrefillScheduleDetail] Failed to pre-load schedule records'
+          });
       });
     void refreshSchedule();
     return () => {
@@ -445,7 +454,7 @@ export function ScheduledPrefillScheduleDetail({
       request.current?.controller.abort();
       request.current = null;
     };
-  }, [refreshSchedule]);
+  }, [refreshSchedule, notifyError, t]);
   useEffect(() => {
     const refresh = () => {
       void refreshSchedule();
@@ -541,7 +550,6 @@ export function ScheduledPrefillScheduleDetail({
     pending.current.add(key);
     setPendingKeys([...pending.current]);
     setPatches((current) => ({ ...current, [key]: patch }));
-    setError(null);
     try {
       const result =
         patch.enabled !== undefined
@@ -561,7 +569,7 @@ export function ScheduledPrefillScheduleDetail({
       const record = result[serviceKey].schedules.find((item) => item.id === scheduleId);
       if (record) confirmRecord(serviceKey, record, true);
     } catch (failure: unknown) {
-      setError(getErrorMessage(failure));
+      notifyError(t(`${baseKey}.saveFailed`), failure);
     } finally {
       setPatches((current) => {
         const next = { ...current };
@@ -578,7 +586,7 @@ export function ScheduledPrefillScheduleDetail({
         item.serviceId === getPersistentServiceId(serviceKey) && item.scheduleId === scheduleId
     );
     if (!row) {
-      setError(t(`${baseKey}.records.missing`));
+      notifyError(t(`${baseKey}.records.missing`));
       return;
     }
     opening.current += 1;
@@ -599,7 +607,7 @@ export function ScheduledPrefillScheduleDetail({
       const records = result[serviceKey].schedules;
       const source = scheduleId ? records.find((item) => item.id === scheduleId) : records[0];
       if (scheduleId && !source) {
-        setError(t(`${baseKey}.records.missing`));
+        notifyError(t(`${baseKey}.records.missing`));
         return;
       }
       const id = createUuid();
@@ -633,7 +641,7 @@ export function ScheduledPrefillScheduleDetail({
         schedule: draft
       });
     } catch (failure: unknown) {
-      if (opening.current === attempt) setError(getErrorMessage(failure));
+      if (opening.current === attempt) notifyError(t(`${baseKey}.openFailed`), failure);
     }
   };
   const bulk = async (enabled: boolean) => {
@@ -678,7 +686,7 @@ export function ScheduledPrefillScheduleDetail({
       );
       void refreshSchedule();
     } catch (failure: unknown) {
-      setError(getErrorMessage(failure));
+      notifyError(t(`${baseKey}.bulkUpdateFailed`), failure);
     } finally {
       pending.current.delete('all');
       setPendingKeys([...pending.current]);
@@ -735,7 +743,7 @@ export function ScheduledPrefillScheduleDetail({
         250
       );
     } catch (failure: unknown) {
-      setError(getErrorMessage(failure));
+      notifyError(t(`${baseKey}.deleteFailed`), failure);
       setDeleteTarget(null);
     } finally {
       pending.current.delete(key);
@@ -782,6 +790,9 @@ export function ScheduledPrefillScheduleDetail({
     const key = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[item.serviceId];
     return { ...item, ...patches[`${key}:${item.scheduleId}`], key };
   });
+  // The Run Now explanation keys on this, never on runNowDisabled: that is also true for a
+  // non-admin and while a run is active or pending, when "enable a schedule" would be wrong. [69]
+  const noScheduleEnabled = !loading && !rows.some((row) => row.enabled);
   const backendUpdateRequired = config !== null && config.version < 6;
   const tableDisabled = disabled || backendUpdateRequired || pendingKeys.includes('all');
   const globalAction = (action: () => void) => {
@@ -797,7 +808,7 @@ export function ScheduledPrefillScheduleDetail({
       <div className="scheduled-prefill-card-summary">
         <div className="scheduled-prefill-card-summary__toolbar">
           {loading ? (
-            <LoadingSpinner inline size="sm" />
+            error === null && <LoadingSpinner inline size="sm" />
           ) : (
             <p className={dimmed ? 'schedule-card-disabled' : ''}>
               {t(`${baseKey}.summary`, {
@@ -807,16 +818,34 @@ export function ScheduledPrefillScheduleDetail({
             </p>
           )}
           <div className="scheduled-prefill-card-summary__actions">
-            <Button
-              variant="filled"
-              color="run"
-              size="md"
-              onClick={onRunNow}
-              disabled={runNowDisabled || backendUpdateRequired}
-              loading={runNowLoading}
+            <Tooltip
+              content={
+                noScheduleEnabled
+                  ? t('management.schedules.services.scheduledPrefill.runNowNoSchedule')
+                  : null
+              }
+              className="scheduled-prefill-card-summary__run-help"
             >
-              {t('management.schedules.runNow')}
-            </Button>
+              <span
+                tabIndex={noScheduleEnabled ? 0 : undefined}
+                aria-label={
+                  noScheduleEnabled
+                    ? t('management.schedules.services.scheduledPrefill.runNowNoSchedule')
+                    : undefined
+                }
+              >
+                <Button
+                  variant="filled"
+                  color="run"
+                  size="md"
+                  onClick={onRunNow}
+                  disabled={runNowDisabled || backendUpdateRequired}
+                  loading={runNowLoading}
+                >
+                  {t('management.schedules.runNow')}
+                </Button>
+              </span>
+            </Tooltip>
             <ActionMenu
               isOpen={actionsOpen}
               onClose={() => setActionsOpen(false)}
@@ -873,9 +902,12 @@ export function ScheduledPrefillScheduleDetail({
           </div>
         </div>
         {error && (
-          <p role="alert" className="scheduled-prefill-card-summary__error">
-            {t(`${baseKey}.summaryError`, { error })}
-          </p>
+          <ErrorBlock
+            title={t(`${baseKey}.loadFailed`)}
+            message={error}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refreshSchedule()}
+          />
         )}
         {backendUpdateRequired && (
           <p className="scheduled-prefill-card-summary__error">
@@ -991,7 +1023,7 @@ export function ScheduledPrefillScheduleDetail({
             })}
           </div>
         )}
-        {!loading && !rows.some((row) => row.enabled) && (
+        {noScheduleEnabled && (
           <p className="scheduled-prefill-card-summary__warning">
             {t(`${baseKey}.zeroEnabledWarning`)}
           </p>

@@ -341,9 +341,9 @@ const StatusCheckSection: React.FC = () => {
   if (statusError && !status) {
     return sectionShell(
       <ErrorBlock
-        title={t(`${keys}.title`)}
-        message={t(`${keys}.loadFailed`, { error: statusError })}
-        retryLabel={t(`${keys}.retry`)}
+        title={t(`${keys}.loadFailed`)}
+        message={statusError}
+        retryLabel={t('common.retry')}
         onRetry={() => void loadAll()}
       />
     );
@@ -374,9 +374,9 @@ const StatusCheckSection: React.FC = () => {
       {statusError && status && (
         <div className="mb-4">
           <ErrorBlock
-            title={t(`${keys}.title`)}
-            message={t(`${keys}.loadFailed`, { error: statusError })}
-            retryLabel={t(`${keys}.retry`)}
+            title={t(`${keys}.loadFailed`)}
+            message={statusError}
+            retryLabel={t('common.retry')}
             onRetry={() => void loadAll()}
           />
         </div>

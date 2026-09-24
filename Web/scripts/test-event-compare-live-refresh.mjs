@@ -134,6 +134,37 @@ test('a reload reaches the endpoint rather than only re-rendering', () => {
   );
 });
 
+test('a failed comparison keeps the last chart, and a branch that asks nothing clears the failure', async () => {
+  const run = async ({ selectedIds, mockMode, getEventCompare }) => {
+    const writes = { compare: [], loadError: [] };
+    bindLifted(liftHookCallback(COMPONENT_PATH, 'useEffect', 'ApiService.getEventCompare'), {
+      selectedIds,
+      mockMode,
+      ApiService: { getEventCompare },
+      MockDataService: { generateMockEventCompare: () => ({ mock: true }) },
+      isAbortError: () => false,
+      getErrorMessage: (error) => error.message,
+      setCompare: (next) => writes.compare.push(next),
+      setLoadError: (next) => writes.loadError.push(next),
+      setLoading: () => undefined
+    })();
+    // Lets the request's settle handlers run.
+    await new Promise((resolve) => setImmediate(resolve));
+    return writes;
+  };
+  const failing = () => Promise.reject(new Error('down'));
+
+  const deselected = await run({ selectedIds: [], mockMode: false, getEventCompare: failing });
+  assert.deepEqual(deselected.loadError, [null]);
+
+  const mocked = await run({ selectedIds: [1], mockMode: true, getEventCompare: failing });
+  assert.deepEqual(mocked.loadError, [null]);
+
+  const failed = await run({ selectedIds: [1], mockMode: false, getEventCompare: failing });
+  assert.deepEqual(failed.compare, [], 'the previous comparison stays drawn under the box');
+  assert.deepEqual(failed.loadError, ['down']);
+});
+
 test('the chart asks again once the socket is back', () => {
   const sourceFile = parseComponent();
   const call = findSoleNode(

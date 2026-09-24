@@ -71,27 +71,9 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       }
       setCacheSize(size);
     } catch (err) {
-      // Cancels and transient client-side disconnects are expected outcomes, not failures, so
-      // they must never surface a "Cache Size Error" notification. Both are swallowed silently,
-      // and this comment is the explicit "why" for that deliberate swallow:
-      //   - a real cancel (superseded request / unmount) rejects with an AbortError.
-      //   - a mobile browser dropping the long-lived GET /cache/size request on navigation or
-      //     backgrounding rejects the fetch with a network TypeError ("Failed to fetch" /
-      //     "Load failed" / "NetworkError ...", depending on the browser).
-      // The scan's authoritative progress lives in the separate SignalR `cache_size_scan` op, so
-      // a dropped size fetch is a no-op here - keep the last loaded size and stay quiet.
-      // The TypeError arm is narrowed to network-disconnect messages only, so a genuine
-      // non-network TypeError (e.g. a coding bug) still surfaces via setError below.
+      // A real cancel (superseded request or unmount) rejects with an AbortError; it is not a
+      // failure.
       if (isAbortError(err)) {
-        return;
-      }
-      if (
-        err instanceof TypeError &&
-        /failed to fetch|load failed|network ?error/i.test(err.message)
-      ) {
-        // Record the quiet attempt so a disconnected client cannot spin the mount effect into
-        // an immediate retry loop. A later scheduled completion or explicit scan retries it.
-        setHasFetched(true);
         return;
       }
 

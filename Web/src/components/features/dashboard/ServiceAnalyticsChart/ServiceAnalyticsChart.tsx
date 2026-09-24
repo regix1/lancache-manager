@@ -3,8 +3,9 @@ import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isActiveGame, buildGamesOnDiskDisplayStats, getChartGames } from '@utils/gameDetection';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
-import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
+import { useGameDetection, useStats } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -34,7 +35,12 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const [activeTab, setActiveTab] = useState<TabId>('service');
     const [showList, setShowList] = useState<boolean>(true);
     const [gameService, setGameService] = useState<string>(ALL_GAME_SERVICES);
-    const { gameDetectionData } = useGameDetection();
+    const { gameDetectionData, failed: detectionFailed } = useGameDetection();
+    const { failedSections, error, refreshStats } = useStats();
+    // The Games tab draws the detection cache; every other tab draws the service stats.
+    const loadError = (activeTab === 'games' ? detectionFailed : failedSections.services)
+      ? error
+      : null;
     const isCompareTab = activeTab === 'hit-ratio';
     const hasBreakdownList = !isCompareTab;
 
@@ -327,6 +333,17 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           </div>
         </div>
 
+        {loadError !== null && (
+          <div className="mb-3">
+            <ErrorBlock
+              title={t('dashboard.serviceAnalytics.loadFailed')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void refreshStats(true)}
+            />
+          </div>
+        )}
+
         {loading ? (
           <div className="service-analytics-loading">
             <div className="w-full">
@@ -410,7 +427,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               </p>
             )}
           </>
-        ) : (
+        ) : loadError !== null ? null : (
           <div className="well-surface dash-well p-3 flex flex-1">
             <EmptyState
               variant="panel"

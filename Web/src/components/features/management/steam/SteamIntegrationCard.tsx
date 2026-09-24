@@ -2,7 +2,12 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useSteamAuth } from '@contexts/useSteamAuth';
@@ -27,8 +32,8 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
-  const { steamAuthMode } = useSteamAuth();
-  const { status, loading: webApiLoading } = useSteamWebApiStatus();
+  const { steamAuthMode, error: loadError, refreshSteamAuth } = useSteamAuth();
+  const { status, loading: webApiLoading, error: webApiError } = useSteamWebApiStatus();
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('integrations-steam', expanded, () => setExpanded((prev) => !prev));
 
@@ -88,17 +93,32 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
       onToggle={() => setExpanded((prev) => !prev)}
       badge={
         <SectionHeaderActions>
-          {steamChip}
-          {webApiChip}
+          {loadError !== null || webApiError !== null ? (
+            !expanded && <SectionErrorChip />
+          ) : (
+            <>
+              {steamChip}
+              {webApiChip}
+            </>
+          )}
         </SectionHeaderActions>
       }
     >
-      <SteamLoginManager
-        authMode={authMode}
-        mockMode={mockMode}
-        onError={onError}
-        onSuccess={onSuccess}
-      />
+      {loadError !== null ? (
+        <ErrorBlock
+          title={t('management.sections.integrations.steamCard.loadError')}
+          message={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void refreshSteamAuth()}
+        />
+      ) : (
+        <SteamLoginManager
+          authMode={authMode}
+          mockMode={mockMode}
+          onError={onError}
+          onSuccess={onSuccess}
+        />
+      )}
 
       <div className="integration-subsection">
         <SteamWebApiStatus />

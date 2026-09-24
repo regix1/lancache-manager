@@ -115,7 +115,7 @@ public class ScheduleRunGateTests
         var registry = CreateRegistry(services, CacheScanGateHarness.Idle(), tracker, notifications);
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-            notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         var starts = new Dictionary<string, TaskCompletionSource<Guid>>
         {
             [detection.ServiceKey] = new(TaskCreationOptions.RunContinuationsAsynchronously),
@@ -182,7 +182,7 @@ public class ScheduleRunGateTests
             {
                 using var nested = CancellationTokenSource.CreateLinkedTokenSource(token);
                 await using var reporter = new MappingOperationReporter(notifications, tracker, MappingOperations.Steam,
-                    false, nested.Token, NullLogger.Instance, notice: notice);
+                    notice, nested.Token, NullLogger.Instance);
                 await reporter.StartAsync();
                 operationId = reporter.OperationId;
                 var reporterToken = reporter.Token;
@@ -266,8 +266,10 @@ public class ScheduleRunGateTests
         var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(result.RunFailed);
-        Assert.False(terminal.ShowNotification);
-        Assert.True(terminal.HideNotification);
+        // The failure is recorded under the run's own notice, so its kept row stays hidden.
+        var failed = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == terminal.OperationId);
+        Assert.Equal("failed", failed.Status);
+        Assert.Equal(RunVisibility.Hidden, failed.Visibility);
     }
 
     [Theory]
@@ -312,7 +314,7 @@ public class ScheduleRunGateTests
                 activityRegistry: null, cacheScanGate: CacheScanGateHarness.With(snapshot));
             await registry.TriggerRunAsync(EvictionKey);
             var held = Assert.Single(tracker.GetWaitingOperations());
-            var notice = Assert.IsType<RunNotice>(held.Metadata);
+            var notice = Assert.IsType<RunNotice>(held.Notice);
             CacheScanGateHarness.MakeIdle(snapshot);
             var result = await service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None);
             Assert.False(result.RunFailed);
@@ -349,7 +351,7 @@ public class ScheduleRunGateTests
             await registry.TriggerRunAsync(EvictionKey);
             var waiting = Assert.Single(tracker.GetWaitingOperations());
             Assert.Empty(tracker.GetActiveOperations());
-            var notice = Assert.IsType<RunNotice>(waiting.Metadata);
+            var notice = Assert.IsType<RunNotice>(waiting.Notice);
             Assert.False(notice.ShowNotification);
             if (consumeFirst) Assert.True(service.TakePendingManualRun(out consumed));
             Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(waiting.Id));
@@ -387,7 +389,7 @@ public class ScheduleRunGateTests
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading(), tracker);
         await registry.TriggerRunAsync(EvictionKey);
         var held = Assert.Single(tracker.GetWaitingOperations());
-        var notice = Assert.IsType<RunNotice>(held.Metadata);
+        var notice = Assert.IsType<RunNotice>(held.Notice);
         Assert.Equal(held.Id, notice.OperationId);
         tracker.CancelOperation(held.Id);
         Assert.True(notice.Cancelled);
@@ -407,23 +409,16 @@ public class ScheduleRunGateTests
         service.SetNotificationMode(NotificationMode.Silent);
         var snapshot = new DownloadSpeedSnapshot();
         var tracker = CreateRealTracker();
-        var events = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((_, args) =>
-        {
-            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting)
-                lock (events) events.Add(waiting);
-            return Task.CompletedTask;
-        });
+        var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker, notifications);
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance), notifications,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
         var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () => throw new DownloadInProgressException("Downloading"), CancellationToken.None, notice: notice);
-        var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(tracker.GetOperation(queued.OperationId)!.Metadata);
-        Assert.Same(notice, values["runNotice"]);
+        Assert.Same(notice, tracker.GetOperation(queued.OperationId)!.Notice);
         CacheScanGateHarness.MakeBusy(snapshot);
         tracker.CompleteOperation(blocker, success: true);
         var holds = Assert.IsType<Dictionary<string, (Guid Id, RunNotice Notice)>>(
@@ -450,9 +445,10 @@ public class ScheduleRunGateTests
         var second = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: consumed);
         Assert.True(second.Queued);
-        var secondValues = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(tracker.GetOperation(second.OperationId)!.Metadata);
-        Assert.Same(notice, secondValues["runNotice"]);
-        lock (events) Assert.Single(events, waiting => waiting.Acknowledge == true);
+        Assert.Same(notice, tracker.GetOperation(second.OperationId)!.Notice);
+        // A silent run parked a second time is still one background row.
+        Assert.Equal(RunVisibility.Background,
+            Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == second.OperationId).Visibility);
     }
 
     [Fact]
@@ -463,19 +459,13 @@ public class ScheduleRunGateTests
         var snapshot = new DownloadSpeedSnapshot();
         CacheScanGateHarness.MakeBusy(snapshot);
         var tracker = CreateRealTracker();
-        var events = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((_, args) =>
-        {
-            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting) events.Add(waiting);
-            return Task.CompletedTask;
-        });
+        var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker, notifications);
         var controller = new ScheduleController(registry);
         var held = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
         Assert.Equal("skipped", held.Status);
-        Assert.False(held.ShowNotification);
-        Assert.True(Assert.Single(events).Silent);
-        Assert.Single(tracker.GetWaitingOperations());
+        var holdRun = Assert.Single(tracker.GetWaitingOperations());
+        Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == holdRun.Id).Visibility);
         Assert.False(service.HasPendingRun);
         var holds = Assert.IsType<Dictionary<string, (Guid Id, RunNotice Notice)>>(
             typeof(ServiceScheduleRegistry).GetField("_deferredRuns", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(registry));
@@ -483,7 +473,7 @@ public class ScheduleRunGateTests
         CacheScanGateHarness.MakeIdle(snapshot);
         service.SetNotificationMode(NotificationMode.All);
         var resumed = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
-        Assert.False(resumed.ShowNotification);
+        Assert.Equal("started", resumed.Status);
         Assert.True(service.TakePendingManualRun(out var consumed));
         Assert.Same(notice, consumed);
         await WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.Manual, CancellationToken.None, consumed));
@@ -491,36 +481,30 @@ public class ScheduleRunGateTests
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
         tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance), notifications,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
         Assert.True(queued.Queued);
-        Assert.Single(events, waiting => waiting.Acknowledge == true);
-        var json = JsonSerializer.Serialize(events[0], new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        using var document = JsonDocument.Parse(json);
-        Assert.True(document.RootElement.GetProperty("silent").GetBoolean());
-        Assert.Equal("evictionScan", document.RootElement.GetProperty("operationType").GetString());
-        Assert.Equal(events[0].OperationId, document.RootElement.GetProperty("operationId").GetGuid());
+        Assert.Same(notice, tracker.GetOperation(queued.OperationId)!.Notice);
+        // The schedule's mode changed after the hold, but the run keeps the notice it was admitted with.
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal("evictionScan", row.OperationType);
+        Assert.Equal(RunVisibility.Background, row.Visibility);
     }
 
     [Fact]
-    public async Task SilentManualHttpRequestAcknowledgesOnlyAnExecutingLoop()
+    public async Task SilentManualHttpRequestParksOnlyBehindExecutingLoop()
     {
         using var service = new RunGateProbeService(EvictionKey);
         service.SetNotificationMode(NotificationMode.Silent);
         var tracker = CreateRealTracker();
         tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
-        var events = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((_, args) =>
-        {
-            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting) events.Add(waiting);
-            return Task.CompletedTask;
-        });
+        var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker, notifications);
         var controller = new ScheduleController(registry);
         await controller.TriggerRunAsync(EvictionKey);
-        Assert.Empty(events);
+        Assert.Empty(tracker.GetWaitingOperations());
         Assert.True(service.TakePendingManualRun(out var first));
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -531,52 +515,46 @@ public class ScheduleRunGateTests
         {
             var response = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
             await controller.TriggerRunAsync(EvictionKey);
-            Assert.False(response.ShowNotification);
             Assert.True(response.AlreadyRunning);
-            Assert.True(Assert.Single(events, waiting => waiting.Acknowledge == true).Silent);
+            Assert.True(response.FollowUpQueued);
+            // Two clicks behind the running loop park one follow-up, a background row under Silent.
+            var parked = Assert.Single(tracker.GetWaitingOperations());
+            Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == parked.Id).Visibility);
             Assert.False(running.IsCompleted);
             Assert.True(service.TakePendingManualRun(out var followup));
             Assert.NotSame(first, followup);
             Assert.Same(first, service.CurrentRunNotice);
-            Assert.False(followup!.TryAcknowledge());
+            Assert.Same(followup, parked.Notice);
         }
         finally { release.TrySetResult(); await running; }
     }
 
     [Theory]
-    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, 0)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Startup, 0)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Manual, 1)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, 1)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Manual, 1)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Startup, RunVisibility.Background)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
     public async Task HeldRun_RetainsNoticeThroughReleaseAndASecondWait(
-        NotificationMode mode, RunTrigger trigger, int expected)
+        NotificationMode mode, RunTrigger trigger, RunVisibility visibility)
     {
         using var service = new RunGateProbeService(EvictionKey);
         service.SetNotificationMode(mode);
         var notice = new RunNotice(mode, trigger);
         service.SelectRunNotice(notice);
-        var announcements = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification waiting)
-            {
-                lock (announcements) announcements.Add(waiting);
-            }
-            return Task.CompletedTask;
-        });
+        var notifications = CreateDefaultProxy<ISignalRNotificationService>();
+        var holdTracker = CreateRealTracker();
         var previousGate = ScheduledServiceBase.ScheduleRunGate;
         var previousWait = ScheduledServiceBase.WaitForDownloadAnswer;
         try
         {
             _ = new ServiceScheduleRegistry([service], CacheScanGateHarness.VisibleClientsStateService(),
-                notifications, CreateRealTracker(), activityRegistry: null,
+                notifications, holdTracker, activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, trigger));
-            if (expected > 0) await WaitForCountAsync(announcements, expected);
-            lock (announcements) Assert.Single(announcements);
+            var held = Assert.Single(holdTracker.GetWaitingOperations());
+            Assert.Same(notice, held.Notice);
+            Assert.Equal(visibility, Assert.Single(holdTracker.GetRuns().Runs, run => run.OperationId == held.Id).Visibility);
             service.SetNotificationMode(NotificationMode.All);
             RaiseDownloadsEnded();
             Assert.Equal(trigger == RunTrigger.Manual, service.HasPendingRun);
@@ -594,10 +572,11 @@ public class ScheduleRunGateTests
                 tracker.RegisterOperation(OperationType.EvictionScan, "scan", new CancellationTokenSource());
                 var queue = new OperationQueueService(tracker,
                     new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-                    notifications, NullLogger<OperationQueueService>.Instance);
-                await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
+                    NullLogger<OperationQueueService>.Instance);
+                var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
                     () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
-                lock (announcements) Assert.Single(announcements, waiting => waiting.Acknowledge == true);
+                Assert.Equal(RunVisibility.Background,
+                    Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId).Visibility);
             }
         }
         finally
@@ -705,7 +684,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(EvictionKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (status, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.NotNull(skippedReason);
         Assert.False(status.IsRunning);
@@ -718,7 +697,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(EvictionKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Idle());
 
-        var (status, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.Null(skippedReason);
         Assert.False(status.IsRunning);
@@ -735,7 +714,7 @@ public class ScheduleRunGateTests
         using var cts = new CancellationTokenSource();
         tracker.RegisterOperation(OperationType.EvictionScan, EvictionKey, cts);
 
-        var (status, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (status, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
 
         Assert.Null(skippedReason);
         Assert.True(status.IsRunning);
@@ -824,7 +803,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(serviceKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (_, skippedReason, _, _, _) = await registry.TriggerRunAsync(serviceKey);
+        var (_, skippedReason, _) = await registry.TriggerRunAsync(serviceKey);
 
         Assert.Null(skippedReason);
         Assert.True(service.HasPendingRun);
@@ -839,7 +818,7 @@ public class ScheduleRunGateTests
         using var service = new RunGateProbeService(serviceKey);
         var registry = CreateRegistry(service, CacheScanGateHarness.Downloading());
 
-        var (_, skippedReason, _, _, _) = await registry.TriggerRunAsync(serviceKey);
+        var (_, skippedReason, _) = await registry.TriggerRunAsync(serviceKey);
 
         Assert.NotNull(skippedReason);
         Assert.False(service.HasPendingRun);
@@ -862,22 +841,7 @@ public class ScheduleRunGateTests
         snapshot.ClientSpeeds = [.. Enumerable.Range(0, downloadingClients)
             .Select(index => new ClientSpeedInfo { ClientIp = $"10.0.0.{index + 5}", BytesPerSecond = 1_000_000 })];
 
-        var cards = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification card)
-            {
-                lock (cards)
-                {
-                    cards.Add(card);
-                }
-            }
-
-            return Task.CompletedTask;
-        });
-
+        var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var tracker = CreateRealTracker();
         using var prefillCts = new CancellationTokenSource();
         tracker.RegisterOperation(OperationType.ScheduledPrefill, "Scheduled Prefill", prefillCts);
@@ -885,7 +849,7 @@ public class ScheduleRunGateTests
         var previous = ScheduledServiceBase.ScheduleRunGate;
         try
         {
-            var registry = new ServiceScheduleRegistry(
+            _ = new ServiceScheduleRegistry(
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 notifications,
@@ -895,12 +859,11 @@ public class ScheduleRunGateTests
 
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
 
-            var card = await WaitForOneAsync(cards);
-            Assert.Equal(expectNamed ? "Scheduled Prefill" : null, card.BlockedByName);
-
-            // The same answer the recovery route gives a card rebuilt after a page refresh, which
-            // the queue cannot answer for because a run held here is not one of its waiters.
-            Assert.Equal(card.BlockedByName, registry.GetHeldRunBlockerName(card.OperationId));
+            // The tracked row carries the name, which is what the card reads live and after a page
+            // refresh.
+            var held = Assert.Single(tracker.GetWaitingOperations());
+            Assert.Equal(expectNamed ? "Scheduled Prefill" : null, held.BlockedByName);
+            Assert.Equal(held.BlockedByName, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == held.Id).BlockedByName);
         }
         finally
         {
@@ -909,42 +872,13 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task SilentSchedule_IsHeldWithoutACardThatStaysAsync()
+    public void SilentSchedule_IsHeldAsABackgroundRow()
     {
-        // Silent asks this schedule to stay out of the way, so the run is still held but says so with
-        // the notice that clears itself rather than a card that sits in the bar until the download
-        // finishes.
+        // Silent asks this schedule to stay out of the way, so the run is still held but as a
+        // background row rather than a card that sits in the bar until the download finishes.
         using var service = new RunGateProbeService(EvictionKey);
         service.SetNotificationMode(NotificationMode.Silent);
-
-        var waiting = new List<OperationWaitingNotification>();
-        var skipped = new List<ScheduledRunCompleteEvent>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name != nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                return Task.CompletedTask;
-            }
-
-            if ((string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification card)
-            {
-                lock (waiting)
-                {
-                    waiting.Add(card);
-                }
-            }
-            else if ((string?)args?[0] == SignalREvents.EvictionScanComplete
-                && args[1] is ScheduledRunCompleteEvent complete)
-            {
-                lock (skipped)
-                {
-                    skipped.Add(complete);
-                }
-            }
-
-            return Task.CompletedTask;
-        });
+        var tracker = CreateRealTracker();
 
         var previous = ScheduledServiceBase.ScheduleRunGate;
         try
@@ -952,19 +886,18 @@ public class ScheduleRunGateTests
             _ = new ServiceScheduleRegistry(
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
-                notifications,
-                CreateRealTracker(),
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
 
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
 
-            var notice = await WaitForOneAsync(waiting);
-            Assert.True(notice.Silent);
-            Assert.Equal("Eviction Scan", notice.Name);
-            Assert.Empty(skipped);
+            var held = Assert.Single(tracker.GetWaitingOperations());
+            Assert.Equal("Eviction Scan", held.Name);
+            Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs).Visibility);
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
-            Assert.Single(waiting);
+            Assert.Single(tracker.GetRuns().Runs);
         }
         finally
         {
@@ -972,49 +905,11 @@ public class ScheduleRunGateTests
         }
     }
 
-    private static async Task<T> WaitForOneAsync<T>(List<T> items)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (DateTime.UtcNow < deadline)
-        {
-            lock (items)
-            {
-                if (items.Count > 0)
-                {
-                    return items[0];
-                }
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-        }
-
-        lock (items)
-        {
-            Assert.NotEmpty(items);
-            return items[0];
-        }
-    }
-
     [Fact]
-    public async Task HeldSchedule_ShowsOneWaitingCardPerDownloadAsync()
+    public void HeldSchedule_ShowsOneWaitingRowPerDownload()
     {
         using var service = new RunGateProbeService(EvictionKey);
-        var announcements = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification waiting)
-            {
-                lock (announcements)
-                {
-                    announcements.Add(waiting);
-                }
-            }
-
-            return Task.CompletedTask;
-        });
-
+        var tracker = CreateRealTracker();
         var snapshot = new DownloadSpeedSnapshot();
         var previous = ScheduledServiceBase.ScheduleRunGate;
         try
@@ -1022,34 +917,32 @@ public class ScheduleRunGateTests
             _ = new ServiceScheduleRegistry(
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
-                notifications,
-                CreateRealTracker(),
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.With(snapshot));
             var gate = ScheduledServiceBase.ScheduleRunGate!;
 
             CacheScanGateHarness.MakeBusy(snapshot);
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
-            await WaitForCountAsync(announcements, 1);
+            var first = Assert.Single(tracker.GetWaitingOperations()).Id;
 
             // Same download still running: the run is refused again, but it is already held and its
-            // card is already on screen, so no second card goes up.
+            // row is already listed, so no second row goes up.
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
-            await Task.Delay(TimeSpan.FromMilliseconds(250));
-            lock (announcements)
-            {
-                Assert.Single(announcements);
-            }
+            Assert.Equal(first, Assert.Single(tracker.GetWaitingOperations()).Id);
 
-            // Downloads stop, the held run starts and its card closes, so the next download is a new
-            // hold and a new card.
+            // Downloads stop and the held run is handed to its loop, so the next download is a new
+            // hold whose row takes over from the first.
             CacheScanGateHarness.MakeIdle(snapshot);
             Assert.Null(gate(EvictionKey, RunTrigger.Scheduled));
 
             CacheScanGateHarness.MakeBusy(snapshot);
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
-            await WaitForCountAsync(announcements, 2);
+            var second = Assert.Single(tracker.GetWaitingOperations());
+            Assert.NotEqual(first, second.Id);
+            Assert.Equal(first, second.PreviousOperationId);
         }
         finally
         {
@@ -1110,7 +1003,7 @@ public class ScheduleRunGateTests
         CacheScanGateHarness.MakeBusy(snapshot);
         var registry = CreateRegistry([service, asksLater], gate);
 
-        var (_, skippedReason, _, _, _) = await registry.TriggerRunAsync(EvictionKey);
+        var (_, skippedReason, _) = await registry.TriggerRunAsync(EvictionKey);
         Assert.NotNull(skippedReason);
         // The answer says the run is kept rather than telling the person to try again, which is what
         // the gate's own sentence does for the controllers.
@@ -1125,28 +1018,12 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task ManualRunRefusedWhileTheCardIsUp_AddsNoSecondCardAsync()
+    public void ManualRunRefusedWhileTheRowIsUp_AddsNoSecondRow()
     {
-        // This used to raise a second card for the click, because the first card dismissed itself and
-        // going quiet would have left the person with nothing. The card now stays up saying the run is
-        // held, so a click while it is showing needs no card of its own - it still gets the reason on
-        // the response it is waiting for.
+        // A click while the held run's row is showing needs no row of its own - it still gets the
+        // reason on the response it is waiting for.
         using var service = new RunGateProbeService(EvictionKey);
-        var announcements = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification waiting)
-            {
-                lock (announcements)
-                {
-                    announcements.Add(waiting);
-                }
-            }
-
-            return Task.CompletedTask;
-        });
+        var tracker = CreateRealTracker();
 
         var previous = ScheduledServiceBase.ScheduleRunGate;
         try
@@ -1154,23 +1031,19 @@ public class ScheduleRunGateTests
             _ = new ServiceScheduleRegistry(
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
-                notifications,
-                CreateRealTracker(),
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
             var gate = ScheduledServiceBase.ScheduleRunGate!;
 
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
-            await WaitForCountAsync(announcements, 1);
+            var held = Assert.Single(tracker.GetWaitingOperations()).Id;
 
-            // A second timer tick stays quiet, and so does the click: one hold, one card.
+            // A second timer tick adds nothing, and so does the click: one hold, one row.
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
             Assert.NotNull(gate(EvictionKey, RunTrigger.Manual));
-            await Task.Delay(TimeSpan.FromMilliseconds(250));
-            lock (announcements)
-            {
-                Assert.Single(announcements);
-            }
+            Assert.Equal(held, Assert.Single(tracker.GetRuns().Runs).OperationId);
         }
         finally
         {
@@ -1179,27 +1052,13 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task DownloadsEndingReleasesTheHold_WithoutWaitingForAScheduleToPollAsync()
+    public void DownloadsEndingReleasesTheHold_WithoutWaitingForAScheduleToPoll()
     {
         // The gap this covers: a run is held, downloads stop, another download starts, and no schedule
-        // asked the gate in between. The tracker sees that edge itself, so the held run is released and
-        // its card closed without anyone polling, leaving the next download free to hold it again.
+        // asked the gate in between. The tracker sees that edge itself, so the held run is released
+        // without anyone polling, leaving the next download free to hold it again.
         using var service = new RunGateProbeService(EvictionKey);
-        var announcements = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification waiting)
-            {
-                lock (announcements)
-                {
-                    announcements.Add(waiting);
-                }
-            }
-
-            return Task.CompletedTask;
-        });
+        var tracker = CreateRealTracker();
 
         var previous = ScheduledServiceBase.ScheduleRunGate;
         try
@@ -1207,21 +1066,23 @@ public class ScheduleRunGateTests
             _ = new ServiceScheduleRegistry(
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
-                notifications,
-                CreateRealTracker(),
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
             var gate = ScheduledServiceBase.ScheduleRunGate!;
 
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
-            await WaitForCountAsync(announcements, 1);
+            var first = Assert.Single(tracker.GetWaitingOperations()).Id;
 
             // Downloads end. Nothing asks the gate, which is exactly the case that used to stay
             // armed-out; the tracker's own edge is what re-arms it.
             RaiseDownloadsEnded();
 
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
-            await WaitForCountAsync(announcements, 2);
+            var second = Assert.Single(tracker.GetWaitingOperations());
+            Assert.NotEqual(first, second.Id);
+            Assert.Equal(first, second.PreviousOperationId);
         }
         finally
         {
@@ -1236,30 +1097,6 @@ public class ScheduleRunGateTests
             nameof(RustSpeedTrackerService.DownloadsEnded),
             BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
         ((Action?)field!.GetValue(null))?.Invoke();
-    }
-
-    // The tracker fires its terminal emit fire-and-forget, so a count is waited for rather than read.
-    private static async Task WaitForCountAsync<T>(List<T> announcements, int expected)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (DateTime.UtcNow < deadline)
-        {
-            lock (announcements)
-            {
-                if (announcements.Count >= expected)
-                {
-                    Assert.Equal(expected, announcements.Count);
-                    return;
-                }
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-        }
-
-        lock (announcements)
-        {
-            Assert.Equal(expected, announcements.Count);
-        }
     }
 
     [Fact]
@@ -1283,26 +1120,107 @@ public class ScheduleRunGateTests
         Assert.True(second.HasPendingRun);
     }
 
-    [Fact]
-    public async Task RefusedScheduledRun_PutsUpTheWaitingCardThatStaysAsync()
+    // Run All starts runs on a person's request but counts as automatic, so Manual only draws its
+    // runs as background rows. [67]
+    [Theory]
+    [InlineData(NotificationMode.All, true)]
+    [InlineData(NotificationMode.Manual, false)]
+    [InlineData(NotificationMode.Silent, false)]
+    public async Task RunAll_AdmitsItsRunsWithTheRunAllTrigger(NotificationMode mode, bool shown)
     {
-        // The card a run blocked by another heavy operation already gets from the queue. A run blocked
+        using var service = new RunGateProbeService(EvictionKey);
+        service.SetNotificationMode(mode);
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), CreateRealTracker());
+
+        await schedules.TriggerAllAsync();
+
+        Assert.True(service.TakePendingManualRun(out var admitted));
+        Assert.Equal(RunTrigger.RunAll, admitted!.Trigger);
+        Assert.Equal(mode, admitted.Mode);
+        Assert.Equal(shown, admitted.ShowNotification);
+    }
+
+    [Fact]
+    public async Task RunAllRunHeldForADownload_IsWokenAsAnImmediateRun()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), CreateRealTracker());
+
+        var (_, _, skippedCount, _, _) = await schedules.TriggerAllAsync();
+        Assert.Equal(1, skippedCount);
+        Assert.False(service.HasPendingRun);
+
+        CacheScanGateHarness.MakeIdle(snapshot);
+        RaiseDownloadsEnded();
+
+        Assert.False(service.TakePendingDeferredRun());
+        Assert.True(service.TakePendingManualRun(out var woken));
+        Assert.Equal(RunTrigger.RunAll, woken!.Trigger);
+    }
+
+    // A Run Now pressed while the schedule's Run All run is still pending makes that run the
+    // person's own, so under Manual only its waiting row is sent again as a card. [67]
+    [Fact]
+    public async Task RunNowAfterRunAll_TurnsThePendingRunIntoACard()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        service.SetNotificationMode(NotificationMode.Manual);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Work = () => { started.TrySetResult(); return release.Task; };
+        var running = WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var (_, _, _, _, followUps) = await schedules.TriggerAllAsync();
+            Assert.Equal(1, followUps);
+            var pending = Assert.Single(tracker.GetWaitingOperations());
+            Assert.Equal(RunTrigger.RunAll, pending.Notice!.Trigger);
+            var before = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == pending.Id);
+            Assert.Equal(RunVisibility.Background, before.Visibility);
+
+            await schedules.TriggerRunAsync(EvictionKey);
+
+            Assert.Equal(RunTrigger.Manual, pending.Notice.Trigger);
+            var after = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == pending.Id);
+            Assert.Equal(RunVisibility.Card, after.Visibility);
+            Assert.True(after.Revision > before.Revision);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await running;
+        }
+    }
+
+    // A schedule that takes no second run (scheduled prefill) refuses the extra Run Now, but the
+    // pending Run All run still becomes the person's own run. [103]
+    [Fact]
+    public void RunNowAfterRunAll_WithoutFollowUps_TurnsThePendingRunIntoACard()
+    {
+        using var service = new RunGateProbeService(EvictionKey, queueManualRuns: false);
+        service.SetNotificationMode(NotificationMode.Manual);
+        Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.Manual, RunTrigger.RunAll), out var first, out _));
+
+        Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.Manual, RunTrigger.Manual), out var retained, out _));
+
+        Assert.Same(first, retained);
+        Assert.Equal(RunTrigger.Manual, retained.Trigger);
+        Assert.True(retained.ShowNotification);
+    }
+
+    [Fact]
+    public void RefusedScheduledRun_PutsUpTheWaitingRowThatStays()
+    {
+        // The row a run blocked by another heavy operation already gets from the queue. A run blocked
         // by a download used to get a terminal one that dismissed itself after a few seconds, so the
         // person was left with nothing on screen saying the run was still coming.
         using var service = new RunGateProbeService(EvictionKey);
-        var sent = new TaskCompletionSource<OperationWaitingNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.OperationWaiting
-                && args[1] is OperationWaitingNotification waiting)
-            {
-                sent.TrySetResult(waiting);
-            }
-
-            return Task.CompletedTask;
-        });
+        var tracker = CreateRealTracker();
 
         var previous = ScheduledServiceBase.ScheduleRunGate;
         try
@@ -1312,15 +1230,16 @@ public class ScheduleRunGateTests
             _ = new ServiceScheduleRegistry(
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
-                notifications,
-                CreateRealTracker(),
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
 
             var reason = ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled);
 
             Assert.NotNull(reason);
-            var waiting = await sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var waiting = Assert.Single(tracker.GetRuns().Runs);
+            Assert.Equal("waiting", waiting.Status);
             Assert.Equal(OperationType.EvictionScan.ToWireString(), waiting.OperationType);
             // The name the card reads. The schedule key would render the card as "cacheReconciliation:
             // waiting for ...", which is not what the schedule is called anywhere a person looks.
@@ -1338,23 +1257,20 @@ public class ScheduleRunGateTests
     [Fact]
     public async Task RefusalAtPromotion_CompletesAsSkippedRatherThanFailedAsync()
     {
-        var (status, waitingComplete) =
+        var (status, row) =
             await PromoteWithStartFailureAsync(new DownloadInProgressException(DownloadReason));
 
         Assert.Equal(OperationStatus.Skipped, status.Status);
-        // The operation record keeps the reason, which is what the logs and the history read. The
-        // card is the surface that must not show it, and the assertion below is where that is
-        // pinned: a null startError would send this decline into the transient retry path instead.
+        // The operation record keeps the reason, which is what the logs and the history read. A
+        // null startError would send this decline into the transient retry path instead.
         Assert.Equal(DownloadReason, status.Message);
 
-        // The waiting card must be told the run was declined, not that something took it over.
-        // Promoted removes the card without reading the reason, so the two cannot both be true.
-        Assert.NotNull(waitingComplete);
-        Assert.True(waitingComplete!.Skipped);
-        Assert.False(waitingComplete.Promoted);
-        // The card carries no reason text: this field is rendered verbatim, so the gate's English
-        // would reach every locale untranslated. The card says why in its own words instead.
-        Assert.Null(waitingComplete.Error);
+        // The waiting row ends declined, not handed to something that took it over.
+        Assert.Equal("skipped", row.Status);
+        Assert.Null(row.NextOperationId);
+        // The row carries no error text for a skip: the gate's English would reach every locale
+        // untranslated. The card says why in its own words instead.
+        Assert.Null(row.Error);
     }
 
     [Fact]
@@ -1399,7 +1315,6 @@ public class ScheduleRunGateTests
             var queue = new OperationQueueService(
                 tracker,
                 new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-                CreateDefaultProxy<ISignalRNotificationService>(),
                 NullLogger<OperationQueueService>.Instance);
 
             var refused = await Assert.ThrowsAsync<DownloadInProgressException>(
@@ -1461,7 +1376,6 @@ public class ScheduleRunGateTests
             var queue = new OperationQueueService(
                 tracker,
                 new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-                CreateDefaultProxy<ISignalRNotificationService>(),
                 NullLogger<OperationQueueService>.Instance);
 
             await Assert.ThrowsAsync<DownloadInProgressException>(
@@ -1476,7 +1390,10 @@ public class ScheduleRunGateTests
             var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(OperationStatus.Skipped, terminal.Status);
             Assert.Null(terminal.Error);
-            Assert.True(terminal.ShowNotification);
+            // A refusal with no notice of its own is a full card, and its skip is kept.
+            var declined = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == terminal.OperationId);
+            Assert.Equal(RunVisibility.Card, declined.Visibility);
+            Assert.True(declined.Retained);
         }
         finally
         {
@@ -1499,40 +1416,28 @@ public class ScheduleRunGateTests
         // A write-permission re-check on a wrong PUID or PGID, and a datasource that cannot map
         // logical objects, both throw the base ValidationException at promotion. Reporting those as
         // skips would leave a misconfigured install doing nothing and saying nothing.
-        var (status, waitingComplete) =
+        var (status, row) =
             await PromoteWithStartFailureAsync(new ValidationException("Cannot write to the cache directory"));
 
         Assert.Equal(OperationStatus.Failed, status.Status);
         Assert.Equal("Cannot write to the cache directory", status.Message);
-        Assert.NotNull(waitingComplete);
-        Assert.False(waitingComplete!.Skipped);
-        Assert.False(waitingComplete.Promoted);
+        Assert.Equal("failed", row.Status);
+        Assert.Null(row.NextOperationId);
     }
 
     /// <summary>
     /// Parks a request behind a live operation, then finishes the blocker so the queue promotes the
     /// waiter and its start delegate throws <paramref name="startFailure"/>. Returns the waiting
-    /// operation's terminal state.
+    /// operation's terminal state and its row.
     /// </summary>
-    private static async Task<(OperationInfo Status, OperationWaitingCompleteNotification? WaitingComplete)>
+    private static async Task<(OperationInfo Status, OperationRun Row)>
         PromoteWithStartFailureAsync(Exception startFailure)
     {
         var tracker = CreateRealTracker();
         var conflictChecker = new OperationConflictChecker(
             tracker, NullLogger<OperationConflictChecker>.Instance);
-        OperationWaitingCompleteNotification? waitingComplete = null;
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && args?[1] is OperationWaitingCompleteNotification complete)
-            {
-                Volatile.Write(ref waitingComplete, complete);
-            }
-
-            return Task.CompletedTask;
-        });
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications,
+            tracker, conflictChecker,
             NullLogger<OperationQueueService>.Instance);
 
         using var blockerCts = new CancellationTokenSource();
@@ -1553,9 +1458,9 @@ public class ScheduleRunGateTests
         while (DateTime.UtcNow < deadline)
         {
             var waiting = tracker.GetOperation(queued.OperationId);
-            if (waiting is not null && waiting.Status.IsTerminal() && Volatile.Read(ref waitingComplete) is not null)
+            if (waiting is not null && waiting.Status.IsTerminal())
             {
-                return (waiting, Volatile.Read(ref waitingComplete));
+                return (waiting, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId));
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(25));
@@ -1597,7 +1502,9 @@ public class ScheduleRunGateTests
 
         Assert.Equal(OperationStatus.Skipped, tracker.GetOperation(explained)!.Status);
         Assert.Equal(DownloadReason, tracker.GetOperation(explained)!.Message);
-        Assert.Equal("Operation skipped - nothing to do", tracker.GetOperation(bare)!.Message);
+        // A skip with no reason stores the translated nothing-to-do key, so a reloaded card reads the
+        // same words in the reader's language. [105]
+        Assert.Equal(ScheduledRunReporter.NothingToDoStageKey, tracker.GetOperation(bare)!.Message);
     }
 
     private static Func<string, RunTrigger, string?> DeclineOnly(string serviceKey)

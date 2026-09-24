@@ -8,6 +8,8 @@ import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { Users, ArrowDown } from 'lucide-react';
 import type { ClientStat } from '@/types';
 
@@ -87,6 +89,9 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
   ({ clientStats = [], badge, glassmorphism = false, loading = false }) => {
     const { t } = useTranslation();
+    // The rows arrive as a prop; whether their section failed, and why, lives in the dashboard data.
+    const { failedSections, error, refreshStats } = useStats();
+    const loadError = failedSections.clients ? error : null;
     const [sortBy, setSortBy] = useState<SortOption>('total');
 
     const sortedClients = useMemo(() => {
@@ -173,6 +178,17 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
           </div>
         </div>
 
+        {loadError !== null && (
+          <div className="mb-4">
+            <ErrorBlock
+              title={t('dashboard.topClients.loadFailed')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void refreshStats(true)}
+            />
+          </div>
+        )}
+
         {loading ? (
           <div className="well-surface dash-well">
             <div className="overflow-x-auto">
@@ -225,7 +241,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               </p>
             )}
           </>
-        ) : (
+        ) : loadError !== null ? null : (
           <div className="well-surface dash-well p-3">
             <EmptyState
               variant="panel"

@@ -110,7 +110,8 @@ public class SteamAuthController : ControllerBase
                 if (request.AutoStartPicsRebuild)
                 {
                     _logger.LogInformation("Auto-starting PICS depot mapping rebuild after login");
-                    _steamKit2Service.TryStartRebuild();
+                    _steamKit2Service.TryStartRebuild(
+                        notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
                 }
 
                 return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username, result.OperationId, result.AttemptId, result.ExpiresAtUtc));

@@ -26,6 +26,23 @@ public class PrefillAbandonedLoginGateTests
         };
     }
 
+    [Theory]
+    [InlineData(DaemonAuthState.UsernameRequired)]
+    [InlineData(DaemonAuthState.PasswordRequired)]
+    [InlineData(DaemonAuthState.TwoFactorRequired)]
+    [InlineData(DaemonAuthState.SteamGuardRequired)]
+    [InlineData(DaemonAuthState.DeviceConfirmationRequired)]
+    [InlineData(DaemonAuthState.AuthorizationUrlRequired)]
+    public void ShouldCancelAbandonedLogin_ReturnsTrue_WhenAPromptWentUnansweredPastItsDeadline(DaemonAuthState prompt)
+    {
+        // A challenge moves the session to its prompt state, so a person who closed the tab at a
+        // prompt leaves the session there, not in LoggingIn.
+        var nowUtc = DateTime.UtcNow;
+        var session = MakeLoggingInSession(loginExpiresAtUtc: nowUtc - TimeSpan.FromSeconds(1), authState: prompt);
+
+        Assert.True(PrefillSessionExpiryGates.ShouldCancelAbandonedLogin(session, nowUtc));
+    }
+
     [Fact]
     public void ShouldCancelAbandonedLogin_ReturnsFalse_WhenNoDeadlineIsTracked()
     {

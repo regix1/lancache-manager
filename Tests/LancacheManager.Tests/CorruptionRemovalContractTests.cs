@@ -815,7 +815,7 @@ public sealed class CorruptionRemovalContractTests
                 DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), capability, CacheScanGateHarness.Idle());
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, state, CacheScanGateHarness.Idle());
+                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, state, CacheScanGateHarness.Idle(), null!);
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)

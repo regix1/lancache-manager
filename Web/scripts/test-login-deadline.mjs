@@ -46,13 +46,16 @@ const aliases = {
     'const n={addNotification:()=>"card",removeNotification(){}};export const useNotifications=()=>n;'
   ),
   './useErrorHandler': moduleUrl(
-    'const n={notifyError(){},notifySuccess(){}};export const useErrorHandler=()=>n;export const useNotifySuccess=()=>n;'
+    'const n={notifyError(...args){globalThis.loginTest.notified?.push(args);},notifySuccess(){}};export const useErrorHandler=()=>n;export const useNotifySuccess=()=>n;'
   ),
   '@utils/error': moduleUrl('export const getErrorMessage=error=>error.message;'),
   './loginAttemptTimeout': timeoutUrl,
   './authStage': authStageUrl,
   '@components/features/prefill/hooks/prefillConstants': moduleUrl(
     'export const getEventName=name=>name;'
+  ),
+  '@components/features/prefill/hooks/prefillServiceConfig': moduleUrl(
+    'export const prefillServiceConfig=id=>({serviceNameKey:`prefill.persistent.services.${id}`});'
   )
 };
 const compileGuest = async (source) => {
@@ -642,6 +645,26 @@ test('guest Steam credentials stay pending through same-stage and empty challeng
     assert.equal(flow.calls.filter(([name]) => name === 'ProvideCredentialAsync').length, 2);
     await auth.actions.handleAuthenticate();
     assert.equal(flow.calls.filter(([name]) => name === 'ProvideCredentialAsync').length, 2);
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('a failed guest sign-in raises one popup titled for its platform with the reason below', async () => {
+  const flow = guest(useGuest, 'steam');
+  globalThis.loginTest.notified = [];
+  try {
+    const failure = new Error('Hub down');
+    flow.reply = challenge('username', 'username');
+    flow.provide = async () => {
+      throw failure;
+    };
+    await flow.start();
+
+    assert.equal(globalThis.loginTest.notified.length, 1);
+    assert.equal(globalThis.loginTest.notified[0][0], 'common.errors.signInFailed');
+    assert.equal(globalThis.loginTest.notified[0][1], failure);
+    assert.deepEqual(flow.outcomes.errors, ['Hub down']);
   } finally {
     flow.unmount();
   }

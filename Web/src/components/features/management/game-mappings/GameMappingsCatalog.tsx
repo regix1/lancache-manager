@@ -6,6 +6,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { SearchInput } from '@components/ui/SearchInput';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { SectionErrorChip } from '@components/ui/SectionHeaderActions';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -119,8 +120,12 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
   const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
   useAccordionGroupItem(accordionId, expanded, toggleExpanded);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const catalogRequestRef = useRef(0);
 
   const loadData = useCallback(async () => {
+    // Shares the search's counter: whole-catalog reads and searches both write the rows, so only
+    // the newest of either kind may.
+    const request = ++catalogRequestRef.current;
     // Mock mode has no mapping catalog behind it, so the list empties rather than showing the real
     // one a live session had already loaded.
     if (mockMode) {
@@ -132,9 +137,11 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
     try {
       setError(null);
       const [mappingsData, statsData] = await Promise.all([loadMappings(), loadStats()]);
+      if (request !== catalogRequestRef.current) return;
       setMappings(mappingsData);
       setStats(statsData);
     } catch (err) {
+      if (request !== catalogRequestRef.current) return;
       setError(getErrorMessage(err));
     }
   }, [mockMode, loadMappings, loadStats]);
@@ -143,22 +150,9 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
     loadData();
   }, [loadData]);
 
-  // Listen for SignalR updates
-  useEffect(() => {
-    const handleUpdate = () => {
-      loadData();
-    };
-
-    on(updateEvent, handleUpdate);
-    return () => {
-      off(updateEvent, handleUpdate);
-    };
-  }, [on, off, updateEvent, loadData]);
-
-  // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useReconnectRefetch(isConnected, loadData);
-
   const handleSearch = (value: string) => {
+    // Every keystroke retires the reads before it, so only the query in the box writes.
+    const request = ++catalogRequestRef.current;
     setSearchQuery(value);
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
@@ -167,16 +161,45 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
     if (value.length >= 2) {
       searchTimeoutRef.current = setTimeout(async () => {
         try {
-          const results = await searchMappings(value);
+          // The header counts the whole library, and a hub or reconnect refresh during a search
+          // comes through here, so the count is read with the rows.
+          const [results, libraryStats] = await Promise.all([searchMappings(value), loadStats()]);
+          if (request !== catalogRequestRef.current) return;
           setMappings(results);
-        } catch {
-          // Silently fail search, keep current results
+          setStats(libraryStats);
+          setError(null);
+        } catch (err) {
+          if (request !== catalogRequestRef.current) return;
+          // The rows on screen answered an earlier query, not this one.
+          setMappings([]);
+          setError(getErrorMessage(err));
         }
       }, 300);
     } else if (value.length < 2) {
       loadData();
     }
   };
+
+  // Hub updates and reconnects refresh what is on screen: the search in the box, or the whole
+  // catalog when the box is empty. The hub handler reads the latest query through a ref, so the
+  // subscription does not change with every keystroke.
+  const refreshCatalog = () => handleSearch(searchQuery);
+  const refreshCatalogRef = useRef(refreshCatalog);
+  refreshCatalogRef.current = refreshCatalog;
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      refreshCatalogRef.current();
+    };
+
+    on(updateEvent, handleUpdate);
+    return () => {
+      off(updateEvent, handleUpdate);
+    };
+  }, [on, off, updateEvent]);
+
+  // Changes missed while the socket was down are only fetched by a reconnect.
+  useReconnectRefetch(isConnected, refreshCatalog);
 
   // Define columns for DataTable (resizable with pixel defaults)
   const columns: DataTableColumn<TMapping>[] = useMemo(() => {
@@ -277,6 +300,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
       isExpanded={expanded}
       onToggle={toggleExpanded}
       surface="well"
+      badge={error !== null && !expanded ? <SectionErrorChip /> : undefined}
     >
       <div className="space-y-3">
         {/* Description */}
@@ -292,7 +316,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
             title={loadErrorMessage}
             message={error}
             retryLabel={t('common.retry')}
-            onRetry={() => void loadData()}
+            onRetry={() => handleSearch(searchQuery)}
           />
         )}
 
@@ -314,7 +338,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
 
             {/* DataTable */}
             {mappings.length === 0 ? (
-              <EmptyState variant="text" title={t(labels.noResults)} />
+              error === null && <EmptyState variant="text" title={t(labels.noResults)} />
             ) : (
               <DataTable<TMapping>
                 columns={columns}

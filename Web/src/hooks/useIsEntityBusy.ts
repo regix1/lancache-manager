@@ -9,7 +9,7 @@ export function useIsEntityBusy(
   identifier: EntityIdentifier,
   kinds: NotificationType[] = DEFAULT_KINDS
 ): boolean {
-  const { notifications } = useNotifications();
+  const { runs } = useNotifications();
 
   const identifierKind = identifier.kind;
   const gameAppId = identifier.kind === 'steamGame' ? identifier.gameAppId : undefined;
@@ -24,23 +24,31 @@ export function useIsEntityBusy(
       : undefined;
 
   return useMemo(() => {
-    return notifications.some((n) => {
-      if (!kinds.includes(n.type) || n.status !== 'running') return false;
+    return runs.some((n) => {
+      // A cancelling removal still owns its entity until it unwinds. A waiting one carries no
+      // game or service yet (its record holds only the queue's park state), so it never matches.
+      if (!kinds.includes(n.type) || (n.status !== 'running' && n.status !== 'cancelling')) {
+        return false;
+      }
       if (identifierKind === 'steamGame') return n.details?.gameAppId === gameAppId;
       if (identifierKind === 'epicGame') {
         if (epicAppId !== undefined && n.details?.epicAppId !== undefined) {
           return n.details.epicAppId === epicAppId;
         }
-        if (gameName !== undefined) return n.details?.gameName === gameName;
+        // By name only an Epic run counts: an Xbox or Battle.net game can carry the same name.
+        if (gameName !== undefined)
+          return n.details?.service === 'epicgames' && n.details.gameName === gameName;
         return false;
       }
-      // Named removal notifications carry both `service` and `gameName` in details
-      // (see runTrackedGameRemoval). Match on both so a named game does not light up
-      // for a same-named service_removal, and two named games never collide.
+      // A named game's removal names its service; a Steam removal names none, so neither a
+      // same-named game on another service nor a same-named Steam game matches.
       if (identifierKind === 'namedGame') {
-        return n.details?.service === service && n.details?.gameName === gameName;
+        return n.details?.gameName === gameName && n.details?.service === service;
       }
-      return n.details?.service === service;
+      // A service card is busy only for a run over the whole service, one that names no game.
+      return (
+        n.details?.service === service && !n.details?.gameName && n.details?.epicAppId === undefined
+      );
     });
-  }, [notifications, kinds, identifierKind, gameAppId, epicAppId, gameName, service]);
+  }, [runs, kinds, identifierKind, gameAppId, epicAppId, gameName, service]);
 }

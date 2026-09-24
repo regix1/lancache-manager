@@ -8,9 +8,10 @@ import { useErrorHandler } from './useErrorHandler';
  * Shape of the finalize callback invoked once the queue settles. The caller
  * uses this to transition its bulk notification into a terminal state:
  *
- *  - Cancelled flows should flip `status: 'completed'` with
- *    `details: { cancelled: true, cancelling: false }` so
- *    `UniversalNotificationBar` renders the neutral gray X-circle auto-dismiss.
+ *  - Cancelled flows should flip `status: 'cancelled'` with
+ *    `details.cancelled: true`, keeping the card's other details; the card
+ *    then follows the run ending rules. A batch holding a failure that never
+ *    reached the server ends `failed` instead, so that failure stays.
  *  - Successful flows should update progress to 100 and swap the message.
  *  - Failures should flip `status: 'failed'` with a user-facing `error`.
  */
@@ -26,10 +27,8 @@ interface BatchQueueFinalizeArgs {
  * Per-item context threaded through `processItem`. Exposes:
  *   - `setOperationId` - tells the hook the current in-flight opId so the
  *     cascade effect can cancel it server-side when the user clicks the X
- *     on the bulk notification. Call this as soon as the opId is known
- *     (directly after `await ApiService.removeX(...)` for opId-in-body
- *     APIs; from within the `onStartedCapture` callback for 202+Started).
- *   - `requestId` - fresh id per iteration; pass to `waitForSignalRCompletion`.
+ *     on the bulk notification. Call this as soon as the opId is known,
+ *     directly after `await ApiService.removeX(...)`.
  */
 interface BatchQueueItemContext {
   setOperationId: (opId: string | null) => void;
@@ -40,7 +39,6 @@ interface BatchQueueItemContext {
    * failed item - cancellation is a terminal state of its own, not a failure.
    */
   cancelRun: () => void;
-  requestId: string;
 }
 
 interface BatchQueueRunArgs<TItem> {
@@ -126,7 +124,7 @@ interface UseBatchQueueResult<TItem> {
  * effect below picks up that flag and cancels the live run.
  */
 export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQueueResult<TItem> {
-  const { notifications, scheduleAutoDismiss, updateNotification } = useNotifications();
+  const { notifications, updateNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const onSettled = options?.onSettled;
 
@@ -192,15 +190,20 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
   // or this write drops `itemTypes` and blinds that handler. The function form reads the card
   // React is about to update: the X button's `details.cancelling = true` is committed at the end
   // of the click, and a snapshot taken any earlier would spread a pre-cancel copy back over it.
+  // Every id the batch owns is also kept in `itemOperationIds`, never removed, so an item's kept
+  // failure stays inside this card after the batch has moved on. `failedWithoutRun` marks an item
+  // that failed with no run of this batch's own: that failure can be closed only on this card.
   const setCardOperationId = useCallback(
-    (opId: string | null, requestPending: boolean) => {
+    (opId: string | null, requestPending: boolean, failedWithoutRun = false) => {
       const activeId = bulkNotifIdRef.current;
       if (!activeId) return;
       updateNotification(activeId, (card) => ({
         details: {
           ...card.details,
           currentOperationId: opId ?? undefined,
-          itemRequestPending: requestPending
+          itemRequestPending: requestPending,
+          ...(opId ? { itemOperationIds: [...(card.details?.itemOperationIds ?? []), opId] } : {}),
+          ...(failedWithoutRun ? { failedWithoutRun: true } : {})
         }
       }));
     },
@@ -279,11 +282,6 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
           currentItemRef.current = item;
           onItemStart?.(item, index + 1, total, notifId);
 
-          const requestId =
-            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? crypto.randomUUID()
-              : `req-${Date.now()}-${index}`;
-
           // The queue announces a parked operation from inside the item's request, so that push can
           // reach the card before the response does. Saying a request is out for this item is what
           // lets the wait-queue handler tell that race apart from the batch simply having no id -
@@ -309,10 +307,10 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
               // Drop it first and the cancel below reaches nothing, which is the honest outcome.
               currentItemOperationIdRef.current = null;
               triggerCancel();
-            },
-            requestId
+            }
           };
 
+          let failedWithoutRun = false;
           try {
             await processItem(item, ctx);
             if (wasCancelled()) {
@@ -327,25 +325,22 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
             }
             failed += 1;
             lastError = err instanceof Error ? err : new Error(String(err));
+            // Read before the finally clears it: no id means the request failed before the server
+            // answered with one, or the item joined a removal this batch does not own.
+            failedWithoutRun = currentItemOperationIdRef.current === null;
             // Intentionally continue the queue - a single failure must not
             // abort the rest (mirrors the pre-refactor behaviour).
           } finally {
             currentItemOperationIdRef.current = null;
-            setCardOperationId(null, false);
+            setCardOperationId(null, false, failedWithoutRun);
             currentItemRef.current = null;
           }
         }
 
         // Finalize hook - callers transition the notification to its terminal
-        // state here (see BatchQueueFinalizeArgs docs).
+        // state here (see BatchQueueFinalizeArgs docs). The notification store
+        // decides when the card leaves.
         finalize({ id: notifId, succeeded, failed, cancelled, total });
-
-        // Registry-driven notifications get auto-dismiss scheduled by their
-        // handler factory when they transition to a terminal state. The
-        // bulk_removal notification this hook manages is NOT registry-driven,
-        // so we must schedule auto-dismiss ourselves - otherwise the "Bulk
-        // removal cancelled/completed" toast lingers indefinitely.
-        scheduleAutoDismiss(notifId);
 
         setState({
           status: lastError && !cancelled ? 'error' : 'done',
@@ -358,7 +353,7 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
         onSettled?.();
       }
     },
-    [cancelItemOperation, onSettled, scheduleAutoDismiss, setCardOperationId, triggerCancel]
+    [cancelItemOperation, onSettled, setCardOperationId, triggerCancel]
   );
 
   return { run, state };

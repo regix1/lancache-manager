@@ -32,7 +32,11 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { ThemeCard } from './ThemeCard';
 import { ThemeSlider } from './ThemeSlider';
@@ -40,7 +44,9 @@ import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { useManagerLoading } from '@hooks/useManagerLoading';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useThemePreview } from '@hooks/useThemePreview';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
@@ -113,6 +119,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const themesRequestRef = useRef(0);
 
   // Get theme preference from SessionPreferencesContext
   const { currentPreferences, setOptimisticPreference } = useSessionPreferences();
@@ -143,20 +150,29 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   // Handler Functions
   const loadThemes = useCallback(async () => {
+    // Mount, reconnect, the reloads after each action and Retry can overlap; only the newest
+    // request writes the list, the error or the loading state.
+    const request = ++themesRequestRef.current;
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await themeService.loadThemes();
+      const { themes: data, loadError: themesError } = await themeService.loadThemes();
+      if (request !== themesRequestRef.current) return;
       setThemes(data);
+      setLoadError(themesError);
     } catch (error) {
+      if (request !== themesRequestRef.current) return;
       setLoadError(getErrorMessage(error));
-      notifyError(t('management.themes.notifications.loadFailed'), error, {
-        logLabel: 'Error loading themes:'
-      });
     } finally {
-      setLoading(false);
+      if (request === themesRequestRef.current) {
+        setLoading(false);
+      }
     }
-  }, [notifyError, setLoading, t]);
+  }, [setLoading]);
+
+  const { isConnected } = useSignalR();
+  // A list that failed while the connection was down reloads once it is back
+  useReconnectRefetch(isConnected, () => void loadThemes());
 
   // Reports whether the choice actually stuck. The slider needs the answer: it has to stay on the
   // stop it was on when a save fails, or the next release of that same stop is read as a repeat
@@ -412,9 +428,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       );
 
       // Handle 404 gracefully - theme might already be deleted
-      if (!response.ok && response.status !== 404) {
-        throw new Error('Failed to delete theme');
-      }
+      if (response.status !== 404) await assertOk(response);
 
       if (currentTheme === themePendingDeletion.id) {
         await themeService.setTheme('dark-default');
@@ -428,12 +442,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       await loadThemes();
       setThemePendingDeletion(null);
     } catch (error) {
-      console.error('Error deleting theme:', error);
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.themes.notifications.deleteFailed'),
-        details: { notificationType: 'error' }
+      notifyError(t('management.themes.notifications.deleteFailed'), error, {
+        logLabel: 'Error deleting theme:'
       });
     } finally {
       setLoading(false);
@@ -533,12 +543,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       notifySuccess(t('management.themes.notifications.uploadSuccess'));
       await loadThemes();
     } catch (error: unknown) {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: getErrorMessage(error),
-        details: { notificationType: 'error' }
-      });
+      notifyError(t('management.themes.notifications.uploadFailed'), error);
     } finally {
       setLoading(false);
     }
@@ -643,6 +648,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   const themeManagementActions = (
     <SectionHeaderActions>
+      {loadError !== null && !themeManagementExpanded && <SectionErrorChip />}
       {previewTheme && authService.authMode !== 'guest' && (
         <SectionHeaderChip variant="warning">
           {t('management.themes.previewBadge')}
@@ -1053,7 +1059,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             components={{ strong: <strong /> }}
           />
         </p>
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('modals.theme.delete.warning')}</p>
         </Alert>
       </ConfirmationModal>
@@ -1073,7 +1079,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             components={{ strong: <strong /> }}
           />
         </p>
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('modals.theme.delete.warning')}</p>
         </Alert>
       </ConfirmationModal>

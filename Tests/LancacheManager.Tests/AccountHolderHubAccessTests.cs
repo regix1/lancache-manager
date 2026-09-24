@@ -366,6 +366,62 @@ public sealed class AccountHolderHubAccessTests
             () => connection.Hub.SubscribeToSessionAsync("guest-owned-persistent"));
     }
 
+    // Pins the ownership check on every hub method a guest with a grant can use to stop a prefill.
+    [Theory]
+    [InlineData(nameof(SteamDaemonHub.CancelPrefillAsync))]
+    [InlineData(nameof(SteamDaemonHub.CancelPrefillRunAsync))]
+    [InlineData(nameof(SteamDaemonHub.CancelLoginAsync))]
+    [InlineData(nameof(SteamDaemonHub.EndSessionAsync))]
+    public async Task AGrantedGuestCannotControlAnotherSessionsPrefill(string method)
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var scope = host.Application.Services.CreateScope();
+
+        var guestRequest = await SessionCookieAsync(host, scope, SessionType.Guest, GrantSteamPrefill);
+        var guestSession = await scope.ServiceProvider.GetRequiredService<SessionService>()
+            .ValidateSessionAsync(SessionService.TokenFromCookie(guestRequest)!);
+        Assert.NotNull(guestSession);
+
+        var daemon = new TestableSteamDaemonService(
+            NullLogger<SteamDaemonService>.Instance,
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            host.Application.Services.GetRequiredService<IConfiguration>(),
+            host.Application.Services.GetRequiredService<IPathResolver>(),
+            host.Application.Services.GetRequiredService<IStateService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillSessionService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillCacheService>(),
+            host.Application.Services.GetRequiredService<IOptionsMonitor<PrefillNetworkOptions>>());
+        var runId = Guid.NewGuid();
+        foreach (var (sessionId, owner) in new[] { ("another-sessions-prefill", Guid.NewGuid()), ("own-prefill", guestSession!.Id) })
+        {
+            daemon.InjectSession(new DaemonSession
+            {
+                Id = sessionId,
+                UserId = owner,
+                IsTemporary = true,
+                PrefillRunId = runId,
+                Status = DaemonSessionStatus.Active,
+                Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
+            });
+        }
+
+        var connection = await ConnectToSteamDaemonHubAsync(host, scope, guestRequest, daemon);
+        Func<string, Task> call = method switch
+        {
+            nameof(SteamDaemonHub.CancelPrefillAsync) => connection.Hub.CancelPrefillAsync,
+            nameof(SteamDaemonHub.CancelPrefillRunAsync) => sessionId => connection.Hub.CancelPrefillRunAsync(sessionId, runId),
+            nameof(SteamDaemonHub.CancelLoginAsync) => connection.Hub.CancelLoginAsync,
+            nameof(SteamDaemonHub.EndSessionAsync) => connection.Hub.EndSessionAsync,
+            _ => throw new ArgumentOutOfRangeException(nameof(method), method, null)
+        };
+
+        var refused = await Assert.ThrowsAsync<HubException>(() => call("another-sessions-prefill"));
+        Assert.Equal("Access denied", refused.Message);
+        await call("own-prefill");
+    }
+
     private static void GrantSteamPrefill(UserSession session)
         => session.SteamPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(1);
 

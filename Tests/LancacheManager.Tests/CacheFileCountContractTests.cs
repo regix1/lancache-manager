@@ -287,17 +287,17 @@ public sealed partial class CacheFileCountContractTests
         var first = tracker.RegisterOperation(OperationType.CacheSizeScan, "first", new CancellationTokenSource());
         owner.SetValue(service, first);
         await (Task)report.Invoke(service, [first, JsonSerializer.Deserialize(
-            """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":20,"totalFiles":2}""", progressType), true, false])!;
+            """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":20,"totalFiles":2}""", progressType)])!;
         Assert.Equal(2L, service.CurrentCacheSizeScanProgressContext!["totalFiles"]);
         tracker.CompleteOperation(first, false, cancelled: true);
         var next = tracker.RegisterOperation(OperationType.CacheSizeScan, "next", new CancellationTokenSource());
         owner.SetValue(service, next);
         await (Task)report.Invoke(service, [next, JsonSerializer.Deserialize(
-            """{"stageKey":"signalr.cacheSizeScan.starting","percentComplete":10,"totalFiles":7}""", progressType), false, false])!;
+            """{"stageKey":"signalr.cacheSizeScan.starting","percentComplete":10,"totalFiles":7}""", progressType)])!;
         var current = service.CurrentCacheSizeScanProgressContext;
         var count = notifications.Events.Count;
         await (Task)report.Invoke(service, [first, JsonSerializer.Deserialize(
-            """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":99,"totalFiles":99}""", progressType), true, false])!;
+            """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":99,"totalFiles":99}""", progressType)])!;
         Assert.Same(current, service.CurrentCacheSizeScanProgressContext);
         Assert.Equal(7L, current!["totalFiles"]);
         Assert.Equal(count, notifications.Events.Count);

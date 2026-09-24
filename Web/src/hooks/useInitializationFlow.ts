@@ -491,10 +491,13 @@ export function useInitializationFlow({
         await checkPicsDataStatus();
         goToStep('database-setup');
       } catch (error: unknown) {
+        // The startup read answered moments ago and already chose this step, so a failed re-read
+        // keeps it; the PICS status still loads for a resumed depot or PICS step.
         notifyError(t('initialization.modal.errors.setupStatusCheckFailed'), error, {
+          silent: true,
           logLabel: 'checkSetupStatus'
         });
-        goToStep('database-setup');
+        await checkPicsDataStatus();
       } finally {
         hydratedRef.current = true;
         setIsCheckingAuth(false);

@@ -1,6 +1,5 @@
 import i18n from '@/i18n';
 import ApiService from '@services/api.service';
-import type { UnifiedNotification } from '@contexts/notifications/types';
 import type { GameCacheInfo, ServiceCacheInfo, UnmappedService } from '../../../../types';
 
 interface CachedDetectionSnapshot {
@@ -56,70 +55,6 @@ export const buildLoadedResultsSummary = (snapshot: CachedDetectionSnapshot): st
   }
 
   return parts.length > 0 ? parts.join(i18n.t('management.gameDetection.summary.join')) : null;
-};
-
-export const pruneGamesByCompletedRemovalNotifications = (
-  games: GameCacheInfo[],
-  notifications: UnifiedNotification[]
-): GameCacheInfo[] => {
-  const removedAppIds = new Set<number>();
-  const removedNames = new Set<string>();
-
-  for (const notification of notifications) {
-    if (notification.type !== 'game_removal' || notification.status !== 'completed') {
-      continue;
-    }
-
-    const gameAppId = notification.details?.gameAppId;
-    const gameName = notification.details?.gameName;
-
-    if (typeof gameAppId === 'number') {
-      removedAppIds.add(gameAppId);
-    }
-
-    if (typeof gameName === 'string' && gameName.length > 0) {
-      removedNames.add(gameName);
-    }
-  }
-
-  if (removedAppIds.size === 0 && removedNames.size === 0) {
-    return games;
-  }
-
-  const nextGames = games.filter((game) => {
-    if (removedAppIds.has(game.game_app_id)) {
-      return false;
-    }
-
-    return !(game.game_name && removedNames.has(game.game_name));
-  });
-
-  return nextGames.length === games.length ? games : nextGames;
-};
-
-export const pruneServicesByCompletedRemovalNotifications = (
-  services: ServiceCacheInfo[],
-  notifications: UnifiedNotification[]
-): ServiceCacheInfo[] => {
-  const removedNames = new Set<string>();
-
-  for (const notification of notifications) {
-    if (notification.type !== 'service_removal' || notification.status !== 'completed') {
-      continue;
-    }
-
-    const serviceName = notification.details?.service;
-    if (typeof serviceName === 'string' && serviceName.length > 0) {
-      removedNames.add(serviceName);
-    }
-  }
-
-  if (removedNames.size === 0) {
-    return services;
-  }
-
-  const nextServices = services.filter((service) => !removedNames.has(service.service_name));
-  return nextServices.length === services.length ? services : nextServices;
 };
 
 export const pruneGamesByRemovalTarget = (

@@ -15,19 +15,26 @@ function isCacheRemovalType(type: NotificationType): boolean {
  * remove trigger in the game-cache domain (Game Cache Detector + Evicted Items)
  * disables together. A `bulk_removal` card only counts when its `itemTypes`
  * names one of the three types above, so an unrelated batch (log removal) does
- * not disable these controls.
+ * not disable these controls. The removals come from the server's run list
+ * (Hidden runs included); a bulk card is the browser's own, so it comes from the
+ * drawn cards.
  */
 export function useCacheRemovalActive(): boolean {
-  const { notifications } = useNotifications();
+  const { notifications, runs } = useNotifications();
 
   return useMemo(
     () =>
+      runs.some(
+        (n) =>
+          (n.status === 'running' || n.status === 'waiting' || n.status === 'cancelling') &&
+          isCacheRemovalType(n.type)
+      ) ||
       notifications.some(
         (n) =>
           (n.status === 'running' || n.status === 'waiting') &&
-          (isCacheRemovalType(n.type) ||
-            (n.type === 'bulk_removal' && (n.details?.itemTypes ?? []).some(isCacheRemovalType)))
+          n.type === 'bulk_removal' &&
+          (n.details?.itemTypes ?? []).some(isCacheRemovalType)
       ),
-    [notifications]
+    [notifications, runs]
   );
 }

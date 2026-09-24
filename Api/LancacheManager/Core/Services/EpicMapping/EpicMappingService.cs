@@ -233,8 +233,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
             OperationId = _currentOperationId,
             Status = _currentStatus,
             ProgressPercent = _isProcessingInt != 0 ? _currentProgressPercent : 0,
-            StatusMessage = _isProcessingInt != 0 ? FormatStatusMessage(_currentStatus) : null,
-            ShowNotification = _showNotification
+            StatusMessage = _isProcessingInt != 0 ? FormatStatusMessage(_currentStatus) : null
         };
     }
 

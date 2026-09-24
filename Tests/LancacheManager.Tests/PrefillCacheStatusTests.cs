@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using LancacheManager.Controllers.Base;
 using LancacheManager.Core.Services;
@@ -163,6 +164,27 @@ public sealed class PrefillCacheStatusTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => controller.GetCacheStatusAsync(
             session.Id,
             new PrefillCacheStatusRequest { AppIds = ["one"] }));
+    }
+
+    // Pins the ownership check on the run-cancel route a guest's browser can call.
+    [Fact]
+    public async Task CancellingAnotherSessionsRunIsForbidden()
+    {
+        var (daemon, session, _) = PrefillCacheChangeTests.NewDaemon(NewOptions());
+        session.Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>();
+        var stranger = CreateController(daemon, session, CancellationToken.None);
+        stranger.HttpContext.Items["Session"] = new UserSession
+        {
+            Id = Guid.NewGuid(),
+            SessionType = SessionType.Guest
+        };
+
+        Assert.IsType<ForbidResult>(
+            await stranger.CancelPrefillRunAsync(session.Id, session.PrefillRunId!.Value, CancellationToken.None));
+
+        var owner = CreateController(daemon, session, CancellationToken.None);
+        Assert.IsType<OkResult>(
+            await owner.CancelPrefillRunAsync(session.Id, session.PrefillRunId!.Value, CancellationToken.None));
     }
 
     private static GuestCacheStatusController CreateController(

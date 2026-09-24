@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, XCircle, AlertTriangle, Wifi, Info, ChevronDown } from 'lucide-react';
+import { Alert } from '../../ui/Alert';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
@@ -181,9 +182,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 </span>
               </div>
             ) : (
-              <div className="text-xs p-2.5 rounded bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)] leading-relaxed">
-                {t('prefill.network.lancacheIpResolutionFailed')}
-              </div>
+              <Alert color="warning">{t('prefill.network.lancacheIpResolutionFailed')}</Alert>
             )}
             {/* Host networking hint */}
             {diagnostics.useHostNetworking && (
@@ -291,9 +290,9 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             {/* Internet Error Details */}
             {!diagnostics.internetConnectivity && (
               <>
-                <div className="text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
+                <Alert color="error" icon={null}>
                   {t('prefill.network.internetCheckFailed')}
-                </div>
+                </Alert>
                 <NetworkTroubleshooting />
               </>
             )}
@@ -364,11 +363,11 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                           </div>
                         </HintDetails>
                       ) : (
-                        <div className="text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]">
+                        <Alert color="warning" icon={null}>
                           {isPrimaryDomain
                             ? t('prefill.network.primaryDomainNotConfigured')
                             : t('prefill.network.publicIpDetected')}
-                        </div>
+                        </Alert>
                       ))}
 
                     {/* IPv6 bypass warning - only show if primary domain not configured */}
@@ -377,16 +376,16 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                       !result.isPrivateIp &&
                       !diagnostics.useHostNetworking &&
                       !hasPrimaryConfigured && (
-                        <div className="text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]">
+                        <Alert color="warning" icon={null}>
                           {t('prefill.network.ipv6BypassDetected')}
-                        </div>
+                        </Alert>
                       )}
 
                     {/* DNS Error Details */}
                     {!result.success && (
-                      <div className="text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
+                      <Alert color="error" icon={null}>
                         {t('prefill.network.dnsCheckFailed')}
-                      </div>
+                      </Alert>
                     )}
                   </div>
                 );

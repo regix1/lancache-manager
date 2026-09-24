@@ -884,8 +884,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             IsLoggedOn = _isLoggedOn && IsSteamAuthenticated, // Only true if both connected AND using authenticated mode
             ErrorMessage = _lastErrorMessage,
             IsWebApiAvailable = isWebApiAvailable, // True if V2 is active OR V1 is configured with API key
-            OperationId = _currentPicsOperationId,
-            ShowNotification = _depotRunShowNotification
+            OperationId = _currentPicsOperationId
         };
     }
 

@@ -123,9 +123,10 @@ public partial class XboxCatalogMappingService
             startHeld = true;
             if (!_authStorage.RunIntegrationLogin(login, () =>
             {
-                _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+                // A fresh manual notice: sign-in is a user action and must not inherit the last
+                // scheduled refresh's notice.
                 reporter = new MappingOperationReporter(_notifications, _operationTracker, MappingOperations.Xbox,
-                    _refreshShowNotification, lifetime.Token, _logger);
+                    new RunNotice(EffectiveNotificationMode, RunTrigger.Manual), lifetime.Token, _logger);
                 _loginAttempt = login;
                 _loginReporter = reporter;
             })) throw new OperationCanceledException();

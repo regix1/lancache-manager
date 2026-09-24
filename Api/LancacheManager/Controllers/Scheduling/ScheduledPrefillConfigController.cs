@@ -275,11 +275,6 @@ public class ScheduledPrefillConfigController : ControllerBase
         {
             IsRunning = operation is not null || serviceStates.Count > 0,
             OperationId = operation?.Id.ToString(),
-            ShowNotification = operation?.Metadata is ScheduledPrefillOperationMetadata metadata
-                ? metadata.ShowNotification
-                : true,
-            HideNotification = operation?.Metadata is ScheduledPrefillOperationMetadata hiddenRun
-                && hiddenRun.HideNotification,
             Services = serviceStates
                 .Select(pair =>
                 {
@@ -289,8 +284,6 @@ public class ScheduledPrefillConfigController : ControllerBase
                         ServiceId = pair.State.ServiceId,
                         ScheduleId = pair.State.ScheduleId,
                         Name = pair.State.Name,
-                        ShowNotification = pair.State.ShowNotification,
-                        HideNotification = pair.State.HideNotification,
                         OperationId = pair.Operation.Id.ToString(),
                         Stage = snapshot.Stage,
                         Message = snapshot.Message,

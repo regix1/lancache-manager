@@ -28,11 +28,20 @@ public interface IUnifiedOperationTracker
     /// <param name="initialStatus">Initial status for the registered operation. Defaults to
     /// <see cref="OperationStatus.Running"/>; the operation wait-queue registers parked ops as
     /// <see cref="OperationStatus.Waiting"/> (excluded from <see cref="GetActiveOperations"/>).</param>
+    /// <param name="blockedByName">Display name of the operation a waiting registration is parked
+    /// behind, carried on its run row; null when unknown.</param>
+    /// <param name="notice">The run's notice, the only input to how its row is drawn; null draws a
+    /// full card.</param>
+    /// <param name="liveIngest">True for a live log ingest pass: no row until it ends with a kept
+    /// failure, and a newer kept failure closes the older one.</param>
+    /// <param name="ownerSessionId">The auth session whose browser alone draws this run.</param>
     Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                            object? metadata = null, Action? onTerminalCleanup = null,
                            Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
                            OperationStatus initialStatus = OperationStatus.Running,
-                           Guid? parentOperationId = null, DateTime? startedAt = null);
+                           Guid? parentOperationId = null, DateTime? startedAt = null,
+                           string? blockedByName = null, RunNotice? notice = null,
+                           bool liveIngest = false, Guid? ownerSessionId = null);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
@@ -45,10 +54,12 @@ public interface IUnifiedOperationTracker
     /// </remarks>
     /// <param name="onTerminalCleanup">See <see cref="RegisterOperation"/>.</param>
     /// <param name="onTerminalEmit">See <see cref="RegisterOperation"/>.</param>
+    /// <param name="notice">See <see cref="RegisterOperation"/>.</param>
     bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
                              object? metadata = null, Action? onTerminalCleanup = null,
                              Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
-                             Guid? parentOperationId = null, DateTime? startedAt = null);
+                             Guid? parentOperationId = null, DateTime? startedAt = null,
+                             RunNotice? notice = null);
 
     /// <summary>
     /// Aggressively cancels an operation: terminates any associated process tree immediately,
@@ -127,6 +138,45 @@ public interface IUnifiedOperationTracker
     /// (the operation wait-queue). Used by the waiting-card recovery endpoint.
     /// </summary>
     IEnumerable<OperationInfo> GetWaitingOperations();
+
+    /// <summary>
+    /// Every tracked run the browser draws, including kept endings, and the revision read before
+    /// they were listed. Each row is read under its operation's lock, so no row is half-updated.
+    /// </summary>
+    OperationRunsSnapshot GetRuns();
+
+    /// <summary>
+    /// Records the name of the operation a waiting run is now parked behind and sends its row.
+    /// Does nothing for an ended run or an unchanged name.
+    /// </summary>
+    void SetBlockedByName(Guid operationId, string? name);
+
+    /// <summary>
+    /// Sends a live run's row again, for callers that changed a <see cref="RunNotice"/> the row
+    /// reads (a waiting run's trigger raised to manual).
+    /// </summary>
+    void RefreshRun(Guid operationId);
+
+    /// <summary>
+    /// Records the schedule's failure streak on a kept ending and sends its row when either value
+    /// changed. Does nothing for a live, closed or not-kept run. The schedule registry is the only
+    /// writer and serializes its calls.
+    /// </summary>
+    void UpdateKeptEnding(Guid operationId, int consecutiveFailures, bool latestRunSucceeded);
+
+    /// <summary>
+    /// Closes a kept ending for every admin: sends one row with <c>closed: true</c> and removes the
+    /// run. Returns false when the run is unknown, still live, not kept, or already closed.
+    /// </summary>
+    bool CloseRun(Guid operationId);
+
+    /// <summary>
+    /// Marks the start delegate the caller awaits next as the promotion of
+    /// <paramref name="waitingOperationId"/>, so the run of <paramref name="type"/> it registers in
+    /// that async flow names the waiting run as its predecessor. Dispose the scope when the
+    /// delegate returns.
+    /// </summary>
+    IDisposable BeginPromotion(Guid waitingOperationId, OperationType type);
 
     /// <summary>
     /// Raised exactly once per operation when it reaches a terminal state (fired from

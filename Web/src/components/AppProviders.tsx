@@ -36,6 +36,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import StartupErrorCard from '@components/common/StartupErrorCard';
 import { AccessSetup } from '@components/initialization/AccessSetup';
 import { AdminAccountStep } from '@components/initialization/steps/AdminAccountStep';
 import { DatabaseSetupStep } from '@components/initialization/steps/DatabaseSetupStep';
@@ -127,11 +128,25 @@ const AppSetup: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     setupStatus,
     isLoading: checkingSetup,
     isSetupStatusKnown,
+    error: setupError,
     refreshSetupStatus
   } = useSetupStatus();
 
   if (checkingAuth || (checkingSetup && !isSetupStatusKnown)) {
     return <LoadingSpinner fullScreen message={t('app.loading.checkingSetup')} />;
+  }
+
+  // No setup read has answered, so the access-setup screen or the wizard would open on a
+  // placeholder. The reason and Retry show instead; a later failure after a good read keeps the
+  // last known status.
+  if (!isSetupStatusKnown && setupError !== null) {
+    return (
+      <StartupErrorCard
+        title={t('initialization.errors.statusCheckFailed')}
+        message={setupError}
+        onRetry={() => void refreshSetupStatus()}
+      />
+    );
   }
 
   // The setup API remains available while ordinary requests are blocked. Mounting their

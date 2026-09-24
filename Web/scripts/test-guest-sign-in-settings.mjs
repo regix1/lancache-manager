@@ -113,7 +113,8 @@ test('a visitor with no session still gets the guest settings the install is set
       `export const hasRecentUserInteraction = () => false;`
     ),
     './apiError': moduleUrl(
-      `export const assertOk = async (response) => {
+      `export class ApiError extends Error {}
+       export const assertOk = async (response) => {
          if (!response.ok) {
            throw new Error('HTTP ' + response.status);
          }

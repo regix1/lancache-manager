@@ -76,14 +76,14 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           accent="blizzard"
         />
         <HighlightGlow enabled={highlightBattleNet} scrollIntoView>
-          <BattleNetDaemonStatus onError={onError} />
+          <BattleNetDaemonStatus />
         </HighlightGlow>
       </div>
 
       {/* Riot - anonymous prefill daemon status (no account login) */}
       <div className="mb-6 sm:mb-8">
         <GroupHeading label={t('management.sections.integrations.riotIntegration')} accent="riot" />
-        <RiotDaemonStatus onError={onError} />
+        <RiotDaemonStatus />
       </div>
 
       {/* Xbox - login-required mapping status */}

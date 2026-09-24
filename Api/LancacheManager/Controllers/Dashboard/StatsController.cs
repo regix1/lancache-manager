@@ -32,7 +32,6 @@ public class StatsController : ControllerBase
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
-    private readonly IServiceScheduleRegistry _scheduleRegistry;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IEventsService _eventsService;
@@ -48,7 +47,6 @@ public class StatsController : ControllerBase
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
-        IServiceScheduleRegistry scheduleRegistry,
         DatasourceCapabilityService capabilityService,
         IClientHostnameService clientHostnameService,
         IEventsService eventsService,
@@ -66,7 +64,6 @@ public class StatsController : ControllerBase
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
-        _scheduleRegistry = scheduleRegistry;
         _eventsService = eventsService;
     }
 
@@ -330,7 +327,7 @@ public class StatsController : ControllerBase
     /// Gets the current eviction settings.
     /// </summary>
     /// <remarks>
-    /// Includes the evicted-data display mode and whether eviction scans notify.
+    /// Includes the evicted-data display mode.
     /// </remarks>
     [HttpGet("eviction")]
     [Authorize(Policy = "AccountHolder")]
@@ -338,11 +335,9 @@ public class StatsController : ControllerBase
     public ActionResult<EvictionSettingsResponse> GetEvictionSettings()
     {
         var evictedDataMode = _stateRepository.GetEvictedDataMode();
-        var evictionScanNotifications = _stateRepository.GetEvictionScanNotifications();
         return Ok(new EvictionSettingsResponse
         {
-            EvictedDataMode = evictedDataMode,
-            EvictionScanNotifications = evictionScanNotifications
+            EvictedDataMode = evictedDataMode
         });
     }
 
@@ -427,21 +422,6 @@ public class StatsController : ControllerBase
         {
             _stateRepository.SetEvictedDataMode(request.EvictedDataMode);
         }
-        if (request.EvictionScanNotifications.HasValue)
-        {
-            // Keep the legacy boolean written for old readers/migration.
-            _stateRepository.SetEvictionScanNotifications(request.EvictionScanNotifications.Value);
-            // Route the mode change through the registry (not a direct state write) so the LIVE
-            // reconciliation instance's EffectiveNotificationMode updates immediately AND persists,
-            // exactly like the per-service Schedules page control. A direct state write would only
-            // update GET responses and take effect on next restart.
-            _scheduleRegistry.SetNotificationMode(
-                "cacheReconciliation",
-                request.EvictionScanNotifications.Value ? NotificationMode.All : NotificationMode.Manual);
-            // Broadcast the schedule list so the Schedules card reflects the new mode without a reload,
-            // matching how the per-service control surfaces the change.
-            _scheduleRegistry.NotifySchedulesChanged();
-        }
         // Notify clients to refresh downloads/stats since eviction mode affects all tabs
         await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
         {
@@ -467,7 +447,6 @@ public class StatsController : ControllerBase
                 return Accepted(new
                 {
                     evictedDataMode = _stateRepository.GetEvictedDataMode(),
-                    evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
                     operationId = (Guid?)queuedOutcome.OperationId,
                     queued = queuedOutcome.Queued
                 });
@@ -475,13 +454,12 @@ public class StatsController : ControllerBase
 
             var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
 
-            return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), operationId });
+            return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), operationId });
         }
 
         return Ok(new EvictionSettingsResponse
         {
-            EvictedDataMode = _stateRepository.GetEvictedDataMode(),
-            EvictionScanNotifications = _stateRepository.GetEvictionScanNotifications()
+            EvictedDataMode = _stateRepository.GetEvictedDataMode()
         });
     }
 
@@ -526,9 +504,7 @@ public class StatsController : ControllerBase
 
         return Ok(new EvictionScanStartedResponse
         {
-            OperationId = result.OperationId,
-            ShowNotification = notice.ShowNotification,
-            HideNotification = notice.HideNotification
+            OperationId = result.OperationId
         });
     }
 
@@ -564,21 +540,11 @@ public class StatsController : ControllerBase
     public ActionResult<EvictionScanStatusResponse> EvictionScanStatus()
     {
         var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
-        var silentMode = activeScan?.Metadata is Dictionary<string, object?> visibility &&
-            visibility.GetValueOrDefault("showNotification") is bool showNotification
-            ? !showNotification : activeScan != null && _reconciliationService.CurrentScanIsSilent;
-        var hideNotification = activeScan?.Metadata is Dictionary<string, object?> runState &&
-            runState.GetValueOrDefault("hideNotification") is true;
         if (activeScan == null)
         {
             return Ok(new EvictionScanStatusResponse
             {
                 IsProcessing = false,
-                SilentMode = silentMode,
-                // Display flag mirror of silentMode: the recovery config skips resurrecting a card
-                // whose run is display-silent (scanSilent). No scan active → nothing to skip.
-                ShowNotification = !silentMode,
-                HideNotification = false,
                 Status = OperationStatus.Completed,
                 PercentComplete = 0.0,
                 Message = string.Empty,
@@ -587,8 +553,7 @@ public class StatsController : ControllerBase
                 // label instead of the generic "Scanning..." fallback. No scan active → null.
                 StageKey = null,
                 Context = null,
-                OperationId = null,
-                PreviousOperationId = null
+                OperationId = null
             });
         }
 
@@ -605,19 +570,12 @@ public class StatsController : ControllerBase
         return Ok(new EvictionScanStatusResponse
         {
             IsProcessing = true,
-            SilentMode = silentMode,
-            ShowNotification = !silentMode || context?.ContainsKey("detectionError") == true,
-            HideNotification = hideNotification,
             Status = activeScan.Status,
             PercentComplete = activeScan.PercentComplete,
             Message = stageKey ?? "Scanning for evictable cache entries...",
             StageKey = stageKey,
             Context = context,
-            OperationId = activeScan.Id,
-            PreviousOperationId = activeScan.Metadata is Dictionary<string, object?> scan &&
-                scan.GetValueOrDefault("previousOperationId") is Guid previousOperationId
-                    ? previousOperationId
-                    : null
+            OperationId = activeScan.Id
         });
     }
 

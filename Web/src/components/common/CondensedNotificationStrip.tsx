@@ -1,48 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UnifiedNotification } from '@contexts/notifications';
+import type { BadgeVariant } from '@components/ui/Badge.types';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useExitPresence } from '@hooks/useExitPresence';
 import './CondensedNotificationStrip.css';
-
-/**
- * Solid status colours map to their theme glow tone, which carries one shared alpha across
- * the status tokens so no segment outshines its neighbour.
- *
- * Anything unmapped casts no light rather than falling back to the line colour. The glow is
- * painted as a gradient from this value, so a fully opaque colour would start the band at full
- * strength and read as a second solid bar under the line instead of as light coming off it.
- * Every status colour the strip can receive is mapped below, so this fallback is a guard
- * against a future unmapped colour, not a case that renders today.
- */
-const UNMAPPED_GLOW_COLOR = 'transparent';
-
-const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
-  'var(--theme-success)': 'var(--theme-success-glow)',
-  'var(--theme-error)': 'var(--theme-error-glow)',
-  'var(--theme-warning)': 'var(--theme-warning-glow)',
-  'var(--theme-info)': 'var(--theme-info-glow)',
-  'var(--theme-waiting)': 'var(--theme-waiting-glow)',
-  // The grey a stopped run is drawn in has no -glow sibling, so it borrows the muted tier of
-  // the same colour. That tier is fainter than the shared glow alpha, which suits the one
-  // status that is deliberately quiet.
-  'var(--theme-text-secondary)': 'var(--theme-text-secondary-muted)'
-};
-
-/**
- * While the panel is open on a hover device, how often the pointer's whereabouts are re-asked.
- * The panel opens in flow, so a revealed card finishing can shrink the panel UNDER a parked
- * pointer, and the browser neither fires a mouseleave nor re-evaluates :hover until the pointer
- * physically moves - enter/leave alone would leave the panel latched open. The recheck decides
- * with two signals whose blind spots are disjoint: `matches(':hover')` goes stale-true exactly
- * in that layout-changed-under-a-parked-pointer case, while hit-testing the last known pointer
- * coordinates goes stale-true only when the pointer left the window in one hardware step (no
- * final pointermove ever landed). Either signal saying "gone" closes the panel. The timer
- * exists only while open. Explicit keyboard use with focus inside the strip keeps it open
- * independently of the pointer until focus leaves or the disclosure is dismissed.
- */
-const OPEN_HOVER_RECHECK_MS = 250;
 
 /**
  * How long the pointer has to rest on the line before the panel opens. The strip spans the
@@ -55,11 +18,9 @@ const HOVER_OPEN_DELAY_MS = 135;
 /**
  * How long the revealed panel keeps rendering after it closes, while its fade-and-collapse
  * plays. Slightly longer than the CSS exit animation so the faded end state is what unmounts.
- * The exit animates transform and opacity only, INSIDE the height the layout has already
- * reserved, and that height is handed back in one step at unmount - so a close interrupted by
- * a reopen or by notification churn can never strand a partial height under the line. Like the
- * line and segment exits, the unmount rides a plain timeout rather than an animationend event,
- * which can be lost when churn re-renders mid-animation.
+ * The panel floats over the page, so its exit animates transform and opacity only and moves
+ * nothing around it. Like the line and segment exits, the unmount rides a plain timeout rather
+ * than an animationend event, which can be lost when churn re-renders mid-animation.
  */
 const PANEL_EXIT_MS = 150;
 
@@ -85,8 +46,8 @@ interface CondensedStripSegment {
   key: string;
   /** The group's representative notification (the live run when one exists). */
   notification: UnifiedNotification;
-  /** Status colour from getNotificationColor, resolved once by the bar and passed down. */
-  color: string;
+  /** Status variant from getNotificationVariant, resolved once by the bar and passed down. */
+  variant: BadgeVariant;
 }
 
 interface CondensedNotificationStripProps {
@@ -94,12 +55,7 @@ interface CondensedNotificationStripProps {
   segments: CondensedStripSegment[];
   /** Fine hover-capable pointers reveal on hover; touch and keyboard reveal via the tap toggle. */
   canHover: boolean;
-  /**
-   * Reports whether the revealed cards are currently in the bar's flow, so the bar can keep its
-   * bottom border and shadow under them even when no full-size cards render below the strip.
-   */
-  onOpenChange?: (open: boolean) => void;
-  /** Every compacted UnifiedNotificationItem, revealed together in the in-flow panel. */
+  /** Every compacted UnifiedNotificationItem, revealed together in the floating panel. */
   children: React.ReactNode;
 }
 
@@ -113,16 +69,16 @@ interface ExitingSegment {
 }
 
 /**
- * One segment of the line: the status colour dimmed as an underlay across the whole width, the
- * same colour solid up to the run's progress (or a sweep while a run reports no numeric
+ * One segment of the line: the status color dimmed as an underlay across the whole width, the
+ * same color solid up to the run's progress (or a sweep while a run reports no numeric
  * progress), breathing softly while non-terminal. A leaving segment fades and hands its width
- * to its neighbours in the same motion.
+ * to its neighbours in the same motion. The color comes from the shared status class.
  */
 const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean }> = ({
   segment,
   leaving
 }) => {
-  const { notification, color } = segment;
+  const { notification, variant } = segment;
   const isRunning = notification.status === 'running';
   const hasDeterminate =
     isRunning &&
@@ -132,13 +88,12 @@ const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean
   const isIndeterminate = isRunning && !hasDeterminate;
   const fillPercent = hasDeterminate ? Math.max(0, Math.min(100, notification.progress ?? 0)) : 100;
   const segmentStyle = {
-    '--seg-color': color,
     '--seg-fill': `${fillPercent}%`
   } as React.CSSProperties;
 
   return (
     <span
-      className={`condensed-strip-seg${
+      className={`condensed-strip-seg notification-status--${variant}${
         isTerminalNotificationStatus(notification.status) ? '' : ' condensed-strip-seg-live'
       }${leaving ? ' is-exiting' : ''}`}
       style={segmentStyle}
@@ -153,27 +108,27 @@ const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean
 };
 
 /**
- * A single thin line standing in for every compacted notification at once. Hover (fine
- * pointers) or tap/Enter (touch and keyboard) reveals all the real UnifiedNotificationItems in
- * an in-flow panel directly under the line, so cancel, dismiss, and progress keep working -
- * the revealed elements ARE the same cards, sharing one stack with any full-size cards the bar
- * renders below instead of overlaying them.
+ * A single thin line standing in for every compacted notification at once. Resting a fine
+ * pointer on the line, or a click, tap or Enter, reveals all the real UnifiedNotificationItems
+ * in a panel that floats directly under the line, so cancel, dismiss, and progress keep working -
+ * the revealed elements ARE the same cards. The panel lies over the page instead of pushing it
+ * down, so opening and closing it never moves anything below the bar.
  *
- * Closing fades the panel out over PANEL_EXIT_MS and then unmounts. The animation only ever
- * touches transform and opacity, so the reserved height stays whole until the unmount releases
- * it all at once - never animate the panel's height or margins here, because an in-flow
- * collapse interrupted mid-flight strands residual space under the line.
+ * Closing fades the panel out over PANEL_EXIT_MS and then unmounts; the animation only ever
+ * touches transform and opacity.
  */
 export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProps> = ({
   segments,
   canHover,
-  onOpenChange,
   children
 }) => {
   const { t } = useTranslation();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const keyboardOpenRef = useRef(false);
+  // Whether the open panel was revealed by the pointer resting on the line. A click on the line
+  // then keeps it open instead of closing what the rest already showed.
+  const hoverOpenRef = useRef(false);
   const openTimerRef = useRef<number | null>(null);
   const cancelPendingOpen = useCallback((): void => {
     if (openTimerRef.current !== null) {
@@ -181,11 +136,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       openTimerRef.current = null;
     }
   }, []);
-  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const close = useCallback((): void => {
     cancelPendingOpen();
     keyboardOpenRef.current = false;
-    lastPointerRef.current = null;
+    hoverOpenRef.current = false;
     setOpen(false);
   }, [cancelPendingOpen]);
 
@@ -313,9 +267,6 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         });
       });
   }
-  // The panel renders in the bar's flow, so the bar needs to know when it is visible to keep
-  // its bottom edge under the revealed cards. Report before paint so the panel and that edge
-  // cannot appear in separate frames. The latest-callback ref keeps prop churn from re-reporting.
   const panelOpen = open && hasSegments;
 
   // The panel outlives its close by PANEL_EXIT_MS so the fade can play. Reopening during the
@@ -329,79 +280,51 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     !panelOpen && !prefersReducedMotion && hasSegments && present && panelWasOpenRef.current;
 
   const panelVisible = panelOpen || panelClosing;
-  const onOpenChangeRef = useRef(onOpenChange);
-  useEffect(() => {
-    onOpenChangeRef.current = onOpenChange;
-  });
   useLayoutEffect(() => {
     panelWasOpenRef.current = panelVisible;
-    onOpenChangeRef.current?.(panelVisible);
   }, [panelVisible]);
-  useEffect(() => () => onOpenChangeRef.current?.(false), []);
 
   // A hover-open waiting out HOVER_OPEN_DELAY_MS, cancelled by anything that takes the pointer
   // off the line before the delay elapses.
   useEffect(() => cancelPendingOpen, [cancelPendingOpen]);
 
+  // A panel the mouse opened, by resting or by a click, closes once the pointer has left the
+  // line and the panel. A keyboard session with focus inside keeps it open.
   const handleMouseLeave = useCallback((): void => {
     if (!canHover) return;
     cancelPendingOpen();
-    lastPointerRef.current = null;
     const el = wrapperRef.current;
     if (keyboardOpenRef.current && el?.contains(document.activeElement)) return;
     close();
   }, [canHover, cancelPendingOpen, close]);
 
   // Movement inside the strip starts hover intent, regardless of mouseenter ordering. Layout
-  // changes alone cannot open it. Keep the coordinates for the open-state recheck's hit-test.
+  // changes alone cannot open it. While open, movement anywhere else closes the panel: a card
+  // leaving can shrink the panel out from under a parked pointer, and no mouseleave arrives then.
   useEffect(() => {
     if (!canHover) {
       return;
     }
     const handlePointerMove = (event: PointerEvent): void => {
       if (event.pointerType === 'touch') return;
-      lastPointerRef.current = { x: event.clientX, y: event.clientY };
-      if (open || !hasSegments || openTimerRef.current !== null) return;
       const el = wrapperRef.current;
+      if (open) {
+        if (!(event.target instanceof Node && el?.contains(event.target))) handleMouseLeave();
+        return;
+      }
+      if (!hasSegments || openTimerRef.current !== null) return;
       const under = document.elementFromPoint(event.clientX, event.clientY);
       if (!el?.matches(':hover') || !under || !el.contains(under)) return;
       openTimerRef.current = window.setTimeout(() => {
         openTimerRef.current = null;
         keyboardOpenRef.current = false;
+        hoverOpenRef.current = true;
         setOpen(true);
       }, HOVER_OPEN_DELAY_MS);
     };
     document.addEventListener('pointermove', handlePointerMove, { capture: true, passive: true });
     return () => document.removeEventListener('pointermove', handlePointerMove, { capture: true });
-  }, [canHover, open, hasSegments]);
-
-  // Outside a focused keyboard session, both signals must still place the pointer on the
-  // strip, because each one's stale-true case is the other's reliable case.
-  useEffect(() => {
-    if (!canHover || !open) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      const el = wrapperRef.current;
-      if (!el) {
-        return;
-      }
-      if (keyboardOpenRef.current && el.contains(document.activeElement)) return;
-      keyboardOpenRef.current = false;
-      if (!el.matches(':hover')) {
-        close();
-        return;
-      }
-      const coords = lastPointerRef.current;
-      if (coords) {
-        const under = document.elementFromPoint(coords.x, coords.y);
-        if (!under || !el.contains(under)) {
-          close();
-        }
-      }
-    }, OPEN_HOVER_RECHECK_MS);
-    return () => window.clearInterval(timer);
-  }, [canHover, open, close]);
+  }, [canHover, open, hasSegments, handleMouseLeave]);
 
   // Ways the pointer can be gone without a final event ever landing where the strip could see
   // it: the window loses focus, the tab hides, or the pointer exits the document in one
@@ -543,6 +466,13 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         aria-label={ariaLabel}
         onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
           if (!hasSegments) return;
+          // A click on a panel the rest revealed keeps it open; from then on it is a panel a
+          // click opened, which the next click closes.
+          if (open && hoverOpenRef.current) {
+            hoverOpenRef.current = false;
+            keyboardOpenRef.current = event.detail === 0;
+            return;
+          }
           if (open) {
             close();
             return;
@@ -561,13 +491,9 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
           {renderSegments.map(({ segment, leaving }) => (
             <span
               key={segment.key}
-              className={`condensed-strip-glow-seg${leaving ? ' is-exiting' : ''}`}
-              style={
-                {
-                  '--seg-glow-color':
-                    GLOW_COLOR_BY_STATUS_COLOR[segment.color] ?? UNMAPPED_GLOW_COLOR
-                } as React.CSSProperties
-              }
+              className={`condensed-strip-glow-seg notification-status--${segment.variant}${
+                leaving ? ' is-exiting' : ''
+              }`}
             />
           ))}
         </span>

@@ -11,10 +11,9 @@ import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@hooks/useSelectionSet';
-import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
-import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { Alert } from '@components/ui/Alert';
@@ -28,12 +27,11 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { EmptyState } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount, formatRelativeTime } from '@utils/formatters';
-import { getErrorMessage } from '@utils/error';
 import { resolveDatasources } from '@utils/datasources';
 import type { CacheClearCompleteEvent } from '@contexts/SignalRContext/types';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
@@ -42,7 +40,7 @@ interface CacheManagerProps {
   isAdmin: boolean;
   authMode?: AuthMode;
   mockMode: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
   onSuccess?: (message: string) => void;
 }
 
@@ -61,11 +59,17 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Rsync availability check
   const [rsyncAvailable, setRsyncAvailable] = useState(false);
-  useEffect(() => {
+  const probeRsync = useCallback(() => {
     ApiService.isRsyncAvailable()
       .then((data: { available: boolean }) => setRsyncAvailable(data.available))
       .catch((err: unknown) => console.error('Failed to check rsync availability:', err));
   }, []);
+  useEffect(() => {
+    probeRsync();
+  }, [probeRsync]);
+  // A probe that failed during an outage would otherwise hide the rsync option until the page
+  // is reopened.
+  useReconnectRefetch(signalR.isConnected, probeRsync);
 
   // Cache size from global context (persists across navigation)
   const {
@@ -78,7 +82,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     clearCacheSize
   } = useCacheSize();
   const { refreshStats } = useStats();
-  const { addNotification, isAnyRemovalRunning } = useNotifications();
+  const { isAnyRemovalRunning } = useNotifications();
 
   // Derive cache clearing state from notifications (standardized pattern)
   const isCacheClearing = useOperationBusy({ types: ['cache_clearing'] });
@@ -206,7 +210,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       onSuccess?.(t('management.cache.deleteModeSet', { mode: modeDesc }));
     } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
-      onError?.(getErrorMessage(err));
+      onError?.(t('management.cache.errors.updateDeleteMode'), err);
     } finally {
       setDeleteModeLoading(false);
       deleteModeChangeInProgressRef.current = false;
@@ -237,27 +241,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     // (CacheClearingProgress and CacheClearingComplete). No need to manually manage isCacheClearing.
 
     try {
-      const result = clearingDatasource
-        ? await ApiService.clearDatasourceCache(clearingDatasource)
-        : await ApiService.clearAllCache();
-      // Wait-queue model: queued/deduplicated responses must not seed a running card -
-      // the OperationWaiting event (or the already-visible card) owns the UI.
-      if (shouldPinOperationIdFromResponse(result)) {
-        addNotification(
-          buildSeededRunningNotification(
-            'cache_clearing',
-            result.operationId,
-            t('signalr.cacheClear.starting')
-          )
-        );
-      }
+      // The server's run row opens the card.
+      await (clearingDatasource
+        ? ApiService.clearDatasourceCache(clearingDatasource)
+        : ApiService.clearAllCache());
     } catch (err: unknown) {
-      onError?.(
-        t('management.cache.errors.startCacheClearing', {
-          error: getErrorMessage(err)
-        })
-      );
-      // Note: On error, NotificationsContext will handle the notification dismissal
+      onError?.(t('management.cache.errors.startCacheClearing'), err);
     } finally {
       setActionLoading(false);
       cacheOperationInProgressRef.current = false;
@@ -289,6 +278,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Header actions
   const headerActions = (
     <SectionHeaderActions>
+      {cacheSizeError !== null && !sectionExpanded && <SectionErrorChip />}
       <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
@@ -375,14 +365,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 </Alert>
               )}
 
-              {cacheSizeError ? (
+              {cacheSizeError && (
                 <ErrorBlock
                   title={t('management.cache.cacheSizeError')}
                   message={cacheSizeError}
                   retryLabel={t('common.retry')}
                   onRetry={() => void fetchCacheSize()}
                 />
-              ) : cacheSizeLoading && !cacheSize ? (
+              )}
+
+              {cacheSizeLoading && !cacheSize ? (
                 <div className="flex items-center gap-2 text-xs text-themed-muted">
                   <LoadingSpinner inline size="xs" />
                   <span>{t('management.cache.calculatingSize')}</span>
@@ -424,9 +416,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     <p className="mgmt-stat__value">{formatRelativeTime(cacheSize.timestamp)}</p>
                   </div>
                 </div>
-              ) : (
+              ) : !cacheSizeError ? (
                 <EmptyState variant="text" title={t('management.cache.clickScanToCalculate')} />
-              )}
+              ) : null}
             </div>
 
             {/* Configuration Options */}
@@ -627,7 +619,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </>
         )}
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.cache.modal.clearSummary')}</p>
         </Alert>
       </ConfirmationModal>

@@ -228,12 +228,11 @@ public class StatsExclusionsResponse
 }
 
 /// <summary>
-/// Response for eviction settings (display mode, scan notifications).
+/// Response for eviction settings (display mode).
 /// </summary>
 public class EvictionSettingsResponse
 {
     public string EvictedDataMode { get; set; } = string.Empty;
-    public bool EvictionScanNotifications { get; set; }
 }
 
 /// <summary>
@@ -266,9 +265,6 @@ public class OrphanedDownloadsRemovedResponse
 /// </summary>
 public class EvictionScanStartedResponse
 {
-    public bool ShowNotification { get; set; } = true;
-    public bool HideNotification { get; set; }
-
     /// <summary>
     /// The started scan's operation id. Null when the scan could not start immediately and was
     /// parked in the wait-queue instead (the queued-operation response is returned in that case).
@@ -290,10 +286,6 @@ public class EvictionResetResponse
 public class EvictionScanStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public bool SilentMode { get; set; }
-    /// <summary>Includes a nonfatal detection failure even when the scan started silent.</summary>
-    public bool ShowNotification { get; set; }
-    public bool HideNotification { get; set; }
     public OperationStatus Status { get; set; }
     public double PercentComplete { get; set; }
     public string Message { get; set; } = string.Empty;
@@ -313,5 +305,4 @@ public class EvictionScanStatusResponse
     /// The running scan's operation id. Null when no scan is currently running.
     /// </summary>
     public Guid? OperationId { get; set; }
-    public Guid? PreviousOperationId { get; set; }
 }

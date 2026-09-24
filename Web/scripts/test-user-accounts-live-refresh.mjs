@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { compileToUrl, transpile } from './transpile-module.mjs';
+import { bindLifted, compileToUrl, liftHookCallback, transpile } from './transpile-module.mjs';
 
 /**
  * The accounts table is loaded once and never told anything again, so a second administrator's
@@ -125,4 +125,38 @@ test('a reconnect reloads the list without emptying the table', () => {
     [false],
     'a recovery reload must not swap the rows for the loading state the first load shows'
   );
+});
+
+test('an older accounts read that fails after a newer one answered leaves no error box', async () => {
+  const state = { accounts: [], errors: [], loading: [] };
+  const reads = [];
+  const loadAccounts = bindLifted(
+    liftHookCallback(SCREEN, 'useCallback', 'handleResponse<UserAccount[]>'),
+    {
+      mockMode: false,
+      accountsRequestRef: { current: 0 },
+      API_BASE: '/api',
+      fetch: () =>
+        new Promise((resolve, reject) => {
+          reads.push({ resolve, reject });
+        }),
+      ApiService: { getFetchOptions: () => ({}), handleResponse: async (response) => response },
+      setAccounts: (value) => state.accounts.push(value),
+      setLoadError: (value) => state.errors.push(value),
+      setLoading: (value) => state.loading.push(value),
+      getErrorMessage: (error) => error.message
+    }
+  );
+
+  // The first load is still out when the reconnect reload starts and answers.
+  const older = loadAccounts(true);
+  const newer = loadAccounts(false);
+  reads[1].resolve([{ id: 'account-1' }]);
+  await newer;
+  reads[0].reject(new Error('stale read failed'));
+  await older;
+
+  assert.deepEqual(state.accounts, [[{ id: 'account-1' }]]);
+  assert.deepEqual(state.errors, [null], 'the stale failure never reaches the section');
+  assert.equal(state.loading.at(-1), false, 'the newest read ends the loading state');
 });

@@ -133,7 +133,7 @@
     "removeService": "Remove {{name}}?",
     "removeServiceDescription": "The primary administrator will no longer be able to sign in with this service. Enter the installation key to confirm.",
     "removeServiceActive": "People will no longer be able to sign in with this service. The last active service cannot be removed while single sign-on is selected: change the sign-in method first, or keep another connected service. Enter the installation key to confirm.",
-    "removeFailed": "The sign-in service could not be removed.",
+    "removeFailed": "Failed to remove the sign-in service",
     "services": {
       "google": {
         "title": "Google",
@@ -199,10 +199,8 @@
       "configuration": "Loading configuration..."
     },
     "configError": {
-      "failedTitle": "Failed to Load Configuration",
-      "timedOutTitle": "Configuration Request Timed Out",
+      "failedTitle": "Failed to load configuration",
       "failedMessage": "Failed to load configuration. Please check your connection and try again.",
-      "timedOutMessage": "Configuration request timed out after {{seconds}} seconds. Please check your connection and try again.",
       "recovery": {
         "toggle": "Still stuck after retrying?",
         "heading": "Set the PostgreSQL password again",
@@ -218,6 +216,7 @@
       }
     },
     "prefill": {
+      "dockerCheckFailed": "Failed to check Docker availability",
       "dockerNotAvailable": {
         "title": "Docker Not Available",
         "description": "The Prefill feature requires Docker access to create and manage containers.",
@@ -266,7 +265,6 @@
     "remove": "Remove",
     "retry": "Retry",
     "failedToLoad": "Failed to load",
-    "tryAgain": "Try again",
     "evicted": "Evicted",
     "partiallyEvicted": "Partially Evicted",
     "on": "On",
@@ -341,6 +339,7 @@
       "unexpectedError": "An unexpected error occurred"
     },
     "notifications": {
+      "closeOperationFailed": "Failed to close the notification",
       "titles": {
         "logProcessing": "Log Processing",
         "cacheClearing": "Cache Clearing",
@@ -409,6 +408,9 @@
       "corruptedChunksRemoved": "Suspect cache files successfully removed",
       "filesDeleted": "{{formattedCount}} file deleted",
       "filesDeleted_other": "{{formattedCount}} files deleted",
+      "failedTimesInRow": "Failed {{formattedCount}} time in a row.",
+      "failedTimesInRow_other": "Failed {{formattedCount}} times in a row.",
+      "latestRunSucceeded": "The latest run succeeded.",
       "freed": "{{value}} freed",
       "logEntriesRemoved": "{{formattedCount}} log entry removed",
       "logEntriesRemoved_other": "{{formattedCount}} log entries removed",
@@ -584,6 +586,12 @@
     "notAvailable": "N/A",
     "unknown": "Unknown",
     "errors": {
+      "serverUnreachable": "Could not reach the LANCache Manager server.",
+      "requestFailed": "The server could not complete the request.",
+      "notAuthorized": "You do not have access to this. Sign in again, or ask an admin.",
+      "connectionLostTitle": "Lost connection to the LANCache Manager server",
+      "connectionLostBody": "Showing the last loaded data. Pages refresh when the connection is back.",
+      "signInFailed": "Failed to sign in to {{platform}}",
       "invalidJsonResponse": "Invalid JSON response from server"
     },
     "time": {
@@ -778,6 +786,7 @@
     },
     "downloadsPanel": {
       "title": "Downloads",
+      "loadFailed": "Failed to load recent downloads",
       "recent": "Recent",
       "active": "Active",
       "inProgress": "In progress",
@@ -825,6 +834,7 @@
     },
     "topClients": {
       "title": "Top Clients",
+      "loadFailed": "Failed to load top clients",
       "sort": {
         "total": "Total Downloaded",
         "hits": "Cache Hits",
@@ -847,6 +857,7 @@
     },
     "serviceAnalytics": {
       "title": "Service Analytics",
+      "loadFailed": "Failed to load service analytics",
       "tabs": {
         "service": "Services",
         "serviceDistribution": "Service Distribution",
@@ -932,6 +943,7 @@
   "widgets": {
     "peakUsageHours": {
       "title": "Peak Usage Hours",
+      "loadFailed": "Failed to load peak usage hours",
       "help": {
         "aboutTitle": "About This Widget",
         "termsTitle": "Chart Terms"
@@ -985,6 +997,7 @@
     },
     "cacheGrowthTrend": {
       "title": "Cache Growth",
+      "loadFailed": "Failed to load cache growth",
       "capacity": "Current capacity",
       "liveRangeTitle": "Pick a time range",
       "liveRangeDesc": "Live view shows this moment, not a span of time. Pick a time range to see how the cache grew.",
@@ -1001,6 +1014,7 @@
     },
     "bandwidthTrend": {
       "title": "Bandwidth",
+      "loadFailed": "Failed to load bandwidth",
       "saved": "Cache hits",
       "served": "Total served",
       "missed": "Cache misses",
@@ -1040,7 +1054,7 @@
       "rangeTooShortTitle": "Range is too short to compare",
       "rangeTooShortDesc": "These events are plotted in steps wider than the selected range. Pick a longer range in the header.",
       "errors": {
-        "load": "Could not load the event comparison."
+        "load": "Failed to load the event comparison"
       },
       "help": {
         "aboutTitle": "About This Chart",
@@ -1081,6 +1095,7 @@
   },
   "clients": {
     "subtitle": "Client Statistics",
+    "loadFailed": "Failed to load clients",
     "empty": "No client data available",
     "groupCount": "({{count}} IPs)",
     "tooltips": {
@@ -1171,13 +1186,9 @@
     "unlocked": "Guest mode unlocked. Guests can now log in.",
     "refreshRateUpdated": "Default guest refresh rate updated",
     "errors": {
-      "loadGuestDuration": "Failed to load guest session duration",
       "updateGuestDuration": "Failed to update guest session duration",
       "updateGuestLock": "Failed to update guest mode lock",
-      "loadThemes": "Failed to load themes",
-      "loadGuestTheme": "Failed to load default guest theme",
       "updateGuestTheme": "Failed to update default guest theme",
-      "loadGuestRefreshRate": "Failed to load default guest refresh rate",
       "updateGuestRefreshRate": "Failed to update default guest refresh rate",
       "updateGuestRefreshRateLock": "Failed to update guest refresh rate lock",
       "loadThreadConfig": "Failed to load default thread configuration"
@@ -1318,6 +1329,7 @@
         }
       },
       "errors": {
+        "loadDefaults": "Failed to load guest defaults",
         "loadPreferences": "Failed to load default guest preferences",
         "updateDefault": "Failed to update default {{label}}",
         "updateAllowedTimeFormats": "Failed to update allowed time formats",
@@ -1363,10 +1375,7 @@
     "account": "Account",
     "deletedAccount": "Deleted account",
     "sharedAccess": "Shared access",
-    "initialLoadFailed": "Sessions could not be loaded",
-    "initialLoadFailedMessage": "Retry to load the current sessions and history.",
-    "refreshFailed": "Sessions could not be refreshed. The last loaded sessions are still shown.",
-    "retry": "Retry",
+    "initialLoadFailed": "Failed to load sessions",
     "noMatches": "No sessions match your search or filters.",
     "showDetails": "Show session details for {{name}}",
     "hideDetails": "Hide session details for {{name}}",
@@ -1631,7 +1640,7 @@
       "searchPlaceholder": "Search games, clients, depots...",
       "errors": {
         "exportFailed": "Failed to export downloads",
-        "loadFailed": "Failed to load downloads. Check your connection and try again.",
+        "loadFailed": "Failed to load downloads",
         "clearImageCacheFailed": "Failed to clear image cache"
       },
       "tooltips": {
@@ -1858,7 +1867,6 @@
         "depotCount": "{{count}} depot",
         "depotCount_other": "{{count}} depots",
         "depotGroupsLabel": "depot groups",
-        "loadError": "Failed to load downloads from the server. The list below may be out of date.",
         "gauge": {
           "excellent": "Excellent",
           "partial": "Partial",
@@ -1927,8 +1935,7 @@
       "statusCheck": {
         "title": "Status Check",
         "subtitle": "See whether your DNS points game domains at the cache, whether the cache is responding, and whether recent downloads actually went through it",
-        "loadFailed": "Could not load the status check: {{error}}",
-        "retry": "Retry",
+        "loadFailed": "Failed to load the status check",
         "runCheck": "Run Check",
         "resolverMode": {
           "label": "DNS resolver",
@@ -2190,6 +2197,11 @@
       "guestModeActive": "Guest Mode Active",
       "guestModeDesc": "Management features are disabled in guest mode. Please authenticate to access full functionality.",
       "data": {
+        "removeAllEvictedFailed": "Failed to remove the evicted items",
+        "removeEvictedFailed": "Failed to remove the evicted data",
+        "orphanedDownloadsRemoveFailed": "Failed to remove the download records",
+        "evictionScanStartFailed": "Failed to start the eviction scan",
+        "resetEvictionsFailed": "Failed to reset evictions",
         "help": {
           "evictedCacheTitle": "About",
           "evictedVsOthersTitle": "What this does not cover",
@@ -2456,6 +2468,7 @@
         },
         "steamCard": {
           "title": "Steam",
+          "loadError": "Failed to load Steam status",
           "summary": "Steam sign-in and Web API access for naming games.",
           "help": {
             "aboutTitle": "About"
@@ -2478,7 +2491,7 @@
           "notConnectedDesc": "Log in to discover Epic games and identify downloads",
           "loginButton": "Login with Epic Games",
           "logout": "Logout",
-          "loadError": "Failed to load Epic status. Displaying default values.",
+          "loadError": "Failed to load Epic status",
           "help": {
             "authentication": {
               "title": "Epic Games Authentication",
@@ -2507,7 +2520,7 @@
           "dockerStatus": "Docker Service",
           "dockerAvailableDesc": "Docker is available and ready for Battle.net prefill sessions",
           "dockerUnavailableDesc": "Start Docker to enable Battle.net prefill",
-          "loadError": "Failed to load Battle.net status. Displaying default values.",
+          "loadError": "Failed to load Battle.net status",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
           "activeSessions_other": "{{count}} active sessions",
@@ -2535,7 +2548,7 @@
           "dockerStatus": "Docker Service",
           "dockerAvailableDesc": "Docker is available and ready for Riot prefill sessions. No account login required.",
           "dockerUnavailableDesc": "Start Docker to enable Riot prefill sessions.",
-          "loadError": "Failed to load Riot status. Displaying default values.",
+          "loadError": "Failed to load Riot status",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
           "activeSessions_other": "{{count}} active sessions",
@@ -2567,7 +2580,7 @@
           "loginExpiresInDays": "Login valid for about {{count}} more day (auto-renews while running)",
           "loginExpiresInDays_other": "Login valid for about {{count}} more days (auto-renews while running)",
           "logout": "Logout",
-          "loadError": "Failed to load Xbox status. Displaying default values.",
+          "loadError": "Failed to load Xbox status",
           "help": {
             "authentication": {
               "title": "Xbox Authentication",
@@ -2674,14 +2687,17 @@
         "exclusionsHint": "Choose how each client is handled. \"Stats only\" keeps the client visible in downloads and live speeds but removes it from dashboard totals, hit rate, and leaderboards. \"Hidden\" removes the client from every view and from all stats.",
         "noAddressesYet": "No addresses yet",
         "errors": {
+          "deleteNicknameFailed": "Failed to delete nickname",
           "failedToUpdateExcluded": "Failed to update excluded IPs",
           "failedToLoadExcluded": "Failed to load excluded IPs",
-          "failedToLoadNicknames": "Could not load nicknames.",
+          "failedToLoadNicknames": "Failed to load nicknames",
           "failedToLoadIps": "Failed to load client IPs",
           "nicknameDeletedWhileEditing": "That nickname was deleted, so the editor closed without saving your changes."
         },
         "groupManagement": "Client Management",
         "hostnames": {
+          "loadFailed": "Failed to load hostnames",
+          "saveFailed": "Failed to save hostname settings",
           "help": {
             "aboutTitle": "About"
           },
@@ -2723,7 +2739,7 @@
       "summary": "Inspect and clear the cached game files stored on disk.",
       "refreshCacheSize": "Scan cache size",
       "cacheSize": "Cache Size",
-      "cacheSizeError": "Cache Size Error",
+      "cacheSizeError": "Failed to load the cache size",
       "clearCache": "Clear Cache",
       "clearDatasourceCache": "Clear {{datasource}} cache",
       "clearingCacheDeletes": "Clearing cache deletes ALL cached game files from disk",
@@ -2765,7 +2781,7 @@
       },
       "errors": {
         "updateDeleteMode": "Failed to update delete mode",
-        "startCacheClearing": "Failed to start cache clearing: {{error}}",
+        "startCacheClearing": "Failed to start cache clearing",
         "calculateSizeFailed": "Failed to calculate cache size"
       }
     },
@@ -2958,7 +2974,6 @@
       },
       "errors": {
         "loadCachedData": "Failed to load saved scan results",
-        "loadCachedRetry": "Retry loading the current actionable scan before removing files.",
         "startScan": "Failed to start the corruption scan",
         "removeCorrupted": "Failed to remove flagged cache files for {{service}}",
         "loadDetails": "Failed to load flagged cache files for {{service}}",
@@ -3006,7 +3021,6 @@
         "empty": "No saved scans yet. Completed scans are kept here for reference.",
         "methodEmpty": "No saved scans for this method yet.",
         "loadError": "Failed to load scan history",
-        "loadErrorRetry": "The saved scans are unaffected. Retry to load the list again.",
         "currentBadge": "Current",
         "historicalBadge": "Historical",
         "viewOnlyBadge": "View only",
@@ -3101,9 +3115,8 @@
       "unmappedFileCount_other": "{{formattedCount}} files",
       "unmappedFromScan": "Counted by the last full detection scan. The dashboard's Cache Size card works its unmapped figure out from a separate cache scan, so the two can differ.",
       "errors": {
-        "syncFailed": "Failed to refresh cached results",
-        "scanHoldUnknownTitle": "Scan status unavailable",
-        "scanHoldUnknown": "Could not confirm whether the scan is still running."
+        "startFailed": "Failed to start game detection",
+        "syncFailed": "Failed to load game detection results"
       },
       "placeholders": {
         "allDatasources": "All datasources",
@@ -3125,7 +3138,7 @@
     },
     "storage": {
       "errors": {
-        "fetchEvictedItems": "Failed to fetch evicted items"
+        "fetchEvictedItems": "Failed to load evicted items"
       }
     },
     "datasources": {
@@ -3274,11 +3287,12 @@
         "batchSummary": "This cannot be undone."
       },
       "errors": {
+        "removeServiceFailed": "Failed to remove {{service}} logs",
         "unexpectedResponse": "Unexpected response when starting log removal for {{service}}",
         "readOnly": "Logs directory is read-only. Remove :ro from docker-compose volume mount.",
         "actionFailed": "Action failed",
         "deleteFailed": "Failed to delete log file",
-        "loadFailed": "Could not load the log counts. The list below may be incomplete."
+        "loadFailed": "Failed to load log counts"
       },
       "help": {
         "aboutTitle": "About"
@@ -3290,6 +3304,7 @@
     },
     "steamWebApi": {
       "sectionTitle": "Web API",
+      "loadError": "Failed to load Steam Web API status",
       "badgeOperational": "Web API",
       "badgeNeedsKey": "API key needed",
       "badgeUnavailable": "Web API down",
@@ -3523,6 +3538,7 @@
         "delete": "Delete"
       },
       "errors": {
+        "githubUnreachable": "Could not reach GitHub.",
         "failedToUpdate": "Failed to update theme",
         "failedToLoadCommunity": "Failed to load community themes"
       },
@@ -3592,7 +3608,7 @@
         "createFailed": "Failed to create theme",
         "cleanupFailed": "Failed to clean up themes",
         "deleteFailed": "Failed to delete theme",
-        "loadFailed": "Some themes could not be loaded, so the list below may be incomplete.",
+        "loadFailed": "Failed to load themes",
         "preferenceChangeFailed": "That setting could not be applied.",
         "preferencesReset": "Preferences reset to defaults",
         "preferencesResetGuest": "Your preferences have been reset to defaults by an administrator"
@@ -3692,7 +3708,6 @@
         "selectGameCount": "Select count"
       },
       "errors": {
-        "loadSecurityStatus": "Failed to load metrics access status",
         "loadMetricsStatus": "Failed to load metrics status",
         "updateRefreshRate": "Failed to update data refresh rate",
         "updateTopGames": "Failed to update the exported game count",
@@ -3701,7 +3716,7 @@
       "accessMode": "Endpoint Access",
       "metricsToggle": {
         "adminRequired": "Sign in as admin to change this setting",
-        "error": "Failed to update metrics security: {{status}}",
+        "error": "Failed to update metrics security",
         "resetToDefault": "Reset to default",
         "source": {
           "ui": "Source: UI override",
@@ -3734,12 +3749,10 @@
       "resetConfirmButton": "Reset to Defaults",
       "runNowTriggered": "{{service}} triggered manually",
       "runNowAlreadyRunning": "{{service}} is already running",
-      "runNowQueuedNext": "{{service}} is already running - your run will start when it finishes",
       "runNowAlreadyRunning": "{{service}} is already running. No additional run was queued.",
       "runAllAlreadyRunning_one": "{{count}} service is already running. No additional run was queued for it.",
       "runAllAlreadyRunning_other": "{{count}} services are already running. No additional runs were queued for them.",
       "runNowFailed": "Failed to trigger {{service}}",
-      "runNowSkipped": "{{service}} is waiting for the cache and runs when it is free",
       "resetComplete": "All schedules reset to defaults",
       "resetFailed": "Failed to reset schedules",
       "neverRun": "Never",
@@ -3760,6 +3773,7 @@
       "runOnStartup": "Run on startup",
       "runOnStartupTooltip": "When enabled, this service runs once when the app starts in addition to its scheduled interval.",
       "runOnStartupFailed": "Failed to update run-on-startup for {{service}}",
+      "intervalFailed": "Failed to update the interval for {{service}}",
       "customScheduleFailed": "Failed to update the custom schedule for {{service}}",
       "toggleOff": "Off",
       "toggleOn": "On",
@@ -3774,16 +3788,21 @@
         "silent": "Silent",
         "silentDescription": "Show active runs only in the background progress bar.",
         "hidden": "Hidden",
-        "hiddenDescription": "Never show run notifications."
+        "hiddenDescription": "Show nothing for runs, except a card when a run fails."
       },
       "notificationStyleLabel": "Notification style",
       "notificationStyleHelp": "Choose how this service's run notifications appear in the notification bar: a full card, or a thin status bar that expands on hover or tap.",
       "notificationStyleFailed": "Failed to update notification style for {{service}}",
+      "defaultNotificationStyle": "Default notification style",
+      "defaultNotificationStyleHelp": "How every notification appears, including removals and sign-ins, unless a service below picks its own style.",
+      "defaultNotificationStyleFailed": "Failed to change the default notification style",
+      "notificationStyleDefault": "Default ({{style}})",
+      "notificationStyleDefaultDescription": "Follow the default notification style set at the top of this page.",
       "notificationStyle": {
         "full": "Full card",
         "fullDescription": "Show the full notification card with all details.",
         "condensed": "Compact bar",
-        "condensedDescription": "Show a thin status-coloured bar; hover or tap to expand it."
+        "condensedDescription": "Show a thin status-colored bar; hover or tap to expand it."
       },
       "everyNMinutes": "Every {{count}} minutes",
       "everyNHours": "Every {{count}} hours",
@@ -3923,6 +3942,9 @@
           "loss": "Disabled services or services needing login will be skipped until their configuration is completed.",
           "config": {
             "summary": "{{enabled}} of {{total}} schedules enabled",
+            "openFailed": "Failed to open the schedule",
+            "bulkUpdateFailed": "Failed to update the schedules",
+            "deleteFailed": "Failed to delete the schedule",
             "nextRunSummary": {
               "inMinutes": "in {{count}}m",
               "inHours": "in {{count}}h",
@@ -3989,8 +4011,8 @@
             "loginToXbox": "Log in to Xbox",
             "save": "Save schedule",
             "saving": "Saving schedule...",
-            "saveFailed": "Could not save this schedule",
-            "loadFailed": "Could not load scheduled prefill schedules",
+            "saveFailed": "Failed to save the schedule",
+            "loadFailed": "Failed to load scheduled prefill schedules",
             "lastSaved": "Last saved {{time}}",
             "title": "Scheduled Prefill schedules",
             "loading": "Loading schedules...",
@@ -4085,6 +4107,8 @@
             },
             "settings": {
               "title": "Shared container settings",
+              "loadError": "Failed to load the settings: {{error}}",
+              "saveError": "Failed to save the settings: {{error}}",
               "description": "Applies to all service containers.",
               "save": "Save settings",
               "overrideNote": "These services use saved restart overrides: {{services}}.",
@@ -4105,6 +4129,7 @@
               },
               "clearLogins": {
                 "zoneTitle": "Stored logins",
+                "failed": "Failed to clear the saved logins: {{error}}",
                 "button": "Clear stored logins",
                 "clearing": "Clearing stored logins...",
                 "help": "Sign out and remove saved logins on every platform.",
@@ -4222,7 +4247,7 @@
           "runService": "Run",
           "runServiceTooltip": "Run this service now",
           "runServiceStarted": "{{service}} started",
-          "runServiceAlreadyRunning": "{{service}} is already running",
+          "runNowNoSchedule": "Enable a prefill schedule to run it",
           "cancelService": "Cancel",
           "cancelServiceTooltip": "Stop this service's run"
         },
@@ -4366,7 +4391,8 @@
         "loggedOut": "Logged out successfully. This device slot is now available for another user."
       },
       "errors": {
-        "logoutFailed": "Failed to logout: {{message}}",
+        "startGuestFailed": "Failed to start guest mode",
+        "logoutFailed": "Failed to sign out",
         "steamSignOutFailed": "Signed out, but the Steam login and Web API key could not be cleared from the server."
       }
     },
@@ -4412,6 +4438,10 @@
         "xbox": "Xbox"
       },
       "errors": {
+        "terminateSession": "Failed to end the session",
+        "terminateAll": "Failed to end all sessions",
+        "banUser": "Failed to ban the user",
+        "liftBan": "Failed to lift the ban",
         "loadSessions": "Failed to load sessions",
         "loadHistory": "Failed to load session history",
         "loadBans": "Failed to load banned users"
@@ -4705,8 +4735,7 @@
       }
     },
     "errors": {
-      "fetchActiveFailed": "Failed to fetch active events",
-      "fetchFailed": "Failed to fetch events"
+      "fetchFailed": "Failed to load events"
     }
   },
   "eventFrame": {
@@ -4774,7 +4803,6 @@
       "logOut": "Log out",
       "loginToSelectGames": "Log in to select games",
       "authenticating": "Authenticating...",
-      "loginFailed": "Login failed: {{error}}",
       "sessionUnavailable": "This container's login session is no longer available. Press Start to relaunch it.",
       "sessionErrored": "This container's session encountered an error (connection lost). Press Start to restart it.",
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
@@ -4820,7 +4848,6 @@
     "home": {
       "title": "Game Prefill",
       "subtitle": "Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.",
-      "ready": "Ready",
       "startSession": "Start Session",
       "featuresToggle": "What's included",
       "steamDescription": "Prefill your Steam library including recent games, top titles, or hand-picked selections from your account.",
@@ -5103,8 +5130,7 @@
       "yesContinue": "Yes, Continue"
     },
     "errors": {
-      "failedConnect": "Failed to connect to server",
-      "failedEstablishConnection": "Failed to establish connection",
+      "failedConnect": "Failed to connect to the prefill service",
       "failedCreateSession": "Failed to create session",
       "sessionExpired": "Session expired",
       "unableEstimateSize": "Unable to estimate size",
@@ -5112,7 +5138,11 @@
       "saveServiceSelectionFailed": "Could not save your service selection for next time.",
       "removeFromCacheFailed": "Could not remove that game from the cache",
       "clearAllFromCacheFailed": "Could not clear the cached games",
-      "removeFromCacheSharedFiles": "That game's cache record belongs to another game that shares its files, so there was nothing to remove"
+      "removeFromCacheSharedFiles": "That game's cache record belongs to another game that shares its files, so there was nothing to remove",
+      "failedLoadSettings": "Failed to load prefill settings",
+      "saveSettingsFailed": "Failed to save the prefill settings",
+      "endSessionFailed": "Failed to end the session",
+      "cancelLoginFailed": "Failed to cancel the sign-in"
     },
     "sessionExpired": {
       "title": "Session expired",
@@ -5169,7 +5199,6 @@
       "removeFromCacheSharedFiles": "Nothing was removed for {{game}} because its files are shared with another game",
       "removeFromCacheFailed": "Failed to remove {{game}} from the cached list",
       "sessionEnded": "Session ended: {{reason}}",
-      "sessionTerminated": "Session terminated: {{reason}}",
       "statusMessage": "Status: {{message}}",
       "prefillStarted": "Prefill operation started",
       "prefillCompleted": "Prefill completed in {{duration}}",
@@ -5434,7 +5463,6 @@
         "invalidServerResponse": "The server sent back something this page could not read.",
         "attemptTimedOut": "The sign-in attempt ran out of time.",
         "failedToSwitchToAnonymous": "Failed to switch to anonymous mode",
-        "failedToRemoveApiKey": "Failed to remove API key",
         "networkError": "Network error - failed to remove API key",
         "credentialsRequired": "Please enter both username and password",
         "emailCodeRequired": "Please enter your email verification code",
@@ -5448,9 +5476,7 @@
     "epicAuth": {
       "title": "Epic Games Account Login",
       "containerAccountNotice": "This is the container's Epic Games account, not your LANCache Manager login.",
-      "errors": {
-        "authenticationFailed": "Epic sign-in could not be completed. Try again."
-      },
+      "errors": {},
       "signInTitle": "Sign in with Epic Games",
       "signInDescription": "You sign in at Epic, then paste a code here.",
       "connectingSubtitle": "Getting your sign-in link",
@@ -5548,9 +5574,7 @@
         "saveApiKey": "Save API Key"
       },
       "errors": {
-        "enterKey": "Please enter an API key",
-        "networkError": "Network error - failed to test API key",
-        "networkErrorSave": "Network error - failed to save API key"
+        "enterKey": "Please enter an API key"
       }
     },
     "theme": {
@@ -6848,9 +6872,7 @@
       "saving": "Saving...",
       "saveAndContinue": "Save & Continue",
       "securityNote": "Your API key is encrypted and stored securely using Microsoft Data Protection API.",
-      "pleaseEnter": "Please enter an API key",
-      "networkError": "Network error - failed to test API key",
-      "networkErrorSave": "Network error - failed to save API key"
+      "pleaseEnter": "Please enter an API key"
     },
     "steamPicsAuth": {
       "title": "Steam PICS Authentication",
@@ -7154,14 +7176,13 @@
       }
     },
     "errors": {
-      "statusCheckFailed": "Failed to check setup status. Please refresh the page.",
+      "statusCheckFailed": "Failed to load setup status",
       "syncProgressFailed": "Failed to sync setup progress to the server. Your current step may not be saved."
     }
   },
   "memory": {
     "title": "Memory Diagnostics",
     "loading": "Loading memory diagnostics...",
-    "error": "Error: {{error}}",
     "failedToLoad": "Failed to load memory statistics",
     "totalMemory": "Total Memory (RAM)",
     "systemTotal": "System Total:",
@@ -7286,7 +7307,8 @@
       "failed": "Operation failed",
       "complete": "Operation complete",
       "cancelled": "Operation cancelled",
-      "skipped": "Operation skipped"
+      "skipped": "Operation skipped",
+      "nothingToDo": "Nothing to do"
     },
     "cacheClear": {
       "initializing": "Initializing cache clear...",
@@ -7297,8 +7319,7 @@
         "dirNotFound": "Cache directory does not exist: {{cachePath}}",
         "fatal": "Cache clear failed: {{errorDetail}}"
       },
-      "progressDirectories": "{{base}} ({{processed}}/{{total}} directories)",
-      "stale": "Cache clearing completed"
+      "progressDirectories": "{{base}} ({{processed}}/{{total}} directories)"
     },
     "corruptionDetect": {
       "starting": "Starting corruption scan…",
@@ -7343,8 +7364,7 @@
       "completeStructuralIncremental": "Incremental structural scan complete: {{count}} invalid cache files found.",
       "completeStructuralBaseline": "Initial incremental baseline complete: {{count}} invalid cache files found.",
       "cancelled": "Corruption scan cancelled",
-      "failed": "Corruption scan failed: {{errorDetail}}",
-      "stale": "Corruption detection completed"
+      "failed": "Corruption scan failed: {{errorDetail}}"
     },
     "corruptionRemove": {
       "starting": "Starting suspect cache file removal for {{service}}",
@@ -7375,8 +7395,7 @@
       },
       "failed": {
         "generic": "Operation failed. Check server logs for details."
-      },
-      "stale": "Corruption removal completed"
+      }
     },
     "dbReset": {
       "starting": "Starting database reset...",
@@ -7397,15 +7416,13 @@
       "sessionsCleared": {
         "logout": "All user sessions have been cleared - logging out immediately"
       },
-      "cleanup": "Cleaning up files...",
-      "stale": "Database reset completed"
+      "cleanup": "Cleaning up files..."
     },
     "dataImport": {
       "starting": "Starting data import…",
       "progress": "Importing: {{processed}} of {{total}} records",
       "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors",
-      "cancelled": "Data import cancelled",
-      "stale": "Data import completed"
+      "cancelled": "Data import cancelled"
     },
     "depotMapping": {
       "starting": "Starting depot mapping...",
@@ -7427,8 +7444,7 @@
       "skippedSteamUnreachable": "Depot mapping skipped - could not reach Steam",
       "scan": {
         "skippedFullRequired": "Scheduled scan skipped - full scan required"
-      },
-      "stale": "Depot mapping completed"
+      }
     },
     "epicMapping": {
       "starting": "Starting Epic catalog refresh...",
@@ -7440,19 +7456,18 @@
       "resolvedWithoutSignIn": "Epic downloads named from the stored catalog - not signed in to Epic",
       "skippedNotSignedIn": "Epic catalog refresh skipped - not signed in to Epic",
       "cancelled": "Epic catalog refresh cancelled",
-      "failed": "Epic catalog refresh failed: {{errorDetail}}",
-      "stale": "Epic game mapping completed"
+      "failed": "Epic catalog refresh failed: {{errorDetail}}"
     },
     "steamWebApi": {
       "validating": "Validating Steam Web API key...",
+      "testFailed": "Failed to test the Steam Web API key",
       "saving": "Saving Steam Web API key...",
       "removing": "Removing Steam Web API key...",
       "keyValid": "Steam Web API key is valid",
-      "keyInvalid": "Steam Web API key is invalid: {{errorDetail}}",
       "keySaved": "Steam Web API key saved, V1 operational",
-      "keySaveFailed": "Failed to save Steam Web API key: {{errorDetail}}",
+      "keySaveFailed": "Failed to save the Steam Web API key",
       "keyRemoved": "Steam Web API key removed",
-      "keyRemoveFailed": "Failed to remove Steam Web API key: {{errorDetail}}",
+      "keyRemoveFailed": "Failed to remove the Steam Web API key",
       "cancelled": "Steam Web API key check cancelled"
     },
     "xboxMapping": {
@@ -7463,8 +7478,7 @@
       "completed": "Xbox catalog resolve completed",
       "skippedNotSignedIn": "Xbox catalog resolve skipped - not signed in to Xbox",
       "cancelled": "Xbox catalog resolve cancelled",
-      "failed": "Xbox catalog resolve failed: {{errorDetail}}",
-      "stale": "Xbox game mapping completed"
+      "failed": "Xbox catalog resolve failed: {{errorDetail}}"
     },
     "battleNetMapping": {
       "starting": "Starting Battle.net game mapping...",
@@ -7562,8 +7576,7 @@
       "cancelled": "Eviction scan cancelled",
       "error": {
         "fatal": "Eviction scan failed: {{errorDetail}}"
-      },
-      "stale": "Eviction scan completed"
+      }
     },
     "cacheSizeScan": {
       "starting": "Starting cache file scan...",
@@ -7575,8 +7588,7 @@
       "cancelled": "Cache file scan cancelled",
       "error": {
         "fatal": "Cache size scan failed: {{errorDetail}}"
-      },
-      "stale": "Cache file scan completed"
+      }
     },
     "scheduledRun": {
       "logRotation": {
@@ -7655,8 +7667,7 @@
       },
       "error": {
         "fatal": "Game cache detection failed: {{errorDetail}}"
-      },
-      "stale": "Game detection completed"
+      }
     },
     "gameRemove": {
       "starting": "Starting removal for game '{{gameName}}' (AppID {{gameAppId}})",
@@ -7690,8 +7701,7 @@
       "logs": {
         "removing": "Removing log entries",
         "fileProgress": "Removing log entries, file {{n}} of {{total}}"
-      },
-      "stale": "Game removal completed"
+      }
     },
     "logProcessing": {
       "starting": "Starting log processing...",
@@ -7699,8 +7709,7 @@
       "complete": "Processing complete",
       "completedEntries": "Successfully processed {{entriesProcessed}} entries",
       "completedDetail": "Successfully processed {{entriesProcessed}} entries from {{linesProcessed}} lines in {{elapsed}} minutes.",
-      "recoveryDetail": "{{entriesProcessed}} entries processed",
-      "stale": "Log processing completed"
+      "recoveryDetail": "{{entriesProcessed}} entries processed"
     },
     "logProcessor": {
       "starting": "Starting log processing...",
@@ -7734,8 +7743,7 @@
       "cleaningDatabase": "Cleaning up database records for {{service}}...",
       "error": {
         "fatal": "Log removal failed: {{errorDetail}}"
-      },
-      "stale": "Log entry removal completed"
+      }
     },
     "logService": {
       "count": {
@@ -7787,8 +7795,7 @@
       },
       "logs": {
         "removing": "Removing log entries"
-      },
-      "stale": "Service removal completed"
+      }
     },
     "steamSession": {
       "savedSignInPreserved": "Steam ended the current connection. Your saved sign-in is still available. Retry the operation.",
@@ -7806,7 +7813,6 @@
       "disconnected": "Disconnected from Steam: {{result}}"
     },
     "scheduledPrefill": {
-      "stale": "Scheduled prefill completed",
       "skippedNoDaemon": "No daemon registered for this service",
       "skippedNoContainer": "No running persistent container. Start the persistent container before scheduling.",
       "skippedContainerNotReady": "The persistent container is running but has not reported ready yet. This platform needs no login, so wait for the container to finish starting.",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Link,
   Lock,
@@ -10,8 +10,9 @@ import {
   ListOrdered
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
@@ -19,8 +20,8 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
-import { useNotifications } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
@@ -58,7 +59,6 @@ const POLLING_DROPDOWN_WIDTH = 'min-w-[150px]';
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
-  const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
 
@@ -116,6 +116,9 @@ const GrafanaEndpoints: React.FC = () => {
   const [dataRefreshRate, setDataRefreshRate] = useState<string>('15');
   const [scrapeInterval, setScrapeInterval] = useState<string>('15');
   const [topGames, setTopGames] = useState<string>('50');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Mount, reconnect and Retry can overlap; only the newest read writes the card.
+  const statusRequestRef = useRef(0);
   const [isToggling, setIsToggling] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
   const [areRatesExpanded, setAreRatesExpanded] = useState(false);
@@ -128,54 +131,38 @@ const GrafanaEndpoints: React.FC = () => {
     setIsConfigExpanded((prev) => !prev)
   );
 
-  const fetchMetricsSecurity = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        const data = await ApiService.getMetricsSecurity(signal);
-        setMetricsSecurity(data);
-      } catch (error: unknown) {
-        if (isAbortError(error)) return;
-        notifyError(t('management.grafana.errors.loadSecurityStatus'), error, {
-          logLabel: 'Failed to load metrics security status'
-        });
-      }
-    },
-    [notifyError, t]
-  );
+  // The three reads succeed or fail together: every control starts at a default, so a card that
+  // loaded only part of its settings could show a default as if it were saved.
+  const loadStatus = useCallback(async (signal?: AbortSignal) => {
+    const request = ++statusRequestRef.current;
+    try {
+      const [security, intervalRes, gameLimitRes] = await Promise.all([
+        ApiService.getMetricsSecurity(signal),
+        fetch('/api/metrics/interval', ApiService.getFetchOptions({ signal })),
+        fetch('/api/metrics/game-limit', ApiService.getFetchOptions({ signal }))
+      ]);
+      await assertOk(intervalRes);
+      await assertOk(gameLimitRes);
+      const { interval } = (await intervalRes.json()) as { interval: number };
+      const { gameLimit } = (await gameLimitRes.json()) as { gameLimit: number };
+      if (request !== statusRequestRef.current) return;
+      setMetricsSecurity(security);
+      setDataRefreshRate(String(interval));
+      setTopGames(String(gameLimit));
+      setLoadError(null);
+    } catch (error: unknown) {
+      if (isAbortError(error)) return;
+      if (request !== statusRequestRef.current) return;
+      setLoadError(getErrorMessage(error));
+    }
+  }, []);
 
   // Load initial state on mount
   useEffect(() => {
     const controller = new AbortController();
-    const loadStatus = async () => {
-      try {
-        const [, intervalRes, gameLimitRes] = await Promise.all([
-          fetchMetricsSecurity(controller.signal),
-          fetch('/api/metrics/interval', ApiService.getFetchOptions({ signal: controller.signal })),
-          fetch(
-            '/api/metrics/game-limit',
-            ApiService.getFetchOptions({ signal: controller.signal })
-          )
-        ]);
-        if (intervalRes.ok) {
-          const intervalData = await intervalRes.json();
-          setDataRefreshRate(String(intervalData.interval));
-        }
-        if (gameLimitRes.ok) {
-          const gameLimitData = (await gameLimitRes.json()) as { gameLimit: number };
-          setTopGames(String(gameLimitData.gameLimit));
-        }
-      } catch (error: unknown) {
-        if (isAbortError(error)) return;
-        // Interval load has a workable default (dataRefreshRate stays '15'); background noise.
-        notifyError(t('management.grafana.errors.loadMetricsStatus'), error, {
-          silent: true,
-          logLabel: 'Failed to load metrics status'
-        });
-      }
-    };
-    void loadStatus();
+    void loadStatus(controller.signal);
     return () => controller.abort();
-  }, [fetchMetricsSecurity, notifyError, t]);
+  }, [loadStatus]);
 
   // Subscribe to real-time MetricsSecurityUpdated events via SignalR
   useEffect(() => {
@@ -187,12 +174,13 @@ const GrafanaEndpoints: React.FC = () => {
   }, [on, off]);
 
   // Refetch when SignalR reconnects to recover any missed updates
-  useReconnectRefetch(isConnected, fetchMetricsSecurity);
+  useReconnectRefetch(isConnected, loadStatus);
 
   const handleDataRefreshChange = async (value: string) => {
+    const previous = dataRefreshRate;
     setDataRefreshRate(value);
     try {
-      await fetch(
+      const response = await fetch(
         '/api/metrics/interval',
         ApiService.getFetchOptions({
           method: 'POST',
@@ -200,7 +188,10 @@ const GrafanaEndpoints: React.FC = () => {
           body: JSON.stringify({ interval: parseInt(value, 10) })
         })
       );
+      await assertOk(response);
     } catch (error) {
+      // The server kept its old interval, so the control has to show it again.
+      setDataRefreshRate(previous);
       notifyError(t('management.grafana.errors.updateRefreshRate'), error, {
         logLabel: 'Failed to update data refresh rate'
       });
@@ -219,9 +210,7 @@ const GrafanaEndpoints: React.FC = () => {
           body: JSON.stringify({ gameLimit: parseInt(value, 10) })
         })
       );
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      await assertOk(response);
     } catch (error) {
       // The server kept its old cap, so the control has to show it again.
       setTopGames(previous);
@@ -247,13 +236,7 @@ const GrafanaEndpoints: React.FC = () => {
     } catch (error: unknown) {
       // Revert optimistic update
       setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: !newValue } : prev));
-      const message = getErrorMessage(error);
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.grafana.metricsToggle.error', { status: message }),
-        details: { notificationType: 'error' }
-      });
+      notifyError(t('management.grafana.metricsToggle.error'), error);
     } finally {
       setIsToggling(false);
     }
@@ -266,13 +249,7 @@ const GrafanaEndpoints: React.FC = () => {
       const data = await ApiService.setMetricsSecurity(null);
       setMetricsSecurity(data);
     } catch (error: unknown) {
-      const message = getErrorMessage(error);
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.grafana.metricsToggle.error', { status: message }),
-        details: { notificationType: 'error' }
-      });
+      notifyError(t('management.grafana.metricsToggle.error'), error);
     } finally {
       setIsToggling(false);
     }
@@ -346,16 +323,8 @@ const GrafanaEndpoints: React.FC = () => {
     </HelpPopover>
   );
 
-  return (
-    <AccordionSection
-      title={t('management.grafana.title')}
-      shortTitle={t('management.grafana.titleShort')}
-      titleAccessory={helpAccessory}
-      icon={Link}
-      isExpanded={expanded}
-      onToggle={() => setExpanded((prev) => !prev)}
-      badge={accessBadge}
-    >
+  const controls = (
+    <>
       <p className="text-themed-muted text-sm mb-4">
         {metricsSecurity?.requiresAuthentication
           ? t('management.grafana.securedDescription')
@@ -678,6 +647,29 @@ const GrafanaEndpoints: React.FC = () => {
           </div>
         </AccordionSection>
       </div>
+    </>
+  );
+
+  return (
+    <AccordionSection
+      title={t('management.grafana.title')}
+      shortTitle={t('management.grafana.titleShort')}
+      titleAccessory={helpAccessory}
+      icon={Link}
+      isExpanded={expanded}
+      onToggle={() => setExpanded((prev) => !prev)}
+      badge={loadError !== null ? expanded ? undefined : <SectionErrorChip /> : accessBadge}
+    >
+      {loadError !== null ? (
+        <ErrorBlock
+          title={t('management.grafana.errors.loadMetricsStatus')}
+          message={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void loadStatus()}
+        />
+      ) : (
+        controls
+      )}
     </AccordionSection>
   );
 };

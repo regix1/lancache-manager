@@ -3,6 +3,7 @@ import i18n from '@/i18n';
 import { APP_EVENTS, REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useAuth } from '@contexts/useAuth';
@@ -17,14 +18,14 @@ import { RefreshRateContext } from './RefreshRateContext.types';
 
 // RefreshRateProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
 // useErrorHandler (useNotifications) is not reachable from it - it would throw. Use the existing
-// show-toast bridge instead (mirrors NotificationsContext.tsx:332-356).
-const notifyRefreshRateSaveFailed = (): void => {
+// show-toast bridge instead (the SHOW_TOAST listener in NotificationsContext.tsx).
+const notifyRefreshRateSaveFailed = (error: unknown): void => {
   window.dispatchEvent(
     new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
       detail: {
         type: 'error',
         message: i18n.t('common.refreshRate.errors.saveFailed'),
-        duration: 4000
+        error: getErrorMessage(error)
       }
     })
   );
@@ -37,6 +38,7 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
   const [isControlledByAdmin, setIsControlledByAdmin] = useState(false);
   const [defaultGuestRate, setDefaultGuestRate] = useState<string | null>(null);
   const [globalLocked, setGlobalLocked] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   const { on, off, isConnected } = useSignalR();
   const { authMode } = useAuth();
@@ -44,8 +46,9 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   // Ref to avoid stale closures in SignalR handlers
   const authModeRef = useRef(authMode);
-  // Every writer below bumps this, and a fetch response only lands if the generation it captured
-  // still matches, so an answer superseded while in flight loses instead of winning.
+  // Every writer and every read below bumps this, and a fetch response only lands if the
+  // generation it took still matches, so an answer superseded while in flight (by a newer read,
+  // a broadcast or a pick) loses instead of winning.
   const generationRef = useRef(0);
   useEffect(() => {
     authModeRef.current = authMode;
@@ -54,21 +57,22 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   // Fetch global default guest rate and lock state (for guests only)
   const fetchGlobalDefaults = useCallback(async () => {
-    const requestGeneration = generationRef.current;
+    const requestGeneration = ++generationRef.current;
     try {
       const response = await fetch('/api/system/default-guest-refresh-rate', {
         credentials: 'include'
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (generationRef.current !== requestGeneration) return;
-        setGlobalLocked(data.locked ?? true);
-        setDefaultGuestRate(data.refreshRate || null);
-      }
-    } catch (error) {
-      // Background fetch for guests; the STANDARD/locked defaults already set as initial state
-      // remain in effect. Deliberately silent.
-      console.error('Failed to fetch global guest defaults:', error);
+      await assertOk(response);
+      const body = await response.json();
+      if (generationRef.current !== requestGeneration) return;
+      setGlobalLocked(body.locked ?? true);
+      setDefaultGuestRate(body.refreshRate || null);
+      setError(null);
+    } catch (err) {
+      // The locked STANDARD defaults stay in effect, so the guest still cannot change a rate the
+      // admin may have locked; the selector shows the failure instead of that lock.
+      console.error('Failed to fetch global guest defaults:', err);
+      if (generationRef.current === requestGeneration) setError(getErrorMessage(err));
     }
   }, []);
 
@@ -118,25 +122,24 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
   // Authenticated users always use the global system refresh rate and should
   // never inherit guest lock/default behavior.
   const fetchSystemRate = useCallback(async () => {
-    const requestGeneration = generationRef.current;
+    const requestGeneration = ++generationRef.current;
     try {
       const response = await fetch('/api/system/refresh-rate', {
         credentials: 'include'
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (
-          generationRef.current === requestGeneration &&
-          data.refreshRate &&
-          data.refreshRate in REFRESH_RATES
-        ) {
-          setRefreshRateState(data.refreshRate as RefreshRate);
+      await assertOk(response);
+      const body = await response.json();
+      if (generationRef.current === requestGeneration) {
+        if (body.refreshRate && body.refreshRate in REFRESH_RATES) {
+          setRefreshRateState(body.refreshRate as RefreshRate);
         }
+        setError(null);
       }
-    } catch (error) {
-      // Background fetch for admins; falls back to the STANDARD default already set as initial
-      // state. Deliberately silent.
-      console.error('Failed to fetch system refresh rate:', error);
+    } catch (err) {
+      // This browser keeps polling at the STANDARD default, but the selector shows the failure
+      // instead of that default, which would read as the saved system rate.
+      console.error('Failed to fetch system refresh rate:', err);
+      if (generationRef.current === requestGeneration) setError(getErrorMessage(err));
     } finally {
       if (generationRef.current === requestGeneration) {
         setIsLoaded(true);
@@ -204,14 +207,16 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
   }, [on, off]);
 
   // An unlock broadcast while the socket was down is gone for good, and it leaves the control
-  // disabled with nothing on screen to say so. One callback: the fetches never both apply.
-  useReconnectRefetch(isConnected, () => {
+  // disabled with nothing on screen to say so. One callback: the fetches never both apply. The
+  // selector's failure chip repeats the same read.
+  const reload = () => {
     if (authModeRef.current === 'guest') {
       void fetchGlobalDefaults();
     } else if (authModeRef.current === 'authenticated') {
       void fetchSystemRate();
     }
-  });
+  };
+  useReconnectRefetch(isConnected, reload);
 
   const setRefreshRate = useCallback(
     async (rate: RefreshRate) => {
@@ -244,9 +249,10 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
         // update above already applied, so without this the failure would be invisible and the
         // choice would silently not persist. RefreshRateProvider is an ancestor of
         // NotificationsProvider in AppProviders.tsx, so useErrorHandler is not reachable here -
-        // use the existing show-toast bridge instead (mirrors NotificationsContext.tsx:332-356).
+        // use the existing show-toast bridge instead (the SHOW_TOAST listener in
+        // NotificationsContext.tsx).
         console.error('Failed to save refresh rate:', error);
-        notifyRefreshRateSaveFailed();
+        notifyRefreshRateSaveFailed(error);
       }
     },
     [isControlledByAdmin, authMode]
@@ -260,7 +266,9 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     refreshRate,
     setRefreshRate,
     getRefreshInterval,
-    isControlledByAdmin
+    isControlledByAdmin,
+    error,
+    reload
   };
 
   // Only render children after we've loaded the refresh rate from API

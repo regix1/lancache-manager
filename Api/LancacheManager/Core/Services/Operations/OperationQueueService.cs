@@ -1,5 +1,4 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Hubs;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -44,21 +43,11 @@ public sealed class OperationQueueService : IOperationQueue
         public required Func<Task<Guid?>> Start { get; init; }
         public required long Sequence { get; init; }
         public int PromotionRefusals { get; set; }
-        /// <summary>
-        /// True when this run keeps its cards to itself. Read by
-        /// <see cref="AnnounceBlockerChangeAsync"/>, which is the one place a parked run speaks a
-        /// second time and the one place a silent run must not.
-        /// </summary>
-        public required bool Silent { get; set; }
-        public required bool Hidden { get; init; }
         public RunNotice? Notice { get; init; }
         /// <summary>
-        /// The blocker last announced to the frontend for this waiter (id + display name).
-        /// Both mutate only under <see cref="_gate"/>; the name is additionally read under
-        /// <see cref="_sync"/> by the recovery-endpoint accessor.
+        /// The blocker last recorded for this waiter. Mutates only under <see cref="_gate"/>.
         /// </summary>
         public Guid? LastBlockerId { get; set; }
-        public string? LastBlockerName { get; set; }
     }
 
     private const int MaxPromotionRefusals = 300;
@@ -66,7 +55,6 @@ public sealed class OperationQueueService : IOperationQueue
 
     private readonly IUnifiedOperationTracker _tracker;
     private readonly IOperationConflictChecker _conflictChecker;
-    private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<OperationQueueService> _logger;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -77,12 +65,10 @@ public sealed class OperationQueueService : IOperationQueue
     public OperationQueueService(
         IUnifiedOperationTracker tracker,
         IOperationConflictChecker conflictChecker,
-        ISignalRNotificationService notifications,
         ILogger<OperationQueueService> logger)
     {
         _tracker = tracker;
         _conflictChecker = conflictChecker;
-        _notifications = notifications;
         _logger = logger;
 
         // Single terminal hook: every op (success/failed/cancelled/force-killed) funnels
@@ -97,10 +83,8 @@ public sealed class OperationQueueService : IOperationQueue
         Func<Task<Guid?>> start,
         CancellationToken ct,
         bool reportRefusal = false,
-        bool showWaitingCard = true,
         RunNotice? notice = null)
     {
-        showWaitingCard = notice?.ShowNotification ?? showWaitingCard;
         await _gate.WaitAsync(ct);
         try
         {
@@ -118,20 +102,13 @@ public sealed class OperationQueueService : IOperationQueue
                     if (notice?.Trigger == RunTrigger.Manual && duplicateWaiter.Notice is { } retained)
                     {
                         retained.Trigger = RunTrigger.Manual;
-                        if (duplicateWaiter.Silent && retained.ShowNotification)
-                        {
-                            duplicateWaiter.Silent = false;
-                            _ = _notifications.NotifyAllAsync(SignalREvents.OperationWaiting,
-                                new OperationWaitingNotification(duplicateWaiter.WaitingId, type.ToWireString(), displayName, duplicateWaiter.LastBlockerName));
-                        }
+                        _tracker.RefreshRun(duplicateWaiter.WaitingId);
                     }
                     return new QueuedOperationResponse
                     {
                         OperationId = duplicateWaiter.WaitingId,
                         Queued = true,
                         AlreadyRunning = true,
-                        ShowNotification = !duplicateWaiter.Silent,
-                        HideNotification = duplicateWaiter.Hidden,
                         Status = "waiting"
                     };
                 }
@@ -176,7 +153,8 @@ public sealed class OperationQueueService : IOperationQueue
                             type,
                             displayName,
                             new CancellationTokenSource(),
-                            metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true, ["runNotice"] = notice });
+                            metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true },
+                            notice: notice);
                         // No error text. The card prints this field VERBATIM and only translates the
                         // stage key beside it, so the gate's English would reach every locale as-is
                         // and a translation key would show as the key itself. Leaving it null lets
@@ -221,41 +199,16 @@ public sealed class OperationQueueService : IOperationQueue
             // and the frontend card has a real operationId (no ghost-notification shape).
             var cts = new CancellationTokenSource();
             Guid waitingId = default;
-            var typeWire = type.ToWireString();
+            var blockerName = ResolveBlockerName(conflict);
             waitingId = _tracker.RegisterOperation(
                 type,
                 displayName,
                 cts,
                 onTerminalCleanup: () => RemoveWaiter(waitingId),
-                // Always close the waiting-card lifecycle. Usually the promoted op's Started
-                // event has already replaced the card; Promoted also handles intentionally
-                // silent scheduled operations by removing their purple card at handoff.
-                // A declined run rides the success flag too, so it is excluded from Promoted and
-                // reported on its own: nothing started and nothing replaced the card, and saying
-                // otherwise removes the card without ever showing the reason.
-                onTerminalEmit: info =>
-                {
-                    var successor = _tracker.GetOperation(waitingId, followHandoff: true);
-                    if (successor?.Id == waitingId) successor = null;
-                    return _notifications.NotifyAllAsync(
-                        SignalREvents.OperationWaitingComplete,
-                        new OperationWaitingCompleteNotification(
-                            waitingId,
-                            typeWire,
-                            info.Cancelled,
-                            // A declined run's reason is the download gate's English, written for an
-                            // HTTP caller, and the card prints this field verbatim. Dropped so the
-                            // card uses its own translated wording; a real failure still carries its
-                            // message, which is the one a reader has to see.
-                            info.Skipped ? null : info.Error,
-                            Promoted: info.Success && !info.Skipped,
-                            Skipped: info.Skipped,
-                            NextOperationId: successor?.Id,
-                            NextStatus: successor?.Status.ToWireString(),
-                            Hidden: notice?.HideNotification == true));
-                },
                 initialStatus: OperationStatus.Waiting,
-                metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["waiting"] = true });
+                metadata: new Dictionary<string, object?> { ["waiting"] = true },
+                blockedByName: blockerName,
+                notice: notice);
 
             // A waiting op has no worker, so the queue is its worker: when the universal
             // cancel path cancels the CTS, complete the op as cancelled (CompletedFlag makes
@@ -267,14 +220,19 @@ public sealed class OperationQueueService : IOperationQueue
             // A type that keeps its parked id when it starts running shares this token with the
             // work, so the completion is asked for rather than taken: once the operation is
             // running its worker owns the terminal and reports it after releasing its own gate.
+            // Whoever takes the waiter out of the queue owns its terminal: a cancel that lands after
+            // promotion claimed it leaves the ending to the promotion, which names the operation
+            // doing the work, so the browser never sees the waiting run end as a second card.
             var capturedWaitingId = waitingId;
             cts.Token.Register(() =>
             {
                 notice?.Cancel(_tracker, capturedWaitingId);
-                _ = Task.Run(() => _tracker.CancelParkedOperation(capturedWaitingId));
+                _ = Task.Run(() =>
+                {
+                    if (RemoveWaiter(capturedWaitingId)) _tracker.CancelParkedOperation(capturedWaitingId);
+                });
             });
 
-            var blockerName = ResolveBlockerName(conflict);
             lock (_sync)
             {
                 _waiters.Add(new Waiter
@@ -286,9 +244,6 @@ public sealed class OperationQueueService : IOperationQueue
                     Start = start,
                     Sequence = Interlocked.Increment(ref _nextSequence),
                     LastBlockerId = conflict?.ActiveOperationId,
-                    LastBlockerName = blockerName,
-                    Silent = !showWaitingCard,
-                    Hidden = notice?.HideNotification == true,
                     Notice = notice
                 });
             }
@@ -310,18 +265,6 @@ public sealed class OperationQueueService : IOperationQueue
                     type, displayName, waitingId, conflict.ActiveOperationType, conflict.ActiveOperationId);
             }
 
-            // A schedule set to Silent parks like any other: the wait, the promotion and the cancel
-            // path all still work, and its own terminal still reports whatever the run did. It says
-            // so once, and the flag is how the frontend knows to answer with the notice that clears
-            // itself instead of the purple card that sits there until the blocker finishes. It used
-            // to say nothing, which at the scheduled time reads as the run having been dropped.
-            await _notifications.NotifyAllAsync(
-                    SignalREvents.OperationWaiting,
-                    new OperationWaitingNotification(
-                        waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard,
-                        Hidden: notice?.HideNotification == true,
-                        Acknowledge: notice?.Mode == NotificationMode.Silent && notice.TryAcknowledge()));
-
             if (retryAfterParking)
             {
                 _ = PromoteAfterRetryDelayAsync();
@@ -331,38 +274,12 @@ public sealed class OperationQueueService : IOperationQueue
             {
                 OperationId = waitingId,
                 Queued = true,
-                ShowNotification = showWaitingCard,
-                HideNotification = notice?.HideNotification == true,
                 Status = "waiting"
             };
         }
         finally
         {
             _gate.Release();
-        }
-    }
-
-    public string? GetWaitingBlockerName(Guid waitingOperationId)
-    {
-        lock (_sync)
-        {
-            return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.LastBlockerName;
-        }
-    }
-
-    public bool IsWaiterSilent(Guid waitingOperationId)
-    {
-        lock (_sync)
-        {
-            return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.Silent == true;
-        }
-    }
-
-    public bool IsWaiterHidden(Guid waitingOperationId)
-    {
-        lock (_sync)
-        {
-            return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.Hidden == true;
         }
     }
 
@@ -381,29 +298,16 @@ public sealed class OperationQueueService : IOperationQueue
         return _tracker.GetOperation(blockerId)?.Name;
     }
 
-    private async Task AnnounceBlockerChangeAsync(Waiter waiter, OperationConflictResponse conflict)
+    // The waiting run's row carries the blocker's name, so recording it on the tracker is what
+    // updates the card, the recovery endpoint and the run list together.
+    private void AnnounceBlockerChange(Waiter waiter, OperationConflictResponse conflict)
     {
         if (conflict.ActiveOperationId == waiter.LastBlockerId)
         {
             return;
         }
-        var blockerName = ResolveBlockerName(conflict);
-        lock (_sync)
-        {
-            waiter.LastBlockerId = conflict.ActiveOperationId;
-            waiter.LastBlockerName = blockerName;
-        }
-        // The name is still recorded above, because the recovery endpoint reads it for every waiter.
-        // Only the re-announcement stops here: a silent run's one notice never named a blocker, so a
-        // change of blocker has nothing to correct, and a run parked for an hour would otherwise
-        // speak every time the operation ahead of it changed.
-        await _notifications.NotifyAllAsync(
-            SignalREvents.OperationWaiting,
-            new OperationWaitingNotification(
-                waiter.WaitingId,
-                waiter.Type.ToWireString(),
-                waiter.Name,
-                blockerName, Silent: waiter.Silent, Hidden: waiter.Hidden, Acknowledge: false));
+        waiter.LastBlockerId = conflict.ActiveOperationId;
+        _tracker.SetBlockedByName(waiter.WaitingId, ResolveBlockerName(conflict));
     }
 
     private bool RemoveWaiter(Guid waitingId)
@@ -481,7 +385,7 @@ public sealed class OperationQueueService : IOperationQueue
                         // The blocker may be a DIFFERENT operation than last announced (the one
                         // this waiter parked behind finished, and the next conflicting op took
                         // over) - re-announce so the waiting card names the current blocker.
-                        await AnnounceBlockerChangeAsync(waiter, conflict);
+                        AnnounceBlockerChange(waiter, conflict);
                         continue;
                     }
 
@@ -499,7 +403,10 @@ public sealed class OperationQueueService : IOperationQueue
                         {
                             if (waiter.Notice != null)
                                 waiter.Notice.BlockedByOperationId = waiter.LastBlockerId;
-                            startedId = await waiter.Start();
+                            using (_tracker.BeginPromotion(waiter.WaitingId, waiter.Type))
+                            {
+                                startedId = await waiter.Start();
+                            }
                         }
                     }
                     catch (DownloadInProgressException ex)
@@ -553,8 +460,8 @@ public sealed class OperationQueueService : IOperationQueue
                         _tracker.RecordHandoff(waiter.WaitingId, startedId.Value);
                         waiter.Notice?.Attach(_tracker, startedId.Value);
 
-                        // Successful handoff emits Promoted=true; the frontend keeps a running
-                        // replacement card or removes the waiting card for a silent operation.
+                        // The waiting row ends as completed and names the running operation, so the
+                        // browser folds it into that run's own entry.
                         _tracker.CompleteOperation(waiter.WaitingId, success: true);
 
                         // A cancel that landed WHILE Start() was running hit a waiting operation
@@ -621,8 +528,12 @@ public sealed class OperationQueueService : IOperationQueue
                                 error: "Queued operation could not acquire its local start gate",
                                 skipped: true);
                         }
-                        // Otherwise the waiting operation was cancelled while promotion was in
-                        // flight; its cancellation path already completed the card.
+                        else
+                        {
+                            // The waiting operation was cancelled while promotion was in flight.
+                            // Promotion claimed it, so its cancel callback left the ending here.
+                            _tracker.CompleteOperation(waiter.WaitingId, success: false, cancelled: true);
+                        }
                     }
                     else
                     {

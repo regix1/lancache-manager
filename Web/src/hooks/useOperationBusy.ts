@@ -15,10 +15,15 @@ interface OperationBusyOptions {
 }
 
 /**
- * Returns `true` when at least one notification matches the given `types` and
+ * Returns `true` when at least one server run matches the given `types` and
  * one of the given `status` values (default `'running'`). The type-only sibling
  * of `useIsEntityBusy` (which additionally matches an entity identity); use this
  * when the busy check is purely "is operation X in state Y" with no identity.
+ *
+ * Reads the server's run list, Hidden runs included: a run the user chose not to
+ * see still keeps its page's buttons busy until it ends. A scan's hidden phase is
+ * not in the list (it is folded under its parent run), so an eviction scan's
+ * detection phase never marks game detection busy.
  *
  * Mirrors the `useIsEntityBusy` memoization pattern: the option fields are
  * destructured to stable primitives before the `useMemo` so the array passed in
@@ -26,7 +31,7 @@ interface OperationBusyOptions {
  * unless its contents actually change.
  */
 export function useOperationBusy(options: OperationBusyOptions): boolean {
-  const { notifications } = useNotifications();
+  const { runs } = useNotifications();
 
   const { types, status } = options;
   // Normalize the status filter to an array of strings so the memo key is a
@@ -42,7 +47,7 @@ export function useOperationBusy(options: OperationBusyOptions): boolean {
   const typeList = useMemo(() => typesKey.split(',') as NotificationType[], [typesKey]);
 
   return useMemo(
-    () => notifications.some((n) => typeList.includes(n.type) && statuses.includes(n.status)),
-    [notifications, typeList, statuses]
+    () => runs.some((n) => typeList.includes(n.type) && statuses.includes(n.status)),
+    [runs, typeList, statuses]
   );
 }

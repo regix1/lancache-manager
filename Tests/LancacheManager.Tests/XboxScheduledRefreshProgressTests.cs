@@ -24,9 +24,8 @@ namespace LancacheManager.Tests;
 /// Proves the scheduled Xbox catalog refresh owns a tracked operation and drives the universal bar:
 /// <see cref="XboxCatalogMappingService.RefreshNowAsync"/> registers exactly one tracker op, emits
 /// operationId-scoped lifecycle events with non-decreasing percent, and finishes with exactly one
-/// terminal event. It also proves the display-flag pattern:
-/// a silent-mode run still emits every lifecycle event, only stamped <c>showNotification=false</c>
-/// (never transport suppression), so the frontend gates the card rather than the backend dropping events.
+/// terminal event. It also proves visibility lives on the operation's notice: a run under Silent still
+/// emits every lifecycle event (never transport suppression) and is drawn as a background row.
 /// The run executes with no authenticated session, no daemon, and an empty database, so it takes the
 /// signed-out branch: started plus a terminal that names the skip rather than a completed refresh.
 /// </summary>
@@ -85,19 +84,22 @@ public partial class XboxScheduledRefreshProgressTests
         Assert.Equal(OperationStatus.Skipped, terminal.Status);
         Assert.Equal(0.0, terminal.PercentComplete);
 
-        // Default mode is All, so the run is visible.
-        Assert.All(events, e => Assert.True(e.ShowNotification));
+        // A REST refresh passes no notice, so it builds a manual one in the default Manual mode: a card.
+        var notice = harness.Tracker.GetOperation(operationIds[0])!.Notice!;
+        Assert.Equal(NotificationMode.Manual, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+        Assert.Equal(RunVisibility.Card, harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == operationIds[0]).Visibility);
 
         // The op reached a terminal state (nothing left active for this type).
         Assert.Empty(harness.Tracker.GetActiveOperations(OperationType.XboxMapping));
     }
 
     [Fact]
-    public async Task ScheduledRefresh_SilentMode_StillEmitsLifecycle_WithShowNotificationFalseAsync()
+    public async Task ScheduledRefresh_Silent_StillEmitsLifecycle_AsABackgroundRowAsync()
     {
         using var harness = new Harness();
 
-        // Silent + a scheduled (non-manual) trigger => the run must not surface, but events still emit.
+        // Under Silent the run must not draw a card, but its events still emit.
         harness.Service.SetNotificationMode(NotificationMode.Silent);
 
         await harness.Service.RefreshNowAsync();
@@ -107,11 +109,60 @@ public partial class XboxScheduledRefreshProgressTests
 
         Assert.True(events.Count >= 2, "lifecycle events must always emit, even when silent");
         Assert.Contains(events, e => e.IsTerminal);
-        Assert.All(events, e => Assert.False(e.ShowNotification));
+        var terminal = events.Single(e => e.IsTerminal);
+        Assert.Equal(RunVisibility.Background,
+            harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == terminal.OperationId).Visibility);
 
         // The terminal still reports success (display gating never changes the outcome).
-        var terminal = events.Single(e => e.IsTerminal);
         Assert.True(terminal.Success);
+    }
+
+    [Theory]
+    [InlineData(RunTrigger.Scheduled)]
+    [InlineData(RunTrigger.Startup)]
+    [InlineData(RunTrigger.RunAll)]
+    public async Task ScheduledRefresh_RegistersTheNoticeItWasAdmittedWithAsync(RunTrigger trigger)
+    {
+        using var harness = new Harness();
+        var admitted = new RunNotice(NotificationMode.Manual, trigger);
+
+        await harness.Service.RefreshNowAsync(CancellationToken.None, trigger, admitted);
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var terminal = harness.Notifications.XboxLifecycleEvents().Single(e => e.IsTerminal);
+        Assert.Same(admitted, harness.Tracker.GetOperation(terminal.OperationId)!.Notice);
+    }
+
+    [Theory]
+    [InlineData(NotificationMode.All, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Silent, RunVisibility.Background)]
+    [InlineData(NotificationMode.Hidden, RunVisibility.Hidden)]
+    public async Task SignInRun_RegistersAFreshManualNoticeInTheScheduleModeAsync(NotificationMode mode, RunVisibility visibility)
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"shared-refresh"}""",
+            CompleteHarvest = true
+        };
+        using var harness = new Harness(authHandler: auth);
+
+        // The last scheduled refresh ran with a different notice; the sign-in must not inherit it.
+        var scheduled = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
+        await harness.Service.RefreshNowAsync(CancellationToken.None, RunTrigger.Scheduled, scheduled);
+        harness.Service.SetNotificationMode(mode);
+
+        await harness.Service.StartLoginAsync();
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var started = Assert.IsType<ScheduledRunStartedEvent>(
+            harness.Notifications.EventsFor(SignalREvents.XboxMappingStarted).Last());
+        var notice = harness.Tracker.GetOperation(started.OperationId)!.Notice!;
+        Assert.NotSame(scheduled, notice);
+        Assert.Equal(mode, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+        Assert.Equal(visibility,
+            harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == started.OperationId).Visibility);
     }
 
     [Fact]
@@ -711,7 +762,7 @@ public partial class XboxScheduledRefreshProgressTests
     }
 
     private sealed record ProgressSnapshot(
-        Guid OperationId, double PercentComplete, bool IsTerminal, OperationStatus Status, bool Success, bool ShowNotification, string StageKey);
+        Guid OperationId, double PercentComplete, bool IsTerminal, OperationStatus Status, bool Success, string StageKey);
 
     private sealed class RecordingNotifications : ISignalRNotificationService
     {
@@ -765,7 +816,6 @@ public partial class XboxScheduledRefreshProgressTests
                             false,
                             OperationStatus.Running,
                             false,
-                            started.ShowNotification,
                             started.StageKey),
                         ScheduledRunProgressEvent progress => new ProgressSnapshot(
                             progress.OperationId,
@@ -773,7 +823,6 @@ public partial class XboxScheduledRefreshProgressTests
                             false,
                             OperationStatus.Running,
                             false,
-                            progress.ShowNotification,
                             progress.StageKey),
                         ScheduledRunCompleteEvent complete => new ProgressSnapshot(
                             complete.OperationId,
@@ -781,7 +830,6 @@ public partial class XboxScheduledRefreshProgressTests
                             true,
                             complete.Status,
                             complete.Success,
-                            complete.ShowNotification,
                             complete.StageKey),
                         _ => throw new InvalidOperationException("Unexpected Xbox lifecycle payload")
                     })
@@ -794,14 +842,9 @@ public partial class XboxScheduledRefreshProgressTests
         public Task NotifyOperationFailedAsync(string eventName, IOperationComplete failedEvent) => NotifyAllAsync(eventName, failedEvent);
         public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifySteamHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyEpicHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyBattleNetHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyRiotHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyXboxHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyAdminAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGuestAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGroupAsync(string groupName, string eventName, object? data = null) => Task.CompletedTask;

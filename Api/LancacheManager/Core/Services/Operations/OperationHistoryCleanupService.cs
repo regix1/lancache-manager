@@ -32,9 +32,9 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
     public override string ServiceKey => "operationHistoryCleanup";
     protected override bool SupportsNotifications => true;
 
-    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
-    // still notify.
-    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+    // Routine background chore: it draws nothing by default, and the user can pick another mode
+    // on the Schedules page.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Hidden;
 
     public OperationHistoryCleanupService(
         ILogger<OperationHistoryCleanupService> logger,
@@ -66,13 +66,13 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
             .Select(op => op.Id)
             .ToList();
 
-        // Prerequisite not met (nothing to remove): return before starting so no card surfaces.
-        if (toRemove.Count == 0)
+        // Nothing to remove: an automatic run returns before starting so no card surfaces, and a Run
+        // Now reports itself skipped below so the click is answered. [59]
+        if (toRemove.Count == 0 && CurrentRunNotice.Trigger != RunTrigger.Manual)
         {
             return;
         }
 
-        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -80,10 +80,15 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
             OperationType.OperationHistoryCleanup,
             _eventNames,
             $"{StageBase}.complete",
-            show,
-            stoppingToken, notice: CurrentRunNotice);
+            CurrentRunNotice,
+            stoppingToken);
 
         await reporter.StartAsync($"{StageBase}.starting", BuildContext(0, toRemove.Count));
+        if (toRemove.Count == 0)
+        {
+            await reporter.CompleteAsync(success: true, stageKey: ScheduledRunReporter.NothingToDoStageKey, skipped: true);
+            return;
+        }
 
         var reportStep = Math.Max(1, toRemove.Count / 20);
         for (var i = 0; i < toRemove.Count; i++)

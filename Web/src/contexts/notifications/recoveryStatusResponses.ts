@@ -20,7 +20,6 @@ import type {
 /** GET /api/logs/process/status - RustLogProcessorService.GetStatus() */
 export interface LogProcessingStatusResponse {
   isProcessing: boolean;
-  silentMode: boolean;
   percentComplete: number;
   mbProcessed: number;
   mbTotal: number;
@@ -98,8 +97,6 @@ interface ScheduledPrefillServiceRunStatus {
   operationId: string;
   scheduleId?: string | null;
   scheduleName?: string | null;
-  showNotification?: boolean;
-  hideNotification?: boolean;
   stage: string;
   message?: string | null;
   stageKey?: string | null;
@@ -110,8 +107,6 @@ interface ScheduledPrefillServiceRunStatus {
 export interface ScheduledPrefillRunStatusResponse {
   isRunning: boolean;
   operationId?: string | null;
-  showNotification?: boolean;
-  hideNotification?: boolean;
   services: ScheduledPrefillServiceRunStatus[];
 }
 
@@ -131,9 +126,6 @@ interface GameDetectionOperationInfo {
 export interface GameDetectionStatusResponse {
   isProcessing: boolean;
   operation: GameDetectionOperationInfo | null;
-  /** Selects a full card when true and background progress when false. */
-  showNotification?: boolean;
-  hideNotification?: boolean;
 }
 
 /**
@@ -174,29 +166,12 @@ export interface DataImportStatusResponse {
 /** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
 export interface EvictionScanStatusResponse {
   isProcessing: boolean;
-  showNotification?: boolean;
-  hideNotification?: boolean;
-  silentMode: boolean;
   status: string;
   percentComplete: number;
   message: string;
   operationId: string | null;
-  previousOperationId?: string | null;
   stageKey?: string;
   context?: StageContext;
-}
-
-/** Row of GET /api/operations/waiting - one operation parked in the wait queue. */
-export interface WaitingOperationRow {
-  operationId: string;
-  operationType: string;
-  name: string;
-  showNotification?: boolean;
-  hideNotification?: boolean;
-  status?: string;
-  /** Display name of the operation this one is parked behind; null when unknown. */
-  blockedByName?: string | null;
-  startedAt?: string;
 }
 
 /** GET /api/operations/{operationId}, including an exact waiter successor. */
@@ -214,11 +189,7 @@ export interface OperationStatusResponse {
 }
 
 export interface CacheSizeScanStatusResponse {
-  previousOperationId?: string | null;
   isProcessing: boolean;
-  /** Selects a full card when true and background progress when false. */
-  showNotification?: boolean;
-  hideNotification?: boolean;
   status: string;
   percentComplete: number;
   message: string;

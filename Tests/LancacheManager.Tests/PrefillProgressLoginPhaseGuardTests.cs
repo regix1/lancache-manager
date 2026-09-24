@@ -68,7 +68,7 @@ public class PrefillProgressLoginPhaseGuardTests
         // inside TransitionToTerminalAsync after its idempotency flag flips, so TerminalCompletedFlag==0
         // already proves it never fired; this asserts it directly on the SignalR surface too.
         Assert.DoesNotContain(recorder.Invocations, i =>
-            i.Method == nameof(ISignalRNotificationService.NotifySteamHubAsync)
+            i.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
             && i.Args.Length > 0
             && (i.Args[0] as string) == SignalREvents.PrefillStateChanged);
     }
@@ -101,7 +101,7 @@ public class PrefillProgressLoginPhaseGuardTests
         Assert.NotNull(session.LastPrefillCompletedAt);
 
         var terminalBroadcasts = recorder.Invocations.Count(i =>
-            i.Method == nameof(ISignalRNotificationService.NotifySteamHubAsync)
+            i.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
             && i.Args.Length > 0
             && (i.Args[0] as string) == SignalREvents.PrefillStateChanged);
         Assert.Equal(1, terminalBroadcasts);
@@ -140,7 +140,7 @@ public class PrefillProgressLoginPhaseGuardTests
         Assert.Equal(emissions, recorder.Invocations.Count);
         Assert.Equal(2, session.TerminalCompletedFlag);
         Assert.Single(recorder.Invocations, invocation =>
-            invocation.Method == nameof(ISignalRNotificationService.NotifySteamHubAsync)
+            invocation.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
             && invocation.Args.Length > 0
             && (invocation.Args[0] as string) == SignalREvents.PrefillStateChanged);
     }

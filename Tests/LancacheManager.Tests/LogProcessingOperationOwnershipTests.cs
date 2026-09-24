@@ -13,8 +13,8 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Locks the ownership rule that keeps log processing from wedging "busy" forever. The service is a
-/// singleton and the interactive path clears IsProcessing before its display delay, so a second run
-/// can register its own operation while the first is still finishing. A run must therefore complete
+/// singleton and the interactive path clears IsProcessing before it completes its operation, so a
+/// second run can register its own operation while the first is still finishing. A run must therefore complete
 /// the operation it registered rather than whatever the field currently holds, and must tear down
 /// only the state it installed - while a run that set the busy flag and installed nothing still has
 /// to clear that flag on the way out.
@@ -32,8 +32,8 @@ public sealed class LogProcessingOperationOwnershipTests
     [Fact]
     public void OwnsOperationState_FalseWhenALaterRunInstalledItsOwnId()
     {
-        // The interleaving this exists for: interactive run A is inside its display delay when live
-        // tick B registers. A must leave B's id, cancellation source and busy flag alone.
+        // The interleaving this exists for: interactive run A has cleared IsProcessing but not yet
+        // completed when live tick B registers. A must leave B's id, cancellation source and busy flag alone.
         var interactiveId = Guid.NewGuid();
         var liveTickId = Guid.NewGuid();
 
@@ -66,7 +66,7 @@ public sealed class LogProcessingOperationOwnershipTests
         // stuck one blocks every other heavy operation until the process restarts.
         var started = await fixture.Processor.StartProcessingAsync(
             fixture.LogFilePath,
-            silentMode: true);
+            liveIngest: true);
 
         Assert.False(started);
         Assert.False(fixture.Processor.IsProcessing);
@@ -78,13 +78,62 @@ public sealed class LogProcessingOperationOwnershipTests
     {
         using var fixture = new ProcessorFixture();
 
-        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath, silentMode: true);
+        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true);
 
         var stillRunning = fixture.Tracker.GetActiveOperations()
             .Where(o => o.Type == OperationType.LogProcessing)
             .ToList();
 
         Assert.Empty(stillRunning);
+    }
+
+    [Fact]
+    public async Task ALivePass_RegistersAHiddenScheduledNoticeAndTheLiveIngestFlagAsync()
+    {
+        using var fixture = new ProcessorFixture();
+
+        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true);
+
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs);
+        Assert.True(run.LiveIngest);
+        var operation = fixture.Tracker.GetOperation(run.OperationId)!;
+        Assert.True(operation.LiveIngest);
+        Assert.Equal(NotificationMode.Hidden, operation.Notice!.Mode);
+        Assert.Equal(RunTrigger.Scheduled, operation.Notice.Trigger);
+    }
+
+    [Fact]
+    public async Task AnInteractivePass_RegistersNoNoticeAndIsNotLiveIngestAsync()
+    {
+        using var fixture = new ProcessorFixture();
+
+        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath);
+
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs);
+        Assert.False(run.LiveIngest);
+        Assert.Equal(RunVisibility.Card, run.Visibility);
+        Assert.Null(fixture.Tracker.GetOperation(run.OperationId)!.Notice);
+    }
+
+    [Fact]
+    public async Task ALivePass_SendsNoLogProcessingEventAsync()
+    {
+        using var fixture = new ProcessorFixture();
+
+        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true);
+
+        Assert.DoesNotContain(fixture.Messages.EventNames, name => name.StartsWith("LogProcessing", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnInteractivePass_SendsItsStartedAndCompleteEventsAsync()
+    {
+        using var fixture = new ProcessorFixture();
+
+        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath);
+
+        Assert.Contains("LogProcessingStarted", fixture.Messages.EventNames);
+        Assert.Contains("LogProcessingComplete", fixture.Messages.EventNames);
     }
 
     [Fact]
@@ -96,7 +145,7 @@ public sealed class LogProcessingOperationOwnershipTests
 
         var started = await fixture.Processor.StartProcessingAsync(
             fixture.LogFilePath,
-            silentMode: true);
+            liveIngest: true);
 
         Assert.False(started);
         var source = Assert.IsType<CancellationTokenSource>(failedTracker.Source);
@@ -176,6 +225,7 @@ public sealed class LogProcessingOperationOwnershipTests
     public class CompletionMessages : DispatchProxy
     {
         public List<object> Completions { get; } = [];
+        public List<string> EventNames { get; } = [];
         public TaskCompletionSource? Started { get; set; }
         public TaskCompletionSource? Resume { get; set; }
 
@@ -183,7 +233,8 @@ public sealed class LogProcessingOperationOwnershipTests
         {
             if (targetMethod!.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
             {
-                if (args![1] is SignalRNotifications.LogProcessingComplete completion)
+                EventNames.Add((string)args![0]!);
+                if (args[1] is SignalRNotifications.LogProcessingComplete completion)
                     Completions.Add(completion);
                 if (args[0] is string eventName && eventName == "LogProcessingStarted" && Started != null)
                 {

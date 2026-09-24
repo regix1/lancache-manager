@@ -334,9 +334,11 @@ public class GameImagesController : ControllerBase
             // The fetch service covers this case itself: see the null branch below.
             if (conflict != null && conflict.ActiveOperationType != nameof(OperationType.GameImageFetch))
             {
+                // The waiting click is drawn in the image fetch schedule's mode, as the run it starts is. [104]
                 return Accepted(await _operationQueue.EnqueueAsync(
                     OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch",
-                    StartImageFetchAsync, cancellationToken));
+                    StartImageFetchAsync, cancellationToken,
+                    notice: new RunNotice(_gameImageFetchService.EffectiveNotificationMode, RunTrigger.Manual)));
             }
         }
         catch

@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { getErrorMessage } from '@utils/error';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 
 interface MemoryStats {
   totalSystemMemoryMB: number;
@@ -31,28 +34,36 @@ interface MemoryStats {
 
 const MemoryDiagnostics: React.FC = () => {
   const { t } = useTranslation();
+  const { isConnected } = useSignalR();
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refreshedAt = useFormattedDateTime(stats?.timestamp);
+  // Mount, reconnect and Retry can overlap, so only the newest read may write the page.
+  const statsRequestRef = useRef(0);
 
   const fetchMemoryStats = async () => {
+    const request = ++statsRequestRef.current;
     try {
       setError(null);
       const data = await ApiService.getMemoryStats<MemoryStats>();
+      if (request !== statsRequestRef.current) return;
       setStats(data);
     } catch (err: unknown) {
+      if (request !== statsRequestRef.current) return;
       const detail = getErrorMessage(err);
       console.error('Failed to fetch memory stats:', detail);
       setError(detail);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   useEffect(() => {
     fetchMemoryStats();
   }, []);
+
+  // A page opened during an outage fills itself once the connection returns.
+  useReconnectRefetch(isConnected, () => void fetchMemoryStats());
 
   if (loading) {
     return (
@@ -86,10 +97,15 @@ const MemoryDiagnostics: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (error && !stats) {
     return (
-      <div className="min-h-screen bg-themed-primary flex items-center justify-center">
-        <div className="text-themed-error">{t('memory.error', { error })}</div>
+      <div className="min-h-screen p-6 bg-themed-primary">
+        <ErrorBlock
+          title={t('memory.failedToLoad')}
+          message={error}
+          retryLabel={t('common.retry')}
+          onRetry={() => void fetchMemoryStats()}
+        />
       </div>
     );
   }
@@ -103,6 +119,18 @@ const MemoryDiagnostics: React.FC = () => {
       <h1 className="text-3xl font-bold mb-6 pb-3 border-b-2 text-themed-primary border-themed">
         {t('memory.title')}
       </h1>
+
+      {/* A failed refresh keeps the last figures under the box. */}
+      {error && (
+        <div className="mb-6">
+          <ErrorBlock
+            title={t('memory.failedToLoad')}
+            message={error}
+            retryLabel={t('common.retry')}
+            onRetry={() => void fetchMemoryStats()}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Total Memory */}

@@ -1121,47 +1121,7 @@ public abstract partial class PrefillDaemonServiceBase
         };
         daemonClient.OnDisconnected += async () =>
         {
-            if (session.Capabilities?.SupportsConcurrentPrefill == true || !session.Runs.IsEmpty)
-            {
-                lock (session.PrefillLock)
-                {
-                    if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient)) return;
-                    session.Recovering = true;
-                    foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
-                        run.Recovering = true;
-                }
-                await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
-                FireAndForgetAsync(() => RefreshRunsAsync(session.Id), nameof(RefreshRunsAsync));
-                return;
-            }
-            Guid? runId;
-            lock (session.PrefillLock)
-            {
-                if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient)
-                    || session.Status is DaemonSessionStatus.Error or DaemonSessionStatus.Terminated
-                    || session.CancellationTokenSource.IsCancellationRequested)
-                    return;
-                session.Status = DaemonSessionStatus.Error;
-                runId = session.PrefillRunId;
-            }
-            _logger.LogWarning("Socket disconnected for session {SessionId}", sessionId);
-            try
-            {
-                var failure = new DaemonCommandException();
-                await TransitionToTerminalAsync(session, PrefillState.Failed, runId, failure.Message, failure.StageKey);
-                DaemonSessionDto snapshot;
-                lock (session.PrefillLock)
-                {
-                    if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient))
-                        return;
-                    snapshot = DaemonSessionDto.FromSession(session);
-                }
-                await NotifyHubAsync(EventSessionUpdated, snapshot);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to notify the socket disconnect for session {SessionId}", sessionId);
-            }
+            await OnDisconnectedAsync(session, daemonClient);
         };
 
         // Connect to daemon (socket or TCP) with retry
@@ -1364,7 +1324,7 @@ public abstract partial class PrefillDaemonServiceBase
                 $"{ServiceName} daemon is shutting down; refusing to register a new session.");
         }
 
-        // Broadcast session creation to all clients for real-time updates (both hubs)
+        // Send session creation to the account holders for real-time updates
         var sessionDtoCreated = DaemonSessionDto.FromSession(session);
         if (guestStart != null)
         {
@@ -1372,7 +1332,7 @@ public abstract partial class PrefillDaemonServiceBase
             if (!IsSessionLive(session))
                 throw new ForbiddenException("This prefill session was stopped.");
         }
-        try { await NotifyHubAsync(EventSessionCreated, sessionDtoCreated); }
+        try { await NotifyHubAsync(session, EventSessionCreated, sessionDtoCreated); }
         finally { guestStart?.Publication.TrySetResult(); }
         if (guestStart != null)
             GuestGate.Check(guestStart);

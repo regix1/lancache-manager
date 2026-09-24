@@ -232,6 +232,7 @@ builder.Services.AddSignalR(options =>
     options.PayloadSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     options.PayloadSerializerOptions.DictionaryKeyPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
+builder.Services.AddSingleton<HubLifetimeManager<DownloadHub>, DownloadHubLifetimeManager>();
 
 // Configure CORS
 // Security:AllowedOrigins can be set to restrict origins (comma-separated list)

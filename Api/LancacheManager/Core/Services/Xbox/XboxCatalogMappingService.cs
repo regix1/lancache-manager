@@ -36,7 +36,6 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
 
-    private bool _refreshShowNotification = true;
     private MappingOperationReporter? _currentMappingReporter;
 
     // Serializes every Xbox catalog-mapping producer: the scheduled tick, manual refresh, and

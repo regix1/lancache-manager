@@ -504,6 +504,8 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         // dropped them would compare equal to a fresh state and pass.
         GameDetectionScanMode = Models.GameDetectionScanMode.Hybrid,
         GameDetectionLastFullScanUtc = new DateTime(2033, 5, 6, 7, 8, 9, DateTimeKind.Utc),
+        // Differs from its Condensed default, so a reload that dropped it would not compare equal.
+        GlobalNotificationDisplayMode = Models.NotificationDisplayMode.Full,
         CacheClearRates = new() { ["preserve"] = new CacheClearRate { FilesDeleted = 4_000_000, DurationSeconds = 7_200 } },
         StatusCheckResult = new StatusCheckResult(), // non-null is already distinctive from the default null
 

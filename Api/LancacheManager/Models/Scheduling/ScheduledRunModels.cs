@@ -14,18 +14,15 @@ namespace LancacheManager.Models;
 public readonly record struct ScheduledRunEventNames(string Started, string Progress, string Complete);
 
 /// <summary>
-/// Run-started payload for a scheduled maintenance service. Emitted once per run attempt.
-/// <see cref="ShowNotification"/> selects a full card or background progress.
-/// <see cref="HideNotification"/> suppresses both presentations. Both values are immutable for the
-/// run; lifecycle events are always emitted so recovery and cancellation retain one contract.
+/// Run-started payload for a scheduled maintenance service. Emitted once per run attempt. How the
+/// run is drawn comes from its run row; lifecycle events are always emitted so recovery and
+/// cancellation keep one contract.
 /// </summary>
 public sealed record ScheduledRunStartedEvent(
     string ServiceKey,
     Guid OperationId,
     string StageKey,
-    Dictionary<string, object?>? Context,
-    bool ShowNotification,
-    bool HideNotification = false);
+    Dictionary<string, object?>? Context);
 
 /// <summary>
 /// Progress payload for a scheduled maintenance service. <see cref="PercentComplete"/> is clamped
@@ -37,9 +34,7 @@ public sealed record ScheduledRunProgressEvent(
     string Status,
     string StageKey,
     double PercentComplete,
-    Dictionary<string, object?>? Context,
-    bool ShowNotification,
-    bool HideNotification = false);
+    Dictionary<string, object?>? Context);
 
 /// <summary>
 /// Single terminal payload for a scheduled maintenance service. Emitted exactly once per run attempt
@@ -58,10 +53,8 @@ public sealed record ScheduledRunCompleteEvent(
     double PercentComplete,
     string? Error,
     Dictionary<string, object?>? Context,
-    bool ShowNotification,
     bool Cancelled,
-    OperationStatus Status,
-    bool HideNotification = false) : IOperationComplete
+    OperationStatus Status) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
 }

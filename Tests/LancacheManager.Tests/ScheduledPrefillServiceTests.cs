@@ -948,7 +948,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.Steam,
                 scheduleId,
-                "Default", true)
+                "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual))
         });
 
         var replacement = ScheduledPrefillConfigFactory.CreateDefault();
@@ -972,7 +972,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.Xbox,
                 scheduleId,
-                "Weekly Linux", false)
+                "Weekly Linux", new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled))
         });
 
         var status = Assert.IsType<ScheduledPrefillRunStatusDto>(
@@ -982,7 +982,6 @@ public class ScheduledPrefillServiceTests
         Assert.True(status.IsRunning);
         Assert.Equal(scheduleId, service.ScheduleId);
         Assert.Equal("Weekly Linux", service.Name);
-        Assert.False(service.ShowNotification);
         Assert.Equal(operationId.ToString(), service.OperationId);
     }
 
@@ -1003,7 +1002,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.BattleNet,
                 ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
-                "Default", true)
+                "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual))
         });
 
         var schedule = Assert.IsType<ScheduledPrefillServiceScheduleDto[]>(
@@ -1060,7 +1059,7 @@ public class ScheduledPrefillServiceTests
             Metadata = new ScheduledPrefillServiceRunState(
                 PrefillPlatform.BattleNet,
                 ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
-                "Default", true)
+                "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual))
         });
 
         Assert.IsType<ConflictObjectResult>(controller.RunService(
@@ -1073,7 +1072,7 @@ public class ScheduledPrefillServiceTests
         Id = Guid.NewGuid(),
         Type = OperationType.ScheduledPrefill,
         Name = "Scheduled Prefill",
-        Metadata = new ScheduledPrefillOperationMetadata(showNotification: true)
+        Metadata = new ScheduledPrefillOperationMetadata()
     };
 
     private static (ScheduledPrefillConfigController Controller, List<OperationInfo> Active) CreateRunServiceController()
@@ -1145,7 +1144,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Steam,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
-            "Default", true);
+            "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual));
         // What the card held the moment the service threw.
         state.Record("running", "Prefill in progress", "signalr.scheduledPrefill.running", 42d);
 
@@ -1166,7 +1165,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Steam,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
-            "Default", true);
+            "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual));
 
         var terminal = await CompleteServiceRunForTestAsync(
             state, ScheduledPrefillServiceRunResult.Failed, failureMessage: "The socket connection was aborted");
@@ -1182,7 +1181,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Steam,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
-            "Default", true);
+            "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual));
         state.Record("failed", "Prefill stalled (no progress)", "signalr.scheduledPrefill.failedStalled", 99d);
 
         var terminal = await CompleteServiceRunForTestAsync(
@@ -1198,7 +1197,7 @@ public class ScheduledPrefillServiceTests
         var state = new ScheduledPrefillServiceRunState(
             PrefillPlatform.Xbox,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Xbox),
-            "Default", true);
+            "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual));
         state.Record("skipped", "No running persistent container for Xbox", "signalr.scheduledPrefill.skippedNoContainer", 99d);
 
         var terminal = await CompleteServiceRunForTestAsync(
@@ -1233,7 +1232,7 @@ public class ScheduledPrefillServiceTests
 
         await (Task)completeServiceRun.Invoke(
             null,
-            new object?[] { serviceRun, tracker, (ISignalRNotificationService)recorder, result, true, failureMessage })!;
+            new object?[] { serviceRun, tracker, (ISignalRNotificationService)recorder, result, failureMessage })!;
 
         return recorder.Terminal ?? throw new InvalidOperationException("No terminal event was emitted.");
     }

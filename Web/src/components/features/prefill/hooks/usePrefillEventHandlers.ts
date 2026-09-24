@@ -132,10 +132,11 @@ export function registerPrefillEventHandlers(
     addLog(type, trimmed);
   });
 
-  // Handle auth state changes from backend
+  // Handle auth state changes from backend. Another session's sign-in is not this tab's. [112]
   connection.on(
     getEventName('AuthStateChanged', serviceId),
-    ({ authState }: { sessionId: string; authState: DaemonAuthState }) => {
+    ({ sessionId, authState }: { sessionId: string; authState: DaemonAuthState }) => {
+      if (sessionId !== sessionRef.current?.id) return;
       onAuthStateChanged(authState);
     }
   );
@@ -173,28 +174,6 @@ export function registerPrefillEventHandlers(
       // Clear all prefill-related storage when session ends
       clearAllPrefillStorage();
       onSessionEnd?.();
-    }
-  );
-
-  // Handle daemon session terminated (broadcast to all clients)
-  // This is used by admin pages; for the prefill panel, SessionEnded handles our session
-  connection.on(
-    getEventName('DaemonSessionTerminated', serviceId),
-    ({ sessionId: terminatedSessionId, reason }: { sessionId: string; reason: string }) => {
-      // Check if this termination is for our current session
-      const currentSession = sessionRef.current;
-      if (currentSession && terminatedSessionId === currentSession.id) {
-        // Our session was terminated externally (e.g., by admin)
-        addLog('warning', t('prefill.log.sessionTerminated', { reason: reason }));
-        setSession(null);
-        setIsLoggedIn(false);
-        setIsPrefillActive(false);
-        clearCancelTracking();
-        stopAnimations();
-        setPrefillProgress(null);
-        clearAllPrefillStorage();
-        onSessionEnd?.();
-      }
     }
   );
 

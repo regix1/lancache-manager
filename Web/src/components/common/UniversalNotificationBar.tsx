@@ -5,100 +5,56 @@ import {
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
 import themeService from '@services/theme.service';
+import ApiService from '@services/api.service';
 import {
   SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
-  MOBILE_FULL_CARD_CAP,
-  NOTIFICATION_IDS
+  MOBILE_FULL_CARD_CAP
 } from '@contexts/notifications/constants';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { APP_EVENTS } from '@utils/constants';
+import i18n from '@/i18n';
 import { useMediaQuery } from '@hooks/useMediaQuery';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { platformDisplayModeKey, useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
 import { BackgroundTaskControls } from './BackgroundTaskControls';
 import { UnifiedNotificationItem } from './UnifiedNotificationItem';
-import { CANCEL_CONFIG_BY_TYPE, getNotificationColor, handleCancel } from './notificationCancel';
-import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
+import {
+  CANCEL_CONFIG_BY_TYPE,
+  getNotificationVariant,
+  handleCancel,
+  notifyToastError
+} from './notificationCancel';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 
-/**
- * The types whose registry entry computes a card id per event, so several of their cards can be
- * on screen at once reporting different entities. Derived from the registry for the same reason
- * the cancel config is: an entry that starts owning several cards must not also need a line here.
- */
-const TYPES_WITH_A_CARD_PER_ENTITY = new Set<string>(
-  NOTIFICATION_REGISTRY.filter((entry) => entry.getId !== undefined).map((entry) => entry.type)
-);
-
 const UniversalNotificationBar: React.FC = () => {
-  const { notifications, removeNotification, updateNotification } = useNotifications();
+  const { notifications, removeNotification, hideNotification, updateNotification } =
+    useNotifications();
+  const connectionLost = useConnectionLost();
   const [stickyDisabled, setStickyDisabled] = useState(
     themeService.getDisableStickyNotificationsSync()
   );
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
-  // Whether the condensed strip's revealed cards are currently in the bar's flow. They share
-  // this bar's surface with the full cards, so the bar's bottom border and shadow must hold
-  // under them even when no full card renders below the strip.
-  const [stripOpen, setStripOpen] = useState(false);
 
-  // Per-service display preference (full | condensed), live from the Schedules page. This drives
-  // display only and never the transport; unconfigured singleton controls use the compact strip.
-  const displayModes = useScheduleDisplayModes();
+  // Per-service display preference (full | condensed), live from the Schedules page, and the one
+  // global default for everything a schedule does not set. This drives display only and never
+  // the transport.
+  const { modes, defaultMode, ready } = useScheduleDisplayModes();
   // 768px anchors the established table/tile split; below it the bar caps full cards.
   const isMobile = useMediaQuery('(max-width: 767px)');
   // Hover-expand keys off pointer capability, not viewport width: a mouse-driven window between
   // the mobile boundary and a desktop breakpoint can still hover, while a large touch screen
   // cannot (its compatibility mouse events would latch a hover open with no way to unhover).
   const canHover = useMediaQuery('(hover: hover) and (pointer: fine)');
-  // Tracks notifications where a deferred cancel has already been fired, so the
-  // watchdog effect below never fires the same cancel twice when notifications
-  // re-render. Pruned as notifications disappear.
-  const deferredCancelFiredRef = useRef<Set<string>>(new Set());
 
-  // The cancel round trip is async, so handleCancel's captured card can be stale by the time the
-  // server answers. It reads the committed list through this ref instead before removing anything.
+  // The cancel and close round trips are async, so a captured card can be stale by the time the
+  // server answers. They read the committed list through this ref instead before removing anything.
   const notificationsRef = useRef<UnifiedNotification[]>(notifications);
   useEffect(() => {
     notificationsRef.current = notifications;
   }, [notifications]);
-
-  // Deferred-cancel watchdog: only when user clicked X before operationId existed.
-  useEffect(() => {
-    notifications.forEach((n) => {
-      const opId = n.details?.operationId;
-      // Watchdog is serverOp-only: clientQueue (bulk_removal) carries no
-      // server operationId and is cancelled via the provider cascade instead.
-      if (
-        n.status === 'running' &&
-        CANCEL_CONFIG_BY_TYPE[n.type]?.cancelKind === 'serverOp' &&
-        n.details?.cancelRequested &&
-        !n.details.cancelSent &&
-        opId &&
-        !deferredCancelFiredRef.current.has(`${n.id}:${opId}`)
-      ) {
-        const key = `${n.id}:${opId}`;
-        deferredCancelFiredRef.current.add(key);
-        void handleCancel(
-          n,
-          updateNotification,
-          removeNotification,
-          (id) => notificationsRef.current.find((item) => item.id === id),
-          true
-        ).then((accepted) => {
-          if (!accepted) deferredCancelFiredRef.current.delete(key);
-        });
-      }
-    });
-
-    // Prune entries whose notifications are no longer in the list so the set
-    // doesn't leak across long sessions.
-    const currentIds = new Set(notifications.map((n) => `${n.id}:${n.details?.operationId}`));
-    deferredCancelFiredRef.current.forEach((id) => {
-      if (!currentIds.has(id)) deferredCancelFiredRef.current.delete(id);
-    });
-  }, [notifications, updateNotification, removeNotification]);
 
   // Listen for sticky notifications setting changes
   useEffect(() => {
@@ -171,43 +127,75 @@ const UniversalNotificationBar: React.FC = () => {
     };
   }, [notifications.length, shouldRender]);
 
-  // Animated dismiss handler
+  // Animated dismiss handler. A card that keeps an ending on the server lists the ids to close in
+  // `details.closeOperationIds`; it asks the server first, so closing it here closes it on every
+  // admin's screen, and only the ids the server confirmed leave with it.
   const handleDismiss = useCallback(
     (notificationId: string) => {
       const notification = notificationsRef.current.find((item) => item.id === notificationId);
       if (!notification) return;
+      // A live card offers this button only while the server is unreachable. It is hidden at once,
+      // not faded and removed: its run stays tracked, and a hide landing after a mid-fade row would
+      // undo it.
+      if (!isTerminalNotificationStatus(notification.status)) {
+        hideNotification(notificationId);
+        return;
+      }
 
-      const instanceVersion = notification.instanceVersion ?? 0;
       const operationId = notification.details?.operationId;
+      const fade = (closedOperationIds?: string[]): void => {
+        // Add to dismissing set to trigger animation
+        setDismissingIds((prev) => new Set(prev).add(notificationId));
 
-      // Add to dismissing set to trigger animation
-      setDismissingIds((prev) => new Set(prev).add(notificationId));
+        // Wait for animation to complete, then remove
+        setTimeout(() => {
+          const current = notificationsRef.current.find((item) => item.id === notificationId);
+          if (current && current.details?.operationId === operationId) {
+            removeNotification(notificationId, closedOperationIds);
+          }
+          setDismissingIds((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(notificationId);
+            return newSet;
+          });
+        }, NOTIFICATION_ANIMATION_DURATION_MS);
+      };
 
-      // Wait for animation to complete, then remove
-      setTimeout(() => {
-        const current = notificationsRef.current.find((item) => item.id === notificationId);
-        if (
-          current &&
-          (current.instanceVersion ?? 0) === instanceVersion &&
-          current.details?.operationId === operationId
-        ) {
-          removeNotification(notificationId);
+      const closeOperationIds = notification.details?.closeOperationIds;
+      if (!closeOperationIds?.length) {
+        fade();
+        return;
+      }
+      // Each close answers 204, or 404 when another screen already closed it; both resolve.
+      void Promise.allSettled(closeOperationIds.map((id) => ApiService.closeOperation(id))).then(
+        (results) => {
+          const closed = closeOperationIds.filter(
+            (_, index) => results[index].status === 'fulfilled'
+          );
+          const failure = results.find(
+            (result): result is PromiseRejectedResult => result.status === 'rejected'
+          );
+          if (failure)
+            notifyToastError(i18n.t('common.notifications.closeOperationFailed'), failure.reason);
+          // A kept run card the server did not close stays on screen. A bulk card leaves either
+          // way: each kept run it listed that the server did not close is then drawn as its own
+          // card until closed.
+          if (closed.length === 0 && notification.type !== 'bulk_removal') return;
+          fade(closed);
         }
-        setDismissingIds((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(notificationId);
-          return newSet;
-        });
-      }, NOTIFICATION_ANIMATION_DURATION_MS);
+      );
     },
-    [removeNotification]
+    [removeNotification, hideNotification]
   );
 
   // Create cancel handler for a notification
   const getCancelHandler = useCallback(
     (notification: UnifiedNotification) =>
-      handleCancel(notification, updateNotification, removeNotification, (id: string) =>
-        notificationsRef.current.find((n) => n.id === id)
+      handleCancel(
+        notification,
+        updateNotification,
+        removeNotification,
+        () => notificationsRef.current
       ),
     [removeNotification, updateNotification]
   );
@@ -226,59 +214,51 @@ const UniversalNotificationBar: React.FC = () => {
   });
 
   // Classify each notification (in the sorted order) as condensed or full. A notification
-  // condenses when its service is set to condensed, OR on mobile once the full-card cap is
-  // reached. Expansion never changes membership: a tap-expanded item stays in the condensed
-  // group and reveals its card in place via CollapsibleRegion, so its toggle line keeps focus
-  // and remains available to collapse it. The comparator above is untouched; only grouping
+  // condenses when its style resolves to condensed, OR on mobile once the full-card cap is
+  // reached. Expansion never changes membership: a revealed item stays in the condensed group
+  // and shows its card in the strip's panel. The comparator above is untouched; only grouping
   // changes.
   let fullOrder = 0;
-  const classified = sorted.map((notification) => {
+  const classified = sorted.flatMap((notification) => {
     const control = notification.controlOnly && !isTerminalNotificationStatus(notification.status);
-    // Generic toasts (Run Now acknowledgments) carry their owning serviceKey in details.
+    // Generic toasts carry their owning serviceKey in details.
     const serviceKey =
       SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type] ??
       notification.details?.serviceKey;
-    // A refused Run Now never starts a run, so it has no lifecycle notification to fold into and
-    // the compact bar would answer the click with a coloured line carrying no reason. This toast is
-    // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
-    // runs are unaffected: they never arrive as 'generic'.
-    const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
-    // Old persisted cards have only a platform suffix; current cards retain the canonical service.
     const platform =
-      notification.type === 'scheduled_prefill'
-        ? /^(Steam|Epic|Xbox|BattleNet|Riot)$/.test(notification.details?.service ?? '')
-          ? notification.details?.service
-          : new RegExp(
-              `^${NOTIFICATION_IDS.SCHEDULED_PREFILL}_(Steam|Epic|Xbox|BattleNet|Riot)$`
-            ).exec(notification.id)?.[1]
+      notification.type === 'scheduled_prefill' &&
+      /^(Steam|Epic|Xbox|BattleNet|Riot)$/.test(notification.details?.service ?? '')
+        ? notification.details?.service
         : undefined;
     // Named schedules own their style independently, even on the same persistent container.
-    // Platform-only snapshots and old cards retain the platform fallback, never the outer schedule.
+    // Platform-only snapshots retain the platform fallback, never the outer schedule.
     const resolvedDisplayMode =
       serviceKey === undefined
         ? undefined
         : platform !== undefined
-          ? (displayModes[
+          ? (modes[
               platformDisplayModeKey(serviceKey, platform, notification.details?.scheduleId)
-            ] ?? displayModes[platformDisplayModeKey(serviceKey, platform)])
-          : displayModes[serviceKey];
-    // Automatic mapping runs can be silent without having a configurable schedule. Keep their
-    // controls in the strip so short refreshes do not insert a full-width row between cards.
-    // Per-entity cards retain their own full-view default, including prefill's platform settings.
-    const condensedByService =
-      !refusedManualRun &&
-      (resolvedDisplayMode === 'condensed' ||
-        (control === true &&
-          !TYPES_WITH_A_CARD_PER_ENTITY.has(notification.type) &&
-          resolvedDisplayMode === undefined));
+            ] ?? modes[platformDisplayModeKey(serviceKey, platform)])
+          : modes[serviceKey];
+    // A schedule's own style wins, then the one global default. [63]
+    // A run card (it carries details.operationId) waits until the styles are known, so a reload
+    // never draws it full and then moves it to the compact line. [62] A card the browser owns
+    // (a toast, a catalog announcement, the Steam session error) never waits: its 5 s dismissal
+    // starts when it is added, so holding it back could spend that time hidden, and until the
+    // first settings read settles the default is still full.
+    if (!ready && notification.details?.operationId !== undefined) return [];
+    const displayMode = resolvedDisplayMode ?? defaultMode;
+    const condensedByService = displayMode === 'condensed';
     const orderAmongFull = condensedByService || control ? -1 : fullOrder++;
     const condensedByCap = !control && isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
-    return {
-      notification,
-      serviceKey,
-      condensed: condensedByService || condensedByCap,
-      control
-    };
+    return [
+      {
+        notification,
+        serviceKey,
+        condensed: condensedByService || condensedByCap,
+        control
+      }
+    ];
   });
   const compactControls = classified
     .filter((item) => item.control && item.condensed)
@@ -286,21 +266,21 @@ const UniversalNotificationBar: React.FC = () => {
   const fullControls = classified
     .filter((item) => item.control && !item.condensed)
     .map((item) => item.notification);
-  // One line per service in the condensed group: a manual run's acknowledgment toast and the
-  // run's own lifecycle notification fold into a single disclosure instead of stacking a line
+  // One line per service in the condensed group: a popup that names a service and that
+  // service's run notification fold into a single disclosure instead of stacking a line
   // per notification. Notifications without a serviceKey keep a line each. Map preserves the
   // sorted order via first insertion.
   //
-  // A type that owns one card per entity is the exception, and keeps a line per card: its cards
-  // report DIFFERENT work under the same service, so folding them would show one of them and hide
-  // the rest. A scheduled prefill running four platforms at once is four lines, not one.
+  // Scheduled prefill, which owns one card per platform, is the exception and keeps a line per
+  // card: its cards report DIFFERENT work under the same service, so folding them would show one
+  // of them and hide the rest. A prefill running four platforms at once is four lines, not one.
   const condensedGroups = new Map<string, UnifiedNotification[]>();
   for (const item of classified) {
     if (item.control || !item.condensed) {
       continue;
     }
     const groupKey =
-      item.serviceKey !== undefined && !TYPES_WITH_A_CARD_PER_ENTITY.has(item.notification.type)
+      item.serviceKey !== undefined && item.notification.type !== 'scheduled_prefill'
         ? `svc:${item.serviceKey}`
         : `id:${item.notification.id}`;
     const group = condensedGroups.get(groupKey);
@@ -316,14 +296,14 @@ const UniversalNotificationBar: React.FC = () => {
     return {
       key: groupKey,
       notification: representative,
-      color: getNotificationColor(representative)
+      variant: getNotificationVariant(representative)
     };
   });
   if (compactControls.length > 0) {
     condensedSegments.push({
       key: 'background-controls',
       notification: compactControls[0],
-      color: 'var(--theme-warning)'
+      variant: 'warning'
     });
   }
   const condensedPanel = (
@@ -336,6 +316,7 @@ const UniversalNotificationBar: React.FC = () => {
               notification={notification}
               onDismiss={handleDismiss}
               onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
+              connectionLost={connectionLost}
             />
           ))}
         </BackgroundTaskControls>
@@ -347,6 +328,7 @@ const UniversalNotificationBar: React.FC = () => {
           onDismiss={handleDismiss}
           onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
           isAnimatingOut={dismissingIds.has(notification.id)}
+          connectionLost={connectionLost}
         />
       ))}
     </div>
@@ -356,42 +338,33 @@ const UniversalNotificationBar: React.FC = () => {
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
         className={`w-full border-b bg-[var(--theme-nav-bg)] transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
-          fullItems.length > 0 || fullControls.length > 0 || stripOpen
+          fullItems.length > 0 || fullControls.length > 0
             ? 'border-[var(--theme-nav-border)] shadow-sm'
             : 'border-transparent shadow-none'
-        }`}
-        style={{
-          transform:
-            isAnimatingOut && notifications.length === 0 ? 'translateY(-100%)' : 'translateY(0)',
-          opacity: isAnimatingOut && notifications.length === 0 ? 0 : 1
-        }}
+        }${isAnimatingOut && notifications.length === 0 ? ' -translate-y-full opacity-0' : ''}`}
       >
         {/* One strip spans the bar edge to edge, flush under the navigation: every condensed
-            service keeps its status colour as a segment of the single line (the live run
-            outranks terminal toasts for each segment's colour, fill, and pulse), and the whole
+            service keeps its status color as a segment of the single line (the live run
+            outranks terminal toasts for each segment's color, fill, and pulse), and the whole
             line is one disclosure target. Rendered only when present, so the default all-full
             desktop path is the untouched full-card container below. */}
         {/* Rendered unconditionally: with zero segments the strip renders null itself, after
             fading its line out. A conditional unmount here would blink the line off in one
             frame instead. */}
         {
-          <CondensedNotificationStrip
-            segments={condensedSegments}
-            canHover={canHover}
-            onOpenChange={setStripOpen}
-          >
+          <CondensedNotificationStrip segments={condensedSegments} canHover={canHover}>
             <div className="container mx-auto px-4 pb-2">
-              {/* On a phone the opened panel caps at roughly two cards and scrolls for the rest,
-                  so a burst of condensed runs cannot push the page out of reach. Desktop keeps
-                  the full-height panel. radius none: cards sit flush against the viewport and a
-                  rounded clip would shave their corners. */}
-              {isMobile ? (
-                <CustomScrollbar maxHeight="12rem" paddingMode="compact" radius="none">
-                  {condensedPanel}
-                </CustomScrollbar>
-              ) : (
-                condensedPanel
-              )}
+              {/* The panel floats over the page, so its height is bounded at every size and a
+                  tall list scrolls inside it: about two cards on a phone, most of the viewport
+                  otherwise, so every card's buttons stay reachable. radius none: cards sit flush
+                  against the viewport and a rounded clip would shave their corners. */}
+              <CustomScrollbar
+                maxHeight={isMobile ? '12rem' : '70vh'}
+                paddingMode="compact"
+                radius="none"
+              >
+                {condensedPanel}
+              </CustomScrollbar>
             </div>
           </CondensedNotificationStrip>
         }
@@ -406,6 +379,7 @@ const UniversalNotificationBar: React.FC = () => {
                   onCancel={
                     notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined
                   }
+                  connectionLost={connectionLost}
                 />
               ))}
             </BackgroundTaskControls>
@@ -420,6 +394,7 @@ const UniversalNotificationBar: React.FC = () => {
                 onDismiss={handleDismiss}
                 onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
                 isAnimatingOut={dismissingIds.has(notification.id)}
+                connectionLost={connectionLost}
               />
             ))}
           </div>

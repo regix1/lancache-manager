@@ -5,6 +5,11 @@ import { bindLifted, liftHookCallback, compileToUrl } from './transpile-module.m
 const { mergePrefillRuns } = await import(
   await compileToUrl('../src/components/features/prefill/hooks/prefillTypes.ts')
 );
+const { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } = await import(
+  await compileToUrl(
+    '../src/components/features/management/schedules/scheduled-prefill/constants.ts'
+  )
+);
 
 const path =
   'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts';
@@ -160,7 +165,6 @@ const runSavedService = ({ request, notifications, pending, order }) =>
       order.push('recover');
       await cleanup({ editSessionId: 'old-edit' });
     },
-    SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY: { Steam: 'steam' },
     ApiService: {
       cleanupPersistentPrefillEditSession: async () => order.push('cleanup'),
       runScheduledPrefillService: async (...args) => {
@@ -171,11 +175,11 @@ const runSavedService = ({ request, notifications, pending, order }) =>
     },
     markStarting: (key) => pending.add(key),
     clearPending: (key) => pending.delete(key),
-    addNotification: (notice) => notifications.push(notice),
+    notifyError: (message, error) => notifications.push({ message, error }),
+    SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
+    t: (key, options) => (options ? `${key}(${options.service})` : key),
     getPersistentPrefillRunOptions: assert.fail,
-    recordEditAction: assert.fail,
-    getErrorMessage: (error) => error.message,
-    t: (key) => key
+    recordEditAction: assert.fail
   });
 
 test('saved-row run dispatches its exact service and schedule only after cleanup', async () => {
@@ -191,8 +195,22 @@ test('saved-row run dispatches its exact service and schedule only after cleanup
   await run('Steam', 'schedule-7');
   assert.deepEqual(order, ['recover', 'cleanup', ['request', 'Steam', 'schedule-7']]);
   assert.deepEqual([...pending], ['Steam:schedule-7']);
-  assert.equal(notifications.length, 1);
-  assert.equal(notifications[0].status, 'completed');
+  assert.deepEqual(notifications, []);
+});
+
+test('an already-running saved row draws no popup and stays pending', async () => {
+  const notifications = [];
+  const pending = new Set();
+  const run = runSavedService({
+    request: async () => ({ alreadyRunning: true }),
+    notifications,
+    pending,
+    order: []
+  });
+  await run('Steam', 'schedule-7');
+  // The platform's own card answers; the row waits for server truth. [75]
+  assert.deepEqual(notifications, []);
+  assert.deepEqual([...pending], ['Steam:schedule-7']);
 });
 
 test('successful list retry clears the previous transport error', async () => {
@@ -213,10 +231,11 @@ test('saved-row refusal clears only its pending row and survives successful trai
   const notifications = [];
   const pendingRows = new Set(['Steam:sibling']);
   const order = [];
+  const refusal = new Error('Log in first');
   const request = run.load();
   const dispatch = runSavedService({
     request: async () => {
-      throw new Error('Log in first');
+      throw refusal;
     },
     notifications,
     pending: pendingRows,
@@ -235,8 +254,13 @@ test('saved-row refusal clears only its pending row and survives successful trai
   await Promise.all([request, refused]);
   assert.equal(run.state.containers[0].isAuthenticated, false);
   assert.deepEqual([...pendingRows], ['Steam:sibling']);
-  assert.equal(notifications.length, 1);
-  assert.equal(notifications[0].status, 'failed');
-  assert.equal(notifications[0].message, 'Log in first');
+  // One popup: the title names the platform, and the refusal is its second line.
+  assert.deepEqual(notifications, [
+    {
+      message:
+        'management.schedules.runNowFailed(management.schedules.services.scheduledPrefill.config.services.steam)',
+      error: refusal
+    }
+  ]);
   assert.deepEqual(order, ['recover', 'cleanup', ['request', 'Steam', 'schedule-7']]);
 });

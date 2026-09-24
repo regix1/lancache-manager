@@ -9,7 +9,8 @@ import { compileToUrl } from './transpile-module.mjs';
  * SignalR provider stop a live socket whenever authService.isAuthenticated reads false, and after
  * a manual stop nothing restarts it while that flag stays false. So zeroing the flags on a timeout
  * or a dropped network turned one slow status call into a dead socket that only a page reload
- * could bring back. A call the server actually answered still signs the service out.
+ * could bring back. A gateway's 502, 503 or 504 is a proxy answering for a server that did not, so
+ * it counts as unanswered too. A call the server actually answered still signs the service out.
  */
 
 const moduleUrl = (source) =>
@@ -35,7 +36,15 @@ const loadAuthService = async () => {
     '@utils/userInteractionTracker': moduleUrl(
       `export const hasRecentUserInteraction = () => false;`
     ),
-    './apiError': moduleUrl(`export const assertOk = async (response) => response;`)
+    './apiError': moduleUrl(
+      `export class ApiError extends Error {
+        constructor(status) { super('HTTP ' + status); this.status = status; }
+      }
+      export const assertOk = async (response) => {
+        if (response.ok === false) throw new ApiError(response.status);
+        return response;
+      };`
+    )
   });
   const { default: authService } = await import(authServiceUrl);
   return authService;
@@ -86,6 +95,19 @@ test('a dropped network keeps the last-known session on the service', async () =
   const answer = await authService.checkAuth();
 
   assertSessionKept(authService, answer, 'network drop');
+  delete globalThis.fetch;
+});
+
+test('a gateway answering for a stopped server keeps the last-known session on the service', async () => {
+  for (const status of [502, 503, 504]) {
+    const authService = await loadAuthService();
+    await signIn(authService);
+
+    globalThis.fetch = async () => ({ ok: false, status });
+    const answer = await authService.checkAuth();
+
+    assertSessionKept(authService, answer, `gateway ${status}`);
+  }
   delete globalThis.fetch;
 });
 

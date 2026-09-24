@@ -12,6 +12,7 @@ import { prefillServiceConfig } from './prefillServiceConfig';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
 import { InfiniteBackoffRetryPolicy } from '@contexts/SignalRContext/retryPolicy';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import {
   PREFILL_SESSION_TIMEOUT_MS,
   COMPLETION_NOTIFICATION_WINDOW_MS,
@@ -51,6 +52,8 @@ interface UsePrefillSignalRReturn {
   hubConnection: React.RefObject<HubConnection | null>;
   isConnecting: boolean;
   isConnected: boolean;
+  hubConnectFailed: boolean;
+  retryConnection: () => void;
 
   // Session
   session: PrefillSessionDto | null;
@@ -74,6 +77,8 @@ interface UsePrefillSignalRReturn {
   // Error
   error: string | null;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
+  /** The last session-create or subscribe failure's reason; null once a new attempt starts. Drawn for guests only; admins get the popup. */
+  createSessionError: string | null;
 
   // Refs for command execution
   isCancelling: React.RefObject<boolean>;
@@ -131,6 +136,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     stopAnimations,
     enqueueAnimation
   } = usePrefillAnimation();
+  const { notifyError } = useErrorHandler();
 
   // State
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
@@ -170,6 +176,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const [isCreating, setIsCreating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hubConnectFailed, setHubConnectFailed] = useState(false);
+  const [createSessionError, setCreateSessionError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   // PAINT-BEFORE-NETWORK HINT ONLY. The authoritative source of "is a prefill running" is the
@@ -285,7 +293,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                 isPrefillRunActive(run) ? { ...run, recovering: true } : run
               )
             );
-            setError(t('prefill.progress.reconnectingMessage'));
             console.warn('Prefill run refresh:', getErrorMessage(error));
           } finally {
             runsRequestRef.current = null;
@@ -327,7 +334,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Non-critical: the next live PrefillProgress tick will still bind the bar.
       }
     },
-    [expectedAppCountRef, updateRuns, t]
+    [expectedAppCountRef, updateRuns]
   );
 
   const refreshRuns = useCallback(async () => {
@@ -517,7 +524,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         setIsConnected(true);
         return connection;
       } catch {
-        setError(t('prefill.errors.failedConnect'));
+        setHubConnectFailed(true);
         setIsConnecting(false);
         setIsConnected(false);
         return null;
@@ -540,7 +547,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     stopAnimations,
     serviceId,
     hubPath,
-    t,
     cachedAnimationQueueRef,
     currentAnimationAppIdRef,
     isProcessingAnimationRef,
@@ -553,6 +559,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const initializeSession = useCallback(async () => {
     if (initializationAttempted.current) return;
     initializationAttempted.current = true;
+    setHubConnectFailed(false);
 
     setIsInitializing(true);
 
@@ -707,15 +714,16 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         }
       }
     } catch (err) {
-      // Background session-reconciliation on mount/reconnect - intentionally silent to the user
-      // either way (a hub-closed/access-denied scenario is expected, and a genuine failure here
-      // just means the session starts fresh via createSession). Still logged for diagnosis.
+      // Background session-reconciliation on mount/reconnect - a hub-closed/access-denied scenario
+      // is expected and stays silent. A genuine failure means a running session may have been
+      // missed, so it shows the connection box with Retry instead of empty platform cards.
       const errorMessage = err instanceof Error ? err.message : String(err);
       const isExpectedHubClose =
         errorMessage.includes('connection being closed') ||
         errorMessage.includes('Invocation canceled');
       if (!isExpectedHubClose) {
         console.error('[usePrefillSignalR] Failed to initialize session:', getErrorMessage(err));
+        setHubConnectFailed(true);
       }
     } finally {
       setIsInitializing(false);
@@ -734,10 +742,18 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     updateRuns
   ]);
 
+  // Retry reconnects and adopts a running session, the same as the first mount.
+  const retryConnection = useCallback(() => {
+    initializationAttempted.current = false;
+    void initializeSession();
+  }, [initializeSession]);
+
   const createSession = useCallback(
     async (clearLogs: () => void) => {
       setIsCreating(true);
       setError(null);
+      setHubConnectFailed(false);
+      setCreateSessionError(null);
       clearLogs();
 
       try {
@@ -747,7 +763,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         }
 
         if (!connection) {
-          throw new Error(t('prefill.errors.failedEstablishConnection'));
+          // connectToHub's failure already shows the connection box with Retry, the one notice for it.
+          setIsCreating(false);
+          return;
         }
 
         addLog('info', t('prefill.log.creatingSession'));
@@ -795,12 +813,13 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         setIsCreating(false);
       } catch (err) {
         const errorMessage = getErrorMessage(err);
-        setError(errorMessage);
+        setCreateSessionError(errorMessage);
+        notifyError(t('prefill.errors.failedCreateSession'), err);
         addLog('error', errorMessage);
         setIsCreating(false);
       }
     },
-    [connectToHub, addLog, serviceId, serviceNameKey, t]
+    [connectToHub, addLog, serviceId, serviceNameKey, t, notifyError]
   );
 
   // Initialize on mount, cleanup on unmount
@@ -924,6 +943,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     hubConnection,
     isConnecting,
     isConnected,
+    hubConnectFailed,
+    retryConnection,
 
     // Session
     session,
@@ -949,6 +970,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     // Error
     error,
     setError,
+    createSessionError,
 
     // Refs
     isCancelling,

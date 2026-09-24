@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import Badge from './Badge';
 import type { BadgeProps } from './Badge.types';
 
@@ -35,4 +37,19 @@ export function SectionHeaderActions({ children }: SectionHeaderActionsProps) {
  */
 export function SectionHeaderChip({ className, ...badge }: BadgeProps) {
   return <Badge {...badge} className={className} />;
+}
+
+/**
+ * The chip a closed section shows in its header while its load has failed. Quiet while the
+ * connection banner is up, because the banner already names the reason every load fails.
+ */
+export function SectionErrorChip() {
+  const { t } = useTranslation();
+  const connectionLost = useConnectionLost();
+
+  if (connectionLost) {
+    return null;
+  }
+
+  return <SectionHeaderChip variant="error">{t('common.failedToLoad')}</SectionHeaderChip>;
 }

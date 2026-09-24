@@ -139,12 +139,19 @@ const SERVER_12H = {
 
 /**
  * The context's own load, resync and optimistic write, taken out of the file and given the refs
- * and callbacks they close over. `gate` lets a test hold a response on the wire.
+ * and callbacks they close over. `gate` lets a test hold a response on the wire, `status` is the
+ * answer's HTTP status and `currentSession` reports whose browser this is when asked.
  */
-const mountPreferences = ({ body = SERVER_12H, gate = Promise.resolve() } = {}) => {
+const mountPreferences = ({
+  body = SERVER_12H,
+  gate = Promise.resolve(),
+  status = 200,
+  currentSession = () => SESSION
+} = {}) => {
   const requests = [];
   const complaints = [];
   let state = {};
+  let loadErrors = {};
 
   const refs = {
     loadingIds: { current: new Set() },
@@ -158,10 +165,13 @@ const mountPreferences = ({ body = SERVER_12H, gate = Promise.resolve() } = {}) 
   const shared = {
     ...refs,
     isAdmin: false,
-    getCurrentSessionId: () => SESSION,
+    getCurrentSessionId: currentSession,
     setPreferences: (next) => {
       state = typeof next === 'function' ? next(state) : next;
       refs.preferencesRef.current = state;
+    },
+    setLoadErrors: (next) => {
+      loadErrors = typeof next === 'function' ? next(loadErrors) : next;
     },
     console: { warn: (text) => complaints.push(text), error: (text) => complaints.push(text) }
   };
@@ -177,10 +187,15 @@ const mountPreferences = ({ body = SERVER_12H, gate = Promise.resolve() } = {}) 
     settlePendingToggles,
     applyGuestClockChanges,
     ApiService: { getFetchOptions: () => ({}) },
+    assertOk: async (response) => {
+      if (!response.ok) throw new Error(`refused with ${response.status}`);
+      return response;
+    },
+    getErrorMessage: (error) => `reason: ${error.message}`,
     fetch: async (url) => {
       requests.push(url);
       await gate;
-      return { ok: true, status: 200, json: async () => body };
+      return { ok: status >= 200 && status < 300, status, json: async () => body };
     }
   });
 
@@ -220,6 +235,10 @@ const mountPreferences = ({ body = SERVER_12H, gate = Promise.resolve() } = {}) 
     resyncPreferences,
     applyOptimisticPreferences,
     handleUserPreferencesUpdated,
+    loadErrors: () => loadErrors,
+    seedLoadErrors: (next) => {
+      loadErrors = next;
+    },
     clock: () => {
       const held = state[SESSION];
       return {
@@ -408,6 +427,105 @@ test('a message replayed while the mount load is on the wire discards the answer
   assert.ok(
     !SIGNALR_SEED_EVENTS.has('UserPreferencesUpdated'),
     'holding this name is what turns every connect into the replay above'
+  );
+});
+
+/**
+ * A guest's read can still be on the wire when the browser signs in as an admin. That read belongs
+ * to the guest, so when it fails its reason is kept under the guest's id and the admin's Display
+ * preferences, which reads only the admin's entry, shows no error box for it.
+ */
+test('a failed read is kept under the session that asked, not the one signed in when it fails', async () => {
+  atRest();
+  let signedIn = 'guest-session';
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const context = mountPreferences({ gate, status: 500, currentSession: () => signedIn });
+
+  const load = context.loadSessionPreferences('guest-session');
+  signedIn = 'admin-session';
+  release();
+  await load;
+
+  assert.deepEqual(
+    context.loadErrors(),
+    { 'guest-session': 'reason: refused with 500' },
+    'the refused answer is recorded under the session that sent the request'
+  );
+  assert.equal(
+    context.loadErrors()['admin-session'],
+    undefined,
+    'the admin never asked, so the admin has nothing to show'
+  );
+});
+
+test('a refused read of this session is shown, a 401 included', async () => {
+  atRest();
+  const context = mountPreferences({ status: 401 });
+
+  await context.loadSessionPreferences(SESSION);
+
+  assert.deepEqual(
+    context.loadErrors(),
+    { [SESSION]: 'reason: refused with 401' },
+    'switches left at their defaults would read as saved values, so the refusal has to be shown'
+  );
+  assert.ok(
+    context.refs.loadedIds.current.has(SESSION),
+    'a refused read still counts as done, or every render would ask again'
+  );
+});
+
+test('a broadcast for a session clears the failed read of that session and keeps the others', async () => {
+  atRest();
+  const context = mountPreferences({ body: WHOLE_ROW });
+  await context.loadSessionPreferences(SESSION);
+
+  context.seedLoadErrors({ [SESSION]: 'earlier failure', 'other-session': 'other failure' });
+  context.handleUserPreferencesUpdated({ sessionId: SESSION, preferences: WHOLE_ROW });
+
+  assert.deepEqual(
+    context.loadErrors(),
+    { 'other-session': 'other failure' },
+    'a row the server sent is a confirmed read even when it matches what the browser holds'
+  );
+
+  context.seedLoadErrors({ [SESSION]: 'earlier failure', 'other-session': 'other failure' });
+  context.handleUserPreferencesUpdated({
+    sessionId: SESSION,
+    preferences: { ...WHOLE_ROW, selectedTheme: 'changed' }
+  });
+
+  assert.equal(context.theme(), 'changed');
+  assert.deepEqual(
+    context.loadErrors(),
+    { 'other-session': 'other failure' },
+    'a changed row clears the failure the same way'
+  );
+});
+
+test('a broadcast that repeats the stored row still retires a read on the wire, so its failure stays hidden', async () => {
+  atRest();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const context = mountPreferences({ body: WHOLE_ROW, gate, status: 500 });
+  context.handleUserPreferencesUpdated({ sessionId: SESSION, preferences: WHOLE_ROW });
+  // The same markers the resync clears, so the read below goes out.
+  context.refs.loadedIds.current.delete(SESSION);
+
+  const load = context.loadSessionPreferences(SESSION);
+  context.handleUserPreferencesUpdated({ sessionId: SESSION, preferences: WHOLE_ROW });
+  release();
+  await load;
+
+  assert.deepEqual(
+    context.loadErrors(),
+    {},
+    'the server confirmed the row after the read went out, so the older failure is not news'
   );
 });
 

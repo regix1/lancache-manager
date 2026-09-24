@@ -53,8 +53,7 @@ public class OperationCancellationService
 
     private static void ValidateCaller(OperationInfo operation, IntegrationCaller caller)
     {
-        if (operation.Metadata is Dictionary<string, object?> values
-            && values.TryGetValue("integrationLogin", out var value) && value is IntegrationLogin login)
+        if (UnifiedOperationTracker.ReadIntegrationLogin(operation.Metadata) is { } login)
             IntegrationLease.ValidateCaller(login, caller);
     }
 

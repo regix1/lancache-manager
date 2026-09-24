@@ -1,6 +1,7 @@
 import { noAutofill } from '@utils/autofill';
 import React, { useEffect } from 'react';
 import { Key, Lock, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
 import { Modal } from '@components/ui/Modal';
@@ -146,37 +147,25 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
 
         {/* Test Result */}
         {testResult && (
-          <div
-            className={`rounded-lg p-3 border flex items-start gap-3 ${
-              testResult.valid ? 'bg-success border-success' : 'bg-error border-error'
-            }`}
+          <Alert
+            color={testResult.valid ? 'success' : 'error'}
+            icon={
+              testResult.valid ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <XCircle className="w-4 h-4" />
+              )
+            }
+            title={testResult.title}
           >
-            {testResult.valid ? (
-              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-success" />
-            ) : (
-              <XCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-error" />
-            )}
-            <div className="flex-1">
-              <p
-                className={`text-sm font-medium ${
-                  testResult.valid ? 'text-success-text' : 'text-error-text'
-                }`}
-              >
-                {testResult.message}
-              </p>
-            </div>
-          </div>
+            {testResult.message}
+          </Alert>
         )}
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           <Button
-            onClick={() =>
-              handleTest(
-                t('modals.steamWebApi.errors.enterKey'),
-                t('modals.steamWebApi.errors.networkError')
-              )
-            }
+            onClick={() => handleTest(t('modals.steamWebApi.errors.enterKey'))}
             variant="default"
             disabled={!canManage || !apiKey.trim() || testing || saving}
             loading={testing}
@@ -188,12 +177,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
           </Button>
 
           <Button
-            onClick={() =>
-              handleSave(
-                t('modals.steamWebApi.errors.enterKey'),
-                t('modals.steamWebApi.errors.networkErrorSave')
-              )
-            }
+            onClick={() => handleSave(t('modals.steamWebApi.errors.enterKey'))}
             variant="filled"
             color="primary"
             disabled={

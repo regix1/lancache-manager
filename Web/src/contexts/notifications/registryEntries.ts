@@ -16,9 +16,9 @@
  * subscription, but the event is subscribed exactly like any other.
  *
  * The getter factories below cover the readings that repeat across most entries
- * (stage-keyed message, capped progress, operation-id details, the silent-run
- * display gate). None of them are mandatory - an entry that needs a different
- * reading passes its own function and the builder uses that instead.
+ * (stage-keyed message, capped progress, operation-id details). None of them are
+ * mandatory - an entry that needs a different reading passes its own function and
+ * the builder uses that instead.
  */
 
 import i18n from '@/i18n';
@@ -63,16 +63,6 @@ interface OperationIdEvent {
   parentOperationId?: string | null;
 }
 
-/**
- * Carries the run-stable visibility flags. Lifecycle events are always emitted.
- * Silent runs use background progress, while Hidden runs never enter notification state.
- */
-interface SilentRunEvent {
-  showNotification?: boolean;
-  hideNotification?: boolean;
-  context?: Record<string, unknown>;
-}
-
 /** Carries an i18n stage key and its interpolation context. */
 interface StageKeyEvent {
   stageKey?: string;
@@ -115,15 +105,10 @@ function standardGetStatus(event: OperationStatusEvent): string | undefined {
   return undefined;
 }
 
-/** Hidden runs never enter notification state. Silent runs remain as background progress. */
-export function visibleWhenNotSilent(event: SilentRunEvent): boolean {
-  return event.hideNotification !== true;
-}
-
 /**
- * The details every standard operation card needs. The cancel button and the
- * deferred-cancel watchdog both key off `details.operationId`, so a card without
- * it renders a cancel affordance that cannot cancel anything.
+ * The details every standard operation card needs. The cancel button keys off
+ * `details.operationId`; the run store sets it from the run row as well, so a
+ * card has it from its first frame.
  */
 export function operationIdDetails(event: OperationIdEvent): UnifiedNotification['details'] {
   return {
@@ -183,24 +168,12 @@ export function cappedProgress(event: PercentCompleteEvent): number {
  */
 interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
   type: NotificationType;
-  id: string;
-  /** Set only by a type that owns one card per entity; see `getId` on the entry. */
-  getId?: (event: unknown) => string;
-  storageKey: string;
   /** SignalR event-name prefix, e.g. 'DataImport' -> DataImportStarted/Progress/Complete. */
   eventPrefix: string;
   /** Terminal event name, for the one pipeline that named its event `...Completed`. */
   completeEvent?: string;
   cancelTooltipKey: string;
-  /** Set for a pipeline whose first operationId can arrive on a progress tick. */
-  allowsDeferredCancel?: boolean;
   recovery: RecoveryConfig;
-  /**
-   * Applies the visibility gate to all three lifecycle phases. Set it for
-   * services whose runs can be hidden. A phase that passes
-   * its own `shouldDisplay` keeps it.
-   */
-  silentRunGate?: boolean;
   started: RegistryStartedConfig<TStarted>;
   /** `getStatus` falls back to the three-status pattern when omitted. */
   progress: Omit<RegistryProgressConfig<TProgress>, 'getStatus'> &
@@ -218,15 +191,10 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
 ): NotificationRegistryEntry {
   const {
     type,
-    id,
-    getId,
-    storageKey,
     eventPrefix,
     completeEvent,
     cancelTooltipKey,
-    allowsDeferredCancel,
     recovery,
-    silentRunGate,
     started,
     progress,
     complete
@@ -246,24 +214,10 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
   };
   const completeConfig: RegistryCompleteConfig | undefined = complete ? { ...complete } : undefined;
 
-  // Only set the gate where one applies, so an ungated entry keeps exactly the
-  // config shape it had when it was written out by hand.
-  if (silentRunGate) {
-    startedConfig.shouldDisplay ??= visibleWhenNotSilent;
-    progressConfig.shouldDisplay ??= visibleWhenNotSilent;
-    if (completeConfig) completeConfig.shouldDisplay ??= visibleWhenNotSilent;
-  }
-
   return {
     type,
-    id,
-    // Omitted rather than set to undefined, so an entry that owns one card keeps exactly
-    // the shape it had before this option existed.
-    ...(getId ? { getId } : {}),
-    storageKey,
     cancelKind: 'serverOp',
     cancelTooltipKey,
-    allowsDeferredCancel,
     recovery,
     events: {
       started: `${eventPrefix}Started`,
@@ -286,14 +240,10 @@ interface MappingRunStatusResponse {
   percentComplete: number;
   stageKey?: string | null;
   context?: StageContext | null;
-  showNotification: boolean;
-  hideNotification?: boolean;
 }
 
 interface MappingOperationEntryOptions {
   type: NotificationType;
-  id: string;
-  storageKey: string;
   serviceKey: string;
   eventPrefix: string;
   /** Terminal event name, for a pipeline that named its event `...Completed`. */
@@ -301,14 +251,13 @@ interface MappingOperationEntryOptions {
   i18nBase: string;
   cancelTooltipKey: string;
   defaultMessage: string;
-  staleMessageKey: string;
   recoveryCases: readonly { stageKey: string; context: StageContext }[];
 }
 
 /**
  * Builds one of the five mapping cards. All mapping services share the operation
- * tracker endpoint, server-operation cancellation, silent-run display gate, and
- * canonical lifecycle payload; only identity and translations vary by platform.
+ * tracker endpoint, server-operation cancellation and canonical lifecycle payload;
+ * only identity and translations vary by platform.
  */
 export function buildMappingOperationEntry<
   TStarted extends MappingStartedContract,
@@ -317,34 +266,26 @@ export function buildMappingOperationEntry<
 >(options: MappingOperationEntryOptions): NotificationRegistryEntry {
   const {
     type,
-    id,
-    storageKey,
     serviceKey,
     eventPrefix,
     completeEvent,
     i18nBase,
     cancelTooltipKey,
     defaultMessage,
-    staleMessageKey,
     recoveryCases
   } = options;
 
   return buildStandardOperationEntry<TStarted, TProgress, TComplete>({
     type,
-    id,
-    storageKey,
     eventPrefix,
     completeEvent,
     cancelTooltipKey,
-    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: { kind: 'stageKey', cases: recoveryCases },
       apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
       isProcessing: (data: MappingRunStatusResponse) => data.isRunning,
-      shouldSkip: (status: MappingRunStatusResponse) => status.hideNotification === true,
       createNotification: (data: MappingRunStatusResponse) => ({
-        controlOnly: !data.showNotification,
         message: translateRecoveryStage(
           data.stageKey,
           data.context ?? undefined,
@@ -352,16 +293,14 @@ export function buildMappingOperationEntry<
         ),
         progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
         details: { operationId: data.operationId ?? undefined }
-      }),
-      staleMessageKey
+      })
     } satisfies SimpleRecoveryConfig<MappingRunStatusResponse>,
     started: {
       defaultMessage,
       getMessage: stageKeyMessage<TStarted>(`${i18nBase}.starting`),
-      replaceExisting: true,
       // A mapping run registers before its sign-in, so the card can sit here for a quarter of an
-      // hour while a person reads a device code off their phone. The started handler's progress: 0
-      // would draw a bar frozen at nothing for all of it; sweep instead until real progress lands.
+      // hour while a person reads a device code off their phone. The run's percentage would draw
+      // a bar frozen at nothing for all of it; sweep instead until real progress lands.
       progressMode: 'indeterminate'
     },
     progress: {
@@ -370,8 +309,7 @@ export function buildMappingOperationEntry<
       // Ends the sweep above: from the first progress event the percentage is real.
       getProgressMode: (): NotificationProgressMode => 'determinate',
       getCompletedMessage: stageKeyMessage<TProgress>(`${i18nBase}.completed`),
-      getErrorMessage: errorOrStageKeyMessage<TProgress>(`${i18nBase}.failed`),
-      supportFastCompletion: true
+      getErrorMessage: errorOrStageKeyMessage<TProgress>(`${i18nBase}.failed`)
     },
     complete: {
       getSuccessMessage: stageKeyMessage<TComplete>(`${i18nBase}.completed`),
@@ -387,11 +325,8 @@ export function buildMappingOperationEntry<
 // Scheduled service run entries (pipeline-less maintenance services)
 // ============================================================================
 // Each of these services runs on a schedule (or via Run Now) and emits a
-// per-service lifecycle event triple carrying a run-stable `showNotification`
-// and `hideNotification` flags. Lifecycle events are always emitted. Silent runs
-// use background progress, while Hidden runs never enter notification state.
-// Card identity is per service (per-type singleton id) because several of these
-// can run concurrently.
+// per-service lifecycle event triple. Lifecycle events are always emitted; the
+// run's own row decides whether it draws a card, a background row or nothing.
 
 /** GET /api/system/schedules/{serviceKey}/run-status - ScheduleRunStatus */
 interface ScheduledRunStatusResponse {
@@ -401,15 +336,11 @@ interface ScheduledRunStatusResponse {
   percentComplete: number;
   stageKey?: string;
   context?: StageContext | null;
-  showNotification: boolean;
-  hideNotification?: boolean;
 }
 
 interface ScheduledRunEntryOptions {
   cancellable: boolean;
   type: NotificationType;
-  id: string;
-  storageKey: string;
   /** URL segment + backend serviceKey used for the run-status recovery endpoint. */
   serviceKey: string;
   /** SignalR event-name prefix, e.g. 'LogRotation' -> LogRotationStarted/Progress/Complete. */
@@ -420,28 +351,14 @@ interface ScheduledRunEntryOptions {
   countable: boolean;
   /** Plain fallback shown before the first stage-keyed message arrives. */
   defaultMessage: string;
-  /** Key for the terminal fallback shown when a run card outlived its terminal event. */
-  staleMessageKey: string;
 }
 
 export function buildScheduledRunEntry(
   options: ScheduledRunEntryOptions
 ): NotificationRegistryEntry {
-  const {
-    type,
-    id,
-    storageKey,
-    serviceKey,
-    eventPrefix,
-    i18nBase,
-    countable,
-    defaultMessage,
-    staleMessageKey
-  } = options;
+  const { type, serviceKey, eventPrefix, i18nBase, countable, defaultMessage } = options;
   return {
     type,
-    id,
-    storageKey,
     ...(options.cancellable
       ? {
           cancelKind: 'serverOp' as const,
@@ -463,13 +380,7 @@ export function buildScheduledRunEntry(
       },
       apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
       isProcessing: (data: ScheduledRunStatusResponse) => data.isRunning,
-      // A Hidden run must not enter notification state when the page reloads mid-run. An idle
-      // service reports hideNotification=false so a persisted card is stale-completed after a
-      // missed terminal instead of being deleted during recovery.
-      shouldSkip: (status: ScheduledRunStatusResponse) => status.hideNotification === true,
       createNotification: (data: ScheduledRunStatusResponse) => ({
-        controlOnly: !data.showNotification,
-        status: data.status === 'cancelling' ? 'cancelling' : 'running',
         message: translateRecoveryStage(
           data.stageKey,
           data.context ?? undefined,
@@ -477,8 +388,7 @@ export function buildScheduledRunEntry(
         ),
         progress: data.percentComplete,
         details: { operationId: data.operationId ?? undefined }
-      }),
-      staleMessageKey
+      })
     } satisfies SimpleRecoveryConfig<ScheduledRunStatusResponse>,
     events: {
       started: `${eventPrefix}Started`,
@@ -486,13 +396,11 @@ export function buildScheduledRunEntry(
       complete: `${eventPrefix}Complete`
     },
     started: {
-      shouldDisplay: visibleWhenNotSilent,
       defaultMessage,
       getMessage: stageKeyMessage<ScheduledRunStartedEvent>(`${i18nBase}.starting`),
       getDetails: operationIdDetails
     } satisfies RegistryStartedConfig<ScheduledRunStartedEvent>,
     progress: {
-      shouldDisplay: visibleWhenNotSilent,
       getMessage: stageKeyMessage<ScheduledRunProgressEvent>(`${i18nBase}.running`),
       getProgress: cappedProgress,
       getStatus: standardGetStatus,
@@ -501,7 +409,6 @@ export function buildScheduledRunEntry(
       getDetails: operationIdDetails
     } satisfies RegistryProgressConfig<ScheduledRunProgressEvent>,
     complete: {
-      shouldDisplay: visibleWhenNotSilent,
       getSuccessMessage: skippedOrStageKeyMessage<ScheduledRunCompleteEvent>(
         `${i18nBase}.complete`
       ),

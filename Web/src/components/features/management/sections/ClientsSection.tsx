@@ -12,7 +12,11 @@ import { ActionMenuItem, ActionMenuDangerItem } from '@components/ui/ActionMenu'
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
@@ -79,7 +83,7 @@ interface ClientsSectionProps {
   isAdmin: boolean;
   authMode: string;
   mockMode: boolean;
-  onError: (message: string) => void;
+  onError: (message: string, error?: unknown) => void;
   onSuccess: (message: string) => void;
 }
 
@@ -96,6 +100,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     enabled: hostnamesEnabled,
     loading: hostnamesLoading,
     error: hostnamesError,
+    refreshHostnames,
     setEnabled: setHostnamesEnabled,
     getHostnameForIp,
     reason: hostnamesReason,
@@ -157,6 +162,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [excludeInput, setExcludeInput] = useState('');
   const [selectedKnownIps, setSelectedKnownIps] = useState<string[]>([]);
   const [loadingExcluded, setLoadingExcluded] = useState(false);
+  const [excludedLoadError, setExcludedLoadError] = useState<string | null>(null);
   const [savingExcluded, setSavingExcluded] = useState(false);
 
   const serializeRules = useCallback(
@@ -177,6 +183,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   // reply lands, not what was on screen when the request went out.
   const hasExcludedChangesRef = useRef(hasExcludedChanges);
   hasExcludedChangesRef.current = hasExcludedChanges;
+  // Mount, reconnect, the exclusion event and Retry can each start a read; only the newest writes.
+  const excludedRequestRef = useRef(0);
 
   const loadExcludedIps = useCallback(
     async (showLoading: boolean) => {
@@ -184,9 +192,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       // Mock mode has no stored exclusion rules behind it, so the list stays as the state default
       // rather than showing a real machine's hidden clients.
       if (mockMode) return;
+      const request = ++excludedRequestRef.current;
       if (showLoading) setLoadingExcluded(true);
       try {
         const response = await ApiService.getStatsExclusions();
+        if (request !== excludedRequestRef.current) return;
+        setExcludedLoadError(null);
         // A reply is a whole request old, and the user can have started editing inside that window.
         // What they typed is what they can see, so the server's copy waits for their next save.
         if (hasExcludedChangesRef.current) return;
@@ -194,12 +205,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         setExcludedRules(rules);
         setSavedExcludedRules(rules);
       } catch (err) {
-        onError(getErrorMessage(err));
+        if (request !== excludedRequestRef.current) return;
+        setExcludedLoadError(getErrorMessage(err));
       } finally {
-        if (showLoading) setLoadingExcluded(false);
+        // Not gated on showLoading: a background read that supersedes the mount read has to end
+        // the loading state the mount read started.
+        if (request === excludedRequestRef.current) setLoadingExcluded(false);
       }
     },
-    [isAdmin, mockMode, onError]
+    [isAdmin, mockMode]
   );
 
   useEffect(() => {
@@ -287,7 +301,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       await refreshStats(true);
       await refreshDownloads();
     } catch (err) {
-      onError(getErrorMessage(err));
+      onError(t('management.sections.clients.errors.failedToUpdateExcluded'), err);
     } finally {
       setSavingExcluded(false);
     }
@@ -426,7 +440,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       );
       setDeleteConfirmGroup(null);
     } catch (err) {
-      onError(getErrorMessage(err));
+      onError(t('management.sections.clients.errors.deleteNicknameFailed'), err);
     } finally {
       setDeletingGroupId(null);
     }
@@ -487,7 +501,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       }
       onSuccess(t('management.sections.clients.hostnames.settingsSaved'));
     } catch (err: unknown) {
-      onError(getErrorMessage(err));
+      onError(t('management.sections.clients.hostnames.saveFailed'), err);
     } finally {
       setSavingHostnames(false);
     }
@@ -550,18 +564,20 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             badge={
               isAdmin ? (
                 <SectionHeaderActions>
+                  {error !== null && !nicknamesExpanded && <SectionErrorChip />}
                   {/* The section's only primary action, so it stays outside a menu. A second
                       section action brings the kebab back and this button stays beside it. */}
                   <Button variant="filled" color="primary" size="md" onClick={handleCreateGroup}>
                     {t('management.sections.clients.addNickname')}
                   </Button>
                 </SectionHeaderActions>
+              ) : error !== null && !nicknamesExpanded ? (
+                <SectionErrorChip />
               ) : undefined
             }
           >
             <div className="space-y-4">
-              {/* The context carries the technical message for the console; the reader gets a
-                  translated one. */}
+              {/* The context stores the reason sentence, so it goes to the box as it is. */}
               {error && (
                 <ErrorBlock
                   title={t('management.sections.clients.errors.failedToLoadNicknames')}
@@ -577,10 +593,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   rows={3}
                 />
               ) : clientGroups.length === 0 ? (
-                <EmptyState
-                  title={t('management.sections.clients.noNicknamesYet')}
-                  subtitle={t('management.sections.clients.noNicknamesDesc')}
-                />
+                error ? null : (
+                  <EmptyState
+                    title={t('management.sections.clients.noNicknamesYet')}
+                    subtitle={t('management.sections.clients.noNicknamesDesc')}
+                  />
+                )
               ) : (
                 <div className="mgmt-list divided-list">
                   {clientGroups.map((group) => {
@@ -837,6 +855,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             count={excludedRules.length}
             isExpanded={exclusionsExpanded}
             onToggle={() => setExclusionsExpanded((prev) => !prev)}
+            badge={
+              excludedLoadError !== null && !exclusionsExpanded ? <SectionErrorChip /> : undefined
+            }
           >
             {!isAdmin ? (
               <Alert color="yellow">
@@ -927,6 +948,14 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   )}
                 </div>
 
+                {excludedLoadError && (
+                  <ErrorBlock
+                    title={t('management.sections.clients.errors.failedToLoadExcluded')}
+                    message={excludedLoadError}
+                    retryLabel={t('common.retry')}
+                    onRetry={() => void loadExcludedIps(true)}
+                  />
+                )}
                 {loadingExcluded ? (
                   <LoadingState
                     message={t('management.sections.clients.loadingExcludedIps')}
@@ -934,10 +963,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     rows={3}
                   />
                 ) : excludedRules.length === 0 ? (
-                  <EmptyState
-                    variant="text"
-                    title={t('management.sections.clients.noExcludedIps')}
-                  />
+                  excludedLoadError ? null : (
+                    <EmptyState
+                      variant="text"
+                      title={t('management.sections.clients.noExcludedIps')}
+                    />
+                  )
                 ) : (
                   <div className="mgmt-list divided-list">
                     {excludedRules.map((rule) => (
@@ -1016,13 +1047,21 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             isExpanded={hostnamesExpanded}
             onToggle={() => setHostnamesExpanded((prev) => !prev)}
             badge={
-              <SectionHeaderChip variant={hostnamesEnabled ? 'success' : 'neutral'}>
-                {t(
-                  hostnamesEnabled
-                    ? 'management.sections.clients.hostnames.enabled'
-                    : 'management.sections.clients.hostnames.disabled'
-                )}
-              </SectionHeaderChip>
+              // The enabled state comes from the failed read, so it stays out of the header until
+              // a read succeeds. [148]
+              hostnamesError !== null ? (
+                hostnamesExpanded ? undefined : (
+                  <SectionErrorChip />
+                )
+              ) : (
+                <SectionHeaderChip variant={hostnamesEnabled ? 'success' : 'neutral'}>
+                  {t(
+                    hostnamesEnabled
+                      ? 'management.sections.clients.hostnames.enabled'
+                      : 'management.sections.clients.hostnames.disabled'
+                  )}
+                </SectionHeaderChip>
+              )
             }
           >
             {!isAdmin ? (
@@ -1031,11 +1070,18 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   {t('management.sections.clients.authenticateToManage')}
                 </span>
               </Alert>
+            ) : hostnamesError ? (
+              // The form starts at default values until a read succeeds, so the box takes its
+              // place rather than sitting above switches that may not match the server. [148]
+              <ErrorBlock
+                title={t('management.sections.clients.hostnames.loadFailed')}
+                message={hostnamesError}
+                retryLabel={t('common.retry')}
+                onRetry={() => void refreshHostnames()}
+              />
             ) : (
               <div className="space-y-3">
-                {hostnamesError ? (
-                  <Alert color="red">{hostnamesError}</Alert>
-                ) : visibleHostnamesReasonKey ? (
+                {visibleHostnamesReasonKey ? (
                   <Alert
                     color="yellow"
                     withCloseButton={hostnamesReason === 'someUnnamed'}
@@ -1127,7 +1173,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           })}
         </p>
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.sections.clients.deleteNicknameWarning')}</p>
         </Alert>
       </ConfirmationModal>

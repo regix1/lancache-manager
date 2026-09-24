@@ -185,7 +185,9 @@ public abstract partial class PrefillDaemonServiceBase
             session.ErrorMessage = null;
             if (termination.ImageChange is null && !termination.GlobalSent)
             {
-                await NotifyHubAsync(EventSessionTerminated, new { sessionId = session.Id, reason = termination.Reason });
+                // The owner's tabs get SessionEnded below, where a failed send is retried; a subscriber
+                // copy here would drop a connection that fails before it gets that retry.
+                await _notifications.NotifyAdminAsync(EventSessionTerminated, new { sessionId = session.Id, reason = termination.Reason });
                 termination.GlobalSent = true;
             }
             if (termination.ImageChange is null && !termination.OwnerSent)

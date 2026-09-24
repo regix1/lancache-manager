@@ -77,6 +77,8 @@ interface RetroDownloadsHookResult {
   /** True once a request has answered. The totals above are placeholders until then. */
   hasResponse: boolean;
   error: Error | null;
+  /** Asks for the same page again; the last rows stay on screen while it runs. */
+  reload: () => void;
 }
 
 const EMPTY_RESPONSE: RetroDownloadResponse = {
@@ -412,6 +414,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     isLoading,
     isFetching,
     hasResponse: data !== null,
-    error
+    error,
+    reload
   };
 }

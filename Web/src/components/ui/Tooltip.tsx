@@ -128,6 +128,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
+        // A show still pending from a pointer arrival would reopen the box the reader just dismissed.
+        if (showTimeoutRef.current) {
+          clearTimeout(showTimeoutRef.current);
+          showTimeoutRef.current = null;
+        }
         setShow(false);
       }
     };

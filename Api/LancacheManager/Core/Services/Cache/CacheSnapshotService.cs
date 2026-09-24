@@ -105,15 +105,16 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     {
         var cacheInfo = await _cacheService.GetCacheInfoAsync();
 
-        // Skip if no valid data (e.g., on Windows development). Return before starting so a run with
-        // nothing to record never surfaces a card.
-        if (cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0)
+        // Skip if no valid data (e.g., on Windows development). An automatic run returns before
+        // starting so a run with nothing to record never surfaces a card, and a Run Now reports itself
+        // skipped below so the click is answered. [59]
+        var nothingToRecord = cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0;
+        if (nothingToRecord)
         {
             _logger.LogDebug("Skipping cache snapshot - no cache info available");
-            return;
+            if (CurrentRunNotice.Trigger != RunTrigger.Manual) return;
         }
 
-        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -121,10 +122,15 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             OperationType.CacheSnapshot,
             _eventNames,
             $"{StageBase}.complete",
-            show,
-            stoppingToken, notice: CurrentRunNotice);
+            CurrentRunNotice,
+            stoppingToken);
 
         await reporter.StartAsync($"{StageBase}.starting");
+        if (nothingToRecord)
+        {
+            await reporter.CompleteAsync(success: true, stageKey: ScheduledRunReporter.NothingToDoStageKey, skipped: true);
+            return;
+        }
 
         // Writing one snapshot row is a single atomic action, so progress is stepped.
         await reporter.ReportAsync(50, $"{StageBase}.running");

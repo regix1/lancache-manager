@@ -26,7 +26,7 @@ public partial class SteamKit2Service
 
         lock (_baselineLock) _baselineCommitted = false;
 
-        _depotRunShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
+        var runNotice = notice ?? new RunNotice(EffectiveNotificationMode, trigger);
         _activeDepotScanMode = DepotScanMode.Github;
         _emitTotalMappings = 0;
         _emitDownloadsUpdated = 0;
@@ -44,7 +44,7 @@ public partial class SteamKit2Service
         }
 
         _currentRebuildCts = runCts;
-        await using var reporter = CreateTrackedRebuildReporter(runCts, notice);
+        await using var reporter = CreateTrackedRebuildReporter(runCts, runNotice);
         var committed = false;
         var runToken = reporter.Token;
 

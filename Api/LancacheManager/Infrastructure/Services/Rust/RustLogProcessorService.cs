@@ -50,7 +50,6 @@ public class RustLogProcessorService
         string? StageKey);
 
     public bool IsProcessing { get; private set; }
-    private bool IsSilentMode { get; set; }
     public Guid? CurrentOperationId => _currentOperationId;
 
     public Task<Guid?> StartAllInBackgroundAsync()
@@ -63,7 +62,7 @@ public class RustLogProcessorService
         }
 
         return RunBackgroundAsync(
-            () => RunAllDatasourcesAsync(silentMode: false),
+            RunAllDatasourcesAsync,
             "processing all datasources");
     }
 
@@ -86,15 +85,12 @@ public class RustLogProcessorService
                 // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true and
                 // blocks the next StartProcessing (guard at the IsProcessing check).
                 IsProcessing = false;
-                IsSilentMode = false;
             },
-            // Batch path is always interactive (RunAllDatasourcesAsync is only ever invoked with
-            // silentMode:false), so the terminal SignalR emitter is always wired here.
+            // The batch path is never live ingest, so the terminal SignalR emitter is always wired here.
             onTerminalEmit: BuildTerminalEmit(() => operationId));
         _currentOperationId = operationId;
         _operationRegisteredTcs?.TrySetResult(operationId);
         IsProcessing = true;
-        IsSilentMode = false;
         return operationId;
     }
 
@@ -158,7 +154,6 @@ public class RustLogProcessorService
     private void EndOperation()
     {
         IsProcessing = false;
-        IsSilentMode = false;
         _currentOperationId = null;
         _currentDatasourceName = null;
         _currentProgressPath = null;
@@ -166,7 +161,7 @@ public class RustLogProcessorService
         _cancellationTokenSource = null;
     }
 
-    private async Task<bool> RunAllDatasourcesAsync(bool silentMode)
+    private async Task<bool> RunAllDatasourcesAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         if (datasources.Count == 0)
@@ -218,8 +213,7 @@ public class RustLogProcessorService
                 var success = await StartProcessingAsync(
                     datasource.LogPath,
                     logPosition,
-                    silentMode,
-                    datasource.Name,
+                    datasourceName: datasource.Name,
                     sharedOperationId: batchOperationId,
                     finalizeOperation: i == datasources.Count - 1);
                 if (!success)
@@ -258,10 +252,10 @@ public class RustLogProcessorService
         }
     }
 
-    public Task<Guid?> StartInBackgroundAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
+    public Task<Guid?> StartInBackgroundAsync(string logFilePath, long startPosition = 0, bool liveIngest = false, string? datasourceName = null)
     {
         return RunBackgroundAsync(
-            () => StartProcessingAsync(logFilePath, startPosition, silentMode, datasourceName),
+            () => StartProcessingAsync(logFilePath, startPosition, liveIngest, datasourceName),
             $"processing datasource '{datasourceName ?? "default"}'");
     }
 
@@ -325,7 +319,7 @@ public class RustLogProcessorService
     /// </summary>
     public async Task<bool> StartProcessingAsync()
     {
-        return await RunAllDatasourcesAsync(silentMode: false);
+        return await RunAllDatasourcesAsync();
     }
 
     /// <summary>
@@ -333,19 +327,11 @@ public class RustLogProcessorService
     /// </summary>
     public LogProcessingStatusResponse GetStatus()
     {
-        // Snapshot the silent flag together with the processing guard, BEFORE the progress-file
-        // read below. The completion path clears IsProcessing first and IsSilentMode a few
-        // milliseconds later (cleanup runs after an awaited broadcast); reading IsSilentMode
-        // after the file I/O let a status fetch at a silent run's end pair isProcessing=true
-        // with silentMode=false, so recovery resurrected a visible card frozen at the terminal
-        // snapshot. Mirrors the up-front snapshot in StatsController.EvictionScanStatus.
-        var silentMode = IsSilentMode;
         if (!IsProcessing)
         {
             return new LogProcessingStatusResponse
             {
                 IsProcessing = false,
-                SilentMode = false,
                 Status = "idle",
                 OperationId = _currentOperationId
             };
@@ -381,7 +367,6 @@ public class RustLogProcessorService
             return new LogProcessingStatusResponse
             {
                 IsProcessing = true,
-                SilentMode = silentMode,
                 Status = "starting",
                 OperationId = _currentOperationId
             };
@@ -395,7 +380,6 @@ public class RustLogProcessorService
         return new LogProcessingStatusResponse
         {
             IsProcessing = true,
-            SilentMode = silentMode,
             OperationId = _currentOperationId,
             Status = progress.Status,
             PercentComplete = progress.PercentComplete,
@@ -493,7 +477,7 @@ public class RustLogProcessorService
     public async Task<bool> StartProcessingAsync(
         string logFilePath,
         long startPosition = 0,
-        bool silentMode = false,
+        bool liveIngest = false,
         string? datasourceName = null,
         Guid? sharedOperationId = null,
         bool finalizeOperation = true)
@@ -509,9 +493,6 @@ public class RustLogProcessorService
 
             if (sharedOperationId == null)
             {
-                // Silent flag first: GetStatus snapshots IsSilentMode before its IsProcessing
-                // guard, so the flag must already be correct when IsProcessing becomes visible.
-                IsSilentMode = silentMode;
                 IsProcessing = true;
             }
         }
@@ -527,8 +508,8 @@ public class RustLogProcessorService
 
         // This run's own operation id, captured where the operation is registered. Every completion
         // below uses it instead of re-reading _currentOperationId: the interactive path clears
-        // IsProcessing before its two-second display delay, so a live ingest tick can pass the
-        // re-entry guard and reassign the field while this run is still inside that window.
+        // IsProcessing before it completes its operation, so a live ingest tick can pass the
+        // re-entry guard and reassign the field before this run has finished.
         Guid? ownerOperationId = null;
         LogProcessingTerminalMetrics terminalMetrics = default;
 
@@ -540,7 +521,6 @@ public class RustLogProcessorService
                 if (_currentOperationId != sharedOperationId
                     || _operationTracker.GetOperation(sharedOperationId.Value)?.Status.IsTerminal() != false)
                     return false;
-                IsSilentMode = silentMode;
             }
             else
             {
@@ -552,6 +532,10 @@ public class RustLogProcessorService
                     OperationType.LogProcessing,
                     "Log Processing",
                     _cancellationTokenSource,
+                    // Live ingest is started by no one, so it runs Hidden and the tracker sends
+                    // nothing for it unless it fails. An interactive run has no notice: a full card.
+                    notice: liveIngest ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled) : null,
+                    liveIngest: liveIngest,
                     onTerminalCleanup: () =>
                     {
                         // Clear only the state this run installed. A later run can have registered
@@ -570,12 +554,11 @@ public class RustLogProcessorService
                         // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true
                         // and blocks the next StartProcessing (guard at the IsProcessing check).
                         IsProcessing = false;
-                        IsSilentMode = false;
                     },
-                    // Silent ops emit no terminal SignalR (preserves the old !silentMode guard), so
-                    // only wire the emitter for interactive ops. The single terminal event then fires
-                    // exactly once from CompleteOperation (success / OCE / force-kill).
-                    onTerminalEmit: silentMode ? null : BuildTerminalEmit(() => ownerOperationId));
+                    // Live ingest runs about once a second and every LogProcessingComplete refreshes
+                    // the dashboard, so only interactive runs wire the emitter. The single terminal
+                    // event then fires exactly once from CompleteOperation (success / OCE / force-kill).
+                    onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => ownerOperationId));
                 _currentOperationId = ownerOperationId;
                 _operationRegisteredTcs?.TrySetResult(ownerOperationId.Value);
             }
@@ -588,8 +571,9 @@ public class RustLogProcessorService
                 _operationTracker,
                 _logger,
                 processingToken,
-                showNotification: !silentMode,
-                hideNotification: silentMode,
+                liveIngest
+                    ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled)
+                    : new RunNotice(NotificationMode.All, RunTrigger.Manual),
                 cancelOwner: () =>
                 {
                     if (ownerOperationId.HasValue)
@@ -648,8 +632,9 @@ public class RustLogProcessorService
             _logger.LogInformation("Progress file: {ProgressPath}", progressPath);
             _logger.LogInformation("Start position: {StartPosition}", startPosition);
 
-            // Send started event
-            if (!silentMode)
+            // Live ingest sends no started event: it runs about once a second, and every browser
+            // listener of the LogProcessing events would refresh on each pass.
+            if (!liveIngest)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.LogProcessingStarted, new
                 {
@@ -744,7 +729,8 @@ public class RustLogProcessorService
                     // abort before its remaining datasources ever ran.
                     using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(processingToken);
 
-                    if (!silentMode)
+                    // Same load guard as the started event: a live pass reports no progress.
+                    if (!liveIngest)
                     {
                         var accepted = false;
                         _operationTracker.UpdateProgress(ownerOperationId!.Value, 0, "signalr.logProcessing.starting",
@@ -770,7 +756,7 @@ public class RustLogProcessorService
                         async () => await MonitorProgressAsync(
                             progressPath,
                             monitorCts.Token,
-                            emitLogProgress: !silentMode,
+                            emitLogProgress: !liveIngest,
                             riotMappingRun,
                             ownerOperationId!.Value));
 
@@ -986,8 +972,8 @@ public class RustLogProcessorService
                     // Mark that logs have been processed at least once to enable guest mode
                     _stateService.SetHasProcessedLogs(true);
 
-                    // Only send SignalR notifications if not in silent mode
-                    if (!silentMode)
+                    // A live pass sends no final progress, for the same load reason as its started event.
+                    if (!liveIngest)
                     {
                         // Real total byte count from the Rust processor (all discovered log files)
                         var mbTotal = finalProgress.TotalBytes / (1024.0 * 1024.0);
@@ -1013,8 +999,8 @@ public class RustLogProcessorService
                 // game images are fetched from the Steam API in the background task below.
                 if (finalProgress?.EntriesSaved > 0)
                 {
-                    // Auto-tag new downloads to active events for BOTH silent and interactive
-                    // mode (prevents duplicate grouping issues). The committed-boundary refresh
+                    // Auto-tag new downloads to active events for BOTH live and interactive
+                    // passes (prevents duplicate grouping issues). The committed-boundary refresh
                     // above already made the inserted rows visible; the tag pass emits its own
                     // conditional DownloadsRefresh when it changes associations.
                     await AutoTagNewDownloadsAsync();
@@ -1049,8 +1035,12 @@ public class RustLogProcessorService
                 try
                 {
                     var battleNetMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
+                    // An interactive pass shows the resolve as a background row; a live pass draws
+                    // nothing unless it fails.
                     var resolvedBlizzard = await battleNetMappingService.ResolveDownloadsAsync(
-                        hideNotification: silentMode);
+                        liveIngest
+                            ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled)
+                            : new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
                     if (resolvedBlizzard > 0)
                     {
                         _logger.LogInformation("Resolved {Count} Blizzard downloads to game names after log processing", resolvedBlizzard);
@@ -1146,35 +1136,14 @@ public class RustLogProcessorService
                     }
                 });
 
-                if (!silentMode && shouldFinalizeOperation)
+                if (!liveIngest && shouldFinalizeOperation)
                 {
-                    // Set IsProcessing to false BEFORE the delay so polling can detect completion
+                    // Set IsProcessing to false BEFORE completing so polling can detect completion
                     // This is critical for the initialization wizard step 5 to detect completion
                     if (_currentOperationId == ownerOperationId) IsProcessing = false;
 
-                    // Ensure minimum display duration of 2 seconds for UI visibility BEFORE sending completion
-                    // This prevents the progress UI from disappearing before users can see it
-                    var elapsed = DateTime.UtcNow - startTime;
-                    var minDisplayDuration = TimeSpan.FromSeconds(2);
-                    _logger.LogInformation("Processing completed in {Elapsed}ms (minimum display duration: {MinDuration}ms)",
-                        elapsed.TotalMilliseconds, minDisplayDuration.TotalMilliseconds);
-
-                    if (elapsed < minDisplayDuration)
-                    {
-                        var remainingDelay = minDisplayDuration - elapsed;
-                        _logger.LogInformation("Delaying completion signal by {Delay}ms for UI visibility",
-                            remainingDelay.TotalMilliseconds);
-                        await Task.Delay(remainingDelay);
-                        _logger.LogInformation("Delay complete, sending completion signal now");
-                    }
-                    else
-                    {
-                        _logger.LogInformation("No delay needed, processing took longer than minimum duration");
-                    }
-
-                    // Calculate final elapsed time after delay and snapshot success metrics for the
-                    // onTerminalEmit closure (the single terminal event fires from CompleteOperation
-                    // below, after the min-display-duration delay so UI visibility is preserved).
+                    // Snapshot success metrics for the onTerminalEmit closure (the single terminal
+                    // event fires from CompleteOperation below).
                     var finalElapsed = DateTime.UtcNow - startTime;
                     var completionMessage = finalProgress?.TerminalStatus == "completed_with_warnings"
                         ? $"Log processing completed with warnings: {finalProgress.UnparsedLines} unrecognized line(s), " +
@@ -1190,7 +1159,7 @@ public class RustLogProcessorService
                 }
                 else if (shouldFinalizeOperation)
                 {
-                    // In silent mode, we can set IsProcessing to false immediately. No trailing
+                    // A live pass sets IsProcessing to false immediately. No trailing
                     // refresh here: the committed-boundary DownloadsRefresh already fired, and
                     // the auto-tag/mapping passes emit their own conditional refreshes when
                     // they change rows.
@@ -1481,7 +1450,7 @@ public class RustLogProcessorService
                 // NOTE: We do not trigger GameImageFetchService here - it runs on its own schedule
                 // and will fetch image bytes after game detection has completed.
                 // NOTE: We do not send DownloadsRefresh here - the main completion handler
-                // already sends DownloadsRefresh (silent mode) or LogProcessingComplete (non-silent).
+                // already sends DownloadsRefresh (live ingest) or LogProcessingComplete (interactive).
             }
         }
         catch (Exception ex)

@@ -169,6 +169,49 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
+    /// Removes the service's own display style, so its notifications follow the global default.
+    /// </summary>
+    [HttpDelete("{serviceKey}/notificationDisplayMode")]
+    [Authorize(Policy = "AccountHolder")]
+    public async Task<ActionResult> ClearNotificationDisplayModeAsync(string serviceKey)
+    {
+        if (_registry.Get(serviceKey) == null)
+        {
+            return NotFound(ApiResponse.NotFound("Schedule"));
+        }
+
+        _registry.ClearNotificationDisplayMode(serviceKey);
+        await _registry.BroadcastSchedulesAsync();
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Returns how every notification without a style of its own renders.
+    /// </summary>
+    [HttpGet("notification-display-mode")]
+    [Authorize(Policy = "AccountHolder")]
+    [ProducesResponseType(typeof(GlobalNotificationDisplayMode), StatusCodes.Status200OK)]
+    public ActionResult<GlobalNotificationDisplayMode> GetGlobalNotificationDisplayMode()
+    {
+        return Ok(new GlobalNotificationDisplayMode(_registry.GetGlobalNotificationDisplayMode()));
+    }
+
+    /// <summary>
+    /// Updates how every notification without a style of its own renders.
+    /// </summary>
+    /// <remarks>
+    /// The registry pushes the new value and re-sends the schedule list itself, so this action does
+    /// not broadcast the schedules a second time.
+    /// </remarks>
+    [HttpPut("notification-display-mode")]
+    [Authorize(Policy = "AccountHolder")]
+    public async Task<ActionResult> SetGlobalNotificationDisplayModeAsync([FromBody] NotificationDisplayMode mode)
+    {
+        await _registry.SetGlobalNotificationDisplayModeAsync(mode);
+        return NoContent();
+    }
+
+    /// <summary>
     /// Updates the scan the schedule runs on each automatic tick and on Run Now.
     /// </summary>
     /// <remarks>
@@ -235,16 +278,14 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        var (status, skippedReason, showNotification, hideNotification, followUpQueued) = await _registry.TriggerRunAsync(serviceKey);
+        var (status, skippedReason, followUpQueued) = await _registry.TriggerRunAsync(serviceKey);
         if (skippedReason is not null)
         {
-            // The run is retained until downloads finish; its waiting event owns the acknowledgment.
+            // The run is retained until downloads finish; its waiting row is what the browser draws.
             return Accepted(new QueuedOperationResponse
             {
                 Status = "skipped",
                 FollowUpQueued = followUpQueued,
-                ShowNotification = showNotification,
-                HideNotification = hideNotification,
                 SkippedReason = skippedReason
             });
         }
@@ -263,8 +304,6 @@ public class ScheduleController : ControllerBase
             {
                 Status = "alreadyRunning",
                 FollowUpQueued = followUpQueued,
-                ShowNotification = showNotification,
-                HideNotification = hideNotification,
                 AlreadyRunning = true,
                 OperationId = activeOperationId
             });
@@ -273,9 +312,7 @@ public class ScheduleController : ControllerBase
         return Accepted(new QueuedOperationResponse
         {
             Status = "started",
-            FollowUpQueued = followUpQueued,
-            ShowNotification = showNotification,
-            HideNotification = hideNotification
+            FollowUpQueued = followUpQueued
         });
     }
 
@@ -287,6 +324,7 @@ public class ScheduleController : ControllerBase
     public async Task<ActionResult> ResetToDefaultsAsync()
     {
         _registry.ResetToDefaults();
+        await _registry.PublishGlobalNotificationDisplayModeAsync();
         await _registry.BroadcastSchedulesAsync();
         return Ok();
     }

@@ -1,15 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  CheckCircle,
-  AlertCircle,
-  X,
-  Trash2,
-  XCircle,
-  Info,
-  Clock,
-  MinusCircle
-} from 'lucide-react';
+import { CheckCircle, AlertCircle, X, XCircle, Info, Clock, MinusCircle } from 'lucide-react';
 import type { UnifiedNotification } from '@contexts/notifications';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { formatCount, formatBytes } from '@utils/formatters';
@@ -19,7 +10,7 @@ import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
-import { CANCEL_CONFIG_BY_TYPE, getNotificationColor } from './notificationCancel';
+import { CANCEL_CONFIG_BY_TYPE, getNotificationVariant } from './notificationCancel';
 import './UnifiedNotificationItem.css';
 
 const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
@@ -29,54 +20,64 @@ const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
 // ============================================================================
 
 /**
- * Gets the appropriate icon for a notification based on its status and type.
+ * Gets the appropriate icon for a notification based on its status and type. Every icon takes
+ * the card's status color from `notification-card__icon`.
  */
 const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode => {
-  const color = getNotificationColor(notification);
-
-  // Toast-style (generic) notifications: icon follows details.notificationType,
-  // checked BEFORE the status branches - the bridge marks every toast
-  // status 'completed', which otherwise short-circuits an error toast into the
-  // green CheckCircle.
-  if (notification.type === 'generic' && notification.details?.notificationType) {
+  // A card that carries its own semantic in details.notificationType draws that icon, checked
+  // BEFORE the status branches: the bridge marks every toast status 'completed', and a run that
+  // succeeded with a warning ends 'completed' too, which otherwise short-circuits either one into
+  // the CheckCircle.
+  if (notification.details?.notificationType) {
     const iconMap: Record<string, React.ReactNode> = {
-      success: <CheckCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-success)]" />,
-      error: <XCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-error)]" />,
-      warning: <AlertCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-warning)]" />,
-      info: <Info className="w-4 h-4 flex-shrink-0 text-[var(--theme-info)]" />
+      success: <CheckCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />,
+      error: <XCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />,
+      warning: <AlertCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />,
+      info: <Info className="notification-card__icon w-4 h-4 flex-shrink-0" />
     };
     return iconMap[notification.details.notificationType] || iconMap.info;
   }
 
-  if (notification.status === 'running') {
-    return null;
+  // Work in flight holds the same icon slot as every other status, so a card's text never moves
+  // sideways when its run ends.
+  if (
+    notification.status === 'running' ||
+    notification.status === 'pending' ||
+    notification.status === 'cancelling'
+  ) {
+    return (
+      <LoadingSpinner
+        inline
+        size="sm"
+        className="notification-card__icon flex-shrink-0 motion-reduce:animate-none"
+      />
+    );
   }
 
   if (notification.status === 'waiting') {
     // Queued behind a conflicting operation - clock, not spinner (nothing is running yet).
-    return <Clock className="w-4 h-4 flex-shrink-0 text-[var(--theme-waiting)]" />;
+    return <Clock className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
   if (notification.status === 'skipped') {
     // Nothing was done, so neither the tick nor the cross fits. A struck-through circle says
-    // the run passed over its work rather than finishing it or failing at it. The colour is a
-    // constant for this status, so it is a class like the waiting branch above, not an inline style.
-    return <MinusCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-warning)]" />;
+    // the run passed over its work rather than finishing it or failing at it.
+    return <MinusCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
   if (notification.status === 'completed') {
     // A cancelled run did not finish its work, so the cross says so where the tick would lie.
-    // Its colour rides the status colour, which is grey rather than the red of a failure.
+    // Its color rides the status color, which is gray rather than the red of a failure.
     if (notification.details?.cancelled) {
-      return <XCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
+      return <XCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
     }
-    return <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
+    return <CheckCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
   // 'cancelled' is its own terminal status (the standard completion handler sets it when the
   // server reports cancelled:true) - without this branch the card renders with no icon at all.
   if (notification.status === 'failed' || notification.status === 'cancelled') {
-    return <XCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
+    return <XCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
   return null;
@@ -89,58 +90,12 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
 interface ContentRendererProps {
   notification: UnifiedNotification;
   t: (key: string, options?: Record<string, unknown>) => string;
-  webApiStatus: { hasApiKey?: boolean } | null | undefined;
   formatBytesLocal: (bytes: number) => string;
 }
 
 /**
- * Renders the title/message area for game removal notifications.
- */
-const renderGameRemovalTitle = ({ notification }: ContentRendererProps) => (
-  <div className="flex items-center gap-2">
-    <Trash2 className="w-3 h-3 text-themed-muted flex-shrink-0" />
-    <span className="text-sm font-medium text-themed-primary break-words sm:truncate">
-      {notification.message}
-    </span>
-  </div>
-);
-
-/**
- * Renders the title/message area for depot mapping notifications.
- */
-const renderDepotMappingTitle = ({ notification, t, webApiStatus }: ContentRendererProps) => (
-  <div className="flex items-center gap-2 flex-wrap">
-    <span className="text-sm font-medium text-themed-primary">{notification.message}</span>
-    {/* Auth mode badge for depot mapping */}
-    {notification.details?.isLoggedOn !== undefined && (
-      <div className="flex items-center gap-2">
-        <Badge variant="neutral">
-          {notification.details.isLoggedOn
-            ? t('common.notifications.steamAuthenticated')
-            : t('common.notifications.steamAnonymous')}
-        </Badge>
-        {/* Show Web API Key pill when API key is configured */}
-        {webApiStatus?.hasApiKey && (
-          <Badge variant="info">{t('common.notifications.webApiKey')}</Badge>
-        )}
-      </div>
-    )}
-  </div>
-);
-
-/**
- * Renders the default title/message area.
- */
-const renderDefaultTitle = ({ notification }: ContentRendererProps) => (
-  <div
-    className={`text-sm font-medium text-themed-primary break-words ${notification.type === 'corruption_detection' ? 'whitespace-normal' : 'sm:truncate'}`}
-  >
-    {notification.message}
-  </div>
-);
-
-/**
- * Renders completion details for various notification types.
+ * Renders the completion summary line for the types that report one; the card shows it in its
+ * detail slot, under the detail message.
  */
 const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentRendererProps) => {
   const filesDeletedCount = notification.details?.filesDeleted ?? 0;
@@ -150,7 +105,7 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
     case 'cache_clearing':
       if (!notification.details?.filesDeleted) return null;
       return (
-        <div className="text-xs text-themed-muted mt-0.5">
+        <div>
           {t('common.notifications.filesDeleted', {
             count: filesDeletedCount,
             formattedCount: filesDeletedFormatted
@@ -164,7 +119,7 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
     case 'service_removal':
       if (notification.status !== 'completed') return null;
       return (
-        <div className="text-xs text-themed-muted mt-0.5">
+        <div>
           {t('common.notifications.cacheFilesDeleted', {
             count: filesDeletedCount,
             formattedCount: filesDeletedFormatted
@@ -176,16 +131,12 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
 
     case 'corruption_removal':
       if (notification.status !== 'completed') return null;
-      return (
-        <div className="text-xs text-themed-muted mt-0.5">
-          {t('common.notifications.corruptedChunksRemoved')}
-        </div>
-      );
+      return <div>{t('common.notifications.corruptedChunksRemoved')}</div>;
 
     case 'game_removal':
       if (notification.status !== 'completed') return null;
       return (
-        <div className="text-xs text-themed-muted mt-0.5">
+        <div>
           {t('common.notifications.cacheFilesDeleted', {
             count: filesDeletedCount,
             formattedCount: filesDeletedFormatted
@@ -213,12 +164,7 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
     return null;
   }
 
-  // Some types don't show a progress bar. service_removal reports status text only. Cards that
-  // carry no numeric progress still render no bar via the `progress === undefined` guard below.
-  if (notification.type === 'service_removal') {
-    return null;
-  }
-
+  // A card that carries no numeric progress renders no bar.
   const isIndeterminate = notification.progressMode === 'indeterminate';
   if (!isIndeterminate && notification.progress === undefined) return null;
 
@@ -230,18 +176,12 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
       ? `${notification.message} ${notification.detailMessage}`
       : notification.message);
 
-  // The fill colour follows the card's status colour, so the bar reads the same as the
-  // border and icon. It is passed as a custom property rather than a Tailwind class
-  // because the value is a theme variable resolved at runtime.
-  const trackStyle = {
-    '--notification-progress-color': getNotificationColor(notification)
-  } as React.CSSProperties;
-
+  // The fill color follows the card's status color (the card root's `notification-status--*`
+  // class), so the bar reads the same as the border and icon. Only the width is per render.
   return (
     <div className="mt-2 tabular-nums">
       <div
         className="notification-progress-track"
-        style={trackStyle}
         role="progressbar"
         aria-label={notification.message}
         aria-valuetext={ariaValueText}
@@ -252,7 +192,10 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
         {isIndeterminate ? (
           <div className="notification-progress-indeterminate" />
         ) : (
-          <div className="notification-progress-fill" style={{ width: `${clampedProgress}%` }} />
+          <div
+            className="notification-progress-fill"
+            style={{ '--progress-width': `${clampedProgress}%` } as React.CSSProperties}
+          />
         )}
       </div>
       {!isIndeterminate && (
@@ -362,12 +305,15 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
   notification,
   onDismiss,
   onCancel,
-  isAnimatingOut
+  isAnimatingOut,
+  connectionLost
 }: {
   notification: UnifiedNotification;
   onDismiss: (notificationId: string) => void;
   onCancel?: (notification: UnifiedNotification) => void;
   isAnimatingOut?: boolean;
+  /** True while the connection banner is up; the bar reads it once and passes it to every card. */
+  connectionLost: boolean;
 }) {
   const { t } = useTranslation();
   const { status: webApiStatus } = useSteamWebApiStatus();
@@ -378,26 +324,12 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
   const rendererProps: ContentRendererProps = {
     notification,
     t,
-    webApiStatus,
     formatBytesLocal
   };
 
-  const color = getNotificationColor(notification);
   const icon = getNotificationIcon(notification);
   const titleKey = NOTIFICATION_TITLE_KEYS[notification.type];
   const announcement = useNotificationAnnouncement(notification);
-
-  // Determine which title renderer to use
-  const renderTitle = () => {
-    switch (notification.type) {
-      case 'game_removal':
-        return renderGameRemovalTitle(rendererProps);
-      case 'depot_mapping':
-        return renderDepotMappingTitle(rendererProps);
-      default:
-        return renderDefaultTitle(rendererProps);
-    }
-  };
 
   if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
     const canForceStop =
@@ -405,6 +337,8 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
       notification.details?.cancelSent === true &&
       Boolean(notification.details?.operationId) &&
       CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp';
+    // A waiting row says what it waits for; its message is already a sentence. [106]
+    const isWaiting = notification.status === 'waiting' && !notification.details?.cancelRequested;
 
     return (
       <div className="background-task-control-row rounded text-sm text-themed-primary">
@@ -416,14 +350,18 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           {notification.details?.gameName && <> · {notification.details.gameName}</>}
         </span>
         <span
-          className="background-task-control-row__status text-xs text-themed-secondary capitalize"
+          className={`background-task-control-row__status text-xs text-themed-secondary${isWaiting ? '' : ' capitalize'}`}
           role="status"
         >
-          {t(
-            `common.notifications.condensedStatus.${notification.details?.cancelRequested ? 'cancelling' : notification.status}`
-          )}
+          {isWaiting
+            ? notification.message
+            : t(
+                `common.notifications.condensedStatus.${notification.details?.cancelRequested ? 'cancelling' : notification.status}`
+              )}
         </span>
-        {onCancel && (
+        {/* A cancel cannot reach an unreachable server, so the row offers none until the
+            connection returns; it has no close button either. */}
+        {onCancel && !connectionLost && (
           <Button
             type="button"
             onClick={() => onCancel(notification)}
@@ -449,13 +387,34 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
     );
   }
 
+  // A cancel cannot reach an unreachable server, so a live run card offers its close button in the
+  // cancel button's place; it hides the card on this screen only. Only run cards carry operationIds.
+  const closable =
+    connectionLost &&
+    notification.details?.operationIds !== undefined &&
+    !isTerminalNotificationStatus(notification.status);
+  const completionSummary = renderCompletionDetails(rendererProps);
+  // Depot mapping says how it reached Steam: signed in or anonymous, and whether a Web API key
+  // is configured.
+  const authBadges =
+    notification.type === 'depot_mapping' && notification.details?.isLoggedOn !== undefined ? (
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="neutral">
+          {notification.details.isLoggedOn
+            ? t('common.notifications.steamAuthenticated')
+            : t('common.notifications.steamAnonymous')}
+        </Badge>
+        {webApiStatus?.hasApiKey && (
+          <Badge variant="info">{t('common.notifications.webApiKey')}</Badge>
+        )}
+      </div>
+    ) : null;
+
   return (
     <div
-      className="flex items-start sm:items-center gap-3 p-2 rounded bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out motion-reduce:transition-none"
-      style={{
-        borderLeft: `3px solid ${color}`,
-        opacity: isAnimatingOut ? 0 : 1
-      }}
+      className={`notification-card notification-status--${getNotificationVariant(notification)}${
+        isAnimatingOut ? ' opacity-0' : ''
+      } flex items-start sm:items-center gap-3 p-2 rounded bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out motion-reduce:transition-none`}
     >
       {icon}
 
@@ -478,8 +437,13 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           </div>
         )}
 
+        {/* One layout for every type: message, reconnecting line, detail slot, progress, error.
+            Every line wraps rather than truncates, because a cut-off stage line hides the only
+            explanation the card gives. */}
         <div className={titleKey ? 'notification-card__body' : undefined}>
-          {renderTitle()}
+          <div className="text-sm font-medium text-themed-primary break-words">
+            {notification.message}
+          </div>
 
           {(notification.details?.recovering || notification.details?.connectionRecovering) &&
             !isTerminalNotificationStatus(notification.status) && (
@@ -488,22 +452,22 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
               </p>
             )}
 
-          {/* Detail message (except for service_removal which shows details differently) */}
-          {notification.detailMessage && notification.type !== 'service_removal' && (
-            <div className="text-xs text-themed-muted mt-0.5 min-w-0 whitespace-normal break-words tabular-nums">
-              {notification.detailMessage}
+          {/* Detail slot: the detail message, then a finished card's summary, then depot
+              mapping's sign-in badges. */}
+          {(notification.detailMessage || completionSummary || authBadges) && (
+            <div className="mt-0.5 min-w-0 space-y-0.5 text-xs text-themed-muted whitespace-normal break-words tabular-nums">
+              {notification.detailMessage && <div>{notification.detailMessage}</div>}
+              {completionSummary}
+              {authBadges}
             </div>
           )}
-
-          {/* Type-specific completion details */}
-          {renderCompletionDetails(rendererProps)}
 
           {/* Progress bar for running operations */}
           {renderProgressBar(rendererProps)}
 
           {/* Error message - only show if different from main message */}
           {notification.error && notification.error !== notification.message && (
-            <div className="text-xs text-themed-muted mt-0.5">{notification.error}</div>
+            <div className="text-xs text-themed-muted mt-0.5 break-words">{notification.error}</div>
           )}
         </div>
       </div>
@@ -512,19 +476,17 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
       <div className="flex items-center gap-2 flex-shrink-0">
         {/* Cancel button for operations that support cancellation. 'waiting' is cancellable
             too: the queued op is a real tracker registration, so the universal cancel path
-            dequeues it (-> OperationWaitingComplete{cancelled} -> card terminal).
+            dequeues it and its run row ends the card.
             A serverOp cancel is an API call keyed by details.operationId - the same field
-            handleCancel bails on - so a card that has none shows no X, unless its registry entry
-            sets allowsDeferredCancel, meaning the id arrives on a later progress event and the
-            watchdog in the bar sends the cancel then. Sign-in cards have neither: their X only set
-            cancelRequested, sent nothing, and then re-labelled itself a force kill. clientQueue
-            cards carry no operation id by design and keep theirs. */}
-        {notification.type in CANCEL_CONFIG_BY_TYPE &&
+            handleCancel bails on - so a card that has none shows no X. Every run card carries its
+            id from its first row; a sign-in card has none until its login has an operation.
+            clientQueue cards carry no operation id by design and keep theirs. */}
+        {!closable &&
+          notification.type in CANCEL_CONFIG_BY_TYPE &&
           (notification.status === 'running' ||
             notification.status === 'waiting' ||
             notification.status === 'cancelling') &&
           (CANCEL_CONFIG_BY_TYPE[notification.type].cancelKind !== 'serverOp' ||
-            CANCEL_CONFIG_BY_TYPE[notification.type].allowsDeferredCancel ||
             Boolean(notification.details?.operationId)) &&
           onCancel && (
             <Tooltip
@@ -555,7 +517,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
               </button>
             </Tooltip>
           )}
-        {isTerminalNotificationStatus(notification.status) && (
+        {(isTerminalNotificationStatus(notification.status) || closable) && (
           <button
             onClick={() => onDismiss(notification.id)}
             className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"

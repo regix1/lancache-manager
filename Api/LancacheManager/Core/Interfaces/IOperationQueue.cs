@@ -43,23 +43,5 @@ public interface IOperationQueue
         Func<Task<Guid?>> start,
         CancellationToken ct,
         bool reportRefusal = false,
-        bool showWaitingCard = true,
         RunNotice? notice = null);
-
-    /// <summary>
-    /// Display name of the operation the given parked waiter is currently blocked behind, or
-    /// null when the operation is not parked here or its blocker is unknown. Lets the waiting
-    /// recovery endpoint restore cards that name their blocker after a page refresh.
-    /// </summary>
-    string? GetWaitingBlockerName(Guid waitingOperationId);
-
-    /// <summary>
-    /// Whether the given parked waiter keeps its cards to itself, false for anything not parked
-    /// here. The waiting recovery endpoint leaves those out: a silent run says once that it was
-    /// queued and the notice clears itself, so rebuilding a card for it on every page refresh would
-    /// be both a card its schedule asked not to see and an announcement repeated for one parking.
-    /// </summary>
-    bool IsWaiterSilent(Guid waitingOperationId);
-
-    bool IsWaiterHidden(Guid waitingOperationId);
 }

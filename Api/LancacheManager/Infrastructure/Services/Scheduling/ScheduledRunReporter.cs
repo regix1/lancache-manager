@@ -24,15 +24,16 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 public sealed class ScheduledRunReporter : IAsyncDisposable
 {
+    /// <summary>The line a run someone started shows when it found nothing to do.</summary>
+    public const string NothingToDoStageKey = "signalr.generic.nothingToDo";
+
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _tracker;
     private readonly string _serviceKey;
     private readonly OperationType _operationType;
     private readonly ScheduledRunEventNames _events;
     private readonly string _completeStageKey;
-    private readonly bool _showNotification;
-    private readonly bool _hideNotification;
-    private readonly RunNotice? _notice;
+    private readonly RunNotice _notice;
     private CancellationTokenRegistration _cancelRegistration;
     private readonly CancellationTokenSource _cts;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
@@ -63,8 +64,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     /// </summary>
     /// <param name="completeStageKey">i18n stage key carried by the terminal event on every outcome
     /// (success / failure / cancellation); the frontend renders the outcome from Success + Error.</param>
-    /// <param name="showNotification">Precomputed once from the run's notification mode + trigger and
-    /// stamped, immutable, into every lifecycle payload for this run.</param>
+    /// <param name="notice">The run's notice, registered with its operation; it alone decides how the
+    /// run is drawn.</param>
     /// <param name="stoppingToken">The service's stopping token; the run's CTS is linked to it.</param>
     public ScheduledRunReporter(
         ISignalRNotificationService notifications,
@@ -73,14 +74,12 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         OperationType operationType,
         ScheduledRunEventNames events,
         string completeStageKey,
-        bool showNotification,
+        RunNotice notice,
         CancellationToken stoppingToken,
         ScheduledRunPayloadFactories? payloadFactories = null,
         Action? onTerminalCleanup = null,
         ILogger? logger = null,
-        Func<OperationTerminalInfo, string>? externalTerminalStageKey = null,
-        RunNotice? notice = null,
-        bool hideNotification = false)
+        Func<OperationTerminalInfo, string>? externalTerminalStageKey = null)
     {
         _notifications = notifications;
         _tracker = tracker;
@@ -90,8 +89,6 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _completeStageKey = completeStageKey;
         _terminalStageKey = completeStageKey;
         _notice = notice;
-        _showNotification = notice?.ShowNotification ?? showNotification;
-        _hideNotification = notice?.HideNotification ?? hideNotification;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _payloadFactories = payloadFactories;
         _onTerminalCleanup = onTerminalCleanup;
@@ -114,11 +111,12 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     /// <summary>
     /// Registers the tracked operation and awaits the run-started broadcast. Call this only once.
     /// A run that finds nothing to do has two honest shapes and both are in use: return BEFORE
-    /// calling this, so no card ever surfaces (OperationHistoryCleanupService when there is no
-    /// history old enough to prune), or start and then finish with <c>skipped: true</c>, so the user
-    /// sees that the run happened and changed nothing (Epic and Xbox mapping when no account is
-    /// signed in). Prefer the second whenever the user triggered the run themselves, because silence
-    /// there reads as a button that did not work.
+    /// calling this, so no card ever surfaces (an automatic OperationHistoryCleanupService run when
+    /// there is no history old enough to prune), or start and then finish with <c>skipped: true</c>,
+    /// so the user sees that the run happened and changed nothing (the same cleanup run from Run
+    /// Now, with <see cref="NothingToDoStageKey"/>; Epic and Xbox mapping when no account is signed
+    /// in). Use the second whenever the user triggered the run themselves, because silence there
+    /// reads as a button that did not work.
     /// </summary>
     public async Task StartAsync(string stageKey, Dictionary<string, object?>? context = null, IntegrationLogin? login = null)
     {
@@ -130,41 +128,36 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 throw new InvalidOperationException($"ScheduledRunReporter for '{_serviceKey}' was already started.");
             }
 
-            // Persist the run's immutable display flag onto the tracked operation so the run-status
-            // recovery endpoint can report it - without this, a page refresh during a SILENT run would
-            // resurrect the card (recovery would have to assume every active run is visible). The
-            // "context" slot is seeded here (never structurally added later) so progress updates only
-            // overwrite an existing value reference and can never structurally race a concurrent
-            // status read; recovery uses it to rehydrate a mid-run card with its interpolation values.
+            // The notice registered with the operation decides how its row is drawn, including after
+            // a page refresh. The "context" slot is seeded here (never structurally added later) so
+            // progress updates only overwrite an existing value reference and can never structurally
+            // race a concurrent status read; recovery uses it to rehydrate a mid-run card with its
+            // interpolation values.
             _operationId = _tracker.RegisterOperation(
                 _operationType,
                 _serviceKey,
                 _cts,
                 metadata: new Dictionary<string, object?>
                 {
-                    ["showNotification"] = _showNotification,
-                    ["hideNotification"] = _hideNotification,
                     ["context"] = context,
-                    ["runNotice"] = _notice,
                     ["integrationLogin"] = login,
                 },
                 onTerminalCleanup: null,
-                onTerminalEmit: EmitTerminalAsync);
+                onTerminalEmit: EmitTerminalAsync,
+                notice: _notice);
             _ctsHandedOff = true;
             _started = true;
             _lastContext = context;
 
-            _cancelRegistration = _cts.Token.Register(() => _notice?.Cancel(_tracker, _operationId));
-            _notice?.Attach(_tracker, _operationId);
+            _cancelRegistration = _cts.Token.Register(() => _notice.Cancel(_tracker, _operationId));
+            _notice.Attach(_tracker, _operationId);
 
             _tracker.UpdateProgress(_operationId, 0, stageKey);
             var started = new ScheduledRunStartedEvent(
                 _serviceKey,
                 _operationId,
                 stageKey,
-                context,
-                _showNotification,
-                _hideNotification);
+                context);
             await _notifications.NotifyAllAsync(
                 _events.Started,
                 _payloadFactories?.Started(started) ?? started);
@@ -221,9 +214,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 status.ToWireString(),
                 stageKey,
                 clamped,
-                context,
-                _showNotification,
-                _hideNotification);
+                context);
             await _notifications.NotifyAllAsync(
                 _events.Progress,
                 _payloadFactories?.Progress(progress) ?? progress);
@@ -354,10 +345,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 percent,
                 error,
                 _lastContext,
-                _showNotification,
                 info.Cancelled,
-                status,
-                _hideNotification);
+                status);
             var payload = _payloadFactories?.Complete(terminal) ?? terminal;
 
             if (info.Success || info.Cancelled)

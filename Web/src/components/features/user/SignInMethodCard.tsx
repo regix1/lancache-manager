@@ -102,7 +102,9 @@ const SignInMethodCard: React.FC = () => {
           />
           {removeError && (
             <div role="alert">
-              <Alert color="error">{removeError}</Alert>
+              <Alert color="error" title={t('accessSetup.removeFailed')}>
+                {removeError}
+              </Alert>
             </div>
           )}
         </div>

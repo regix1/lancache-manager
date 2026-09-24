@@ -91,15 +91,17 @@ public class MappingOperationReporterTests
             "EpicMapping",
             "EpicMappingService.Authentication.cs"));
 
-        var visibilityIndex = source.IndexOf(
-            "_showNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);",
-            StringComparison.Ordinal);
+        // The sign-in reporter gets a fresh manual notice in the current mode, never the last
+        // scheduled refresh's notice.
         var reporterIndex = source.IndexOf(
             "reporter = CreateEpicMappingReporter(",
             StringComparison.Ordinal);
 
-        Assert.True(visibilityIndex >= 0);
-        Assert.True(reporterIndex > visibilityIndex);
+        Assert.True(reporterIndex >= 0);
+        Assert.Contains(
+            "new RunNotice(EffectiveNotificationMode, RunTrigger.Manual)",
+            source[reporterIndex..source.IndexOf(';', reporterIndex)],
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -307,7 +309,7 @@ public class MappingOperationReporterTests
             notifications,
             tracker,
             definition,
-            showNotification: true,
+            new RunNotice(NotificationMode.All, RunTrigger.Manual),
             CancellationToken.None,
             NullLogger.Instance);
 
@@ -416,14 +418,9 @@ public class MappingOperationReporterTests
 
         public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifySteamHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyEpicHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyBattleNetHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyRiotHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyXboxHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyAdminAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGuestAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyGroupAsync(string groupName, string eventName, object? data = null) => Task.CompletedTask;

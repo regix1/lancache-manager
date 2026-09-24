@@ -10,6 +10,8 @@ interface SteamAuthContextType {
   isLoading: boolean;
   revision: number;
   autoLogoutMessage: string | null;
+  /** The sentence for the last failed status read, `null` after a read that answered. */
+  error: string | null;
   refreshSteamAuth: () => Promise<void>;
   setSteamAuthMode: (mode: SteamAuthMode) => void;
   setUsername: (username: string) => void;

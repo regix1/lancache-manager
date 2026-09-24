@@ -3,76 +3,50 @@ import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 import {
-  MemoryStorage,
-  notificationEvents,
   bindLifted,
+  bulkRemovalCard,
   collectNodes,
-  compileToUrl,
   liftConstArrow,
   liftHookCallback,
   loadNotificationModules,
-  parseSource,
-  moduleUrl
+  moduleUrl,
+  operationRunRow,
+  pushRun
 } from './transpile-module.mjs';
 
 /**
- * Regression test for the per-item removal card that should stay hidden while the
- * bulk card whose OWN items produce that notification type is running, but must
- * NOT be swallowed by an unrelated bulk card (a different batch, or the same batch
- * running a different item type). Compiles handlers.ts from real source so
- * the suppression check under test is the one that ships. Covers all four batch/
- * item-type pairs: the cache batch's game and service items, the evicted batch,
- * and the log batch.
+ * A bulk removal shows one card that owns its items: while the batch card owns an item's run, that
+ * run draws no card of its own, and while the item waits the batch card turns purple and names the
+ * blocker. A batch must NOT swallow a run it does not own (a different batch, the same batch running
+ * a different item type, or a removal started elsewhere). These cases feed run rows to the real run
+ * store beside a batch card and read what it draws, for all four batch/item-type pairs: the cache
+ * batch's game and service items, the evicted batch, and the log batch.
  */
 
-const I18N_STUB = moduleUrl(`export default { t: (key) => key };`);
+const I18N_STUB = moduleUrl(
+  'export default { t: (key, values) => (values ? key + " " + JSON.stringify(values) : key), exists: () => true };'
+);
 
-const loadHandlerFactories = async (i18nUrl = I18N_STUB) => {
-  const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
-  const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
-  const storageUrl = await compileToUrl('../src/utils/storage.ts');
-  const handlersUrl = await compileToUrl('../src/contexts/notifications/handlers.ts', {
-    './constants': constantsUrl,
-    './notificationStatus': statusUrl,
-    '@utils/storage': storageUrl,
-    '@/i18n': i18nUrl
-  });
-  return await import(handlersUrl);
+const notifications = await loadNotificationModules(I18N_STUB);
+const {
+  createRunStoreState,
+  deriveNotifications,
+  waitingCardMessage,
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
+} = notifications;
+
+/** The run-row fields of one item of each type a batch can run. */
+const ITEM_RUN = {
+  game_removal: { operationType: 'gameRemoval', name: 'Game Removal' },
+  service_removal: { operationType: 'serviceRemoval', name: 'Service Removal' },
+  eviction_removal: { operationType: 'evictionRemoval', name: 'Eviction Removal' },
+  log_removal: { operationType: 'logRemoval', name: 'Log Removal' }
 };
 
-/** Runs a Started event for `type` against a fresh card list holding one running bulk card. */
-const runStartedForType = async (type, bulkCardItemTypes) => {
-  globalThis.localStorage = new MemoryStorage();
-  const { createStartedHandler } = await loadHandlerFactories();
+const itemCards = (drawn) => drawn.filter((card) => card.type !== 'bulk_removal');
+const batchOf = (drawn) => drawn.find((card) => card.id === 'bulk');
 
-  let state = [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      startedAt: new Date(),
-      details: { itemTypes: bulkCardItemTypes }
-    }
-  ];
-  const setNotifications = (update) => {
-    state = update(state);
-  };
-
-  const handler = createStartedHandler(
-    {
-      type,
-      getId: () => `${type}_card`,
-      storageKey: `test-${type}`,
-      defaultMessage: 'Removing...'
-    },
-    setNotifications
-  );
-
-  handler({});
-  return state;
-};
-
-const hasCard = (state, type) => state.some((n) => n.type === type);
+const QUEUED_BEHIND_SCAN = { status: 'waiting', blockedByName: 'Cache File Scan' };
 
 test('cancel requests serialize clicks and protect replacement operations', async () => {
   const errors = [];
@@ -83,14 +57,15 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
     type: 'game_detection',
     status: 'running',
     controlOnly: true,
-    details: { operationId: 'first' }
+    details: { operationId: 'first', operationIds: ['first'] }
   };
   const cancel = bindLifted(
     liftConstArrow('src/components/common/notificationCancel.ts', 'handleCancel'),
     {
       CANCEL_CONFIG_BY_TYPE: { game_detection: { cancelKind: 'serverOp' } },
       pendingCancels: new Set(),
-      notifyToastError: (key) => errors.push(key),
+      notifyToastError: (message) => errors.push(message),
+      i18n: { t: (key) => key },
       isTerminalNotificationStatus: (status) =>
         ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
       isAbortError: (error) => error?.name === 'AbortError',
@@ -115,471 +90,36 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
   const remove = () => {
     state = undefined;
   };
-  const get = () => state;
-  const first = cancel(state, update, remove, get);
-  await cancel(state, update, remove, get);
-  assert.equal(calls, 1);
+  const getNotifications = () => (state ? [state] : []);
+
+  const first = cancel(state, update, remove, getNotifications);
+  await cancel(state, update, remove, getNotifications);
+  assert.equal(calls, 1, 'a second click while the first cancel is out sends nothing');
   assert.equal(state.details.cancelPending, true);
   release({});
   await first;
   assert.equal(state.status, 'cancelling');
-  await cancel(state, update, remove, get);
+
+  // The second click force-kills; a failed force-kill says so and re-arms the X.
+  await cancel(state, update, remove, getNotifications);
   assert.equal(errors.length, 1);
   assert.equal(state.controlOnly, true);
   assert.equal(state.details.cancelRequested, false);
-  const deferred = cancel(
-    { ...state, details: { ...state.details, cancelRequested: true } },
-    update,
-    remove,
-    get,
-    true
-  );
+
+  // The card is replaced by another operation while a cancel is out: its answer, even
+  // "already finished", must leave the replacement alone.
+  const pending = cancel(state, update, remove, getNotifications);
   const replacement = {
     id: 'slot',
     type: 'game_detection',
     status: 'running',
-    details: { operationId: 'second' }
+    details: { operationId: 'second', operationIds: ['second'] }
   };
   state = replacement;
   release({ alreadyFinished: true });
-  await deferred;
+  await pending;
   assert.equal(state, replacement);
   assert.equal(calls, 3);
-});
-
-test('silent platform starts create only per-platform background controls', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  globalThis.sessionStorage = new MemoryStorage();
-  const handlers = await loadHandlerFactories();
-  const source = parseSource('src/contexts/notifications/handlers.ts');
-  const declaration = collectNodes(
-    source,
-    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'buildStartedHandler'
-  )[0];
-  const build = bindLifted(declaration.getText(source), {
-    createStartedHandler: handlers.createStartedHandler
-  });
-  let state = [];
-  const started = build(
-    { type: 'scheduled_prefill', id: 'prefill', storageKey: '', cancelKind: 'serverOp' },
-    { shouldDisplay: (event) => event.hideNotification !== true, defaultMessage: 'Prefill' },
-    (update) => {
-      state = update(state);
-    },
-    () => undefined
-  );
-  started({ operationId: 'aggregate', hideNotification: true });
-  assert.equal(state.length, 0);
-  started({ operationId: 'steam-op', serviceId: 'steam', showNotification: false });
-  started({ operationId: 'epic-op', serviceId: 'epic', showNotification: false });
-  assert.equal(state.length, 2);
-  assert.deepEqual(state.map((n) => n.details.service).sort(), ['epic', 'steam']);
-  assert.ok(state.every((n) => n.controlOnly));
-});
-
-test('hidden waiting handoff preserves the exact replacement in either event order', async () => {
-  const handlers = await loadHandlerFactories();
-  const old = {
-    id: handlers.operationCardId('old'),
-    type: 'game_detection',
-    status: 'waiting',
-    controlOnly: true,
-    message: 'Detection',
-    startedAt: new Date('2026-09-01T00:00:00Z'),
-    details: { operationId: 'old' }
-  };
-  for (const arrived of [false, true]) {
-    const next = {
-      ...old,
-      id: handlers.operationCardId('new'),
-      status: 'running',
-      details: { operationId: 'new' }
-    };
-    const result = await runWaitingCompleteHandler(
-      'game_detection',
-      arrived ? [old, next] : [old],
-      {
-        operationId: 'old',
-        operationType: 'gameDetection',
-        promoted: true,
-        nextOperationId: 'new',
-        nextStatus: 'running'
-      }
-    );
-    assert.equal(result.state.length, 1);
-    assert.equal(result.state[0].details.operationId, 'new');
-    assert.equal(result.state[0].controlOnly, true);
-    const failed = await runWaitingCompleteHandler('game_detection', result.state, {
-      operationId: 'different',
-      operationType: 'gameDetection',
-      error: 'Validation failed'
-    });
-    assert.equal(failed.state.length, 2);
-    assert.equal(failed.state.find((n) => n.status === 'failed').error, 'Validation failed');
-  }
-});
-
-test('silent operations keep separate controls and preserve cancellation during replay', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  globalThis.sessionStorage = new MemoryStorage();
-  const handlers = await loadHandlerFactories();
-  const live = {
-    id: 'slot',
-    type: 'game_detection',
-    status: 'running',
-    details: { operationId: 'visible' }
-  };
-  let state = [live];
-  const set = (update) => {
-    state = update(state);
-  };
-  const config = {
-    type: 'game_detection',
-    getId: () => 'slot',
-    storageKey: 'silent',
-    shouldDisplay: (event) => event.hideNotification !== true,
-    defaultMessage: 'Detection',
-    getDetails: (event) => ({ operationId: event.operationId })
-  };
-  const started = handlers.createStartedHandler(config, set);
-  started({ operationId: 'first', showNotification: false });
-  started({ operationId: 'second', showNotification: false });
-  const first = state.find((n) => n.details.operationId === 'first');
-  first.details.cancelRequested = true;
-  first.details.cancelPending = true;
-  started({ operationId: 'first', showNotification: false });
-  assert.equal(state.length, 3);
-  assert.equal(
-    state.find((n) => n.id === 'slot'),
-    live
-  );
-  assert.equal(state.find((n) => n.id === first.id).details.cancelPending, true);
-  assert.equal(state.filter((n) => n.controlOnly).length, 2);
-  assert.equal(globalThis.localStorage.getItem('silent'), null);
-  for (const useAnimationDelay of [true, false]) {
-    const complete = handlers.createCompletionHandler(
-      { ...config, useAnimationDelay },
-      set,
-      () => undefined
-    );
-    complete({
-      operationId: 'first',
-      success: false,
-      error: 'Connection closed',
-      showNotification: false
-    });
-    complete({
-      operationId: 'first',
-      success: false,
-      error: 'Connection closed',
-      showNotification: false
-    });
-    const failed = state.find((n) => n.details.operationId === 'first');
-    assert.equal(failed.status, 'failed');
-    assert.equal(failed.error, 'Connection closed');
-    assert.equal(failed.controlOnly, undefined);
-    assert.equal(state.length, 3);
-  }
-  handlers.createCompletionHandler(
-    config,
-    set,
-    () => undefined
-  )({ operationId: 'second', success: true, showNotification: false });
-  assert.equal(state.length, 2);
-  assert.equal(state[0], live);
-});
-
-test('silent skipped and cancelled progress are quiet while failures survive occupied slots', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const handlers = await loadHandlerFactories();
-  for (const status of ['skipped', 'cancelled', 'failed']) {
-    const live = {
-      id: 'slot',
-      type: 'game_detection',
-      status: 'completed',
-      details: { operationId: 'other' }
-    };
-    let state = [live];
-    const progress = handlers.createStatusAwareProgressHandler(
-      {
-        type: 'game_detection',
-        getId: () => 'slot',
-        storageKey: '',
-        shouldDisplay: (event) => event.hideNotification !== true,
-        getStatus: (event) => event.status,
-        getMessage: () => 'Detection',
-        getProgress: () => 42,
-        getErrorMessage: () => 'Write failed',
-        getDetails: (event) => ({ operationId: event.operationId })
-      },
-      (update) => {
-        state = update(state);
-      },
-      () => undefined
-    );
-    progress({ operationId: 'silent', status: 'running', showNotification: false });
-    progress({
-      operationId: 'silent',
-      status,
-      error: 'Write failed',
-      showNotification: false
-    });
-    assert.equal(state[0], live);
-    assert.equal(state.length, status === 'failed' ? 2 : 1);
-    if (status === 'failed') assert.equal(state[1].error, 'Write failed');
-  }
-});
-
-test('hidden operations never enter notification state, including failures', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  const handlers = await loadHandlerFactories();
-  let state = [];
-  const set = (update) => {
-    state = update(state);
-  };
-  const config = {
-    type: 'game_detection',
-    getId: () => 'slot',
-    storageKey: 'hidden',
-    shouldDisplay: (event) => event.hideNotification !== true,
-    defaultMessage: 'Detection',
-    getDetails: (event) => ({ operationId: event.operationId })
-  };
-
-  handlers.createStartedHandler(
-    config,
-    set
-  )({
-    operationId: 'hidden-operation',
-    showNotification: false,
-    hideNotification: true
-  });
-  handlers.createCompletionHandler(
-    config,
-    set,
-    () => undefined
-  )({
-    operationId: 'hidden-operation',
-    success: false,
-    error: 'Write failed',
-    showNotification: false,
-    hideNotification: true
-  });
-
-  assert.deepEqual(state, []);
-  assert.equal(globalThis.localStorage.getItem('hidden'), null);
-});
-
-test('eviction waiting wire routes once through warning rendering and actual dismissal', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  globalThis.sessionStorage = new MemoryStorage();
-  const english = JSON.parse(
-    readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')
-  );
-  const i18n = {
-    t: (key, values = {}) => {
-      const sentence = key.split('.').reduce((value, part) => value?.[part], english) ?? key;
-      return sentence.replace(/{{(\w+)}}/g, (_, name) => String(values[name] ?? ''));
-    }
-  };
-  const i18nUrl = moduleUrl(
-    `const english = ${JSON.stringify(english)}; export default { t: ${i18n.t.toString()} };`
-  );
-  const handlers = await loadHandlerFactories(i18nUrl);
-  const constants = await import(await compileToUrl('../src/contexts/notifications/constants.ts'));
-  const { isTerminalNotificationStatus } = await import(
-    await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
-  );
-  const source = parseSource('src/contexts/notifications/useNotificationHandlers.ts');
-  const lookup = collectNodes(
-    source,
-    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'findEntryForWireType'
-  )[0];
-  const findEntryForWireType = bindLifted(
-    `(registry, wireType) => { ${lookup.getText(source)} return findEntryForWireType(registry, wireType); }`,
-    constants
-  );
-  const entries = parseSource('src/contexts/notifications/notificationRegistry.ts');
-  const entry = collectNodes(
-    entries,
-    (node) =>
-      ts.isObjectLiteralExpression(node) &&
-      node.properties.some(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          property.name.getText(entries) === 'type' &&
-          property.initializer.getText(entries) === "'eviction_scan'"
-      )
-  )[0];
-  const registry = [
-    Object.fromEntries(
-      ['type', 'id'].map((name) => {
-        const value = entry.properties
-          .find((property) => property.name?.getText(entries) === name)
-          .initializer.getText(entries);
-        return [name, bindLifted(`() => (${value})`, constants)()];
-      })
-    )
-  ];
-  assert.equal(findEntryForWireType(registry, 'evictionScan'), registry[0]);
-  assert.equal(findEntryForWireType(registry, 'unknown'), undefined);
-  const live = { ...registry[0], status: 'running', details: { operationId: 'existing' } };
-  let state = [live];
-  const setNotifications = (update) => {
-    state = update(state);
-  };
-  const timers = [];
-  const setTimeout = (callback) => {
-    timers.push(callback);
-    return timers.length;
-  };
-  const autoDismissTimersRef = { current: new Map() };
-  let keep = false;
-  const removeNotificationAnimated = bindLifted(
-    liftHookCallback(
-      'src/contexts/notifications/NotificationsContext.tsx',
-      'useCallback',
-      'NOTIFICATION_REMOVING'
-    ),
-    {
-      window: { dispatchEvent: () => undefined },
-      CustomEvent: class {},
-      APP_EVENTS: { NOTIFICATION_REMOVING: 'removing' },
-      setTimeout,
-      setNotifications,
-      autoDismissTimersRef,
-      events: notificationEvents(),
-      isTerminalNotificationStatus,
-      NOTIFICATION_ANIMATION_DURATION_MS: constants.NOTIFICATION_ANIMATION_DURATION_MS
-    }
-  );
-  const scheduleAutoDismiss = bindLifted(
-    liftHookCallback(
-      'src/contexts/notifications/NotificationsContext.tsx',
-      'useCallback',
-      'const currentTimer'
-    ),
-    {
-      shouldAutoDismiss: () => !keep,
-      cancelAutoDismissTimer: () => undefined,
-      getNextInstanceId: () => 1,
-      autoDismissTimersRef,
-      setNotifications,
-      setTimeout,
-      queueMicrotask: (callback) => callback(),
-      removeNotificationAnimated,
-      isTerminalNotificationStatus,
-      AUTO_DISMISS_DELAY_MS: constants.AUTO_DISMISS_DELAY_MS
-    }
-  );
-  const waiting = bindLifted(
-    liftConstArrow('src/contexts/notifications/useNotificationHandlers.ts', 'waitingHandler'),
-    {
-      registry,
-      findEntryForWireType,
-      acknowledgedIds: new Set(),
-      events: notificationEvents(),
-      ...handlers,
-      cancelAutoDismissTimer: () => undefined,
-      scheduleAutoDismiss,
-      setNotifications,
-      isTerminalNotificationStatus,
-      i18n
-    }
-  );
-  const event = {
-    operationId: 'admitted',
-    operationType: 'evictionScan',
-    name: 'Eviction Scan',
-    blockedByName: 'Cache File Scan',
-    silent: true
-  };
-  for (const eventFirst of [true, false]) {
-    const key = `http-${eventFirst}`;
-    const response = { status: 'skipped', skippedReason: 'held', showNotification: false };
-    const handleRunNow = bindLifted(
-      liftHookCallback(
-        'src/components/features/management/schedules/SchedulesSection.tsx',
-        'useCallback',
-        'ApiService.triggerSchedule(key)'
-      ),
-      {
-        ApiService: { triggerSchedule: async () => response },
-        t: i18n.t,
-        markStarting: () => undefined,
-        clearPending: () => undefined,
-        setCompletedKeys: () => undefined,
-        setTimeout: () => undefined,
-        addNotification: (notice) => {
-          state.push(notice);
-        },
-        cacheQueuedReasonKey: 'held',
-        getErrorMessage: String
-      }
-    );
-    if (eventFirst) waiting({ ...event, operationId: key });
-    await handleRunNow('cacheReconciliation');
-    if (!eventFirst) waiting({ ...event, operationId: key });
-    assert.equal(state.length, 3);
-    assert.equal(state.find((n) => n.type === 'generic').id, `queued_${key}`);
-    timers.shift()();
-    timers.shift()();
-    assert.equal(state.length, 2);
-    assert.equal(state.find((n) => n.controlOnly).details.operationId, key);
-    state = [live];
-  }
-  waiting(event);
-  waiting(event);
-  assert.equal(state[0], live);
-  const card = state.find((n) => n.type === 'generic');
-  assert.equal(card.id, 'queued_admitted');
-  assert.equal(card.type, 'generic');
-  assert.equal(card.status, 'skipped');
-  assert.equal(card.details.notificationType, 'warning');
-  assert.equal(card.progress, undefined);
-  assert.equal(
-    card.message,
-    i18n.t('management.schedules.queuedUntilCacheFreeNamed', { name: event.name })
-  );
-  const color = bindLifted(
-    liftConstArrow('src/components/common/notificationCancel.ts', 'getNotificationColor'),
-    {}
-  );
-  assert.equal(color(card), 'var(--theme-warning)');
-  const bar = parseSource('src/components/common/UniversalNotificationBar.tsx', ts.ScriptKind.TSX);
-  const classified = collectNodes(
-    bar,
-    (node) => ts.isVariableDeclaration(node) && node.name.getText(bar) === 'classified'
-  )[0];
-  const classify = bindLifted(
-    `() => { let fullOrder = 0; return ${classified.initializer.getText(bar)}; }`,
-    {
-      sorted: [card],
-      controls: [],
-      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: {},
-      displayModes: { cacheReconciliation: 'condensed' },
-      NOTIFICATION_IDS: constants.NOTIFICATION_IDS,
-      isMobile: false,
-      MOBILE_FULL_CARD_CAP: 2
-    }
-  );
-  assert.equal(classify()[0].condensed, false);
-  assert.equal(timers.length, 1);
-  timers.shift()();
-  timers.shift()();
-  assert.equal(state.length, 2);
-  assert.equal(state.find((n) => n.controlOnly).details.operationId, 'admitted');
-  waiting(event);
-  assert.equal(state.length, 2);
-  assert.equal(timers.length, 0);
-  keep = true;
-  waiting({ ...event, operationId: 'kept' });
-  assert.equal(state.find((n) => n.type === 'generic').status, 'skipped');
-  assert.equal(timers.length, 0);
-  assert.equal(
-    handlers.waitingCardMessage({ name: 'Eviction Scan', blockedByName: 'Eviction Scan' }),
-    'Eviction Scan: waiting for Eviction Scan to finish...'
-  );
 });
 
 test('schedule HTTP responses leave retained and hidden acknowledgment to the waiting event', async () => {
@@ -590,9 +130,9 @@ test('schedule HTTP responses leave retained and hidden acknowledgment to the wa
   );
   for (const eventFirst of [true, false]) {
     for (const response of [
-      { status: 'skipped', skippedReason: 'held', showNotification: false },
-      { status: 'alreadyRunning', alreadyRunning: true, showNotification: false },
-      { status: 'started', showNotification: false }
+      { status: 'skipped', skippedReason: 'held' },
+      { status: 'alreadyRunning', alreadyRunning: true },
+      { status: 'started' }
     ]) {
       const notices = [];
       const handler = bindLifted(source, {
@@ -603,7 +143,6 @@ test('schedule HTTP responses leave retained and hidden acknowledgment to the wa
         setCompletedKeys: () => undefined,
         setTimeout: () => undefined,
         addNotification: (notice) => notices.push(notice),
-        cacheQueuedReasonKey: 'held',
         getErrorMessage: String
       });
       const yellow = {
@@ -619,127 +158,47 @@ test('schedule HTTP responses leave retained and hidden acknowledgment to the wa
   }
 });
 
-test('hidden immediate Storage scan response creates no running seed', async () => {
+test('a Storage eviction scan opens no card of its own and is busy only while its request is out', async () => {
   const source = liftConstArrow(
     'src/components/features/management/sections/StorageSection.tsx',
     'handleStartEvictionScan'
   );
-  const identity = parseSource(
-    'src/components/features/management/game-detection/gameRemovalEntity.ts'
-  );
-  const predicate = collectNodes(
-    identity,
-    (node) =>
-      ts.isFunctionDeclaration(node) && node.name?.text === 'shouldPinOperationIdFromResponse'
-  )[0];
-  const { shouldPinOperationIdFromResponse } = await import(
-    moduleUrl(
-      ts.transpileModule(predicate.getText(identity), {
-        compilerOptions: { module: ts.ModuleKind.ESNext }
-      }).outputText
-    )
-  );
-  let result = { operationId: 'scan', showNotification: false };
-  let seeded = false;
-  const inFlight = { current: false };
-  const handler = bindLifted(source, {
-    evictionScanInFlightRef: inFlight,
-    evictionAdmissionHeld: false,
-    evictionAttemptAbortRef: { current: null },
-    evictionHeldOperationIdRef: { current: null },
-    setIsStartingEvictionScan: () => undefined,
-    setEvictionAdmissionHeld: () => undefined,
-    setEvictionHoldUnknown: () => undefined,
-    ApiService: {
-      startEvictionScan: async () => result
-    },
-    readScanAdmission: (response) =>
-      response.queued ? 'queued' : response.alreadyRunning ? 'alreadyRunning' : 'started',
-    shouldPinOperationIdFromResponse,
-    addNotification: () => {
-      seeded = true;
-    },
-    buildSeededRunningNotification: () => ({}),
-    t: (key) => key,
-    onError: (error) => {
-      throw new Error(error);
-    },
-    getErrorMessage: String,
-    isMountedRef: { current: true },
-    releaseEvictionAdmission: () => {
-      inFlight.current = false;
-    },
-    followAdmittedScan: async () => 'release',
-    recoverScanHold: async (operationId) => ({ decision: 'hold', operationId }),
-    on: () => undefined,
-    off: () => undefined,
-    events: { current: {} },
-    ApiError: Error,
-    isConfirmedScanRefusalStatus: () => false,
-    isAbortError: () => false,
-    recoverEvictionAdmission: async () => undefined
-  });
-  await handler();
-  assert.equal(seeded, false);
-  result = { operationId: 'scan', queued: true };
-  await handler();
-  assert.equal(seeded, false);
-  result = { operationId: 'scan', alreadyRunning: true };
-  await handler();
-  assert.equal(seeded, false);
-  result = { operationId: 'scan', showNotification: true };
-  await handler();
-  assert.equal(seeded, true);
-});
-
-test('schedule responses retain visible success and genuine skipped or failed messages', async () => {
-  const source = liftHookCallback(
-    'src/components/features/management/schedules/SchedulesSection.tsx',
-    'useCallback',
-    'ApiService.triggerSchedule(key)'
-  );
-  for (const [response, expected] of [
-    [{ status: 'skipped', skippedReason: 'unrelated', showNotification: false }, 'warning'],
-    [{ status: 'started', showNotification: true }, 'success'],
-    [{ status: 'alreadyRunning', alreadyRunning: true, showNotification: true }, 'info'],
-    [null, 'error']
+  for (const answer of [
+    { operationId: 'scan' },
+    { operationId: 'scan', queued: true },
+    { operationId: 'scan', alreadyRunning: true }
   ]) {
-    const notices = [];
+    const starting = [];
+    const errors = [];
+    const inFlight = { current: false };
+    let requests = 0;
+    // No card-writing name is bound: the server's run row is the only thing that opens a card,
+    // and a handler that still wrote one would throw a ReferenceError here.
     const handler = bindLifted(source, {
+      evictionScanInFlightRef: inFlight,
+      setIsStartingEvictionScan: (value) => starting.push(value),
       ApiService: {
-        triggerSchedule: async () => {
-          if (!response) throw new Error('failure');
-          return response;
+        startEvictionScan: async () => {
+          requests += 1;
+          return answer;
         }
       },
-      t: (key) => key,
-      markStarting: () => undefined,
-      clearPending: () => undefined,
-      setCompletedKeys: () => undefined,
-      setTimeout: () => undefined,
-      addNotification: (notice) => notices.push(notice),
-      cacheQueuedReasonKey: 'held',
-      getErrorMessage: String
+      onError: (message) => errors.push(message),
+      getErrorMessage: String,
+      isAbortError: () => false
     });
-    await handler('cacheReconciliation');
-    assert.equal(notices.length, 1);
-    assert.equal(notices[0].details.notificationType, expected);
+
+    const first = handler();
+    await handler();
+    await first;
+    assert.equal(requests, 1, 'a second click while the request is out is ignored');
+    assert.deepEqual(starting, [true, false]);
+    assert.equal(inFlight.current, false);
+    assert.deepEqual(errors, []);
   }
 });
 
-test('all maintenance waits resolve through the shipped map and registry cancel contract', async () => {
-  globalThis.localStorage = new MemoryStorage();
-  globalThis.sessionStorage = new MemoryStorage();
-  const modules = await loadNotificationModules(I18N_STUB);
-  const source = parseSource('src/contexts/notifications/useNotificationHandlers.ts');
-  const lookup = collectNodes(
-    source,
-    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'findEntryForWireType'
-  )[0];
-  const findEntryForWireType = bindLifted(
-    `(registry, wireType) => { ${lookup.getText(source)} return findEntryForWireType(registry, wireType); }`,
-    modules
-  );
+test('all maintenance runs map to their card type and registry cancel contract', () => {
   const expected = {
     logRotation: ['log_rotation', 'none'],
     gameImageFetch: ['game_image_fetch', 'serverOp'],
@@ -749,13 +208,14 @@ test('all maintenance waits resolve through the shipped map and registry cancel 
   };
 
   for (const [wireType, [notificationType, cancelKind]] of Object.entries(expected)) {
-    assert.equal(modules.OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[wireType], notificationType);
-    const entry = findEntryForWireType(modules.NOTIFICATION_REGISTRY, wireType);
-    assert.equal(entry?.type, notificationType);
-    assert.equal(entry?.cancelKind, cancelKind);
+    assert.equal(OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[wireType], notificationType);
+    const entry = notifications.NOTIFICATION_REGISTRY.find(
+      (candidate) => candidate.type === notificationType
+    );
+    assert.equal(entry?.cancelKind, cancelKind, wireType);
   }
 
-  assert.equal(findEntryForWireType(modules.NOTIFICATION_REGISTRY, 'cacheFileCount'), undefined);
+  assert.equal(OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE.cacheFileCount, undefined);
 });
 
 const CASES = [
@@ -766,301 +226,105 @@ const CASES = [
 ];
 
 for (const [type, label] of CASES) {
-  test(`${label}: an unrelated running batch does not suppress the ${type} card`, async () => {
-    const state = await runStartedForType(type, []);
-    assert.ok(hasCard(state, type), `${type} card should open when no running batch owns it`);
+  test(`${label}: an unrelated running batch does not fold the ${type} run`, () => {
+    const localCards = [bulkRemovalCard({ itemTypes: [], currentOperationId: 'op-1' })];
+    const drawn = deriveNotifications(
+      pushRun(
+        notifications,
+        createRunStoreState(),
+        operationRunRow('op-1', ITEM_RUN[type]),
+        localCards
+      ),
+      localCards
+    );
+    assert.deepEqual(
+      itemCards(drawn).map((card) => card.type),
+      [type],
+      `${type} card should open when no running batch owns it`
+    );
   });
 
-  test(`${label}: the owning bulk card suppresses the ${type} card`, async () => {
-    const state = await runStartedForType(type, [type]);
-    assert.ok(!hasCard(state, type), `${type} card should stay suppressed while its batch runs`);
+  test(`${label}: the owning bulk card folds the ${type} run`, () => {
+    for (const details of [
+      { itemTypes: [type], currentOperationId: 'op-1' },
+      { itemTypes: [type], itemOperationIds: ['op-1'] }
+    ]) {
+      const localCards = [bulkRemovalCard(details)];
+      const drawn = deriveNotifications(
+        pushRun(
+          notifications,
+          createRunStoreState(),
+          operationRunRow('op-1', ITEM_RUN[type]),
+          localCards
+        ),
+        localCards
+      );
+      assert.deepEqual(itemCards(drawn), [], `${type} run should stay inside its batch card`);
+    }
   });
 }
 
-test('a batch declaring two item types suppresses both and leaves other types alone', async () => {
-  const bulkCardItemTypes = ['game_removal', 'service_removal'];
-  assert.ok(
-    !hasCard(await runStartedForType('game_removal', bulkCardItemTypes), 'game_removal'),
-    'game_removal is one of the batch item types, so it should stay suppressed'
-  );
-  assert.ok(
-    !hasCard(await runStartedForType('service_removal', bulkCardItemTypes), 'service_removal'),
-    'service_removal is the other batch item type, so it should also stay suppressed'
-  );
-  assert.ok(
-    hasCard(await runStartedForType('eviction_removal', bulkCardItemTypes), 'eviction_removal'),
-    "eviction_removal is not one of this batch's item types, so its card should still open"
-  );
-  assert.ok(
-    hasCard(await runStartedForType('log_removal', bulkCardItemTypes), 'log_removal'),
-    "log_removal is not one of this batch's item types, so its card should still open"
-  );
+test('a batch declaring two item types folds both and leaves other types alone', () => {
+  const localCards = [
+    bulkRemovalCard({ itemTypes: ['game_removal', 'service_removal'], itemRequestPending: true })
+  ];
+  const itemsDrawnFor = (type) =>
+    itemCards(
+      deriveNotifications(
+        pushRun(
+          notifications,
+          createRunStoreState(),
+          operationRunRow('op-1', ITEM_RUN[type]),
+          localCards
+        ),
+        localCards
+      )
+    );
+  assert.deepEqual(itemsDrawnFor('game_removal'), []);
+  assert.deepEqual(itemsDrawnFor('service_removal'), []);
+  assert.equal(itemsDrawnFor('eviction_removal').length, 1);
+  assert.equal(itemsDrawnFor('log_removal').length, 1);
 });
 
-/**
- * The Started handler is not the only place the marker gates a card: a queued item that has
- * not started yet renders a purple waiting card through a separate handler in
- * useNotificationHandlers.ts, and that handler needs the same guard or a queued item would
- * flash a waiting card beside the batch card. Lift the handler straight out of its source (it
- * lives inside a hook's useEffect and is not exported) and run it with its free variables
- * supplied directly, the same way test-context-resync-wiring.mjs runs a recovery callback
- * lifted out of a hook call.
- */
-const QUEUED_BEHIND_SCAN = {
-  operationType: 'irrelevant-for-this-test',
-  operationId: 'op-1',
-  name: 'Eviction Scan',
-  blockedByName: 'Cache File Scan'
-};
-
-/**
- * Runs waitingHandler for one queued event of `type` against a starting card list. `event` and
- * `dismissed` are for the silent run, which sends a different event and is the only case that
- * arms the dismiss timer from in here.
- */
-const runWaitingHandler = async (
-  type,
-  startingCards,
-  event = QUEUED_BEHIND_SCAN,
-  dismissed = [],
-  repeats = 1,
-  updates = []
-) => {
-  const {
-    createCompletionHandler,
-    findBulkCardOwningOperation,
-    eventTargetsCard,
-    operationCardId,
-    rememberEvent
-  } = await loadHandlerFactories();
-  const { isTerminalNotificationStatus } = await import(
-    await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
-  );
-
-  const arrowSource = liftConstArrow(
-    'src/contexts/notifications/useNotificationHandlers.ts',
-    'waitingHandler'
-  );
-
-  let state = startingCards;
-  const setNotifications = (updater) => {
-    state = updater(state);
-    updates.push(state);
-  };
-
-  const waitingHandler = bindLifted(arrowSource, {
-    registry: [],
-    acknowledgedIds: new Set(),
-    events: notificationEvents(),
-    createCompletionHandler,
-    operationCardId,
-    rememberEvent,
-    findEntryForWireType: () => ({ type, id: `${type}_card` }),
-    cancelAutoDismissTimer: () => undefined,
-    scheduleAutoDismiss: (id) => dismissed.push(id),
-    setNotifications,
-    findBulkCardOwningOperation,
-    eventTargetsCard,
-    isTerminalNotificationStatus,
-    i18n: { t: (key, values) => (values?.name ? `${key}:${values.name}` : key) },
-    waitingCardMessage: (source) =>
-      source.blockedByName ? `waiting for ${source.blockedByName}` : 'waiting'
-  });
-
-  for (let index = 0; index < repeats; index++) waitingHandler(event);
-  return state;
-};
-
-/**
- * A run whose schedule told it to keep its cards to itself still has to say it was queued: with no
- * card at all, a person who set the schedule reads the silence as the run having been dropped. It
- * says it once, in the amber notice that times out on its own, and never puts up the purple card
- * that would sit there until the blocker finished. The notice names the run, because several
- * schedules can be silent and a sentence about "this run" does not say which one is waiting.
- */
-test('a silent queued run gets the self-clearing notice instead of the purple waiting card', async () => {
-  const dismissed = [];
-  const state = await runWaitingHandler(
-    'game_removal',
-    [],
-    { ...QUEUED_BEHIND_SCAN, silent: true },
-    dismissed
-  );
-
-  const card = state.find((n) => n.id === `queued_${QUEUED_BEHIND_SCAN.operationId}`);
-  assert.equal(card.status, 'skipped', 'a silent run must not raise the purple waiting card');
-  assert.equal(
-    card.message,
-    'management.schedules.queuedUntilCacheFreeNamed:Eviction Scan',
-    'it names the run and says it starts by itself, not who it is parked behind'
+test('a queued item opens its own waiting card when no owning bulk card is running', () => {
+  const batch = bulkRemovalCard({ itemTypes: ['eviction_removal'] });
+  const drawn = deriveNotifications(
+    pushRun(
+      notifications,
+      createRunStoreState(),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+      [batch]
+    ),
+    [batch]
   );
   assert.deepEqual(
-    dismissed,
-    [`queued_${QUEUED_BEHIND_SCAN.operationId}`],
-    'the notice clears itself; nothing else is coming to remove it'
+    itemCards(drawn).map((card) => card.status),
+    ['waiting'],
+    'a queued item should get its own waiting card when nothing folds it'
   );
+  assert.equal(batchOf(drawn).message, batch.message, 'an unrelated batch keeps its own line');
+  assert.equal(batchOf(drawn).status, 'running');
 });
 
-test('silent acknowledgment preserves an occupied live slot and dismisses once', async () => {
-  const live = {
-    id: 'game_removal_card',
-    type: 'game_removal',
-    status: 'running',
-    details: { operationId: 'other' }
-  };
-  const dismissed = [];
-  const state = await runWaitingHandler(
-    'game_removal',
-    [live],
-    { ...QUEUED_BEHIND_SCAN, silent: true },
-    dismissed,
-    2
+test('the owning bulk card turns purple and names the blocker while its item waits', () => {
+  const row = operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN });
+  // The batch's item request is still on the wire, which is exactly when the queue row for that
+  // item arrives with no id on the card to compare it against.
+  const localCards = [
+    bulkRemovalCard({ itemTypes: ['service_removal', 'game_removal'], itemRequestPending: true })
+  ];
+  const drawn = deriveNotifications(
+    pushRun(notifications, createRunStoreState(), row, localCards),
+    localCards
   );
-  assert.equal(state.length, 3);
-  assert.equal(state[0], live);
-  assert.equal(state.filter((n) => n.controlOnly).length, 1);
-  assert.equal(state.find((n) => n.type === 'generic').status, 'skipped');
-  assert.equal(dismissed.length, 1);
-});
-
-test('a run that is not silent still gets the purple waiting card naming its blocker', async () => {
-  const dismissed = [];
-  const state = await runWaitingHandler('game_removal', [], QUEUED_BEHIND_SCAN, dismissed);
-
-  const card = state.find((n) => n.id === 'game_removal_card');
-  assert.equal(card.status, 'waiting');
-  assert.equal(card.message, 'waiting for Cache File Scan');
-  assert.deepEqual(dismissed, [], 'the purple card stays up until the operation leaves the queue');
-});
-
-test('an unchanged queued event preserves the card and collection identities', async () => {
-  const updates = [];
-  await runWaitingHandler('game_removal', [], QUEUED_BEHIND_SCAN, [], 2, updates);
-  assert.equal(updates.length, 2);
-  assert.equal(updates[1], updates[0]);
-  assert.equal(updates[1][0], updates[0][0]);
-});
-
-test('queued updates preserve pending and acknowledged cancellation state', async () => {
-  for (const status of ['waiting', 'cancelling']) {
-    const [queued] = await runWaitingHandler('game_removal', []);
-    const card = {
-      ...queued,
-      status,
-      startedAt: new Date('2026-01-01T00:00:00Z'),
-      instanceVersion: 7,
-      details: {
-        ...queued.details,
-        cancelRequested: true,
-        cancelSent: true,
-        cancelPending: status === 'waiting',
-        cancelling: status === 'cancelling'
-      }
-    };
-    const initial = [card];
-    const repeated = await runWaitingHandler('game_removal', initial);
-    assert.equal(repeated, initial);
-    const changed = await runWaitingHandler('game_removal', initial, {
-      ...QUEUED_BEHIND_SCAN,
-      blockedByName: 'Eviction Scan'
-    });
-    assert.equal(changed.length, 1);
-    assert.deepEqual(changed[0], { ...card, message: 'waiting for Eviction Scan' });
-    assert.equal(changed[0].details, card.details);
-    assert.equal(changed[0].startedAt, card.startedAt);
-    assert.equal(
-      await runWaitingHandler('game_removal', changed, {
-        ...QUEUED_BEHIND_SCAN,
-        blockedByName: 'Eviction Scan'
-      }),
-      changed
-    );
-  }
-});
-
-test('a queued item opens its waiting card when no owning bulk card is running', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      startedAt: new Date(),
-      details: { itemTypes: ['eviction_removal'] }
-    }
-  ]);
-  assert.ok(
-    state.some((n) => n.id === 'game_removal_card' && n.status === 'waiting'),
-    'a queued item should get its own waiting card when nothing suppresses it'
-  );
-});
-
-test('the owning bulk card suppresses the queued waiting card too, not just the started card', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      startedAt: new Date(),
-      // The batch's item request is still on the wire, which is exactly when the queue push for
-      // that item arrives with no id on the card to compare it against.
-      details: { itemTypes: ['service_removal', 'game_removal'], itemRequestPending: true }
-    }
-  ]);
-  assert.ok(
-    !state.some((n) => n.id === 'game_removal_card' && n.status === 'waiting'),
-    'the waiting card must stay suppressed while the owning bulk card is running'
-  );
-  // Suppressing the card must not also swallow the blocker's name: it is the only thing that
-  // explains why the batch is sitting still, and the batch card cannot work it out on its own.
-  const bulk = state.find((n) => n.id === 'bulk_removal_x');
+  assert.deepEqual(itemCards(drawn), [], 'the waiting run stays inside the batch card');
+  assert.equal(batchOf(drawn).status, 'waiting');
   assert.equal(
-    bulk.message,
-    'waiting for Cache File Scan',
+    batchOf(drawn).message,
+    waitingCardMessage(row),
     'the batch card must name the blocking operation while its item is parked'
   );
-});
-
-test('a batch still owns its item cards after it turns purple while queued', async () => {
-  const { findBulkCardOwningOperation } = await loadHandlerFactories();
-  // The batch card goes to 'waiting' while its current item is parked behind another operation.
-  // It is still the owner: if this stopped matching, the queue's own card would reappear next to
-  // it and the user would see the same sentence twice, which is the bug this whole pair prevents.
-  const parkedBatch = [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'waiting',
-      details: { itemTypes: ['service_removal', 'game_removal'], itemRequestPending: true }
-    }
-  ];
-  assert.ok(
-    findBulkCardOwningOperation('game_removal', 'op-1', parkedBatch),
-    'a parked batch must still own the item types it declared'
-  );
-  assert.equal(
-    findBulkCardOwningOperation('log_removal', 'op-1', parkedBatch),
-    undefined,
-    'it must not claim a type it never declared'
-  );
-});
-
-test('a batch whose items are a different type keeps its own message', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      message: 'Removing 1 of 2 - Arma 3',
-      startedAt: new Date(),
-      details: { itemTypes: ['eviction_removal'] }
-    }
-  ]);
-  const bulk = state.find((n) => n.id === 'bulk_removal_x');
-  assert.equal(
-    bulk.message,
-    'Removing 1 of 2 - Arma 3',
-    'an unrelated batch must not have its message overwritten by another queue blocker'
-  );
+  assert.match(batchOf(drawn).message, /Cache File Scan/);
 });
 
 /**
@@ -1069,211 +333,81 @@ test('a batch whose items are a different type keeps its own message', async () 
  * app, so the type alone cannot decide whose queued operation this is. A batch publishes its
  * current item's operation id while that item is in flight, and that is what settles it.
  */
-test('a queued operation the batch did not start gets its own card instead of relabelling the batch', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      message: 'Removing 1 of 2 - Arma 3',
-      startedAt: new Date(),
-      details: { itemTypes: ['game_removal'], currentOperationId: 'the-batch-own-item' }
-    }
-  ]);
-
-  const bulk = state.find((n) => n.id === 'bulk_removal_x');
-  assert.equal(
-    bulk.status,
-    'running',
-    "a batch busy with its own item must not be relabelled by another operation's queue event"
+test('a queued operation the batch did not start gets its own card instead of relabelling the batch', () => {
+  const batch = bulkRemovalCard({
+    itemTypes: ['game_removal'],
+    currentOperationId: 'the-batch-own-item'
+  });
+  const drawn = deriveNotifications(
+    pushRun(
+      notifications,
+      createRunStoreState(),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+      [batch]
+    ),
+    [batch]
   );
-  assert.equal(bulk.message, 'Removing 1 of 2 - Arma 3', 'and it keeps its own item line');
-
-  const queued = state.find((n) => n.id === 'game_removal_card');
+  assert.equal(batchOf(drawn).status, 'running');
+  assert.equal(batchOf(drawn).message, batch.message, 'and it keeps its own item line');
+  const [queued] = itemCards(drawn);
   assert.ok(queued, 'the queued operation needs a card of its own or it cannot be cancelled');
-  assert.equal(
-    queued.details.operationId,
-    'op-1',
-    'that card carries the operation id the X button cancels'
-  );
+  assert.equal(queued.details.operationId, 'op-1', 'that card carries the id the X cancels');
 });
 
 /**
- * An empty `currentOperationId` is only ever ambiguous for one request round trip: the queue push
+ * An empty `currentOperationId` is only ever ambiguous for one request round trip: the queue row
  * arrives while the item's own request is still on the wire. Outside that window the field is empty
  * because the batch has nothing to publish - the queue answered 'alreadyRunning' and handed back a
- * live removal's id the batch refused - and that lasts as long as the other removal runs. Treating
- * it as ownership there hides an unrelated operation behind the batch card for minutes, with no card
- * of its own to cancel from.
+ * live removal's id the batch refused - and that lasts as long as the other removal runs.
  */
-test('a batch with no request on the wire does not swallow a queued operation it never started', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      message: 'Removing 1 of 2 - Arma 3',
-      startedAt: new Date(),
-      details: { itemTypes: ['game_removal'] }
-    }
-  ]);
-
-  const bulk = state.find((n) => n.id === 'bulk_removal_x');
-  assert.equal(bulk.status, 'running', 'the batch is busy with its own item, not with this one');
-  assert.equal(bulk.message, 'Removing 1 of 2 - Arma 3', 'and it keeps its own item line');
-
-  const queued = state.find((n) => n.id === 'game_removal_card');
-  assert.ok(queued, 'the queued operation needs a card of its own or it cannot be cancelled');
-  assert.equal(queued.details.operationId, 'op-1');
+test('a batch with no request on the wire does not swallow a queued operation it never started', () => {
+  const batch = bulkRemovalCard({ itemTypes: ['game_removal'] });
+  const drawn = deriveNotifications(
+    pushRun(
+      notifications,
+      createRunStoreState(),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+      [batch]
+    ),
+    [batch]
+  );
+  assert.equal(batchOf(drawn).status, 'running');
+  assert.equal(batchOf(drawn).message, batch.message);
+  assert.equal(itemCards(drawn)[0]?.details.operationId, 'op-1');
 });
 
-test('the batch card takes the queue wording for the item the batch itself started', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      message: 'Removing 1 of 2 - Arma 3',
-      startedAt: new Date(),
-      details: { itemTypes: ['game_removal'], currentOperationId: 'op-1' }
-    }
-  ]);
-
-  const bulk = state.find((n) => n.id === 'bulk_removal_x');
-  assert.equal(bulk.status, 'waiting');
-  assert.equal(bulk.message, 'waiting for Cache File Scan');
-  assert.ok(
-    !state.some((n) => n.id === 'game_removal_card'),
-    'the batch card already reports this item, so no second card may appear beside it'
+test('the batch card takes the queue wording for the item the batch itself started', () => {
+  const row = operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN });
+  const localCards = [bulkRemovalCard({ itemTypes: ['game_removal'], currentOperationId: 'op-1' })];
+  const drawn = deriveNotifications(
+    pushRun(notifications, createRunStoreState(), row, localCards),
+    localCards
   );
+  assert.equal(batchOf(drawn).status, 'waiting');
+  assert.equal(batchOf(drawn).message, waitingCardMessage(row));
+  assert.deepEqual(itemCards(drawn), [], 'no second card may appear beside the batch card');
 });
 
-test('a queued operation does not evict the running card of another operation in the same slot', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'game_removal_card',
-      type: 'game_removal',
-      status: 'running',
-      message: 'Removing Arma 3',
-      detailMessage: 'Deleting 1200 files',
-      progress: 42,
-      startedAt: new Date(),
-      details: { operationId: 'B' }
-    }
-  ]);
-
-  const running = state.find((n) => n.id === 'game_removal_card');
-  assert.equal(running.status, 'running', 'the running operation keeps its card');
-  assert.equal(running.progress, 42, 'and its progress');
-  assert.equal(running.detailMessage, 'Deleting 1200 files', 'and its stage text');
-  assert.equal(
-    running.details.operationId,
-    'B',
-    'and its operation id, so the X still cancels the operation the card is showing'
+test('a batch card goes back to its own line when its queued item is canceled', () => {
+  const batch = bulkRemovalCard({ itemTypes: ['game_removal'], itemOperationIds: ['op-1'] });
+  const waiting = pushRun(
+    notifications,
+    createRunStoreState(),
+    operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+    [batch]
   );
-});
-
-test('a queued operation still takes the slot from a card whose operation has finished', async () => {
-  const state = await runWaitingHandler('game_removal', [
-    {
-      id: 'game_removal_card',
-      type: 'game_removal',
-      status: 'completed',
-      message: 'Removed Arma 3',
-      startedAt: new Date(),
-      details: { operationId: 'B' }
-    }
-  ]);
-
-  const card = state.find((n) => n.id === 'game_removal_card');
-  assert.equal(card.status, 'waiting', 'a finished card is not live state worth protecting');
-  assert.equal(card.details.operationId, 'op-1');
-});
-
-/** Runs waitingCompleteHandler for one wait-queue completion against a starting card list. */
-const runWaitingCompleteHandler = async (type, startingCards, event) => {
-  const arrowSource = liftConstArrow(
-    'src/contexts/notifications/useNotificationHandlers.ts',
-    'waitingCompleteHandler'
+  const drawn = deriveNotifications(
+    pushRun(
+      notifications,
+      waiting,
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, status: 'cancelled' }),
+      [batch]
+    ),
+    [batch]
   );
-
-  let state = startingCards;
-  const dismissed = [];
-  const setNotifications = (updater) => {
-    state = updater(state);
-  };
-
-  const waitingCompleteHandler = bindLifted(arrowSource, {
-    registry: [],
-    acknowledgedIds: new Set(),
-    events: notificationEvents(),
-    ...(await loadHandlerFactories()),
-    recover: undefined,
-    cancelAutoDismissTimer: () => undefined,
-    findEntryForWireType: () => ({ type, id: `${type}_card` }),
-    setNotifications,
-    scheduleAutoDismiss: (id) => dismissed.push(id),
-    i18n: { t: (key) => key },
-    GENERIC_FAILURE_I18N_KEY: 'generic.failure'
-  });
-
-  waitingCompleteHandler(event);
-  return { state, dismissed };
-};
-
-test('a wait-queue completion for an operation nothing is showing arms no dismiss timer', async () => {
-  const { state, dismissed } = await runWaitingCompleteHandler(
-    'game_removal',
-    [
-      {
-        id: 'game_removal_card',
-        type: 'game_removal',
-        status: 'running',
-        startedAt: new Date(),
-        details: { operationId: 'B' }
-      },
-      {
-        id: 'bulk_removal_x',
-        type: 'bulk_removal',
-        status: 'waiting',
-        startedAt: new Date(),
-        details: { itemTypes: ['game_removal'], currentOperationId: 'C' }
-      }
-    ],
-    { operationType: 'gameRemoval', operationId: 'A', cancelled: true }
-  );
-
-  assert.deepEqual(dismissed, [], 'nothing matched, so nothing may be put on a timer to disappear');
-  assert.equal(
-    state.find((n) => n.id === 'bulk_removal_x').status,
-    'waiting',
-    "a batch parked behind a different operation is none of this event's business"
-  );
-});
-
-test('a batch card relabelled while its item was queued goes back to running when that item is cancelled', async () => {
-  const { state, dismissed } = await runWaitingCompleteHandler(
-    'game_removal',
-    [
-      {
-        id: 'bulk_removal_x',
-        type: 'bulk_removal',
-        status: 'waiting',
-        message: 'waiting for Cache File Scan',
-        startedAt: new Date(),
-        details: { itemTypes: ['game_removal'], currentOperationId: 'A' }
-      }
-    ],
-    { operationType: 'gameRemoval', operationId: 'A', cancelled: true }
-  );
-
-  const bulk = state.find((n) => n.id === 'bulk_removal_x');
-  assert.equal(
-    bulk.status,
-    'running',
-    'the batch run is not over just because one of its items left the queue'
-  );
-  assert.deepEqual(dismissed, [], 'the batch card is still live, so it must not be timed out');
+  assert.equal(batchOf(drawn).status, 'running', 'the batch run is not over');
+  assert.equal(batchOf(drawn).message, batch.message);
+  assert.deepEqual(itemCards(drawn), [], 'the canceled item draws nothing beside it');
 });
 
 /**

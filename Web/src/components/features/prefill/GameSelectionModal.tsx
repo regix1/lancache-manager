@@ -6,6 +6,7 @@ import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
 import Badge from '../../ui/Badge';
 import { Alert } from '../../ui/Alert';
+import { ErrorBlock } from '../../ui/ErrorBlock';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { SearchInput } from '../../ui/SearchInput';
@@ -481,7 +482,17 @@ export function GameSelectionModal({
           variant="float"
         >
           {/* Search and actions */}
-          {error && (
+          {error && onRescan && (
+            <div className="game-selection-modal__alert">
+              <ErrorBlock
+                title={t('prefill.log.failedLoadLibrary')}
+                message={error}
+                retryLabel={t('common.retry')}
+                onRetry={() => void onRescan()}
+              />
+            </div>
+          )}
+          {error && !onRescan && (
             <Alert color="red" className="game-selection-modal__alert">
               {error}
             </Alert>

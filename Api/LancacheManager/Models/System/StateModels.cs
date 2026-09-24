@@ -200,9 +200,15 @@ public class AppState
     public Dictionary<string, CustomSchedule> ServiceCustomSchedule { get; set; } = new();
 
     // Per-service notification-DISPLAY-mode overrides (keyed by ServiceKey): full card vs condensed
-    // status line in the universal notification bar. Absent key = Full. Pure UI display state - no
-    // service reads this, so it has no per-service compiled default to fall back to.
+    // status line in the universal notification bar. Absent key = GlobalNotificationDisplayMode below.
+    // Pure UI display state - no service reads this, so it has no per-service compiled default.
     public Dictionary<string, NotificationDisplayMode> ServiceNotificationDisplayMode { get; set; } = new();
+
+    // How every notification without a style of its own renders, schedules without an override
+    // included. One value rather than a key per notification type, because the setting is "the
+    // default" and the overrides above are what vary. A state file written before this setting
+    // existed has no value here, and the initializer is what makes those installs read as Condensed.
+    public NotificationDisplayMode GlobalNotificationDisplayMode { get; set; } = NotificationDisplayMode.Condensed;
 
     // The scan the game detection schedule runs. Not keyed by ServiceKey like the settings above
     // because game detection is the only schedule that has one - a dictionary that can only ever

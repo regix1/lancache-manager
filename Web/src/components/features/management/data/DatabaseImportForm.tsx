@@ -289,28 +289,22 @@ export function DatabaseImportForm({
 
       {/* Import Result */}
       {importResult && (
-        <div
-          className={`p-4 rounded-lg border ${
-            importResult.errors > 0
-              ? 'bg-themed-warning border-warning'
-              : 'bg-themed-success border-success'
-          }`}
-        >
-          <p
-            className={`font-medium mb-3 ${importResult.errors > 0 ? 'text-themed-warning' : 'text-themed-success'}`}
-          >
-            {importResult.stageKey
+        <Alert
+          color={importResult.errors > 0 ? 'warning' : 'success'}
+          title={
+            importResult.stageKey
               ? t(importResult.stageKey, {
                   imported: formatCount(importResult.imported),
                   skipped: formatCount(importResult.skipped),
                   errors: formatCount(importResult.errors),
                   defaultValue: importResult.message
                 })
-              : importResult.message}
-          </p>
+              : importResult.message
+          }
+        >
           <div className="database-import-form__import-result-grid">
             <div>
-              <span className="text-themed-muted">
+              <span>
                 {t('initialization.importHistorical.total', {
                   count: importResult.totalRecords,
                   formattedCount: formatCount(importResult.totalRecords)
@@ -318,7 +312,7 @@ export function DatabaseImportForm({
               </span>
             </div>
             <div>
-              <span className="text-themed-muted">
+              <span>
                 {t('initialization.importHistorical.imported', {
                   count: importResult.imported,
                   formattedCount: formatCount(importResult.imported)
@@ -326,7 +320,7 @@ export function DatabaseImportForm({
               </span>
             </div>
             <div>
-              <span className="text-themed-muted">
+              <span>
                 {t('initialization.importHistorical.skipped', {
                   count: importResult.skipped,
                   formattedCount: formatCount(importResult.skipped)
@@ -334,7 +328,7 @@ export function DatabaseImportForm({
               </span>
             </div>
             <div>
-              <span className="text-themed-muted">
+              <span>
                 {t('initialization.importHistorical.errors', {
                   count: importResult.errors,
                   formattedCount: formatCount(importResult.errors)
@@ -342,7 +336,7 @@ export function DatabaseImportForm({
               </span>
             </div>
           </div>
-        </div>
+        </Alert>
       )}
 
       {/* Action Buttons */}

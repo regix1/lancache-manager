@@ -5,12 +5,6 @@ namespace LancacheManager.Core.Interfaces;
 
 public interface IServiceScheduleRegistry
 {
-    /// <summary>
-    /// What a run held for a download is waiting for, or null when nothing could be named. The
-    /// recovery route asks so a waiting card rebuilt after a page refresh keeps its blocker.
-    /// </summary>
-    string? GetHeldRunBlockerName(Guid heldOperationId);
-
     IReadOnlyList<ServiceScheduleInfo> GetAll();
     ServiceScheduleInfo? Get(string serviceKey);
     void SetInterval(string serviceKey, double intervalHours);
@@ -23,6 +17,32 @@ public interface IServiceScheduleRegistry
     /// <see cref="SetNotificationMode"/>.
     /// </summary>
     void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
+
+    /// <summary>
+    /// Removes the service's own display style, so its notifications follow the global default
+    /// again.
+    /// </summary>
+    void ClearNotificationDisplayMode(string serviceKey);
+
+    /// <summary>
+    /// How every notification without a style of its own renders.
+    /// </summary>
+    NotificationDisplayMode GetGlobalNotificationDisplayMode();
+
+    /// <summary>
+    /// Stores the global display default, pushes it to every client, and re-sends the schedule
+    /// list, because every schedule without a style of its own now resolves to it. The caller does
+    /// not broadcast the schedules again.
+    /// </summary>
+    Task SetGlobalNotificationDisplayModeAsync(NotificationDisplayMode mode);
+
+    /// <summary>
+    /// Pushes the stored global display default to every client via
+    /// <c>NotificationDisplayModeChanged</c>, serialized with <see cref="BroadcastSchedulesAsync"/>.
+    /// The reset route calls it after <see cref="ResetToDefaults"/>, which stores the value and sends
+    /// nothing.
+    /// </summary>
+    Task PublishGlobalNotificationDisplayModeAsync();
 
     /// <summary>
     /// Sets the scan the schedule runs on each automatic tick and on Run Now. Returns false when the
@@ -48,10 +68,10 @@ public interface IServiceScheduleRegistry
     /// colliding with the run described by the returned status, not starting a new one.
     ///
     /// SkippedReason identifies a retained download hold before the loop is armed.
-    /// ShowNotification reflects the admitted run's notification preference.
     /// FollowUpQueued reports whether admission retained an additional run behind current work.
+    /// Throws a conflict when the service is scheduled prefill and no prefill schedule is enabled.
     /// </summary>
-    Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool HideNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey);
+    Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(string serviceKey);
 
     /// <summary>
     /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no

@@ -17,7 +17,11 @@ import MockDataService from '@/test/mockData.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import {
+  SectionErrorChip,
+  SectionHeaderActions,
+  SectionHeaderChip
+} from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
@@ -27,11 +31,14 @@ import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { ApiError } from '@services/apiError';
-import { isConfirmedScanRefusalStatus, readScanAdmission } from './scanAdmission';
-import { followAdmittedScan, watchScanHold } from './scanHoldRecovery';
-import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
+import { isConfirmedScanRefusalStatus } from './scanAdmission';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { isSkippedRun, type GameDetectionCompleteEvent } from '@contexts/SignalRContext/types';
+import {
+  isSkippedRun,
+  type DatabaseResetCompleteEvent,
+  type GameDetectionCompleteEvent,
+  type LogProcessingCompleteEvent
+} from '@contexts/SignalRContext/types';
 import type { OperationStatus } from '@/types/operations';
 import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
@@ -61,7 +68,7 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
 import { getGameUniqueId } from './gameUtils';
-import { classifyGameFromCacheInfo, shouldPinOperationIdFromResponse } from './gameRemovalEntity';
+import { classifyGameFromCacheInfo } from './gameRemovalEntity';
 import {
   buildLoadedResultsSummary,
   CACHED_DETECTION_RELOAD_DELAY_MS,
@@ -99,7 +106,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   refreshKey = 0
 }) => {
   const { t } = useTranslation();
-  const { addNotification, updateNotification, notifications, events } = useNotifications();
+  const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
@@ -121,17 +128,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // sizes are stale before the report is written. Both scans wait for the transfer to finish.
   const scanGate = useCacheScanBlocked();
   // An eviction scan runs its own hidden full detection, so a scan started here would be
-  // deduplicated onto that child. Cards cover visible work; mount/reconnect recovery and the
-  // queued/alreadyRunning response branches cover hidden work.
+  // deduplicated onto that child. The run list holds the scan itself, Hidden ones included.
   const evictionScanActive = useOperationBusy({
     types: ['eviction_scan'],
     status: ['running', 'waiting']
   });
 
-  useEffect(() => () => scanAttemptAbortRef.current?.abort(), []);
-
-  // Derive game detection state from notifications (standardized pattern)
-  const isDetectionFromNotification = useOperationBusy({ types: ['game_detection'] });
+  // Game detection state from the server's run list. The eviction scan's own detection phase is
+  // folded under that scan, so it never lands here.
+  const isDetectionFromNotification = useOperationBusy({
+    types: ['game_detection'],
+    status: ['running', 'cancelling']
+  });
   // A QUEUED detection scan also disables the scan buttons (re-click would only
   // queue a duplicate), without flipping the blocking body loader that the
   // running flag drives.
@@ -155,10 +163,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [isLoadingData, setIsLoadingData] = useState(false);
   // Ref to prevent duplicate API calls (handles rapid button clicks before state updates)
   const detectionInFlightRef = useRef(false);
-  const scanAttemptAbortRef = useRef<AbortController | null>(null);
-  const heldOperationIdRef = useRef<string | null>(null);
-  const [scanButtonsHeld, setScanButtonsHeld] = useState(false);
-  const [scanHoldUnknown, setScanHoldUnknown] = useState(false);
   // Combined loading state: notification says running, starting phase, or explicit Load click.
   const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
@@ -210,8 +214,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
   const [isLoadingInitialCache, setIsLoadingInitialCache] = useState(() => !mockMode);
-  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [initialLoadRetry, setInitialLoadRetry] = useState(0);
+  // The first load, Retry, "Load previous results", the reconnect reload and the scheduled
+  // reloads can overlap; only the newest read writes the results and the section error.
+  const cachedDetectionRequestRef = useRef(0);
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
@@ -279,13 +286,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       errorContext: string,
       options?: { invalidateImages?: boolean; onError?: (error: unknown) => void }
     ) => {
+      const request = ++cachedDetectionRequestRef.current;
       try {
         const snapshot = await loadCachedDetectionSnapshot();
 
-        if (snapshot.hasCachedResults) {
-          applyCachedDetectionSnapshot(snapshot);
-        } else {
-          clearCachedDetectionSnapshot();
+        // A superseded read still answers its caller, but the newer read owns the list.
+        if (request === cachedDetectionRequestRef.current) {
+          if (snapshot.hasCachedResults) {
+            applyCachedDetectionSnapshot(snapshot);
+          } else {
+            clearCachedDetectionSnapshot();
+          }
+          setLoadError(null);
         }
 
         if (options?.invalidateImages) {
@@ -294,9 +306,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
         return snapshot;
       } catch (err) {
-        options?.onError?.(err);
-        // Background resync callers keep their stale or empty fallback. The initial-load caller
-        // also receives the error so its card can offer an in-view retry.
+        if (request === cachedDetectionRequestRef.current) {
+          options?.onError?.(err);
+        }
+        // The caller's onError shows the failure; this line keeps the console record.
         notifyError(t('management.gameDetection.errors.syncFailed'), err, {
           silent: true,
           logLabel: `[GameCacheDetector] ${errorContext}`
@@ -318,57 +331,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const scheduleCachedDetectionSync = useCallback(
     (errorContext: string, invalidateImages = false) => {
       scheduleCachedDetectionReload(() => {
-        void syncCachedDetection(errorContext, { invalidateImages });
+        void syncCachedDetection(errorContext, {
+          invalidateImages,
+          onError: (error) => setLoadError(getErrorMessage(error))
+        });
       });
     },
     [scheduleCachedDetectionReload, syncCachedDetection]
   );
 
-  const releaseDetectionAttempt = useCallback((attempt: AbortController) => {
-    if (attempt.signal.aborted || scanAttemptAbortRef.current !== attempt) return;
-    setIsStartingDetection(false);
-    setScanType(null);
-    detectionInFlightRef.current = false;
-    heldOperationIdRef.current = null;
-    scanAttemptAbortRef.current = null;
-    setScanButtonsHeld(false);
-    setScanHoldUnknown(false);
-  }, []);
-
-  const recoverDetectionAdmission = useCallback(async () => {
-    if (mockMode) return;
-    const attempt = new AbortController();
-    scanAttemptAbortRef.current?.abort();
-    scanAttemptAbortRef.current = attempt;
-    detectionInFlightRef.current = true;
-    setIsStartingDetection(false);
-    setScanType(null);
-    setScanButtonsHeld(true);
-    setScanHoldUnknown(false);
-
-    const hold = await watchScanHold({
-      operationId: heldOperationIdRef.current,
-      kind: 'gameDetection',
-      abortSignal: attempt.signal
-    });
-    if (hold.decision === 'aborted' || attempt.signal.aborted) return;
-    heldOperationIdRef.current = hold.operationId;
-    if (hold.decision === 'unknown') {
-      setScanHoldUnknown(true);
-      return;
-    }
-
-    await syncCachedDetection('Failed to refresh cached results after scan recovery', {
-      invalidateImages: true
-    });
-    releaseDetectionAttempt(attempt);
-  }, [mockMode, releaseDetectionAttempt, syncCachedDetection]);
-
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
     const loadCachedGames = async () => {
       if (mockMode) {
-        setInitialLoadError(null);
+        setLoadError(null);
         // The same detection the Dashboard's Games on Disk card shows in mock mode, widened to
         // the fuller shape this tab renders: the summary the dashboard reads carries no depot
         // ids, sample URLs or datasources.
@@ -394,10 +370,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
 
       setIsLoadingInitialCache(true);
-      setInitialLoadError(null);
+      setLoadError(null);
       try {
         const snapshot = await syncCachedDetection('Failed to load cached games and services', {
-          onError: (error) => setInitialLoadError(getErrorMessage(error))
+          onError: (error) => setLoadError(getErrorMessage(error))
         });
         if (!snapshot?.hasCachedResults) {
           return;
@@ -427,54 +403,51 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, refreshKey, initialLoadRetry]); // Re-run when mockMode or refreshKey changes
 
-  useEffect(() => {
-    void recoverDetectionAdmission();
-  }, [recoverDetectionAdmission]);
-
   // A dropped socket can swallow the completion event of a scan or removal that
   // finished while it was down; resync the cached detection snapshot on reconnect.
   // Skip in mock mode: the global socket stays connected there, so a resync would pull
   // real cache data into the mock view.
   useReconnectRefetch(isConnected, () => {
-    void recoverDetectionAdmission();
+    if (!mockMode) {
+      void syncCachedDetection('Failed to refresh cached results after reconnect', {
+        invalidateImages: true,
+        onError: (error) => setLoadError(getErrorMessage(error))
+      });
+    }
   });
 
-  // Listen for notification events from SignalR (consolidated)
   useCompletedRemovalPruning({
-    notifications,
     setGames,
     setServices
   });
 
   useEffect(() => {
-    // Handle database reset completion
-    const databaseResetNotifs = notifications.filter(
-      (n) => n.type === 'database_reset' && n.status === 'completed'
-    );
-    if (databaseResetNotifs.length > 0) {
+    const handleDatabaseResetComplete = (event: DatabaseResetCompleteEvent) => {
+      if (!event.success) return;
       setGames([]);
       setServices([]);
       setUnmappedServices(null);
       refreshSetupStatus();
-    }
+    };
 
-    // Handle log processing completion
-    const logProcessingNotifs = notifications.filter(
-      (n) => n.type === 'log_processing' && n.status === 'completed'
-    );
-    if (logProcessingNotifs.length > 0) {
+    const handleLogProcessingComplete = (event: LogProcessingCompleteEvent) => {
+      if (!event.success) return;
       refreshSetupStatus();
-    }
-  }, [notifications, refreshSetupStatus]);
+    };
 
-  // Direct SignalR listener for GameDetectionComplete - reloads results regardless of who started the scan.
-  // This handles the case where an external process (e.g., a scheduled scan or another browser tab)
-  // triggers a scan while isStartingDetection is false, so the notification-based flow above would not reload.
+    on('DatabaseResetComplete', handleDatabaseResetComplete);
+    on('LogProcessingComplete', handleLogProcessingComplete);
+    return () => {
+      off('DatabaseResetComplete', handleDatabaseResetComplete);
+      off('LogProcessingComplete', handleLogProcessingComplete);
+    };
+  }, [on, off, refreshSetupStatus]);
+
+  // Reloads results whoever started the scan: this page, a schedule or another browser tab.
   useEffect(() => {
     const handleDetectionComplete = (event: GameDetectionCompleteEvent) => {
       if (isSkippedRun(event)) return;
-      if (detectionInFlightRef.current) return;
-      scheduleCachedDetectionSync('Failed to reload results after external scan', true);
+      scheduleCachedDetectionSync('Failed to load detection results', true);
     };
 
     on('GameDetectionComplete', handleDetectionComplete);
@@ -539,83 +512,24 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setIsStartingDetection(true);
       setScanType(scanTypeLabel);
 
-      const attempt = new AbortController();
-      scanAttemptAbortRef.current?.abort();
-      scanAttemptAbortRef.current = attempt;
-      const releaseAttempt = () => releaseDetectionAttempt(attempt);
-
       try {
-        const result = await ApiService.startGameCacheDetection(forceRefresh);
-        if (attempt.signal.aborted) return;
-        const admission = readScanAdmission(result);
-        heldOperationIdRef.current = result.operationId;
-        if (admission === 'started' && shouldPinOperationIdFromResponse(result)) {
-          addNotification(
-            buildSeededRunningNotification(
-              'game_detection',
-              result.operationId,
-              t('signalr.gameDetect.starting.default')
-            )
-          );
-        } else {
-          setIsStartingDetection(false);
-          setScanType(null);
-        }
-        setScanButtonsHeld(true);
-        const decision = await followAdmittedScan({
-          signalR: { on, off },
-          events,
-          abortSignal: attempt.signal,
-          operationId: result.operationId,
-          admission,
-          completeEvent: 'GameDetectionComplete',
-          kind: 'gameDetection'
-        });
-        if (decision === 'aborted' || attempt.signal.aborted) return;
-        if (decision === 'release') {
-          await syncCachedDetection('Failed to load detection results', {
-            invalidateImages: true
-          });
-          releaseAttempt();
-        } else {
-          setScanButtonsHeld(true);
-          setScanHoldUnknown(decision === 'unknown');
-          setIsStartingDetection(false);
-        }
+        // The server's run row opens the scan's card and keeps the buttons busy until it ends;
+        // the GameDetectionComplete listener reloads the results.
+        await ApiService.startGameCacheDetection(forceRefresh);
       } catch (err: unknown) {
-        if (attempt.signal.aborted) return;
         if (err instanceof ApiError && isConfirmedScanRefusalStatus(err.status)) {
-          addNotification({
-            type: 'generic',
-            status: 'failed',
-            message: getErrorMessage(err),
-            details: { notificationType: 'error' }
-          });
-          releaseAttempt();
-          return;
-        }
-        if (!isAbortError(err)) {
+          notifyError(t('management.gameDetection.errors.startFailed'), err);
+        } else if (!isAbortError(err)) {
+          // A timeout or dropped connection may still have started the scan; its run row says so.
           console.error('Detection error:', err);
         }
+      } finally {
+        detectionInFlightRef.current = false;
         setIsStartingDetection(false);
         setScanType(null);
-        setScanButtonsHeld(true);
-        heldOperationIdRef.current = null;
-        await recoverDetectionAdmission();
       }
     },
-    [
-      mockMode,
-      loading,
-      t,
-      addNotification,
-      events,
-      on,
-      off,
-      recoverDetectionAdmission,
-      releaseDetectionAttempt,
-      syncCachedDetection
-    ]
+    [mockMode, loading, t, addNotification, notifyError]
   );
 
   const handleFullScan = useCallback(() => startDetection(true, 'full'), [startDetection]);
@@ -630,15 +544,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setScanType('load');
     setIsLoadingData(true);
 
+    let loadFailure: unknown;
     try {
-      const snapshot = await syncCachedDetection('Failed to load previous results');
+      const snapshot = await syncCachedDetection('Failed to load previous results', {
+        onError: (error) => {
+          loadFailure = error;
+        }
+      });
       if (!snapshot) {
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: t('management.gameDetection.failedToLoadPreviousResults'),
-          details: { notificationType: 'error' }
-        });
+        notifyError(t('management.gameDetection.failedToLoadPreviousResults'), loadFailure);
         return;
       }
 
@@ -655,13 +569,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         details: { notificationType: resultsSummary ? 'success' : 'info' }
       });
     } catch (err) {
-      console.error('[GameCacheDetector] Failed to load data:', err);
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.gameDetection.failedToLoadPreviousResults'),
-        details: { notificationType: 'error' }
-      });
+      notifyError(t('management.gameDetection.failedToLoadPreviousResults'), err);
     } finally {
       setIsLoadingData(false);
       setScanType(null);
@@ -689,9 +597,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setGameToRemove(null);
     await runTrackedGameRemoval({
       game,
+      notifyError,
       t,
-      addNotification,
-      updateNotification,
       scheduleRemovalRefresh,
       onDataRefresh
     });
@@ -814,9 +721,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setServiceToRemove(null);
     await runTrackedServiceRemoval({
       service,
+      notifyError,
       t,
-      addNotification,
-      updateNotification,
       scheduleRemovalRefresh,
       onDataRefresh
     });
@@ -1014,6 +920,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
     <SectionHeaderActions>
+      {loadError !== null && !sectionExpanded && <SectionErrorChip />}
       {selectedCombinedCount > 0 && (
         <SectionHeaderChip variant="neutral" className="badge-count">
           {selectedCombinedCount}
@@ -1067,7 +974,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 disabled={
                   loading ||
                   isDetectionQueued ||
-                  scanButtonsHeld ||
                   evictionScanActive ||
                   mockMode ||
                   setupStatusLoading ||
@@ -1098,7 +1004,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 disabled={
                   loading ||
                   isDetectionQueued ||
-                  scanButtonsHeld ||
                   evictionScanActive ||
                   mockMode ||
                   setupStatusLoading ||
@@ -1224,21 +1129,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         <div className="space-y-3">
           <CardDirectoryNotice notice={directoryNotice} />
 
-          {scanHoldUnknown && (
-            <ErrorBlock
-              title={t('management.gameDetection.errors.scanHoldUnknownTitle')}
-              message={t('management.gameDetection.errors.scanHoldUnknown')}
-              retryLabel={t('common.retry')}
-              onRetry={() => {
-                void recoverDetectionAdmission();
-              }}
-            />
-          )}
-
-          {initialLoadError && (
+          {loadError && (
             <ErrorBlock
               title={t('management.gameDetection.errors.syncFailed')}
-              message={initialLoadError}
+              message={loadError}
               retryLabel={t('common.retry')}
               onRetry={() => setInitialLoadRetry((current) => current + 1)}
             />
@@ -1411,7 +1305,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               )}
 
               {/* Empty State - shown only when the scan has no mapped or unmapped results */}
-              {!hasResults && !loading && !initialLoadError && (
+              {!hasResults && !loading && !loadError && (
                 <EmptyState
                   title={
                     selectedDatasource
@@ -1489,12 +1383,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               'This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.'
           })}
         </p>
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">
-            {t('management.sections.data.gameCacheRemoveAllConfirmWarning', {
-              defaultValue:
-                'This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.'
-            })}
+            {t('management.sections.data.gameCacheRemoveAllConfirmWarning')}
           </p>
         </Alert>
       </ConfirmationModal>

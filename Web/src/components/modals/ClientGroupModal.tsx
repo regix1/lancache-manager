@@ -4,6 +4,7 @@ import { Plus, Users } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
 import FormField from '@components/ui/FormField';
@@ -855,12 +856,12 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     if (groupsError) {
       return (
         <div className="clientgroup-ip-picker__state">
-          <Alert color="red">
-            <span className="text-sm">{t('modals.clientGroup.errors.loadAddressesFailed')}</span>
-          </Alert>
-          <Button type="button" size="sm" variant="default" onClick={() => void refreshGroups()}>
-            {t('common.retry')}
-          </Button>
+          <ErrorBlock
+            title={t('modals.clientGroup.errors.loadAddressesFailed')}
+            message={groupsError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refreshGroups()}
+          />
         </div>
       );
     }

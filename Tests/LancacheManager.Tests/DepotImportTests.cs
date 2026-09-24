@@ -3,6 +3,7 @@ using System.Net;
 using System.Data.Common;
 using System.Reflection;
 using System.Text.Json;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamKit2;
@@ -20,6 +21,8 @@ using Microsoft.Extensions.Configuration;
 
 namespace LancacheManager.Tests;
 
+// The fixture holds the image fetch's process-wide execution lock for each test's lifetime.
+[Collection(nameof(GameImageExecutionLockCollection))]
 public sealed class DepotImportTests
 {
     [Theory]
@@ -67,11 +70,128 @@ public sealed class DepotImportTests
         var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
         Assert.True(terminal.Content.GetProperty("Success").GetBoolean());
         Assert.False(terminal.Content.GetProperty("Cancelled").GetBoolean());
-        Assert.Equal(trigger == RunTrigger.Manual, terminal.Content.GetProperty("ShowNotification").GetBoolean());
+        // An import passed no notice builds one from the service mode and its own trigger.
+        var notice = fixture.Tracker.GetOperation(terminal.Content.GetProperty("OperationId").GetGuid())!.Notice!;
+        Assert.Equal(NotificationMode.Manual, notice.Mode);
+        Assert.Equal(trigger, notice.Trigger);
         using var published = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.MappingFile));
         Assert.Equal("retained", published.RootElement.GetProperty("futureField").GetString());
         Assert.Equal("2.8", published.RootElement.GetProperty("metadata").GetProperty("version").GetString());
     }
+
+    [Fact]
+    public async Task AGitHubImportStartedFromTheDepotPageUnderHiddenGivesAHiddenRow()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        fixture.Service.SetNotificationMode(NotificationMode.Hidden);
+        var controller = new DepotsController(fixture.Service, fixture.Pics, fixture.State,
+            NullLogger<DepotsController>.Instance,
+            new OperationConflictChecker(fixture.Tracker, NullLogger<OperationConflictChecker>.Instance));
+
+        await controller.ImportDepotMappingsAsync("github", CancellationToken.None);
+
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationType == "depotMapping");
+        Assert.Equal("completed", run.Status);
+        Assert.Equal(RunVisibility.Hidden, run.Visibility);
+    }
+
+    [Fact]
+    public async Task AScheduledPicsRebuildRegistersTheNoticeItWasAdmittedWith()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var admitted = new RunNotice(NotificationMode.Manual, RunTrigger.Scheduled);
+
+        await StartRebuildAndStopBeforeConnectingAsync(fixture,
+            () => fixture.Service.TryStartRebuild(trigger: RunTrigger.Scheduled, notice: admitted));
+
+        Assert.Same(admitted, SingleRunNotice(fixture));
+    }
+
+    [Theory]
+    [InlineData(NotificationMode.Manual)]
+    [InlineData(NotificationMode.Hidden)]
+    public async Task ARestRebuildWithNoNoticeRegistersAManualNoticeInTheServiceMode(NotificationMode mode)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Service.SetNotificationMode(mode);
+
+        await StartRebuildAndStopBeforeConnectingAsync(fixture, () => fixture.Service.TryStartRebuild());
+
+        var notice = SingleRunNotice(fixture);
+        Assert.Equal(mode, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+    }
+
+    [Fact]
+    public async Task AScheduledGitHubImportRegistersTheNoticeItWasAdmittedWith()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        var admitted = new RunNotice(NotificationMode.Manual, RunTrigger.Scheduled);
+
+        Assert.True(await fixture.Service.ImportFromGitHubAsync(CancellationToken.None, RunTrigger.Scheduled, admitted));
+
+        Assert.Same(admitted, SingleRunNotice(fixture));
+    }
+
+    [Fact]
+    public async Task ApplyingMappingsRegistersAManualNoticeInTheServiceMode()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Service.SetNotificationMode(NotificationMode.Hidden);
+
+        await fixture.Service.ManuallyApplyDepotMappingsAsync();
+
+        var notice = SingleRunNotice(fixture);
+        Assert.Equal(NotificationMode.Hidden, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+    }
+
+    [Fact]
+    public async Task ASkippedDepotRunRegistersTheNoticeItWasAdmittedWith()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var admitted = new RunNotice(NotificationMode.Manual, RunTrigger.Scheduled);
+        fixture.Service.SelectRunNotice(admitted);
+
+        await (Task)Invoke(fixture.Service, "ReportRunSkippedAsync",
+            "signalr.depotMapping.skippedSetupIncomplete", CancellationToken.None)!;
+
+        Assert.Equal("skipped", Assert.Single(fixture.Tracker.GetRuns().Runs).Status);
+        Assert.Same(admitted, SingleRunNotice(fixture));
+    }
+
+    [Fact]
+    public async Task AFailedDepotRunRegistersTheNoticeItWasAdmittedWith()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var admitted = new RunNotice(NotificationMode.Manual, RunTrigger.Scheduled);
+        fixture.Service.SelectRunNotice(admitted);
+
+        await (Task)Invoke(fixture.Service, "ReportRunFailedAsync", "Steam is unreachable", CancellationToken.None)!;
+
+        Assert.Equal("failed", Assert.Single(fixture.Tracker.GetRuns().Runs).Status);
+        Assert.Same(admitted, SingleRunNotice(fixture));
+    }
+
+    // The crawl fails at its started event, so it never connects to Steam; its operation is already
+    // registered by then.
+    private static async Task StartRebuildAndStopBeforeConnectingAsync(Fixture fixture, Func<bool> start)
+    {
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (name == "DepotMappingStarted") throw new IOException("Stopped before connecting");
+        };
+        Assert.True(start());
+        await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private static RunNotice SingleRunNotice(Fixture fixture) =>
+        fixture.Tracker.GetOperation(Assert.Single(fixture.Tracker.GetRuns().Runs).OperationId)!.Notice!;
 
     [Fact]
     public async Task EqualCursorCanBeImportedAgainAndOlderCursorCannotReplaceIt()
@@ -479,7 +599,8 @@ public sealed class DepotImportTests
         Assert.False(fixture.State.GetState().HasDataLoaded);
         Set(fixture.Service, "_lastChangeNumberSeen", 200u);
         using var source = new CancellationTokenSource();
-        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source, null)!;
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
         await reporter.StartAsync();
         await (Task)Invoke(fixture.Service, "FinalizeAndNotifyAsync", incremental, reporter.Token)!;
         Assert.Equal(200u, fixture.State.GetState().LastPicsChangeNumber);
@@ -570,7 +691,8 @@ public sealed class DepotImportTests
         fixture.State.UpdateState(state => state.HasDataLoaded = loaded);
         Set(fixture.Service, "_lastChangeNumberSeen", 200u);
         using var source = new CancellationTokenSource();
-        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source, null)!;
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
         await reporter.StartAsync();
         fixture.Events.BeforeSend = (_, content) =>
         {
@@ -672,6 +794,7 @@ public sealed class DepotImportTests
         public StateService State { get; }
         public PicsDataService Pics { get; }
         public SteamKit2Service Service { get; }
+        public UnifiedOperationTracker Tracker { get; }
         public RecordingNotifications Events { get; }
         public string Source { get; set; } = Snapshot(200);
         public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
@@ -715,6 +838,7 @@ public sealed class DepotImportTests
             Events = (RecordingNotifications)(object)notifications;
             _processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
             var tracker = new UnifiedOperationTracker(_processes, NullLogger<UnifiedOperationTracker>.Instance);
+            Tracker = tracker;
             _images = new GameImageFetchService(_services, NullLogger<GameImageFetchService>.Instance,
                 new ConfigurationBuilder().Build(), State, notifications,
                 DispatchProxy.Create<IImageCacheService, NullReturningProxy>(), tracker);

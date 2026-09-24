@@ -18,8 +18,9 @@ internal sealed class TestableSteamDaemonService : SteamDaemonService
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
-        TimeProvider? cacheStatusClock = null)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory(), cacheStatusClock: cacheStatusClock)
+        TimeProvider? cacheStatusClock = null,
+        IUnifiedOperationTracker? operationTracker = null)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory(), operationTracker: operationTracker, cacheStatusClock: cacheStatusClock)
     {
     }
 

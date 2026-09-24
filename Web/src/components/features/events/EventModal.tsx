@@ -5,6 +5,7 @@ import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Button } from '@components/ui/Button';
+import { Alert } from '@components/ui/Alert';
 import FormField from '@components/ui/FormField';
 import { useEvents } from '@contexts/useEvents';
 import { useReaderClock } from '@hooks/useReaderClock';
@@ -34,6 +35,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set only for a failed save or delete; a validation message has no title.
+  const [errorTitle, setErrorTitle] = useState<string>();
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   // The floor the two DateTimePickers below are given. They compare it against cells they build
@@ -90,6 +93,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     async (e: React.FormEvent) => {
       e.preventDefault();
       setError(null);
+      setErrorTitle(undefined);
 
       if (!name.trim()) {
         setError(t('events.modal.errors.nameRequired'));
@@ -126,6 +130,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         }
         onSave();
       } catch (err) {
+        setErrorTitle(t('events.modal.errors.saveFailed'));
         setError(getErrorMessage(err));
       } finally {
         setSaving(false);
@@ -158,12 +163,13 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       await deleteEvent(event.id);
       onSave();
     } catch (err) {
+      setErrorTitle(t('events.modal.errors.deleteFailed'));
       setError(getErrorMessage(err));
       setShowDeleteConfirm(false);
     } finally {
       setDeleting(false);
     }
-  }, [event, deleteEvent, onSave]);
+  }, [event, deleteEvent, onSave, t]);
 
   const handleViewOnDashboard = useCallback(() => {
     if (!event) return;
@@ -205,11 +211,10 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Error */}
           {error && (
-            <div className="p-3 rounded-lg bg-[var(--theme-error-faint)] border border-[var(--theme-error-strong)]">
-              <p className="text-sm text-[var(--theme-status-error)]">{error}</p>
-            </div>
+            <Alert color="error" title={errorTitle}>
+              {error}
+            </Alert>
           )}
 
           {/* Name */}

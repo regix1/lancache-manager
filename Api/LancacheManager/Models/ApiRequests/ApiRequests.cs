@@ -255,7 +255,6 @@ public class UpdateStatsExclusionsRequest
 public class UpdateEvictionSettingsRequest
 {
     public string EvictedDataMode { get; set; } = string.Empty;
-    public bool? EvictionScanNotifications { get; set; }
 }
 
 public class RemoveOrphanedDownloadsRequest

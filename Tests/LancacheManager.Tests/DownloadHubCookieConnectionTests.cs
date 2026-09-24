@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
@@ -121,7 +123,7 @@ public sealed class DownloadHubCookieConnectionTests
 
     /// <summary>
     /// An admin, a user and a guest each connect with nothing but the cookie and each receives a
-    /// broadcast sent to the group they were put in.
+    /// broadcast sent to the group they were put in, and the guest never receives an admin-only one.
     /// </summary>
     [Fact]
     public async Task AnAdminAUserAndAGuestEachReceiveABroadcastOverACookieOnlyConnection()
@@ -129,6 +131,8 @@ public sealed class DownloadHubCookieConnectionTests
         using var host = new EndpointAuthorizationHost();
         using var isolationClient = host.Application.CreateClient();
         await host.AssertIsolationAsync(isolationClient);
+        Assert.IsType<DownloadHubLifetimeManager>(
+            host.Application.Services.GetRequiredService<HubLifetimeManager<DownloadHub>>());
 
         using var scope = host.Application.Services.CreateScope();
         var connections = new List<(SessionType Role, HubOverLongPolling Connection)>();
@@ -164,6 +168,22 @@ public sealed class DownloadHubCookieConnectionTests
                     await connection.ReceivedAsync(broadcast),
                     $"A {role} connection stopped receiving live updates.");
             }
+
+            var hubContext = host.Application.Services.GetRequiredService<IHubContext<DownloadHub>>();
+            var adminOnly = $"download-hub-admin-{Guid.NewGuid():N}";
+            var authenticated = $"download-hub-authenticated-{Guid.NewGuid():N}";
+            await hubContext.Clients.Group(DownloadHub.AdminGroup).SendAsync(SignalREvents.ActivityUpdated, adminOnly);
+            await hubContext.Clients.Group(DownloadHub.AuthenticatedUsersGroup).SendAsync(SignalREvents.ActivityUpdated, authenticated);
+
+            var admin = connections.Single(entry => entry.Role == SessionType.Admin).Connection;
+            Assert.True(await admin.ReceivedAsync(adminOnly));
+            Assert.True(await admin.ReceivedAsync(authenticated));
+
+            // A connection receives its updates in send order, so a guest holding the second marker
+            // would already hold the first if it had been sent to it.
+            var guest = connections.Single(entry => entry.Role == SessionType.Guest).Connection;
+            Assert.True(await guest.ReceivedAsync(authenticated));
+            Assert.False(guest.HasReceived(adminOnly), "A guest connection received an admin-only update.");
         }
         finally
         {
@@ -172,6 +192,169 @@ public sealed class DownloadHubCookieConnectionTests
                 connection.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// A guest sees no management page, so it receives no run progress or schedule state, and it still
+    /// receives every completion its dashboard and downloads list refetch on. Admins and users receive both.
+    /// </summary>
+    [Fact]
+    public async Task AGuestReceivesOnlyTheRunEventsItsDashboardRefetchesOn()
+    {
+        // Read before the host starts: the host moves the working directory to a temporary root.
+        var typesSource = File.ReadAllText(Path.Combine(
+            EndpointAuthorizationHost.FindRepositoryRoot(), "Web", "src", "contexts", "SignalRContext", "types.ts"));
+        var refreshList = Regex.Match(
+            typesSource,
+            @"SIGNALR_REFRESH_EVENTS = \[(?<names>.*?)\]",
+            RegexOptions.Singleline,
+            TimeSpan.FromSeconds(5));
+        Assert.True(refreshList.Success, "SIGNALR_REFRESH_EVENTS was not found in types.ts.");
+        var refreshEvents = Regex.Matches(refreshList.Groups["names"].Value, "'(?<name>\\w+)'", RegexOptions.None, TimeSpan.FromSeconds(5))
+            .Select(match => match.Groups["name"].Value)
+            .ToList();
+        Assert.NotEmpty(refreshEvents);
+
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var scope = host.Application.Services.CreateScope();
+        var connections = new List<(SessionType Role, HubOverLongPolling Connection)>();
+
+        try
+        {
+            foreach (var role in new[] { SessionType.Admin, SessionType.User, SessionType.Guest })
+            {
+                var connection = new HubOverLongPolling(
+                    host.Application.Server.CreateClient(),
+                    (await SessionAsync(host, scope, role)).Cookie);
+                connections.Add((role, connection));
+
+                Assert.Equal(HttpStatusCode.OK, await connection.NegotiateAsync());
+                await connection.StartAsync();
+                Assert.True(await connection.ReceivedAsync(SignalREvents.ActivityUpdated));
+            }
+
+            var admin = connections.Single(entry => entry.Role == SessionType.Admin).Connection;
+            var guest = connections.Single(entry => entry.Role == SessionType.Guest).Connection;
+            var notifications = host.Application.Services.GetRequiredService<ISignalRNotificationService>();
+
+            var managementOnly = new List<string>();
+            foreach (var eventName in new[]
+            {
+                SignalREvents.GameRemovalProgress, SignalREvents.SchedulesUpdated,
+                SignalREvents.ScheduledPrefillStarted, SignalREvents.PrefillHistoryUpdated
+            })
+            {
+                managementOnly.Add($"{eventName}-{Guid.NewGuid():N}");
+                await notifications.NotifyAllAsync(eventName, managementOnly[^1]);
+            }
+
+            managementOnly.Add($"{SignalREvents.StatusCheckProgress}-{Guid.NewGuid():N}");
+            notifications.NotifyAllFireAndForget(SignalREvents.StatusCheckProgress, managementOnly[^1]);
+
+            // The fire-and-forget send runs on another thread; once an admin holds it, every send above
+            // has been written to every connection it was sent to.
+            Assert.True(await admin.ReceivedAsync(managementOnly[^1]));
+
+            var everyone = new List<string>();
+            foreach (var eventName in refreshEvents.Concat(new[]
+            {
+                SignalREvents.DatabaseResetProgress, SignalREvents.EventCreated, SignalREvents.GuestDurationUpdated
+            }))
+            {
+                everyone.Add($"{eventName}-{Guid.NewGuid():N}");
+                await notifications.NotifyAllAsync(eventName, everyone[^1]);
+            }
+
+            foreach (var (role, connection) in connections)
+            {
+                foreach (var marker in everyone)
+                {
+                    Assert.True(await connection.ReceivedAsync(marker), $"A {role} connection missed {marker}.");
+                }
+            }
+
+            foreach (var (role, connection) in connections.Where(entry => entry.Role != SessionType.Guest))
+            {
+                foreach (var marker in managementOnly)
+                {
+                    Assert.True(await connection.ReceivedAsync(marker), $"A {role} connection missed {marker}.");
+                }
+            }
+
+            // A connection receives its updates in send order, so a guest holding the later markers
+            // would already hold these if they had been sent to it.
+            foreach (var marker in managementOnly)
+            {
+                Assert.False(guest.HasReceived(marker), $"A guest connection received {marker}.");
+            }
+        }
+        finally
+        {
+            foreach (var (_, connection) in connections)
+            {
+                connection.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// An admin browser that stops polling while updates keep coming is closed once it falls more than
+    /// the queue limit behind, with a Close that lets it reconnect, and the same cookie connects again
+    /// and receives live updates. An admin that keeps polling receives every update throughout.
+    /// </summary>
+    [Fact]
+    public async Task AnAdminThatFallsTooFarBehindIsClosedWithReconnectAllowed()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var scope = host.Application.Services.CreateScope();
+        var laggingCookie = (await SessionAsync(host, scope, SessionType.Admin)).Cookie;
+        using var lagging = new HubOverLongPolling(host.Application.Server.CreateClient(), laggingCookie);
+        using var polling = new HubOverLongPolling(
+            host.Application.Server.CreateClient(),
+            (await SessionAsync(host, scope, SessionType.Admin)).Cookie);
+        foreach (var connection in new[] { lagging, polling })
+        {
+            Assert.Equal(HttpStatusCode.OK, await connection.NegotiateAsync());
+            await connection.StartAsync();
+            Assert.True(await connection.ReceivedAsync(SignalREvents.ActivityUpdated));
+        }
+
+        // Batches of 32 messages of about 1 KB fill half of a connection's 64 KB transport buffer, so
+        // the connection polled after each batch never queues a write while the unpolled one does.
+        const int batchSize = 32;
+        var hubContext = host.Application.Services.GetRequiredService<IHubContext<DownloadHub>>();
+        for (var batchStart = 0; batchStart < 2 * DownloadHubLifetimeManager.MaxQueuedWrites; batchStart += batchSize)
+        {
+            var marker = string.Empty;
+            for (var index = batchStart; index < batchStart + batchSize; index++)
+            {
+                marker = $"queued-update-{index}-{Guid.NewGuid():N}";
+                await hubContext.Clients.Group(DownloadHub.AdminGroup)
+                    .SendAsync(SignalREvents.ActivityUpdated, marker.PadRight(1000, '.'));
+            }
+
+            Assert.True(await polling.ReceivedAsync(marker), $"The polling admin missed {marker}.");
+        }
+
+        Assert.True(await lagging.ReceivedAsync("\"type\":7"), "The lagging admin never received a Close.");
+        Assert.True(lagging.HasReceived("{\"type\":7,\"allowReconnect\":true}"), "The Close forbade reconnecting.");
+        Assert.True(await lagging.ClosedAsync());
+
+        using var reconnected = new HubOverLongPolling(host.Application.Server.CreateClient(), laggingCookie);
+        Assert.Equal(HttpStatusCode.OK, await reconnected.NegotiateAsync());
+        await reconnected.StartAsync();
+        Assert.True(await reconnected.ReceivedAsync(SignalREvents.ActivityUpdated));
+
+        var afterReconnect = $"after-reconnect-{Guid.NewGuid():N}";
+        await hubContext.Clients.Group(DownloadHub.AdminGroup).SendAsync(SignalREvents.ActivityUpdated, afterReconnect);
+        Assert.True(await reconnected.ReceivedAsync(afterReconnect));
+        Assert.True(await polling.ReceivedAsync(afterReconnect));
     }
 
     /// <summary>
@@ -314,7 +497,7 @@ public sealed class DownloadHubCookieConnectionTests
         {
             using var deadline = new CancellationTokenSource(ReceiveTimeout);
 
-            while (!_received.ToString().Contains(marker, StringComparison.Ordinal))
+            while (!HasReceived(marker))
             {
                 try
                 {
@@ -335,6 +518,9 @@ public sealed class DownloadHubCookieConnectionTests
 
             return true;
         }
+
+        /// <summary>True when <paramref name="marker"/> is in what the polls so far have returned.</summary>
+        public bool HasReceived(string marker) => _received.ToString().Contains(marker, StringComparison.Ordinal);
 
         public async Task<bool> ClosedAsync()
         {

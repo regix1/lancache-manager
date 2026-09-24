@@ -1,15 +1,13 @@
 /**
- * Constants for the notification system.
- * Includes timing values, storage keys, and ID generators.
+ * Constants for the notification system: type maps, shared i18n keys and timing values.
  */
 
 import type { NotificationType } from './types';
 
 /**
- * Backend OperationType wire string (camelCase) -> notification type.
- * Used by the operation wait-queue plumbing (OperationWaiting/OperationWaitingComplete
- * SignalR events and the /api/operations/waiting recovery endpoint) to attach the purple
- * waiting card to the same per-type singleton card the running operation will use.
+ * Backend OperationType wire string (camelCase) -> notification type of the run card a run row
+ * draws. A wire type absent here draws no card (statusCheck, cacheFileCount and
+ * performanceOptimization); the server lists those same types as the ones without a card.
  */
 export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, NotificationType> = {
   cacheClearing: 'cache_clearing',
@@ -35,7 +33,8 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   gameImageFetch: 'game_image_fetch',
   cacheSnapshot: 'cache_snapshot',
   operationHistoryCleanup: 'operation_history_cleanup',
-  dashboardCacheWarmer: 'dashboard_cache_warmer'
+  dashboardCacheWarmer: 'dashboard_cache_warmer',
+  prefillLogin: 'prefill_login'
 };
 
 /**
@@ -79,17 +78,15 @@ export const MOBILE_FULL_CARD_CAP = 3;
 /**
  * Cancel state that lives ONLY in this browser session and that no server payload can know:
  * the X button's two-stage soft-cancel -> force-kill intent (`cancelRequested`/`cancelSent`,
- * read by UniversalNotificationBar's cancel handler and deferred-cancel watchdog) and the
+ * written and read by the cancel handler in components/common/notificationCancel.ts) and the
  * bulk queue's cancel signal (`cancelling`, the only flag useBatchQueue's cascade honours).
  *
  * These are NOT `details.cancelled`, which is the TERMINAL outcome the server reports and which
  * renders the card in the neutral gray a stop earns rather than the red a failure does - see
  * cacheRemovalHelpers, which sets both at once as `{ cancelled: true, cancelling: false }`.
  *
- * Because a persisted card and a REST recovery snapshot both predate (or simply cannot see) the
- * live intent, these keys are stripped wherever card state is rehydrated or merged: the
- * localStorage restore in NotificationsContext, mergeEventDetails in handlers, and
- * reconcileRecoveredCard in recovery.
+ * They are the only part of a run card the browser writes: `updateNotification` keeps exactly
+ * these keys from a run card's patch, and the server's rows own everything else.
  */
 export const LIVE_ONLY_CANCEL_DETAIL_KEYS = [
   'cancelRequested',
@@ -142,142 +139,12 @@ export const FAILED_TO_REMOVE_GAME_I18N_KEY = 'management.gameDetection.failedTo
 // Timing Constants
 // ============================================================================
 
-/** Default delay before auto-dismissing completed notifications (5 seconds) */
+/**
+ * The one popup time (5 seconds): how long a card that leaves on its own stays first - toasts,
+ * error toasts, the catalog announcements, and a finished run card that is neither red nor amber.
+ * Red and amber run cards stay until closed.
+ */
 export const AUTO_DISMISS_DELAY_MS = 5000;
-
-/** Delay before dismissing cancelled operation notifications (3 seconds) */
-export const CANCELLED_NOTIFICATION_DELAY_MS = 3000;
 
 /** Duration of notification slide/fade animations (300ms) */
 export const NOTIFICATION_ANIMATION_DURATION_MS = 300;
-
-/** Delay before dismissing Steam error notifications (10 seconds) */
-export const STEAM_ERROR_DISMISS_DELAY_MS = 10000;
-
-/** Default duration for toast notifications (4 seconds) */
-export const TOAST_DEFAULT_DURATION_MS = 4000;
-
-// ============================================================================
-// Storage Keys
-// ============================================================================
-
-/**
- * localStorage keys for persisting notification state across page refreshes.
- * Each key maps to a specific notification type.
- */
-export const NOTIFICATION_STORAGE_KEYS = {
-  /** Key for log processing operation state */
-  LOG_PROCESSING: 'notification_log_processing',
-  /** Key for log removal operation state */
-  LOG_REMOVAL: 'notification_log_removal',
-  /** Key for game removal operation state */
-  GAME_REMOVAL: 'notification_game_removal',
-  /** Key for service removal operation state */
-  SERVICE_REMOVAL: 'notification_service_removal',
-  /** Key for corruption removal operation state */
-  CORRUPTION_REMOVAL: 'notification_corruption_removal',
-  /** Key for corruption detection operation state */
-  CORRUPTION_DETECTION: 'notification_corruption_detection',
-  /** Key for game detection operation state */
-  GAME_DETECTION: 'notification_game_detection',
-  /** Key for cache clearing operation state */
-  CACHE_CLEARING: 'notification_cache_clearing',
-  /** Key for database reset operation state */
-  DATABASE_RESET: 'notification_database_reset',
-  /** Key for depot mapping operation state */
-  DEPOT_MAPPING: 'notification_depot_mapping',
-  /** Key for data import operation state */
-  DATA_IMPORT: 'notification_data_import',
-  /** Key for Epic game mapping operation state */
-  EPIC_GAME_MAPPING: 'notification_epic_game_mapping',
-  /** Key for Xbox game mapping operation state */
-  XBOX_GAME_MAPPING: 'notification_xbox_game_mapping',
-  /** Key for Battle.net game mapping operation state */
-  BATTLE_NET_GAME_MAPPING: 'notification_battle_net_game_mapping',
-  /** Key for Riot game mapping operation state */
-  RIOT_GAME_MAPPING: 'notification_riot_game_mapping',
-  /** Key for eviction scan operation state */
-  EVICTION_SCAN: 'eviction-scan-storage',
-  /** Key for eviction removal operation state */
-  EVICTION_REMOVAL: 'eviction-removal-storage',
-  /** Key for cache file scan operation state */
-  CACHE_SIZE_SCAN: 'cache-size-scan-storage',
-  /** Key for scheduled prefill operation state */
-  SCHEDULED_PREFILL: 'notification_scheduled_prefill',
-  /** Key for scheduled log rotation run state */
-  LOG_ROTATION: 'notification_log_rotation',
-  /** Key for scheduled game image fetch run state */
-  GAME_IMAGE_FETCH: 'notification_game_image_fetch',
-  /** Key for scheduled cache snapshot run state */
-  CACHE_SNAPSHOT: 'notification_cache_snapshot',
-  /** Key for scheduled operation history cleanup run state */
-  OPERATION_HISTORY_CLEANUP: 'notification_operation_history_cleanup',
-  /** Key for scheduled dashboard cache warmer run state */
-  DASHBOARD_CACHE_WARMER: 'notification_dashboard_cache_warmer'
-} as const;
-
-// ============================================================================
-// Notification ID Generators
-// ============================================================================
-
-/**
- * Notification ID constants.
- * All IDs are singleton because only one operation of each type can run at a time
- * due to backend locks (_cacheLock, _startLock, etc.).
- */
-export const NOTIFICATION_IDS = {
-  /** ID for log processing operations */
-  LOG_PROCESSING: 'log_processing',
-  /** ID for cache clearing operations */
-  CACHE_CLEARING: 'cache_clearing',
-  /** ID for database reset operations */
-  DATABASE_RESET: 'database_reset',
-  /** ID for depot mapping operations */
-  DEPOT_MAPPING: 'depot_mapping',
-  /** ID for log removal operations */
-  LOG_REMOVAL: 'log_removal',
-  /** ID for game removal operations */
-  GAME_REMOVAL: 'game_removal',
-  /** ID for service removal operations */
-  SERVICE_REMOVAL: 'service_removal',
-  /** ID for corruption removal operations */
-  CORRUPTION_REMOVAL: 'corruption_removal',
-  /** ID for game detection operations */
-  GAME_DETECTION: 'game_detection',
-  /** ID for corruption detection operations */
-  CORRUPTION_DETECTION: 'corruption_detection',
-  /** ID for data import operations */
-  DATA_IMPORT: 'data_import',
-  /** ID for the tracked Epic mapping lifecycle */
-  EPIC_GAME_MAPPING: 'epic_game_mapping',
-  /** ID for Epic's secondary catalog-data update toast */
-  EPIC_GAME_MAPPING_UPDATE: 'epic_game_mapping_update',
-  /** ID for the tracked Xbox mapping lifecycle */
-  XBOX_GAME_MAPPING: 'xbox_game_mapping',
-  /** ID for Xbox's secondary catalog-data update toast */
-  XBOX_GAME_MAPPING_UPDATE: 'xbox_game_mapping_update',
-  /** ID for Battle.net game mapping updates */
-  BATTLE_NET_GAME_MAPPING: 'battle_net_game_mapping',
-  /** ID for Riot game mapping updates */
-  RIOT_GAME_MAPPING: 'riot_game_mapping',
-  /** ID for Steam session errors */
-  STEAM_SESSION_ERROR: 'steam_session_error',
-  /** ID for eviction scan operations */
-  EVICTION_SCAN: 'eviction-scan-notification',
-  /** ID for eviction removal operations */
-  EVICTION_REMOVAL: 'eviction-removal-notification',
-  /** ID for cache file scan operations */
-  CACHE_SIZE_SCAN: 'cache-size-scan-notification',
-  /** ID for scheduled prefill operations */
-  SCHEDULED_PREFILL: 'scheduled_prefill',
-  /** ID for scheduled log rotation runs */
-  LOG_ROTATION: 'log_rotation',
-  /** ID for scheduled game image fetch runs */
-  GAME_IMAGE_FETCH: 'game_image_fetch',
-  /** ID for scheduled cache snapshot runs */
-  CACHE_SNAPSHOT: 'cache_snapshot',
-  /** ID for scheduled operation history cleanup runs */
-  OPERATION_HISTORY_CLEANUP: 'operation_history_cleanup',
-  /** ID for scheduled dashboard cache warmer runs */
-  DASHBOARD_CACHE_WARMER: 'dashboard_cache_warmer'
-} as const;

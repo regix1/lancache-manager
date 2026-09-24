@@ -26,5 +26,4 @@ export const EVICTION_SETTINGS_CHANGED_EVENT = 'eviction-settings-changed' as co
  */
 export interface EvictionSettingsChangedDetail {
   evictedDataMode: string;
-  evictionScanNotifications: boolean;
 }

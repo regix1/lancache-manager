@@ -75,8 +75,6 @@ export interface CacheSizeScanStartInfo {
  * running, or was parked behind a different one in the wait queue.
  */
 export interface QueuedOperationResponse {
-  showNotification?: boolean | null;
-  hideNotification?: boolean | null;
   operationId: string;
   queued: boolean;
   alreadyRunning: boolean;

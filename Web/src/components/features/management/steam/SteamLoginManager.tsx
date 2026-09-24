@@ -12,14 +12,13 @@ import { useSteamAuth } from '@contexts/useSteamAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
-import { ApiError } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
 import { getIntegrationReasonKey } from '../../../../types';
 
 interface SteamLoginManagerProps {
   authMode: AuthMode;
   mockMode: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
   onSuccess?: (message: string) => void;
 }
 
@@ -81,11 +80,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError
       onSuccess?.(t('management.steamAuth.switchedToAnonymous'));
     } catch (err: unknown) {
       if (identityRef.current !== caller) return;
-      onError?.(
-        err instanceof ApiError && err.body?.stageKey
-          ? t(err.body.stageKey, err.body.context ?? {})
-          : t('modals.steamAuth.errors.failedToSwitchToAnonymous')
-      );
+      onError?.(t('modals.steamAuth.errors.failedToSwitchToAnonymous'), err);
     } finally {
       if (identityRef.current === caller) {
         setLoading(false);

@@ -116,7 +116,6 @@ public sealed class GameImageFetchFollowUpPassTests
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,
-            NullNotifications(),
             NullLogger<OperationQueueService>.Instance);
 
         tracker.RegisterOperation(

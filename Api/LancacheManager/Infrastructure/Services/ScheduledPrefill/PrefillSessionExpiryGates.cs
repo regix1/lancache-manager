@@ -41,8 +41,9 @@ public static class PrefillSessionExpiryGates
     /// <summary>
     /// True for an active session whose tracked login has been left unanswered past its deadline -
     /// the person opened the sign-in, never finished it, and closed the tab. Both existing login
-    /// deadlines run in the browser, so nothing else ends that attempt: the session stays
-    /// <see cref="DaemonAuthState.LoggingIn"/> and its card stays on the bar.
+    /// deadlines run in the browser, so nothing else ends that attempt: the session stays in
+    /// <see cref="DaemonAuthState.LoggingIn"/>, or at the prompt the daemon last sent, and its card
+    /// stays on the bar.
     ///
     /// The deadline is stored once on <see cref="DaemonSession.LoginExpiresAtUtc"/>. The daemon's
     /// challenge expiry replaces the initial manager deadline when present, so every downstream
@@ -54,7 +55,7 @@ public static class PrefillSessionExpiryGates
     public static bool ShouldCancelAbandonedLogin(DaemonSession session, DateTime nowUtc)
     {
         if (session.Status != DaemonSessionStatus.Active ||
-            session.AuthState != DaemonAuthState.LoggingIn ||
+            session.AuthState is DaemonAuthState.NotAuthenticated or DaemonAuthState.Authenticated ||
             session.LoginExpiresAtUtc is not { } deadline)
         {
             return false;

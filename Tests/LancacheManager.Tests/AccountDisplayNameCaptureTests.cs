@@ -41,7 +41,7 @@ public class AccountDisplayNameCaptureTests
         Assert.Equal("XboxGamerTag", persisted!.AccountUsername);
 
         Assert.Contains(recorder.Invocations, i =>
-            i.Method == nameof(ISignalRNotificationService.NotifySteamHubAsync)
+            i.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
             && i.Args.Length > 0
             && (i.Args[0] as string) == SignalREvents.DaemonSessionUpdated);
     }
@@ -123,7 +123,7 @@ public class AccountDisplayNameCaptureTests
         Assert.Equal("LateGamertag", persisted!.AccountUsername);
 
         Assert.Contains(recorder.Invocations, i =>
-            i.Method == nameof(ISignalRNotificationService.NotifySteamHubAsync)
+            i.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
             && i.Args.Length > 0
             && (i.Args[0] as string) == SignalREvents.DaemonSessionUpdated);
     }

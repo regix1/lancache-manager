@@ -355,7 +355,6 @@ public class LogsController : ControllerBase
                 return await _rustLogProcessorService.StartInBackgroundAsync(
                     datasource.LogPath,
                     position,
-                    silentMode: false,
                     datasourceName: datasourceName);
             }
 

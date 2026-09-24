@@ -11,6 +11,7 @@ using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Tests.CacheScanGateHarness;
@@ -23,6 +24,9 @@ namespace LancacheManager.Tests;
 /// until its terminal, and cancelled along with the scan. The tracker here is a stand-in the test
 /// drives, so the detection stays "running" exactly as long as each test wants it to.
 /// </summary>
+// A registry holding a run starts it when the process-wide downloads-ended event fires, so these
+// tests share that event's collection and never see another class raise it mid-test.
+[Collection(nameof(DownloadsEndedEventCollection))]
 public sealed class CacheScanDetectionPhaseTests
 {
     [Theory]
@@ -60,7 +64,7 @@ public sealed class CacheScanDetectionPhaseTests
         var scanId = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-            (ISignalRNotificationService)(object)ctx.Notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         var promoted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan",
             () => { promoted.TrySetResult(); return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
@@ -92,12 +96,12 @@ public sealed class CacheScanDetectionPhaseTests
         if (!cancel) Assert.All(await context.PrefillCachedApps.AsNoTracking().ToListAsync(), app => Assert.Equal("456", app.AppId));
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(scanId)!.Status);
         Assert.False(promoted.Task.IsCompleted);
+        Assert.Equal(queued.OperationId, Assert.Single(tracker.GetWaitingOperations()).Id);
         tracker.CompleteOperation(scanId, success: true);
         await promoted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await Task.WhenAll(childTerminal.Task, scanTerminal.Task).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, terminals.Count(id => id == removalId));
         Assert.Equal(1, terminals.Count(id => id == scanId));
-        Assert.Equal(queued.OperationId, Assert.Single(ctx.Notifications.Waiting).OperationId);
     }
 
     [Fact]
@@ -110,8 +114,8 @@ public sealed class CacheScanDetectionPhaseTests
 
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         var metrics = Assert.IsType<GameDetectionMetrics>(detection.Metadata);
-        Assert.False(metrics.ShowNotification);
-        Assert.True(metrics.HideNotification);
+        Assert.Equal(NotificationMode.Hidden, detection.Notice!.Mode);
+        Assert.Equal(RunTrigger.Manual, detection.Notice.Trigger);
         Assert.Equal(DetectionScanType.Full, metrics.ScanType);
         Assert.Equal(scanId, detection.ParentOperationId);
         Assert.Equal(scanId, metrics.ParentOperationId);
@@ -127,7 +131,7 @@ public sealed class CacheScanDetectionPhaseTests
         ctx.Tracker.Complete(detection.Id);
 
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Empty(ctx.Notifications.Waiting);
+        Assert.Empty(ctx.Tracker.Waiting);
     }
 
     [Fact]
@@ -178,29 +182,6 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
-    public async Task RegisteredScanKeepsTheWaitingOperationItWasPromotedFrom()
-    {
-        using var ctx = new PhaseContext();
-        var waitingId = Guid.NewGuid();
-        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
-        notice.Attach((IUnifiedOperationTracker)(object)ctx.Tracker, waitingId);
-        var scanId = ctx.RegisterScan(notice: notice);
-
-        var registered = Assert.IsType<Dictionary<string, object?>>(ctx.Tracker.Get(scanId)!.Metadata);
-        Assert.Equal(waitingId, Assert.IsType<Guid>(registered["previousOperationId"]));
-
-        await ctx.ReportProgressAsync(scanId);
-        var progress = Assert.IsType<EvictionScanProgress>(await ctx.Notifications.WaitForAsync(
-            SignalREvents.EvictionScanProgress, value => value is EvictionScanProgress));
-        Assert.Equal(waitingId, progress.PreviousOperationId);
-
-        await ctx.Tracker.FireTerminal(scanId, new OperationTerminalInfo(Success: true, Cancelled: false, Error: null));
-        var complete = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
-            SignalREvents.EvictionScanComplete, value => value is EvictionScanComplete));
-        Assert.Equal(waitingId, complete.PreviousOperationId);
-    }
-
-    [Fact]
     public async Task PromotionRecordsTheDetectionThatBlockedTheScan()
     {
         using var ctx = new PhaseContext();
@@ -211,7 +192,7 @@ public sealed class CacheScanDetectionPhaseTests
             new GameDetectionMetrics { ScanType = DetectionScanType.Full });
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-            (ISignalRNotificationService)(object)ctx.Notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var queued = await queue.EnqueueAsync(
@@ -239,7 +220,7 @@ public sealed class CacheScanDetectionPhaseTests
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-            (ISignalRNotificationService)(object)ctx.Notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var continued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var queued = await queue.EnqueueAsync(
@@ -280,6 +261,68 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(parkedId)!.Status);
     }
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task CancellingAHeldOrAcknowledgedScanLeavesARunningScansTerminalToItsWorker(bool acknowledged, bool begun)
+    {
+        const string evictionKey = "cacheReconciliation";
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var schedules = new ServiceScheduleRegistry([], VisibleClientsStateService(),
+            DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>(), tracker);
+        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        typeof(ServiceScheduleRegistry)
+            .GetMethod(acknowledged ? "AcknowledgeRun" : "HoldRefusedRun", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(schedules, acknowledged
+                ? [evictionKey, OperationType.EvictionScan, notice, false]
+                : [evictionKey, OperationType.EvictionScan, notice]);
+        var heldId = notice.PendingId!.Value;
+        var holds = (Dictionary<string, (Guid Id, RunNotice Notice)>)typeof(ServiceScheduleRegistry)
+            .GetField("_deferredRuns", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(schedules)!;
+        var terminal = new TaskCompletionSource<OperationStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
+        tracker.OperationTerminal += operation =>
+        {
+            if (operation.Id == heldId) terminal.TrySetResult(operation.Status);
+        };
+
+        // The scan's worker continues the held operation in place, the way RegisterEvictionScanOperation does.
+        if (begun)
+        {
+            Assert.True(tracker.BeginQueuedOperation(heldId, new Dictionary<string, object?>(), null, null));
+        }
+
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(heldId));
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (true)
+        {
+            lock (holds)
+            {
+                if (!holds.ContainsKey(evictionKey)) break;
+            }
+            Assert.True(DateTime.UtcNow < deadline, "The cancel callback did not drop the hold");
+            await Task.Delay(10);
+        }
+
+        if (!begun)
+        {
+            // No worker exists, so the callback is what ends it.
+            Assert.Equal(OperationStatus.Cancelled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            return;
+        }
+
+        // The callback runs on the thread pool; an early terminal lands well inside this window.
+        Assert.NotSame(terminal.Task, await Task.WhenAny(terminal.Task, Task.Delay(TimeSpan.FromMilliseconds(500))));
+        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(heldId)!.Status);
+        // Still active, so the conflict check keeps every other heavy operation waiting.
+        Assert.Contains(heldId, tracker.GetActiveOperations(OperationType.EvictionScan).Select(operation => operation.Id));
+
+        tracker.CompleteOperation(heldId, success: false, cancelled: true);
+        Assert.Equal(OperationStatus.Cancelled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
     [Fact]
     public void AParkedScanIsCancelledByTheQueueAndRefusesToStart()
     {
@@ -314,7 +357,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var continued = (Guid)typeof(CacheReconciliationService).GetMethod(
             "RegisterEvictionScanOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(
-            ctx.Scan, ["Eviction Scan", parkedToken, true, notice])!;
+            ctx.Scan, ["Eviction Scan", parkedToken, notice])!;
 
         Assert.Equal(parkedId, continued);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(parkedId)!.Status);
@@ -335,7 +378,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(detection.Id, ctx.Tracker.Cancelled);
-        Assert.Empty(ctx.Notifications.Waiting);
+        Assert.Empty(ctx.Tracker.Waiting);
     }
 
     [Theory]
@@ -344,15 +387,14 @@ public sealed class CacheScanDetectionPhaseTests
     public async Task DetectionFailureRemainsOnTheRunningParentThroughLaterProgress(bool silent)
     {
         using var ctx = new PhaseContext();
-        var scanId = ctx.RegisterScan(silent);
-        var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None, !silent);
+        var scanId = ctx.RegisterScan(new RunNotice(silent ? NotificationMode.Silent : NotificationMode.All, RunTrigger.Scheduled));
+        var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None);
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         ctx.Tracker.Fail(detection.Id, "Cache index could not be read");
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
         await ctx.ReportProgressAsync(scanId);
         var progress = Assert.IsType<EvictionScanProgress>(await ctx.Notifications.WaitForAsync(
             SignalREvents.EvictionScanProgress, value => value is EvictionScanProgress { StageKey: "signalr.evictionScan.scanning" }));
-        Assert.True(progress.ShowNotification);
         Assert.Equal("Cache index could not be read", progress.Context!["detectionError"]);
         Assert.Equal("Cache index could not be read", ctx.Scan.CurrentScanProgressContext!["detectionError"]);
         Assert.Equal(OperationStatus.Running, ctx.Tracker.Get(scanId)!.Status);
@@ -365,7 +407,7 @@ public sealed class CacheScanDetectionPhaseTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
-        var id = ctx.RegisterScan(silent: true);
+        var id = ctx.RegisterScan(new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
         var holders = typeof(CacheReconciliationService).GetField("_evictionScanTerminalStates", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(ctx.Scan)!;
         var holder = holders.GetType().GetProperty("Item")!.GetValue(holders, [id])!;
@@ -374,14 +416,158 @@ public sealed class CacheScanDetectionPhaseTests
         tracker.CompleteOperation(id, success: true);
         var terminal = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
             SignalREvents.EvictionScanComplete, value => value is EvictionScanComplete { OperationId: var operationId } && operationId == id));
-        Assert.True(terminal.ShowNotification);
         Assert.True(terminal.Success);
         Assert.Null(terminal.Error);
         Assert.Equal("Cache index could not be read", terminal.Context!["detectionError"]);
+        // The silent run still ends as a kept warning, so the failed detection is not lost.
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id);
+        Assert.Equal("Cache index could not be read", row.Warning);
+        Assert.True(row.Retained);
         var percent = tracker.GetOperation(id)!.PercentComplete;
         await ctx.ReportProgressAsync(id);
         Assert.Equal(percent, tracker.GetOperation(id)!.PercentComplete);
         Assert.Null(ctx.Scan.CurrentScanProgressContext);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AScanWhoseDetectionFailedEndsAsAKeptWarningCarryingTheError(bool detectionFailed)
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var id = ctx.RegisterScan();
+        if (detectionFailed)
+        {
+            // What the detection phase records on the scan when its child ends Failed.
+            var holders = typeof(CacheReconciliationService).GetField("_evictionScanTerminalStates", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(ctx.Scan)!;
+            var holder = holders.GetType().GetProperty("Item")!.GetValue(holders, [id])!;
+            tracker.UpdateMetadata(id, _ => holder.GetType().GetField("DetectionError")!.SetValue(holder, "Cache index could not be read"));
+        }
+
+        await ctx.ReportProgressAsync(id);
+        tracker.CompleteOperation(id, success: true);
+
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id);
+        Assert.Equal(detectionFailed ? "Cache index could not be read" : null, row.Warning);
+        Assert.Equal(detectionFailed, row.Retained);
+    }
+
+    [Theory]
+    [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Manual, RunTrigger.RunAll, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, RunVisibility.Hidden)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, RunVisibility.Hidden)]
+    public async Task TheScansOwnCleanupFollowsTheScansModeAndTrigger(
+        NotificationMode mode, RunTrigger trigger, RunVisibility expected)
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        // What the scan reads on its way to its Remove-mode cleanup; only the Rust step is a stand-in.
+        ctx.State.SetEvictedDataMode(EvictedDataMode.Remove.ToWireString());
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper());
+        RunVisibility? whileRunning = null;
+        Guid removalId = default;
+        ctx.Notifications.OnSent = (eventName, value) =>
+        {
+            if (eventName == SignalREvents.EvictionRemovalStarted && value is EvictionRemovalStarted started)
+            {
+                removalId = started.OperationId;
+                whileRunning = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == started.OperationId).Visibility;
+            }
+        };
+        var scanNotice = new RunNotice(mode, trigger);
+        var scanId = ctx.RegisterScan(scanNotice);
+
+        await ((Task)typeof(CacheReconciliationService)
+            .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(expected, whileRunning);
+        // A fresh notice with the scan's mode and trigger; the scan's own notice stays with the scan.
+        var cleanupNotice = tracker.GetOperation(removalId)!.Notice!;
+        Assert.NotSame(scanNotice, cleanupNotice);
+        Assert.Equal(scanNotice.Mode, cleanupNotice.Mode);
+        Assert.Equal(scanNotice.Trigger, cleanupNotice.Trigger);
+        // The fixture has no summary service, so the cleanup fails after its commit; a failure stays
+        // until closed whatever the mode.
+        var ended = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == removalId);
+        Assert.Equal(OperationStatus.Failed.ToWireString(), ended.Status);
+        Assert.True(ended.Retained);
+    }
+
+    [Theory]
+    [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Manual, RunTrigger.RunAll, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, RunVisibility.Hidden)]
+    public void TheScanRegistersWithTheNoticeItWasAdmittedWith(NotificationMode mode, RunTrigger trigger, RunVisibility expected)
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var notice = new RunNotice(mode, trigger);
+
+        var id = ctx.RegisterScan(notice);
+
+        Assert.Same(notice, tracker.GetOperation(id)!.Notice);
+        Assert.Equal(expected, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id).Visibility);
+    }
+
+    [Theory]
+    [InlineData(RunTrigger.Manual)]
+    [InlineData(RunTrigger.Scheduled)]
+    public async Task WithNoDownloadsARunNowEndsSkippedWithItsNoticeAndAnAutomaticRunLeavesNoRow(RunTrigger trigger)
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var notice = new RunNotice(NotificationMode.All, trigger);
+        ctx.Scan.SelectRunNotice(notice);
+        using var services = new ServiceCollection().AddSingleton(context).BuildServiceProvider();
+
+        await (Task)typeof(CacheReconciliationService).GetMethod("ExecuteWorkAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic, [typeof(IServiceProvider), typeof(CancellationToken)])!
+            .Invoke(ctx.Scan, [services, CancellationToken.None])!;
+
+        var runs = tracker.GetRuns().Runs;
+        if (trigger != RunTrigger.Manual)
+        {
+            Assert.Empty(runs);
+            return;
+        }
+
+        var row = Assert.Single(runs);
+        Assert.Equal(OperationStatus.Skipped.ToWireString(), row.Status);
+        Assert.Equal(RunVisibility.Card, row.Visibility);
+        Assert.Same(notice, tracker.GetOperation(row.OperationId)!.Notice);
     }
 
     /// <summary>
@@ -399,6 +585,8 @@ public sealed class CacheScanDetectionPhaseTests
         public FakeTracker Tracker { get; }
         public GameCacheDetectionService Detection { get; }
         public RecordingNotifications Notifications { get; }
+        public StateService State { get; }
+        public DatasourceService Datasources { get; }
         public CacheReconciliationService Scan => _scan;
 
         public PhaseContext()
@@ -431,6 +619,8 @@ public sealed class CacheScanDetectionPhaseTests
             File.WriteAllText(Path.Combine(datasource.LogPath, "access.log"), string.Empty);
 
             var capabilityService = new DatasourceCapabilityService(datasourceService);
+            State = stateService;
+            Datasources = datasourceService;
 
             Notifications = (RecordingNotifications)DispatchProxy
                 .Create<ISignalRNotificationService, RecordingNotifications>();
@@ -458,29 +648,29 @@ public sealed class CacheScanDetectionPhaseTests
             SetField(_scan, "_notifications", (ISignalRNotificationService)(object)Notifications);
             SetField(_scan, "_gameCacheDetectionService", Detection);
             SetField(_scan, "_capabilityService", capabilityService);
-            foreach (var name in new[] { "_silentRemovalOperationIds", "_evictionRemovalTerminalStates", "_evictionScanTerminalStates" })
+            foreach (var name in new[] { "_evictionRemovalTerminalStates", "_evictionScanTerminalStates" })
             {
                 var field = typeof(CacheReconciliationService).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
                 field.SetValue(_scan, Activator.CreateInstance(field.FieldType));
             }
         }
 
-        public Guid RegisterScan(bool silent = false, RunNotice? notice = null)
+        public Guid RegisterScan(RunNotice? notice = null)
         {
             return (Guid)typeof(CacheReconciliationService).GetMethod("RegisterEvictionScanOperation",
                 BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_scan,
-                ["Eviction Scan", new CancellationTokenSource(), silent, notice])!;
+                ["Eviction Scan", new CancellationTokenSource(), notice ?? new RunNotice(NotificationMode.All, RunTrigger.Manual)])!;
         }
 
         public Task ReportProgressAsync(Guid id) => (Task)typeof(CacheReconciliationService)
             .GetMethod("ReportScanProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(_scan, [id, 0d, "signalr.evictionScan.scanning", new EvictionScanResult(), false, false])!;
+            .Invoke(_scan, [id, 0d, "signalr.evictionScan.scanning", new EvictionScanResult()])!;
 
-        public Task RunPhaseAsync(Guid scanOperationId, CancellationToken token, bool showNotification = true)
+        public Task RunPhaseAsync(Guid scanOperationId, CancellationToken token)
         {
             var phase = typeof(CacheReconciliationService).GetMethod(
                 "RunFullDetectionPhaseAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            return (Task)phase.Invoke(_scan, [scanOperationId, showNotification, false, token])!;
+            return (Task)phase.Invoke(_scan, [scanOperationId, token])!;
         }
 
         public void Dispose()
@@ -499,6 +689,34 @@ public sealed class CacheScanDetectionPhaseTests
             => typeof(CacheReconciliationService)
                 .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(target, value);
+    }
+
+    /// <summary>
+    /// The scan's Rust step answering with a finished scan that found nothing newly evicted and
+    /// nothing back on disk, so the scan goes on to its Remove-mode cleanup.
+    /// </summary>
+    private sealed class ScanResultRustProcessHelper : RustProcessHelper
+    {
+        public ScanResultRustProcessHelper()
+            : base(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                pathResolver: null!,
+                operationTracker: null!)
+        {
+        }
+
+        public override Task<RustExecutionResult> RunEvictionScanAsync(
+            string datasourceConfigPath,
+            string? progressFile = null,
+            CancellationToken cancellationToken = default,
+            Guid? operationId = null,
+            Func<RustProgressEvent, Task>? onProgressEvent = null) =>
+            Task.FromResult(new RustExecutionResult
+            {
+                Success = true,
+                Data = """{"success":true,"processed":1,"evicted":0,"unEvicted":0}"""
+            });
     }
 
     private sealed class TempDirPathResolver : PathResolverBase
@@ -534,6 +752,11 @@ public sealed class CacheScanDetectionPhaseTests
 
         internal List<Guid> Cancelled { get; } = [];
 
+        internal IReadOnlyList<OperationInfo> Waiting
+        {
+            get { lock (_sync) return _operations.Where(o => o.Status == OperationStatus.Waiting).ToList(); }
+        }
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             switch (targetMethod?.Name)
@@ -545,10 +768,11 @@ public sealed class CacheScanDetectionPhaseTests
                         Id = Guid.NewGuid(),
                         Type = (OperationType)args![0]!,
                         Name = (string)args[1]!,
-                        Status = OperationStatus.Running,
+                        Status = (OperationStatus)args[6]!,
                         Metadata = args[3],
                         ParentOperationId = (Guid?)args[7],
-                        StartedAt = (DateTime?)args[8] ?? DateTime.UtcNow
+                        StartedAt = (DateTime?)args[8] ?? DateTime.UtcNow,
+                        Notice = (RunNotice?)args[10]
                     };
                     if (args[5] is Func<OperationTerminalInfo, Task> emit)
                         _terminalEmits[operation.Id] = emit;
@@ -701,10 +925,6 @@ public sealed class CacheScanDetectionPhaseTests
         private readonly object _sync = new();
         private readonly List<(string Event, object? Payload)> _sent = [];
         private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal IReadOnlyList<OperationWaitingNotification> Waiting
-        {
-            get { lock (_sync) return _sent.Select(item => item.Payload).OfType<OperationWaitingNotification>().ToList(); }
-        }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {

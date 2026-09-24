@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSignalR } from './SignalRContext/useSignalR';
 import { useAuth } from './useAuth';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import type {
   UserPreferencesUpdatedEvent,
   DefaultGuestThemeChangedEvent,
@@ -53,6 +55,8 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   children
 }) => {
   const [preferences, setPreferences] = useState<Record<string, UserPreferences>>({});
+  /** Each session's last failed preferences read, by session id; only the current session's is shown. */
+  const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
   const loadingIds = useRef<Set<string>>(new Set());
   const loadedIds = useRef<Set<string>>(new Set());
   const failedIds = useRef<Set<string>>(new Set());
@@ -104,17 +108,18 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
       loadingIds.current.add(sessionId);
       const generation = nextLoadGeneration(sessionId);
+      const isCurrentSession = sessionId === getCurrentSessionId();
 
       try {
         // Use cookie-based endpoint for current session, session-specific for others
-        const isCurrentSession = sessionId === getCurrentSessionId();
         const url = isCurrentSession
           ? '/api/user-preferences'
           : `/api/user-preferences/session/${encodeURIComponent(sessionId)}`;
         const response = await fetch(url, ApiService.getFetchOptions());
 
-        if (response.status === 401) {
-          // 401 means unauthorized - mark as failed and loaded to prevent retries
+        if (response.status === 401 && !isCurrentSession) {
+          // 401 means unauthorized - mark as failed and loaded to prevent retries. The current
+          // session's 401 goes to the catch instead, so Display preferences can show it.
           console.warn(
             `[SessionPreferencesContext] 401 for session ${sessionId} - marking as failed`
           );
@@ -124,15 +129,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
           return;
         }
 
-        if (!response.ok) {
-          // Any other error - mark as loaded to prevent infinite retries
-          console.error(
-            `[SessionPreferencesContext] HTTP ${response.status} for session ${sessionId}`
-          );
-          loadedIds.current.add(sessionId);
-          pendingDefaultClocks.current.delete(sessionId);
-          return;
-        }
+        await assertOk(response);
 
         const prefs = await response.json();
 
@@ -186,12 +183,21 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         const updated = { ...preferencesRef.current, [sessionId]: settledPrefs };
         preferencesRef.current = updated;
         setPreferences(updated);
+        setLoadErrors((current) => {
+          const next = { ...current };
+          delete next[sessionId];
+          return next;
+        });
         loadedIds.current.add(sessionId);
       } catch (err) {
-        // Background per-session load (also used to load OTHER users' preferences for admin
-        // views) - a toast per failed session load would be noisy. Deliberately silent; marking
-        // as loaded below prevents an infinite retry loop.
+        // Background per-session load, also used to load OTHER users' preferences for admin views:
+        // those failures stay silent. The current session's failure is kept for Display
+        // preferences, whose switches would otherwise show defaults as if saved. A failure made
+        // stale by a newer write or broadcast is dropped, the same as a stale answer above.
         console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
+        if (isCurrentSession && loadGenerations.current.get(sessionId) === generation) {
+          setLoadErrors((current) => ({ ...current, [sessionId]: getErrorMessage(err) }));
+        }
         // Mark as loaded to prevent infinite retries on network errors
         loadedIds.current.add(sessionId);
         pendingDefaultClocks.current.delete(sessionId);
@@ -278,6 +284,16 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         ? settlePendingToggles(normalizedPrefs)
         : normalizedPrefs;
 
+      // A row the server sent is a confirmed read of that session, even one that matches what is
+      // already held, so it ends any failed read shown for it.
+      setLoadErrors((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      // Also claimed for a repeated row, so a read still on the wire cannot bring the error back.
+      nextLoadGeneration(sessionId);
+
       if (existing && JSON.stringify(existing) === JSON.stringify(settledPrefs)) return;
 
       const baseline = existing ?? DEFAULT_PREFERENCES;
@@ -308,7 +324,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         });
       }
 
-      nextLoadGeneration(sessionId);
       setPreferences((prev) => ({ ...prev, [sessionId]: settledPrefs }));
       if (!loadedIds.current.has(sessionId)) {
         loadedIds.current.add(sessionId);
@@ -549,10 +564,17 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     return sessionId ? preferences[sessionId] || null : null;
   }, [preferences, getCurrentSessionId]);
 
+  const error = useMemo(() => {
+    const sessionId = getCurrentSessionId();
+    return sessionId ? (loadErrors[sessionId] ?? null) : null;
+  }, [loadErrors, getCurrentSessionId]);
+
   const contextValue = useMemo(
     () => ({
       getSessionPreferences,
       currentPreferences,
+      error,
+      resyncPreferences,
       isLoaded,
       isLoading,
       loadSessionPreferences,
@@ -562,6 +584,8 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     [
       getSessionPreferences,
       currentPreferences,
+      error,
+      resyncPreferences,
       isLoaded,
       isLoading,
       loadSessionPreferences,

@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -14,6 +15,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     private readonly CacheManagementService _cacheService;
     private readonly IPathResolver _pathResolver;
     private readonly IOperationQueue _operationQueue;
+    private readonly RustProcessHelper _rustProcessHelper;
     private readonly TimeSpan _defaultInterval;
 
     protected override string ServiceName => "CacheSizeScan";
@@ -32,6 +34,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         IPathResolver pathResolver,
         IOperationQueue operationQueue,
         IStateService stateService,
+        RustProcessHelper rustProcessHelper,
         ILogger<CacheSizeScanScheduledService> logger,
         IConfiguration configuration)
         : base(logger, configuration)
@@ -39,6 +42,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         _cacheService = cacheService;
         _pathResolver = pathResolver;
         _operationQueue = operationQueue;
+        _rustProcessHelper = rustProcessHelper;
         _defaultInterval = TimeSpan.FromHours(configuration.GetValue("CacheSizeScan:IntervalHours", 24));
         LoadStateOverrides(stateService);
     }
@@ -60,6 +64,10 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
         if (!File.Exists(rustBinaryPath))
         {
+            // A Run Now fails loudly so the person who clicked sees why nothing ran; the base loop
+            // reports the throw as this run's failure. Automatic runs only log. [93]
+            if (CurrentRunNotice.Trigger == RunTrigger.Manual)
+                _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Rust cache-size");
             _logger.LogWarning(
                 "[CacheSizeScan] Rust cache-size binary not found at {Path} - scan skipped",
                 rustBinaryPath);
@@ -68,13 +76,9 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
 
         try
         {
-            // Stamp the run-stable display flag from the effective mode + this run's trigger. The
-            // lifecycle events are always emitted (recovery/state stay accurate); the frontend gates
-            // whether the card is shown.
             var notice = CurrentRunNotice;
-            var showNotification = notice.ShowNotification;
 
-            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(notice.ShowNotification, notice);
+            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(notice);
 
             var outcome = await _operationQueue.EnqueueAsync(
                 OperationType.CacheSizeScan,
@@ -83,7 +87,6 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 StartScanAsync,
                 stoppingToken,
                 reportRefusal: true,
-                showWaitingCard: showNotification,
                 notice: notice);
 
             if (outcome.Queued)

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Cloud, Database, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Cloud, Database, CheckCircle } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { ProgressBar } from '@components/ui/ProgressBar';
@@ -360,7 +360,6 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               onClick={onBackToSteamAuth}
               className="mt-2"
             >
-              <ArrowLeft className="w-3 h-3 mr-1" />
               {t('initialization.depotInit.changeAuthMethod')}
             </Button>
           )}

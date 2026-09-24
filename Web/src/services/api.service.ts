@@ -5,12 +5,7 @@ import { isAbortError } from '../utils/error';
 import { getEffectiveTimezone } from '../utils/timezone';
 import { hasRecentUserInteraction } from '../utils/userInteractionTracker';
 import { ApiError, assertOk, buildApiError } from './apiError';
-import type {
-  EvictionScanStatusResponse,
-  GameDetectionStatusResponse,
-  OperationStatusResponse,
-  WaitingOperationRow
-} from '@contexts/notifications/recoveryStatusResponses';
+import type { OperationStatusResponse } from '@contexts/notifications/recoveryStatusResponses';
 import type {
   OperationStatus,
   PrefillSessionStatus,
@@ -797,13 +792,11 @@ class ApiService {
 
   static async getEvictionSettings(signal?: AbortSignal): Promise<{
     evictedDataMode: string;
-    evictionScanNotifications: boolean;
   }> {
     try {
       const res = await fetch(`${API_BASE}/stats/eviction`, this.getFetchOptions({ signal }));
       return await this.handleResponse<{
         evictedDataMode: string;
-        evictionScanNotifications: boolean;
       }>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -815,27 +808,21 @@ class ApiService {
     }
   }
 
-  static async updateEvictionSettings(
-    evictedDataMode?: string,
-    evictionScanNotifications?: boolean
-  ): Promise<{
+  static async updateEvictionSettings(evictedDataMode?: string): Promise<{
     evictedDataMode: string;
-    evictionScanNotifications: boolean;
   }> {
     try {
       const res = await fetch(
         `${API_BASE}/stats/eviction`,
         this.getJsonFetchOptions(
           {
-            evictedDataMode,
-            evictionScanNotifications
+            evictedDataMode
           },
           { method: 'PUT' }
         )
       );
       return await this.handleResponse<{
         evictedDataMode: string;
-        evictionScanNotifications: boolean;
       }>(res);
     } catch (error: unknown) {
       {
@@ -886,24 +873,8 @@ class ApiService {
     return this.handleResponse<OperationStatusResponse>(res);
   }
 
-  static async getWaitingOperations(): Promise<WaitingOperationRow[]> {
-    const res = await fetch(`${API_BASE}/operations/waiting`, this.getFetchOptions());
-    return this.handleResponse<WaitingOperationRow[]>(res);
-  }
-
-  static async getActiveGameDetection(): Promise<GameDetectionStatusResponse> {
-    const res = await fetch(`${API_BASE}/games/detect/active`, this.getFetchOptions());
-    return this.handleResponse<GameDetectionStatusResponse>(res);
-  }
-
-  static async getEvictionScanStatus(): Promise<EvictionScanStatusResponse> {
-    const res = await fetch(`${API_BASE}/stats/eviction/scan/status`, this.getFetchOptions());
-    return this.handleResponse<EvictionScanStatusResponse>(res);
-  }
-
   static async startEvictionScan(): Promise<{
     operationId: string;
-    showNotification?: boolean;
     queued?: boolean;
     alreadyRunning?: boolean;
   }> {
@@ -914,7 +885,6 @@ class ApiService {
       );
       return await this.handleResponse<{
         operationId: string;
-        showNotification?: boolean;
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
@@ -2526,6 +2496,20 @@ class ApiService {
     }
   }
 
+  static async closeOperation(operationId: string): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/operations/${operationId}/close`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      })
+    );
+    if (!res.ok && res.status !== 404) {
+      await this.handleResponse<void>(res);
+    }
+  }
+
   static async forceKillOperation(operationId: string): Promise<{ message: string }> {
     try {
       const res = await fetch(
@@ -3420,6 +3404,31 @@ class ApiService {
       console.error('setScheduleNotificationDisplayMode error:', error);
       throw error;
     }
+  }
+
+  static async getGlobalNotificationDisplayMode(): Promise<NotificationDisplayMode> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/notification-display-mode`,
+      this.getFetchOptions()
+    );
+    const response = await this.handleResponse<{ mode: NotificationDisplayMode }>(res);
+    return response.mode;
+  }
+
+  static async setGlobalNotificationDisplayMode(mode: NotificationDisplayMode): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/notification-display-mode`,
+      this.getJsonFetchOptions(mode, { method: 'PUT' })
+    );
+    await this.handleResponse<void>(res);
+  }
+
+  static async clearScheduleNotificationDisplayMode(serviceKey: string): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/system/schedules/${serviceKey}/notificationDisplayMode`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    await this.handleResponse<void>(res);
   }
 
   static async setScheduleScanMode(

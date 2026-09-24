@@ -4,139 +4,49 @@ using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
-using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Pins the recovery-status visibility contract for game detection, cache-file scans, and Epic game
-/// mapping. Lifecycle events are always emitted so recovery works. Silent runs restore as background
-/// progress, while Hidden runs never enter notification state.
+/// Pins the recovery-status contract for eviction scans and cache-file scans: the status endpoints
+/// report the running scan's progress and context, and the run's row decides how it is drawn.
 /// </summary>
 public class RecoveryStatusNotificationFlagTests
 {
     private static readonly JsonSerializerOptions WireOptions = new(JsonSerializerDefaults.Web);
 
     [Theory]
-    [InlineData(true)]
     [InlineData(false)]
-    public void CacheSizeScanStatusCarriesRegisteredPredecessor(bool hasPrevious)
+    [InlineData(true)]
+    public void EvictionStatusRetainsNonfatalDetectionFailure(bool failedDetection)
     {
-        Guid? previous = hasPrevious ? Guid.NewGuid() : null;
-        var activeScan = new OperationInfo
-        {
-            Id = Guid.NewGuid(), Type = OperationType.CacheSizeScan, Name = "Cache File Scan",
-            Status = OperationStatus.Running,
-            Metadata = new Dictionary<string, object?> { ["previousOperationId"] = previous }
-        };
-        var body = InvokeCacheSizeScanStatus(BuildCacheController(false, [activeScan]));
-        var wire = JsonSerializer.SerializeToElement(body, WireOptions);
-        Assert.Equal(activeScan.Id, wire.GetProperty("operationId").GetGuid());
-        Assert.Equal(previous, wire.GetProperty("previousOperationId").ValueKind == JsonValueKind.Null
-            ? null : wire.GetProperty("previousOperationId").GetGuid());
-        var started = new CacheSizeScanStarted("signalr.cacheSizeScan.starting", activeScan.Id,
-            ShowNotification: false, PreviousOperationId: previous);
-        Assert.Equal(previous, started.PreviousOperationId);
-    }
-
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public void EvictionStatusRetainsNonfatalDetectionFailure(bool silent, bool failedDetection)
-    {
-        var previousOperationId = Guid.NewGuid();
         var context = new Dictionary<string, object?> { ["totalProcessed"] = 12 };
         if (failedDetection) context["detectionError"] = "Cache index could not be read";
         var operation = new OperationInfo
         {
             Id = Guid.NewGuid(), Name = "Eviction Scan", Type = OperationType.EvictionScan, Status = OperationStatus.Running,
             Message = "signalr.evictionScan.scanning", PercentComplete = 25,
-            Metadata = new Dictionary<string, object?>
-            {
-                ["context"] = context,
-                ["previousOperationId"] = previousOperationId
-            }
+            Metadata = new Dictionary<string, object?> { ["context"] = context }
         };
         var service = (CacheReconciliationService)RuntimeHelpers.GetUninitializedObject(typeof(CacheReconciliationService));
-        SetPrivateField(service, "_currentScanIsSilent", silent);
         var tracker = (StubOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, StubOperationTracker>();
         tracker.ActiveOperations = [operation];
         var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
         SetPrivateField(controller, "_reconciliationService", service);
         SetPrivateField(controller, "_operationTracker", (IUnifiedOperationTracker)(object)tracker);
         var response = Assert.IsType<EvictionScanStatusResponse>(Assert.IsType<OkObjectResult>(controller.EvictionScanStatus().Result).Value);
-        Assert.Equal(!silent || failedDetection, response.ShowNotification);
-        Assert.Equal(silent, response.SilentMode);
         Assert.Equal(OperationStatus.Running, response.Status);
         Assert.Equal(operation.Id, response.OperationId);
-        Assert.Equal(previousOperationId, response.PreviousOperationId);
         var wire = JsonSerializer.SerializeToElement(response, WireOptions);
         Assert.Equal(failedDetection, wire.GetProperty("context").TryGetProperty("detectionError", out _));
-        Assert.Equal(previousOperationId, wire.GetProperty("previousOperationId").GetGuid());
-    }
-
-    // ---- Game detection: GET /api/games/detect/active -> ActiveDetectionResponse ----
-
-    [Fact]
-    public void ActiveDetectionResponse_SilentRun_SerializesHiddenFlagCamelCase()
-    {
-        var response = new ActiveDetectionResponse
-        {
-            IsProcessing = true,
-            Operation = null,
-            ShowNotification = false,
-            HideNotification = false
-        };
-
-        var json = JsonSerializer.Serialize(response, WireOptions);
-        Assert.Contains("\"showNotification\":false", json);
-        Assert.Contains("\"hideNotification\":false", json);
-    }
-
-    [Fact]
-    public void ActiveDetectionResponse_DefaultsToVisible()
-    {
-        var response = new ActiveDetectionResponse { IsProcessing = false, Operation = null };
-        Assert.True(response.ShowNotification);
-
-        var json = JsonSerializer.Serialize(response, WireOptions);
-        Assert.Contains("\"showNotification\":true", json);
-    }
-
-    // ---- Epic game mapping: GET /api/epic/game-mappings/schedule -> EpicScheduleStatus ----
-
-    [Fact]
-    public void EpicScheduleStatus_SilentRun_SerializesHiddenFlagCamelCase()
-    {
-        var status = new EpicScheduleStatus
-        {
-            IsProcessing = true,
-            ShowNotification = false
-        };
-
-        var json = JsonSerializer.Serialize(status, WireOptions);
-        Assert.Contains("\"isProcessing\":true", json);
-        Assert.Contains("\"showNotification\":false", json);
-    }
-
-    [Fact]
-    public void EpicScheduleStatus_DefaultsToVisible()
-    {
-        var status = new EpicScheduleStatus();
-        Assert.True(status.ShowNotification);
-
-        var json = JsonSerializer.Serialize(status, WireOptions);
-        Assert.Contains("\"showNotification\":true", json);
     }
 
     // ---- Cache-file scan: GET /api/cache/size/scan/status (anonymous body from the controller) ----
 
     [Fact]
-    public void CacheSizeScanStatus_ActiveSilentRun_ReportsHiddenFlag()
+    public void CacheSizeScanStatus_ActiveRun_ReportsItsProgress()
     {
         var activeScan = new OperationInfo
         {
@@ -148,26 +58,20 @@ public class RecoveryStatusNotificationFlagTests
             PercentComplete = 42
         };
 
-        var controller = BuildCacheController(
-            showNotification: false,
-            activeScans: new[] { activeScan });
-
-        var body = InvokeCacheSizeScanStatus(controller);
-        Assert.True(ReadBool(body, "isProcessing"));
-        Assert.False(ReadBool(body, "showNotification"));
-        Assert.False(ReadBool(body, "hideNotification"));
+        var body = InvokeCacheSizeScanStatus(BuildCacheController([activeScan]));
+        var wire = JsonSerializer.SerializeToElement(body, WireOptions);
+        Assert.True(wire.GetProperty("isProcessing").GetBoolean());
+        Assert.Equal(activeScan.Id, wire.GetProperty("operationId").GetGuid());
+        Assert.Equal("signalr.cacheSizeScan.scanning", wire.GetProperty("stageKey").GetString());
     }
 
     [Fact]
-    public void CacheSizeScanStatus_Idle_ReportsVisibleSoMissedTerminalsStaleComplete()
+    public void CacheSizeScanStatus_Idle_ReportsNothingRunning()
     {
-        // No active scan: the idle response stays visible so a missed terminal still
-        // stale-completes the card.
-        var controller = BuildCacheController(showNotification: null, activeScans: Array.Empty<OperationInfo>());
-
-        var body = InvokeCacheSizeScanStatus(controller);
-        Assert.False(ReadBool(body, "isProcessing"));
-        Assert.True(ReadBool(body, "showNotification"));
+        var body = InvokeCacheSizeScanStatus(BuildCacheController([]));
+        var wire = JsonSerializer.SerializeToElement(body, WireOptions);
+        Assert.False(wire.GetProperty("isProcessing").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, wire.GetProperty("operationId").ValueKind);
     }
 
     private static object InvokeCacheSizeScanStatus(CacheController controller)
@@ -178,23 +82,15 @@ public class RecoveryStatusNotificationFlagTests
         return ok.Value!;
     }
 
-    private static bool ReadBool(object body, string propertyName)
-    {
-        var prop = body.GetType().GetProperty(propertyName);
-        Assert.NotNull(prop);
-        return (bool)prop!.GetValue(body)!;
-    }
-
     /// <summary>
     /// Builds a <see cref="CacheController"/> and its <see cref="CacheManagementService"/> without
     /// running their real constructors (both take many collaborators the status endpoint never
-    /// touches). Only the two fields <c>GetCacheSizeScanStatus</c> reads are wired: the operation
-    /// tracker and the cache service's run-stable visibility flag.
+    /// touches). Only what <c>GetCacheSizeScanStatus</c> reads is wired: the operation tracker and
+    /// the cache service's progress context.
     /// </summary>
-    private static CacheController BuildCacheController(bool? showNotification, OperationInfo[] activeScans)
+    private static CacheController BuildCacheController(OperationInfo[] activeScans)
     {
         var cacheService = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService));
-        SetBackingField(cacheService, nameof(CacheManagementService.CurrentCacheSizeScanShowNotification), showNotification);
         SetPrivateField(cacheService, "_currentCacheSizeScanProgressContext", null);
 
         var tracker = (StubOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, StubOperationTracker>();
@@ -204,15 +100,6 @@ public class RecoveryStatusNotificationFlagTests
         SetPrivateField(controller, "_cacheService", cacheService);
         SetPrivateField(controller, "_operationTracker", (IUnifiedOperationTracker)(object)tracker);
         return controller;
-    }
-
-    private static void SetBackingField(object target, string autoPropertyName, object? value)
-    {
-        var field = target.GetType().GetField(
-            $"<{autoPropertyName}>k__BackingField",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        field!.SetValue(target, value);
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

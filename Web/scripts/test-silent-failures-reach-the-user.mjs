@@ -8,8 +8,9 @@ import { collectNodes, compileToUrl, moduleUrl, parseSource } from './transpile-
  * Three failures used to end at a console line nobody reads: a logout the LANCache server never
  * received, a theme list that came back short, and a preference that would not apply. Each one left
  * the screen looking like nothing had gone wrong. These check that the same failures now reach the
- * notification the user can see, that success paths stay quiet, and that LANCache logout does not
- * mutate a separately managed Steam sign-in.
+ * user (an action as a notification, a load as the error box of the view that asked for it), that
+ * success paths stay quiet, and that LANCache logout does not mutate a separately managed Steam
+ * sign-in.
  */
 
 /** Collects every show-toast the code under test raises, so a test can count them. */
@@ -40,7 +41,10 @@ const loadAuthService = () =>
     '@utils/userInteractionTracker': moduleUrl(
       `export const hasRecentUserInteraction = () => false;`
     ),
-    './apiError': moduleUrl(`export const assertOk = async (response) => response;`)
+    './apiError': moduleUrl(
+      `export class ApiError extends Error {}
+      export const assertOk = async (response) => response;`
+    )
   }).then(async (url) => (await import(url)).default);
 
 test('a logout the server never received says so, and still signs this device out', async () => {
@@ -92,6 +96,7 @@ const loadThemeService = () =>
     '@/i18n': moduleUrl(`export default { t: (k) => k };`),
     '../utils/constants': moduleUrl(`export const API_BASE = '/api';`),
     '@utils/constants': moduleUrl(`export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`),
+    '@utils/error': moduleUrl(`export const getErrorMessage = (error) => error.message;`),
     '@utils/storage': moduleUrl(
       `export const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };`
     ),
@@ -106,7 +111,12 @@ const loadThemeService = () =>
        export const readableTextColor = () => '';
        export const indicatorColor = () => '';`
     ),
-    './apiError': moduleUrl(`export const assertOk = async (response) => response;`)
+    './apiError': moduleUrl(
+      `export const assertOk = async (response) => {
+         if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
+         return response;
+       };`
+    )
   }).then(async (url) => (await import(url)).default);
 
 const THEME_LIST = [{ id: 'custom-one', format: 'toml' }];
@@ -118,13 +128,14 @@ test('a theme list the server could not answer says the list is short', async ()
     throw new TypeError('fetch failed');
   };
 
-  const themes = await themeService.loadThemes();
+  const { themes, loadError } = await themeService.loadThemes();
 
-  assert.deepEqual(
-    toasts,
-    [{ type: 'error', message: 'management.themes.notifications.loadFailed' }],
+  assert.equal(
+    loadError,
+    'fetch failed',
     'a theme list that never arrived looked the same as one with no custom themes in it'
   );
+  assert.deepEqual(toasts, [], 'a failed load raised a popup beside its error box');
   assert.ok(themes.length > 0, 'the built-in themes stopped being returned');
   releaseWindow();
 });
@@ -134,13 +145,10 @@ test('a theme list the server refused says the list is short', async () => {
   const themeService = await loadThemeService();
   globalThis.fetch = async () => ({ ok: false, status: 500 });
 
-  await themeService.loadThemes();
+  const { loadError } = await themeService.loadThemes();
 
-  assert.deepEqual(
-    toasts,
-    [{ type: 'error', message: 'management.themes.notifications.loadFailed' }],
-    'a refused theme list passed without a word to the user'
-  );
+  assert.equal(loadError, 'HTTP 500', 'a refused theme list passed without a word to the user');
+  assert.deepEqual(toasts, [], 'a failed load raised a popup beside its error box');
   releaseWindow();
 });
 
@@ -154,13 +162,14 @@ test('one theme that would not load says the list is short', async () => {
     throw new TypeError('fetch failed');
   };
 
-  await themeService.loadThemes();
+  const { loadError } = await themeService.loadThemes();
 
-  assert.deepEqual(
-    toasts,
-    [{ type: 'error', message: 'management.themes.notifications.loadFailed' }],
+  assert.equal(
+    loadError,
+    'fetch failed',
     'a theme that failed to load looked exactly like a theme nobody had created'
   );
+  assert.deepEqual(toasts, [], 'a failed load raised a popup beside its error box');
   releaseWindow();
 });
 
@@ -174,8 +183,9 @@ test('a theme list that arrived whole stays quiet', async () => {
     throw new TypeError('no other call was expected');
   };
 
-  await themeService.loadThemes();
+  const { loadError } = await themeService.loadThemes();
 
+  assert.equal(loadError, null, 'a theme list that loaded still reported a failure');
   assert.deepEqual(toasts, [], 'a theme list that loaded still bothered the user');
   releaseWindow();
 });
@@ -207,13 +217,8 @@ const componentSinks = [
     what: 'log counts that failed to load',
     file: 'src/components/features/management/log-processing/LogRemovalManager.tsx',
     marker: 'Failed to load log data:',
-    sink: "onError?.(t('management.logRemoval.errors.loadFailed'))"
-  },
-  {
-    what: 'the theme list a management tab could not load',
-    file: 'src/components/features/management/theme/ThemeManager.tsx',
-    marker: 'Error loading themes:',
-    sink: "notifyError(t('management.themes.notifications.loadFailed')"
+    sink: 'setLoadError(getErrorMessage(err))',
+    load: true
   },
   {
     what: 'a theme the user picked that would not stick',
@@ -233,8 +238,30 @@ for (const site of componentSinks) {
   test(`${site.what} reaches the user`, () => {
     const body = catchBodyHolding(site.file, site.marker);
     assert.ok(body.includes(site.sink), `${site.file}: the catch still ends at the console`);
+    if (site.load) {
+      // A failed load shows only its view's error box, never a popup beside it.
+      assert.doesNotMatch(body, /onError|notifyError/, `${site.file}: the load raises a popup`);
+    }
   });
 }
+
+test('the theme list a management tab could not load reaches the user', () => {
+  const source = readFileSync(
+    new URL('../src/components/features/management/theme/ThemeManager.tsx', import.meta.url),
+    'utf8'
+  );
+
+  // The service answers a short list with its reason instead of throwing.
+  assert.match(
+    source,
+    /const \{ themes: data, loadError: themesError \} = await themeService\.loadThemes\(\);[\s\S]*?setThemes\(data\);\s*setLoadError\(themesError\);/
+  );
+  assert.match(
+    source,
+    /<ErrorBlock\s+title=\{t\('management\.themes\.notifications\.loadFailed'\)\}\s+message=\{loadError\}/
+  );
+  assert.doesNotMatch(source, /notifyError\(t\('management\.themes\.notifications\.loadFailed'\)/);
+});
 
 test('session load failures distinguish initial retry from a preserved refresh snapshot', () => {
   const source = readFileSync(
@@ -242,15 +269,16 @@ test('session load failures distinguish initial retry from a preserved refresh s
     'utf8'
   );
 
-  assert.match(source, /<ErrorBlock[\s\S]*activeSessions\.initialLoadFailed/);
-  assert.match(source, /activeSessions\.initialLoadFailedMessage/);
-  assert.match(source, /activeSessions\.retry/);
   assert.match(
     source,
-    /const hasSnapshot =[\s\S]*sessionsRef\.current[\s\S]*historySessionsRef\.current/
+    /<ErrorBlock\s+title=\{t\('activeSessions\.initialLoadFailed'\)\}\s+message=\{loadError\}\s+retryLabel=\{t\('common\.retry'\)\}/
   );
-  assert.match(source, /setRefreshFailed\(true\)/);
-  assert.match(source, /activeSessions\.refreshFailed/);
+  assert.match(
+    source,
+    /const loadFailedWithoutSnapshot =\s*loadError !== null && sessions\.length === 0 && historySessions\.length === 0;/
+  );
+  assert.match(source, /!loading && !loadFailedWithoutSnapshot && activeSessions\.length === 0 &&/);
+  assert.doesNotMatch(source, /setRefreshFailed|activeSessions\.refreshFailed/);
 });
 
 test('every message these failures show is written in both languages', () => {
@@ -260,9 +288,7 @@ test('every message these failures show is written in both languages', () => {
     ['management', 'themes', 'notifications', 'loadFailed'],
     ['management', 'themes', 'notifications', 'preferenceChangeFailed'],
     ['activeSessions', 'initialLoadFailed'],
-    ['activeSessions', 'initialLoadFailedMessage'],
-    ['activeSessions', 'refreshFailed'],
-    ['activeSessions', 'retry']
+    ['common', 'retry']
   ];
 
   for (const locale of ['en', 'zh']) {

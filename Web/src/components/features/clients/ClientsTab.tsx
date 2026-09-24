@@ -11,6 +11,7 @@ import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ArrowDown, ArrowUp, Users } from 'lucide-react';
 import type { ClientStat, SortOption, SortDirection } from './types';
 import '@components/features/management/managementSectionContent.css';
@@ -127,7 +128,8 @@ const getClientKey = (client: ClientStat): string =>
 
 const ClientsTab: React.FC = () => {
   const { t } = useTranslation();
-  const { clientStats, loading } = useStats();
+  const { clientStats, loading, failedSections, error, refreshStats } = useStats();
+  const loadError = failedSections.clients ? error : null;
   const [sortBy, setSortBy] = useState<SortOption>('totalData');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const sortOptions = useMemo<DropdownOption[]>(
@@ -232,6 +234,17 @@ const ClientsTab: React.FC = () => {
           </div>
         </div>
 
+        {loadError !== null && (
+          <div className="mb-4">
+            <ErrorBlock
+              title={t('clients.loadFailed')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void refreshStats(true)}
+            />
+          </div>
+        )}
+
         {loading ? (
           <div className="well-surface clients-well divided-list" aria-hidden="true">
             {Array.from({ length: 8 }, (_, i) => (
@@ -279,7 +292,7 @@ const ClientsTab: React.FC = () => {
               <ClientListItem key={getClientKey(client)} client={client} />
             ))}
           </div>
-        ) : (
+        ) : loadError !== null ? null : (
           <div className="well-surface dash-well p-3">
             <EmptyState variant="panel" icon={Users} title={t('clients.empty')} />
           </div>

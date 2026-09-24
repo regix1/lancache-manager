@@ -3,8 +3,8 @@ import i18n from '@/i18n';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
-import { APP_EVENTS, API_BASE } from '@utils/constants';
-import type { ShowToastEvent } from '@contexts/SignalRContext/types';
+import { API_BASE } from '@utils/constants';
+import { getErrorMessage } from '@utils/error';
 import { SetupStatusContext, type SetupStatus } from './SetupStatusContext.types';
 
 interface SetupStatusProviderProps {
@@ -30,22 +30,6 @@ const UNREAD_SETUP_STATUS: SetupStatus = {
   postgresUser: null
 };
 
-// SetupStatusProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
-// useErrorHandler is not reachable here; use the existing show-toast bridge instead
-// (mirrors NotificationsContext.tsx:332-356). Module scope keeps fetchSetupStatus free of
-// component-scope references, which is what lets its effect keep its own dependency list.
-const announceStatusFetchFailure = () => {
-  window.dispatchEvent(
-    new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
-      detail: {
-        type: 'error',
-        message: i18n.t('initialization.errors.statusCheckFailed'),
-        duration: 5000
-      }
-    })
-  );
-};
-
 export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ children }) => {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   // Set only where the route actually answered. The placeholder below is deliberately
@@ -54,6 +38,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   const [isSetupStatusKnown, setIsSetupStatusKnown] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { isLoading: authLoading, authMode } = useAuth();
 
   const fetchSetupStatus = async () => {
@@ -68,47 +53,44 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         `${API_BASE}/system/setup`,
         ApiService.getFetchOptions({ cache: 'no-store', signal: controller.signal })
       );
-      if (response.ok) {
-        const data = await response.json();
-        const isCompleted = data.isCompleted === true || data.setupCompleted === true;
-        setSyncError(null);
-        setIsSetupStatusKnown(true);
-        setSetupStatus({
-          isCompleted,
-          hasProcessedLogs: data.hasProcessedLogs === true,
-          needsPostgresCredentials: data.needsPostgresCredentials === true,
-          accountExists: typeof data.accountExists === 'boolean' ? data.accountExists : null,
-          mainAdminRecoveryAvailable: data.mainAdminRecoveryAvailable === true,
-          currentSetupStep: data.currentSetupStep ?? null,
-          dataSourceChoice: data.dataSourceChoice ?? null,
-          completedPlatforms: data.completedPlatforms ?? null,
-          mode: data.mode === 'external' ? 'external' : 'embedded',
-          postgresHost: data.postgresHost ?? null,
-          postgresPort: typeof data.postgresPort === 'number' ? data.postgresPort : null,
-          postgresDatabase: data.postgresDatabase ?? null,
-          postgresUser: data.postgresUser ?? null
-        });
-      } else {
-        // A failed call carries no information about setup, so the last successful status is
-        // kept and only a never-read status falls back. Overwriting it here is what re-showed
-        // the password wizard on a healthy install after any transient failure.
-        console.error(`[SetupStatus] /system/setup responded ${response.status}`);
-        setSetupStatus((prev) => prev ?? UNREAD_SETUP_STATUS);
-        announceStatusFetchFailure();
-      }
+      await assertOk(response);
+      const body = await response.json();
+      const isCompleted = body.isCompleted === true || body.setupCompleted === true;
+      setSyncError(null);
+      setError(null);
+      setIsSetupStatusKnown(true);
+      setSetupStatus({
+        isCompleted,
+        hasProcessedLogs: body.hasProcessedLogs === true,
+        needsPostgresCredentials: body.needsPostgresCredentials === true,
+        accountExists: typeof body.accountExists === 'boolean' ? body.accountExists : null,
+        mainAdminRecoveryAvailable: body.mainAdminRecoveryAvailable === true,
+        currentSetupStep: body.currentSetupStep ?? null,
+        dataSourceChoice: body.dataSourceChoice ?? null,
+        completedPlatforms: body.completedPlatforms ?? null,
+        mode: body.mode === 'external' ? 'external' : 'embedded',
+        postgresHost: body.postgresHost ?? null,
+        postgresPort: typeof body.postgresPort === 'number' ? body.postgresPort : null,
+        postgresDatabase: body.postgresDatabase ?? null,
+        postgresUser: body.postgresUser ?? null
+      });
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        // Own 10s timeout, not a user cancellation, but the request itself will be retried on
-        // the next auth-mode settle/mount - deliberately silent.
+        // Own 10s timeout, not a user cancellation.
         console.warn('[SetupStatus] fetchSetupStatus timed out after 10000ms');
       } else {
         console.error('[SetupStatus] Failed to fetch setup status:', error);
-        // Surface it so the user knows to retry rather than assuming setup was reset.
-        announceStatusFetchFailure();
       }
-      // Same reasoning as the non-OK branch: a timeout or a network error is an absence of
-      // information, not a reason to send a configured instance back to the wizard.
+      // A failed call carries no information about setup, so the last successful status is kept
+      // and only a never-read status falls back. Overwriting it here is what re-showed the
+      // password wizard on a healthy install after any transient failure.
       setSetupStatus((prev) => prev ?? UNREAD_SETUP_STATUS);
+      // AppSetup shows this on the startup card while no read has ever answered.
+      setError(
+        error instanceof Error && error.name === 'AbortError'
+          ? i18n.t('errors.http.timeout')
+          : getErrorMessage(error)
+      );
     } finally {
       clearTimeout(timeoutId);
       setIsLoading(false);
@@ -236,6 +218,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         isSetupStatusKnown,
         isLoading,
         syncError,
+        error,
         refreshSetupStatus,
         markSetupCompleted,
         updateWizardState

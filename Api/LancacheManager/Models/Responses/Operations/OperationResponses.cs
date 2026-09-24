@@ -53,8 +53,6 @@ public class OperationStatusResponse
 /// </summary>
 public class WaitingOperationResponse
 {
-    public bool ShowNotification { get; set; } = true;
-    public bool HideNotification { get; set; }
     public string Status { get; set; } = "waiting";
     public Guid OperationId { get; set; }
     public string OperationType { get; set; } = string.Empty;

@@ -187,9 +187,7 @@ public sealed class OperationWaitingBlockerTests
 
     private static OperationsController CreateController(UnifiedOperationTracker tracker) => new(
         tracker,
-        new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance),
-        CreateProxy<IOperationQueue>((method, _) => DefaultReturn(method.ReturnType)),
-        CreateProxy<IServiceScheduleRegistry>((method, _) => DefaultReturn(method.ReturnType)))
+        new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance))
         {
             ControllerContext = new ControllerContext
             {
@@ -216,15 +214,9 @@ public sealed class OperationWaitingBlockerTests
             method.Name == nameof(IUnifiedOperationTracker.GetActiveOperations)
                 ? tracker.GetActiveOperations().OrderBy(op => (op.Id == child) == childFirst ? 0 : 1).ToList()
                 : method.Invoke(tracker, args));
-        var events = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting) events.Add(waiting);
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(ordered, NullLogger<OperationConflictChecker>.Instance),
-            notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         var starts = 0;
         var accepted = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () => { starts++; return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
@@ -232,7 +224,6 @@ public sealed class OperationWaitingBlockerTests
         Assert.False(accepted.Queued);
         Assert.Equal(parent, accepted.OperationId);
         Assert.Empty(tracker.GetWaitingOperations());
-        Assert.Empty(events);
         Assert.Equal(0, starts);
         var distinct = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Other Scan",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
@@ -244,16 +235,7 @@ public sealed class OperationWaitingBlockerTests
     {
         var tracker = CreateTracker();
         var checker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
-        var events = new List<OperationWaitingNotification>();
-        var terminal = new TaskCompletionSource<OperationWaitingCompleteNotification>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting)
-                lock (events) events.Add(waiting);
-            if (args?.Length > 1 && args[1] is OperationWaitingCompleteNotification complete) terminal.TrySetResult(complete);
-            return DefaultReturn(method.ReturnType);
-        });
-        var queue = new OperationQueueService(tracker, checker, notifications, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationQueueService(tracker, checker, NullLogger<OperationQueueService>.Instance);
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var starts = 0;
         var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
@@ -270,52 +252,41 @@ public sealed class OperationWaitingBlockerTests
             Assert.Equal(active, verdict.ActiveOperationId);
         }
         finally { gate.Release(); }
-        var complete = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The waiting run ends as handed on to the running duplicate, still naming what it waited for.
+        var ended = await WaitForOperationAsync(tracker, queued.OperationId, operation => operation.Status == OperationStatus.Completed);
         Assert.NotEqual(queued.OperationId, active);
-        Assert.True(complete.Promoted);
-        Assert.Equal(queued.OperationId, complete.OperationId);
-        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(queued.OperationId)!.Status);
+        Assert.Equal(active, ended.NextOperationId);
+        Assert.Equal("Cache File Scan", ended.BlockedByName);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(active)!.Status);
         Assert.Equal(0, starts);
-        lock (events) Assert.Equal("Cache File Scan", Assert.Single(events).BlockedByName);
         tracker.CancelOperation(queued.OperationId);
         Assert.True(tracker.GetOperation(active)!.Cancelled);
     }
 
+    // A parked run's row reads the notice it was admitted with, and a duplicate request joins the
+    // same waiting run.
     [Theory]
-    [InlineData(NotificationMode.All, RunTrigger.Manual, true, false, false)]
-    [InlineData(NotificationMode.All, RunTrigger.Scheduled, true, false, false)]
-    [InlineData(NotificationMode.All, RunTrigger.Startup, true, false, false)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Manual, true, false, false)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, false, true)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Startup, false, false, true)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Manual, false, true, false)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, false, true, false)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Startup, false, true, false)]
-    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, false, false, true)]
-    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, false, false, true)]
-    [InlineData(NotificationMode.Hidden, RunTrigger.Startup, false, false, true)]
+    [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, RunVisibility.Card)]
+    [InlineData(NotificationMode.All, RunTrigger.Startup, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Startup, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Startup, RunVisibility.Background)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, RunVisibility.Hidden)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, RunVisibility.Hidden)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Startup, RunVisibility.Hidden)]
     public async Task QueuedRun_UsesAdmittedModeAndTrigger(
         NotificationMode mode,
         RunTrigger trigger,
-        bool visible,
-        bool acknowledge,
-        bool hidden)
+        RunVisibility visibility)
     {
         var tracker = CreateTracker();
-        var events = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if (args?[1] is OperationWaitingNotification waiting) events.Add(waiting);
-                return Task.CompletedTask;
-            }
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(tracker,
             new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
-            notifications, NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationQueueService>.Instance);
         tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var notice = new RunNotice(mode, trigger);
         var queued = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
@@ -323,41 +294,19 @@ public sealed class OperationWaitingBlockerTests
         var duplicate = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
         Assert.Equal(queued.OperationId, duplicate.OperationId);
-        Assert.Equal(!visible, queue.IsWaiterSilent(queued.OperationId));
-        Assert.Equal(hidden, queue.IsWaiterHidden(queued.OperationId));
-        Assert.Single(events);
-        Assert.Equal(!visible, events[0].Silent);
-        Assert.Equal(hidden, events[0].Hidden);
-        Assert.Equal(acknowledge, events[0].Acknowledge);
-        if (acknowledge) Assert.False(notice.TryAcknowledge());
+        Assert.Same(notice, tracker.GetOperation(queued.OperationId)!.Notice);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal("waiting", row.Status);
+        Assert.Equal(visibility, row.Visibility);
     }
 
     [Fact]
-    public async Task EnqueueBehindActiveOperation_WaitingEventNamesBlockerAsync()
+    public async Task EnqueueBehindActiveOperation_WaitingRowNamesBlockerAsync()
     {
         var tracker = CreateTracker();
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
-        var waitingEvents = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaiting
-                    && args[1] is OperationWaitingNotification waiting)
-                {
-                    lock (waitingEvents)
-                    {
-                        waitingEvents.Add(waiting);
-                    }
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -370,41 +319,20 @@ public sealed class OperationWaitingBlockerTests
             CancellationToken.None);
 
         Assert.True(queued.Queued);
-        OperationWaitingNotification emitted;
-        lock (waitingEvents)
-        {
-            emitted = Assert.Single(waitingEvents);
-        }
-        Assert.Equal(queued.OperationId, emitted.OperationId);
-        Assert.Equal("Cache File Scan", emitted.BlockedByName);
-        Assert.False(emitted.Silent);
-        Assert.Equal("Cache File Scan", queue.GetWaitingBlockerName(queued.OperationId));
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal("waiting", row.Status);
+        Assert.Equal("Cache File Scan", row.BlockedByName);
+        // A waiter with no notice is a full card.
+        Assert.Equal(RunVisibility.Card, row.Visibility);
     }
 
     [Fact]
-    public async Task BlockerHandoff_ReemitsWaitingNamingNewBlockerAsync()
+    public async Task BlockerHandoff_WaitingRowNamesNewBlockerAsync()
     {
         var tracker = CreateTracker();
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
-        var secondBlockerAnnounced = new TaskCompletionSource<OperationWaitingNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaiting
-                    && args[1] is OperationWaitingNotification { BlockedByName: "Eviction Scan" } reannounced)
-                {
-                    secondBlockerAnnounced.TrySetResult(reannounced);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         var firstBlockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -423,44 +351,25 @@ public sealed class OperationWaitingBlockerTests
         Assert.True(queued.Queued);
 
         // A second conflicting operation is already active when the first blocker finishes, so
-        // the promotion pass must keep the waiter parked and announce who blocks it NOW.
+        // the promotion pass must keep the waiter parked and its row must name who blocks it NOW.
         tracker.RegisterOperation(
             OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         tracker.CompleteOperation(firstBlockerId, success: true);
 
-        var reannounced = await secondBlockerAnnounced.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(queued.OperationId, reannounced.OperationId);
-        Assert.Equal("Game Detection", reannounced.Name);
+        var waiting = await WaitForOperationAsync(tracker, queued.OperationId, operation => operation.BlockedByName == "Eviction Scan");
+        Assert.Equal(OperationStatus.Waiting, waiting.Status);
+        Assert.Equal("Game Detection", waiting.Name);
         Assert.Equal(0, startCalls);
-        Assert.Equal("Eviction Scan", queue.GetWaitingBlockerName(queued.OperationId));
+        Assert.Equal("Eviction Scan", Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId).BlockedByName);
     }
 
     [Fact]
-    public async Task SilentRun_AnnouncesItsParkingOnceAndNotAgainOnHandoffAsync()
+    public async Task SilentRun_KeepsItsBackgroundRowAndRecordsTheNewBlockerAsync()
     {
         var tracker = CreateTracker();
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
-        var waitingEvents = new List<OperationWaitingNotification>();
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaiting
-                    && args[1] is OperationWaitingNotification waiting)
-                {
-                    lock (waitingEvents)
-                    {
-                        waitingEvents.Add(waiting);
-                    }
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         var firstBlockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -476,48 +385,32 @@ public sealed class OperationWaitingBlockerTests
                 return Task.FromResult<Guid?>(Guid.NewGuid());
             },
             CancellationToken.None,
-            showWaitingCard: false,
             notice: new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
 
         Assert.True(queued.Queued);
-        lock (waitingEvents)
-        {
-            var announced = Assert.Single(waitingEvents);
-            Assert.True(announced.Silent);
-            Assert.Equal(queued.OperationId, announced.OperationId);
-        }
+        Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId).Visibility);
 
-        // The blocker changes hands, which is the one thing that makes a parked run speak twice.
-        // A silent run stays quiet through it, but the queue must still record the new blocker:
-        // the recovery endpoint reads that name for every waiter, silent or not.
+        // The blocker changes hands; the silent run's row records the new blocker and stays a
+        // background row, because the recovery endpoint and the run list read that name for every
+        // waiter.
         tracker.RegisterOperation(
             OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         tracker.CompleteOperation(firstBlockerId, success: true);
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (queue.GetWaitingBlockerName(queued.OperationId) != "Eviction Scan"
-            && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(25);
-        }
-
-        Assert.Equal("Eviction Scan", queue.GetWaitingBlockerName(queued.OperationId));
+        await WaitForOperationAsync(tracker, queued.OperationId, operation => operation.BlockedByName == "Eviction Scan");
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal("Eviction Scan", row.BlockedByName);
+        Assert.Equal(RunVisibility.Background, row.Visibility);
         Assert.Equal(0, startCalls);
-        lock (waitingEvents)
-        {
-            Assert.Single(waitingEvents, waiting => waiting.Acknowledge == true);
-            Assert.False(waitingEvents.Last().Acknowledge);
-        }
     }
 
     [Fact]
-    public async Task WaitingRecovery_ReturnsTheParkedRunAndLeavesTheSilentOneOutAsync()
+    public async Task WaitingRecovery_ReturnsEveryParkedRunWithItsBlockerAsync()
     {
         var tracker = CreateTracker();
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, _) => DefaultReturn(method.ReturnType));
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -534,32 +427,26 @@ public sealed class OperationWaitingBlockerTests
             "Eviction Scan",
             () => Task.FromResult<Guid?>(Guid.NewGuid()),
             CancellationToken.None,
-            showWaitingCard: false);
+            notice: new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
 
         Assert.True(announced.Queued);
         Assert.True(silent.Queued);
-        Assert.False(queue.IsWaiterSilent(announced.OperationId));
-        Assert.True(queue.IsWaiterSilent(silent.OperationId));
 
         var controller = new OperationsController(
             tracker,
             new OperationCancellationService(
                 tracker,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
-                NullLogger<OperationCancellationService>.Instance),
-            queue,
-            CreateRegistry(new IdleScanProbeService(), tracker));
+                NullLogger<OperationCancellationService>.Instance));
 
-        // Both runs are parked, so both are Waiting operations the tracker would hand back. The
-        // refresh must rebuild only the card that is actually on screen: the silent run's notice
-        // already came and went, and reissuing it here is a second announcement for one parking.
+        // Both runs are parked, so the endpoint lists both; how each is drawn comes from its run row.
         var rows = Assert.IsType<List<WaitingOperationResponse>>(
             Assert.IsType<OkObjectResult>(controller.GetWaitingOperations().Result).Value);
         Assert.Equal(2, rows.Count);
-        Assert.False(Assert.Single(rows, item => item.OperationId == silent.OperationId).ShowNotification);
-        var row = Assert.Single(rows, item => item.OperationId == announced.OperationId);
-        Assert.Equal(announced.OperationId, row.OperationId);
-        Assert.Equal("Cache File Scan", row.BlockedByName);
+        Assert.All(rows, item => Assert.Equal("Cache File Scan", item.BlockedByName));
+        var runs = tracker.GetRuns().Runs;
+        Assert.Equal(RunVisibility.Card, Assert.Single(runs, run => run.OperationId == announced.OperationId).Visibility);
+        Assert.Equal(RunVisibility.Background, Assert.Single(runs, run => run.OperationId == silent.OperationId).Visibility);
     }
 
     [Fact]
@@ -567,25 +454,8 @@ public sealed class OperationWaitingBlockerTests
     {
         var tracker = CreateTracker();
         var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
-        var terminal = new TaskCompletionSource<OperationWaitingCompleteNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
-        {
-            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
-            {
-                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
-                    && args[1] is OperationWaitingCompleteNotification complete)
-                {
-                    terminal.TrySetResult(complete);
-                }
-
-                return Task.CompletedTask;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
         var queue = new OperationQueueService(
-            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -601,10 +471,11 @@ public sealed class OperationWaitingBlockerTests
 
         // A thrown start is a permanent refusal for this run: the card must fail promptly with
         // the thrown message, never spin through the transient-gate retry loop first.
-        var complete = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(queued.OperationId, complete.OperationId);
-        Assert.False(complete.Promoted);
-        Assert.Equal("datasource evidence is ambiguous", complete.Error);
+        var failed = await WaitForOperationAsync(tracker, queued.OperationId, operation => operation.Status.IsTerminal());
+        Assert.Equal(OperationStatus.Failed, failed.Status);
+        Assert.Null(failed.NextOperationId);
+        Assert.Equal("datasource evidence is ambiguous",
+            Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId).Error);
     }
 
     [Fact]
@@ -663,6 +534,20 @@ public sealed class OperationWaitingBlockerTests
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         return new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
+    }
+
+    // A bounded wait used as a failure detector: the queue promotes and re-checks blockers off the
+    // calling thread, after the terminal that triggers it has returned.
+    private static async Task<OperationInfo> WaitForOperationAsync(
+        UnifiedOperationTracker tracker, Guid operationId, Func<OperationInfo, bool> reached)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (true)
+        {
+            if (tracker.GetOperation(operationId) is { } operation && reached(operation)) return operation;
+            Assert.True(DateTime.UtcNow < deadline, $"Operation {operationId} never reached the expected state");
+            await Task.Delay(10);
+        }
     }
 
     private static ServiceScheduleRegistry CreateRegistry(

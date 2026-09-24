@@ -31,7 +31,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { GroupHeading } from '@components/ui/GroupHeading';
@@ -49,6 +49,7 @@ import authService, { isAccountHolder } from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useMockMode } from '@contexts/useMockMode';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -189,6 +190,7 @@ interface ActiveSessionsProps {
   availableThemes: ThemeOption[];
   defaultGuestTheme: string;
   defaultGuestRefreshRate: string;
+  guestDefaultsLoaded: boolean;
   sessions: Session[];
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   loading: boolean;
@@ -229,6 +231,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   availableThemes,
   defaultGuestTheme,
   defaultGuestRefreshRate,
+  guestDefaultsLoaded,
   sessions,
   setSessions,
   loading,
@@ -301,10 +304,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
   const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
-  const [initialLoadFailed, setInitialLoadFailed] = useState(false);
-  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const sessionIdentityRef = useRef(sessionIdentity);
   const loadRequestRef = useRef(0);
+  const threadConfigRequestRef = useRef(0);
   const sessionsRef = useRef(sessions);
   const historySessionsRef = useRef<Session[]>([]);
   const sessionRowsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -371,8 +374,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     } else {
       setLocalFilter('all');
     }
-    setInitialLoadFailed(false);
-    setRefreshFailed(false);
+    setLoadError(null);
     setLoading(true);
   }, [onFilterChange, sessionIdentity, setLoading, setSessions]);
 
@@ -381,6 +383,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [epicDefaultGuestMaxThreadCount, setEpicDefaultGuestMaxThreadCount] = useState<
     number | null
   >(null);
+  const [threadConfigError, setThreadConfigError] = useState<string | null>(null);
 
   // Dropdown options
   const timeFormatOptions = getTimeFormatOptions(t, guestTimeFormatKeys);
@@ -406,8 +409,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         historySessionsRef.current = [];
         setSessions([]);
         setHistorySessions([]);
-        setInitialLoadFailed(false);
-        setRefreshFailed(false);
+        setLoadError(null);
         setLoading(false);
         return;
       }
@@ -456,8 +458,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         historySessionsRef.current = loadedHistory;
         setSessions(loadedSessions);
         setHistorySessions(loadedHistory);
-        setInitialLoadFailed(false);
-        setRefreshFailed(false);
+        setLoadError(null);
       } catch (err: unknown) {
         if (
           request !== loadRequestRef.current ||
@@ -466,15 +467,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           return;
         }
 
-        const hasSnapshot = sessionsRef.current.length > 0 || historySessionsRef.current.length > 0;
-        if (hasSnapshot) {
-          setRefreshFailed(true);
-          notifyError(t('activeSessions.refreshFailed'), err, {
-            logLabel: 'Failed to refresh sessions'
-          });
-        } else {
-          setInitialLoadFailed(true);
-        }
+        setLoadError(getErrorMessage(err));
       } finally {
         if (
           request === loadRequestRef.current &&
@@ -484,7 +477,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [mockMode, sessionIdentity, setLoading, setSessions]
   );
 
@@ -1006,24 +998,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   }, []);
 
   // Load default guest max thread count for both Steam and Epic
-  useEffect(() => {
-    const loadThreadConfig = async () => {
-      try {
-        const [steamData, epicData] = await Promise.all([
-          ApiService.getGuestPrefillConfig<{ maxThreadCount: number | null }>('prefill'),
-          ApiService.getGuestPrefillConfig<{ maxThreadCount: number | null }>('epic-prefill')
-        ]);
-        setDefaultGuestMaxThreadCount(steamData.maxThreadCount ?? null);
-        setEpicDefaultGuestMaxThreadCount(epicData.maxThreadCount ?? null);
-      } catch (err) {
-        notifyError(t('user.errors.loadThreadConfig'), err, {
-          logLabel: 'Failed to load thread config'
-        });
-      }
-    };
-    loadThreadConfig();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const loadThreadConfig = useCallback(async () => {
+    // Mount, reconnect and Retry can overlap; only the newest request writes values or the error.
+    const request = ++threadConfigRequestRef.current;
+    try {
+      const [steamConfig, epicConfig] = await Promise.all([
+        ApiService.getGuestPrefillConfig<{ maxThreadCount: number | null }>('prefill'),
+        ApiService.getGuestPrefillConfig<{ maxThreadCount: number | null }>('epic-prefill')
+      ]);
+      if (request !== threadConfigRequestRef.current) return;
+      setDefaultGuestMaxThreadCount(steamConfig.maxThreadCount ?? null);
+      setEpicDefaultGuestMaxThreadCount(epicConfig.maxThreadCount ?? null);
+      setThreadConfigError(null);
+    } catch (err) {
+      if (request !== threadConfigRequestRef.current) return;
+      setThreadConfigError(getErrorMessage(err));
+    }
   }, []);
+
+  useEffect(() => {
+    void loadThreadConfig();
+  }, [loadThreadConfig]);
 
   // SignalR subscriptions + initial load
   useEffect(() => {
@@ -1092,7 +1087,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // Recover a stale snapshot after a reconnect: a session change event can be missed while
   // the socket is down, so resync the sessions view whenever the connection returns.
-  useReconnectRefetch(isConnected, () => loadSessions(false));
+  useReconnectRefetch(isConnected, () => {
+    loadSessions(false);
+    void loadThreadConfig();
+  });
 
   // ============================================================
   // Derived Data
@@ -1100,6 +1098,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // Sessions from API are already active-only (paginated); history comes separately
   const activeSessions = sessions;
+  // A failed load with nothing loaded before shows only the error box, never the empty state
+  const loadFailedWithoutSnapshot =
+    loadError !== null && sessions.length === 0 && historySessions.length === 0;
 
   const typeFilteredSessions =
     activeFilterValue === 'all'
@@ -1753,6 +1754,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             onToggle={() => setSessionsExpanded((prev: boolean) => !prev)}
             badge={
               <SectionHeaderActions>
+                {loadError !== null && !sessionsExpanded && <SectionErrorChip />}
                 <SectionActionsMenu label={t('management.actions.menuLabel')} width="w-56">
                   {(close) => (
                     <>
@@ -1782,41 +1784,43 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             }
           >
             <div className="space-y-4">
-              <div className="well-surface session-access">
-                <div className="session-access__copy">
-                  <p className="session-access__title">{t('activeSessions.access.title')}</p>
-                  <p className="session-access__hint">
-                    {guestModeLocked
-                      ? t('activeSessions.access.lockedHint')
-                      : t('activeSessions.access.unlockedHint')}
-                  </p>
-                </div>
-                <ToggleSwitch
-                  options={[
-                    {
-                      value: 'unlocked',
-                      label: t('activeSessions.toggle.unlocked'),
-                      icon: <Unlock />,
-                      activeColor: 'success'
-                    },
-                    {
-                      value: 'locked',
-                      label: t('activeSessions.toggle.locked'),
-                      icon: <Lock />,
-                      activeColor: 'error'
+              {guestDefaultsLoaded && (
+                <div className="well-surface session-access">
+                  <div className="session-access__copy">
+                    <p className="session-access__title">{t('activeSessions.access.title')}</p>
+                    <p className="session-access__hint">
+                      {guestModeLocked
+                        ? t('activeSessions.access.lockedHint')
+                        : t('activeSessions.access.unlockedHint')}
+                    </p>
+                  </div>
+                  <ToggleSwitch
+                    options={[
+                      {
+                        value: 'unlocked',
+                        label: t('activeSessions.toggle.unlocked'),
+                        icon: <Unlock />,
+                        activeColor: 'success'
+                      },
+                      {
+                        value: 'locked',
+                        label: t('activeSessions.toggle.locked'),
+                        icon: <Lock />,
+                        activeColor: 'error'
+                      }
+                    ]}
+                    value={guestModeLocked ? 'locked' : 'unlocked'}
+                    onChange={onToggleGuestLock}
+                    disabled={updatingGuestLock}
+                    loading={updatingGuestLock}
+                    title={
+                      guestModeLocked
+                        ? t('activeSessions.toggle.lockedTitle')
+                        : t('activeSessions.toggle.unlockedTitle')
                     }
-                  ]}
-                  value={guestModeLocked ? 'locked' : 'unlocked'}
-                  onChange={onToggleGuestLock}
-                  disabled={updatingGuestLock}
-                  loading={updatingGuestLock}
-                  title={
-                    guestModeLocked
-                      ? t('activeSessions.toggle.lockedTitle')
-                      : t('activeSessions.toggle.unlockedTitle')
-                  }
-                />
-              </div>
+                  />
+                </div>
+              )}
 
               {!loading && activeSessions.length > 0 && (
                 <div className="session-toolbar">
@@ -1866,20 +1870,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <LoadingState message={t('activeSessions.loading')} shape="list" rows={4} />
               )}
 
-              {!loading && initialLoadFailed && (
+              {!loading && loadError !== null && (
                 <ErrorBlock
                   title={t('activeSessions.initialLoadFailed')}
-                  message={t('activeSessions.initialLoadFailedMessage')}
-                  retryLabel={t('activeSessions.retry')}
+                  message={loadError}
+                  retryLabel={t('common.retry')}
                   onRetry={() => void loadSessions(true)}
                 />
               )}
 
-              {!loading && refreshFailed && (
-                <Alert color="error">{t('activeSessions.refreshFailed')}</Alert>
-              )}
-
-              {!loading && !initialLoadFailed && activeSessions.length === 0 && (
+              {!loading && !loadFailedWithoutSnapshot && activeSessions.length === 0 && (
                 <EmptyState
                   variant="panel"
                   icon={Users}
@@ -1888,12 +1888,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 />
               )}
 
-              {!loading && !initialLoadFailed && filteredActiveSessions.length > 0 && (
+              {!loading && !loadFailedWithoutSnapshot && filteredActiveSessions.length > 0 && (
                 <div className="mgmt-list divided-list">{pagedSessions.map(renderSessionItem)}</div>
               )}
 
               {!loading &&
-                !initialLoadFailed &&
+                !loadFailedWithoutSnapshot &&
                 activeSessions.length > 0 &&
                 filteredActiveSessions.length === 0 && (
                   <EmptyState
@@ -1904,7 +1904,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   />
                 )}
 
-              {!loading && !initialLoadFailed && totalPages > 1 && (
+              {!loading && !loadFailedWithoutSnapshot && totalPages > 1 && (
                 <Pagination
                   currentPage={safePage}
                   totalPages={totalPages}
@@ -1979,7 +1979,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </div>
         )}
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('activeSessions.revokeModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
@@ -2040,7 +2040,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       >
         <p className="text-themed-secondary">{t('user.bulkActions.resetModal.message')}</p>
 
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('user.bulkActions.resetModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
@@ -2105,68 +2105,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {!loadingPreferences && editingPreferences && (
             <div className="space-y-4">
               {/* Theme Selection */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-themed-primary">
-                    {t('activeSessions.preferencesModal.selectedTheme')}
-                  </label>
-                  {editingPreferences.selectedTheme &&
-                  editingPreferences.selectedTheme !== defaultGuestTheme ? (
-                    <Badge
-                      variant="neutral"
-                      onClick={() =>
-                        setEditingPreferences({
-                          ...editingPreferences,
-                          selectedTheme: null
-                        })
-                      }
-                    >
-                      {t('actions.useDefault')}
-                    </Badge>
-                  ) : (
-                    <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
-                  )}
-                </div>
-                <EnhancedDropdown
-                  options={availableThemes.map((theme: ThemeOption) => ({
-                    value: theme.id,
-                    label: theme.name
-                  }))}
-                  value={editingPreferences.selectedTheme || defaultGuestTheme}
-                  onChange={(value: string) =>
-                    setEditingPreferences({
-                      ...editingPreferences,
-                      selectedTheme: value
-                    })
-                  }
-                  className="w-full"
-                />
-                <p className="text-xs text-themed-muted mt-1">
-                  {editingPreferences.selectedTheme
-                    ? t('activeSessions.preferencesModal.customTheme')
-                    : t('activeSessions.preferencesModal.defaultTheme', {
-                        theme:
-                          availableThemes.find((th: ThemeOption) => th.id === defaultGuestTheme)
-                            ?.name || defaultGuestTheme
-                      })}
-                </p>
-              </div>
-
-              {/* Refresh Rate (Guest Users Only) */}
-              {editingSession && isGuestSession(editingSession) && (
+              {guestDefaultsLoaded && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-themed-primary">
-                      {t('activeSessions.preferencesModal.refreshRate')}
+                      {t('activeSessions.preferencesModal.selectedTheme')}
                     </label>
-                    {editingPreferences.refreshRate &&
-                    editingPreferences.refreshRate !== defaultGuestRefreshRate ? (
+                    {editingPreferences.selectedTheme &&
+                    editingPreferences.selectedTheme !== defaultGuestTheme ? (
                       <Badge
                         variant="neutral"
                         onClick={() =>
                           setEditingPreferences({
                             ...editingPreferences,
-                            refreshRate: null
+                            selectedTheme: null
                           })
                         }
                       >
@@ -2177,27 +2129,81 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     )}
                   </div>
                   <EnhancedDropdown
-                    options={translatedRefreshRateOptions}
-                    value={editingPreferences.refreshRate || defaultGuestRefreshRate}
+                    options={availableThemes.map((theme: ThemeOption) => ({
+                      value: theme.id,
+                      label: theme.name
+                    }))}
+                    value={editingPreferences.selectedTheme || defaultGuestTheme}
                     onChange={(value: string) =>
                       setEditingPreferences({
                         ...editingPreferences,
-                        refreshRate: value
+                        selectedTheme: value
                       })
                     }
                     className="w-full"
                   />
                   <p className="text-xs text-themed-muted mt-1">
-                    {editingPreferences.refreshRate
-                      ? t('activeSessions.preferencesModal.customRefreshRate')
-                      : t('activeSessions.preferencesModal.defaultRefreshRate', {
-                          rate:
-                            translatedRefreshRateOptions.find(
-                              (o: { value: string; label: string }) =>
-                                o.value === defaultGuestRefreshRate
-                            )?.label || defaultGuestRefreshRate
+                    {editingPreferences.selectedTheme
+                      ? t('activeSessions.preferencesModal.customTheme')
+                      : t('activeSessions.preferencesModal.defaultTheme', {
+                          theme:
+                            availableThemes.find((th: ThemeOption) => th.id === defaultGuestTheme)
+                              ?.name || defaultGuestTheme
                         })}
                   </p>
+                </div>
+              )}
+
+              {/* Refresh Rate (Guest Users Only) */}
+              {editingSession && isGuestSession(editingSession) && (
+                <div>
+                  {guestDefaultsLoaded && (
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-themed-primary">
+                          {t('activeSessions.preferencesModal.refreshRate')}
+                        </label>
+                        {editingPreferences.refreshRate &&
+                        editingPreferences.refreshRate !== defaultGuestRefreshRate ? (
+                          <Badge
+                            variant="neutral"
+                            onClick={() =>
+                              setEditingPreferences({
+                                ...editingPreferences,
+                                refreshRate: null
+                              })
+                            }
+                          >
+                            {t('actions.useDefault')}
+                          </Badge>
+                        ) : (
+                          <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
+                        )}
+                      </div>
+                      <EnhancedDropdown
+                        options={translatedRefreshRateOptions}
+                        value={editingPreferences.refreshRate || defaultGuestRefreshRate}
+                        onChange={(value: string) =>
+                          setEditingPreferences({
+                            ...editingPreferences,
+                            refreshRate: value
+                          })
+                        }
+                        className="w-full"
+                      />
+                      <p className="text-xs text-themed-muted mt-1">
+                        {editingPreferences.refreshRate
+                          ? t('activeSessions.preferencesModal.customRefreshRate')
+                          : t('activeSessions.preferencesModal.defaultRefreshRate', {
+                              rate:
+                                translatedRefreshRateOptions.find(
+                                  (o: { value: string; label: string }) =>
+                                    o.value === defaultGuestRefreshRate
+                                )?.label || defaultGuestRefreshRate
+                            })}
+                      </p>
+                    </>
+                  )}
 
                   {/* Per-session Refresh Rate Lock */}
                   <div className="mt-3 flex items-center justify-between p-3 rounded-lg bg-themed-tertiary">
@@ -2321,6 +2327,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               {editingSession &&
                 isGuestSession(editingSession) &&
                 (() => {
+                  if (threadConfigError !== null) {
+                    return (
+                      <ErrorBlock
+                        title={t('user.errors.loadThreadConfig')}
+                        message={threadConfigError}
+                        retryLabel={t('common.retry')}
+                        onRetry={() => void loadThreadConfig()}
+                      />
+                    );
+                  }
                   const threadOptions = getThreadOptions(t);
                   const threadLimitServices: ThreadLimitService[] = [
                     {

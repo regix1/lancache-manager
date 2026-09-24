@@ -17,11 +17,11 @@ import { useEvents } from '@contexts/useEvents';
 import { useMockMode } from '@contexts/useMockMode';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
-import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ApiService from '@services/api.service';
@@ -34,7 +34,7 @@ import { clampEventColorIndex } from '@utils/eventColors';
 import { storage } from '@utils/storage';
 import { STORAGE_KEYS } from '@utils/constants';
 import { pruneMissingEventIds } from '@contexts/TimeFilterContext.utils';
-import { isAbortError } from '@utils/error';
+import { getErrorMessage, isAbortError } from '@utils/error';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
 import type { EventCompareResponse } from '@/types';
 import {
@@ -76,7 +76,6 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const { events } = useEvents();
   const { mockMode } = useMockMode();
   const { getTimeRangeInHours } = useTimeFilter();
-  const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
   const scheduleReload = useTimeoutCallback(REFRESH_DEBOUNCE_MS);
   const knownIds = useMemo(() => events.map((event) => event.id), [events]);
@@ -90,6 +89,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const [metric, setMetric] = useState<CompareMetric>('served');
   const [compare, setCompare] = useState<EventCompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Bumped to ask for the same comparison again, the way useRetroDownloads re-asks for its page.
   // The previous chart stays on screen while the fetch runs.
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -133,14 +133,18 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   }, [selectedIds]);
 
   useEffect(() => {
+    // Neither early branch asks the server, so each clears an earlier failure itself; otherwise
+    // Retry would return here again and leave the old box on screen.
     if (selectedIds.length === 0) {
       setCompare(null);
+      setLoadError(null);
       setLoading(false);
       return;
     }
 
     if (mockMode) {
       setCompare(MockDataService.generateMockEventCompare(selectedIds));
+      setLoadError(null);
       setLoading(false);
       return;
     }
@@ -150,21 +154,20 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     ApiService.getEventCompare(selectedIds, controller.signal)
       .then((response) => {
         setCompare(response);
+        setLoadError(null);
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (isAbortError(error)) {
           return;
         }
-        notifyError(t('widgets.eventCompare.errors.load'), error, {
-          logLabel: 'Failed to load event compare'
-        });
-        setCompare(null);
+        // The last comparison stays drawn under the box.
+        setLoadError(getErrorMessage(error));
         setLoading(false);
       });
 
     return () => controller.abort();
-  }, [mockMode, notifyError, refreshVersion, selectedIds, t]);
+  }, [mockMode, refreshVersion, selectedIds]);
 
   const visibleCompare = useMemo(
     () => (compare ? clipCompareToHours(compare, getTimeRangeInHours()) : null),
@@ -276,6 +279,16 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     [hiddenSeries, repeatedColors, visibleCompare]
   );
 
+  const loadErrorBlock =
+    loadError === null ? null : (
+      <ErrorBlock
+        title={t('widgets.eventCompare.errors.load')}
+        message={loadError}
+        retryLabel={t('common.retry')}
+        onRetry={reload}
+      />
+    );
+
   return (
     <>
       <div className="line-trend-controls">
@@ -326,11 +339,14 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           </div>
         ) : hasSeries ? (
           <>
+            {loadError !== null && <div className="mb-3">{loadErrorBlock}</div>}
             <LineChartLegend items={legendItems} onToggle={toggleSeries} />
             <div className="dash-line-chart">
               <Line key={seriesKey} data={chartData} options={chartOptions} />
             </div>
           </>
+        ) : loadError !== null ? (
+          loadErrorBlock
         ) : (
           <div className="dash-line-chart-placeholder">
             <EmptyState

@@ -9,11 +9,11 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
-import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
-import { useNotifications } from '@contexts/notifications';
-import { useNotifySuccess } from '@/hooks/useErrorHandler';
+import { useSessionPreferences } from '@contexts/useSessionPreferences';
+import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
 
@@ -21,7 +21,8 @@ const SettingsSection: React.FC = () => {
   const { t } = useTranslation();
   const { mockMode, setMockMode } = useMockMode();
   const { authenticationEnabled } = useAuth();
-  const { addNotification } = useNotifications();
+  const { error: preferencesError } = useSessionPreferences();
+  const { notifyError } = useErrorHandler();
   const { notifySuccess } = useNotifySuccess();
 
   const [apiAuthExpanded, setApiAuthExpanded] = useState(false);
@@ -35,18 +36,6 @@ const SettingsSection: React.FC = () => {
   const [displayPrefsExpanded, setDisplayPrefsExpanded] = useState(false);
   useAccordionGroupItem('settings-display-preferences', displayPrefsExpanded, () =>
     setDisplayPrefsExpanded((prev) => !prev)
-  );
-
-  const handleError = useCallback(
-    (message: string) => {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message,
-        details: { notificationType: 'error' }
-      });
-    },
-    [addNotification]
   );
 
   const handleSuccess = useCallback(
@@ -104,7 +93,7 @@ const SettingsSection: React.FC = () => {
               </SectionHeaderChip>
             }
           >
-            <AuthenticationManager onError={handleError} onSuccess={handleSuccess} />
+            <AuthenticationManager onError={notifyError} onSuccess={handleSuccess} />
           </AccordionSection>
 
           <AccordionSection
@@ -164,6 +153,9 @@ const SettingsSection: React.FC = () => {
             icon={Settings}
             isExpanded={displayPrefsExpanded}
             onToggle={() => setDisplayPrefsExpanded((prev) => !prev)}
+            badge={
+              preferencesError !== null && !displayPrefsExpanded ? <SectionErrorChip /> : undefined
+            }
           >
             <DisplayPreferences />
           </AccordionSection>

@@ -66,7 +66,10 @@ test('an older guest status answer cannot overwrite a newer account status', asy
     '@utils/userInteractionTracker': moduleUrl(
       `export const hasRecentUserInteraction = () => false;`
     ),
-    './apiError': moduleUrl(`export const assertOk = async (value) => value;`)
+    './apiError': moduleUrl(
+      `export class ApiError extends Error {}
+      export const assertOk = async (value) => value;`
+    )
   });
   const { default: authService } = await import(authServiceUrl);
 

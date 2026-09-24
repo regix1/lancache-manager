@@ -10,8 +10,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Centralized service for sending SignalR notifications to clients.
 /// Provides error handling and logging for all SignalR communications.
-/// Supports DownloadHub (primary), SteamDaemonHub for Steam prefill-specific notifications,
-/// and EpicPrefillDaemonHub for Epic prefill-specific notifications.
+/// Broadcasts go to the DownloadHub; the prefill daemon hubs only receive sends to one connection.
 /// </summary>
 public class SignalRNotificationService : ISignalRNotificationService
 {
@@ -43,6 +42,29 @@ public class SignalRNotificationService : ISignalRNotificationService
         _logger = logger;
         _serviceProvider = serviceProvider;
     }
+
+    // A guest sees no management page, so a run's start, progress and end and the schedule state reach
+    // account holders only. A guest keeps the completions its dashboard and downloads list refetch on
+    // (SIGNALR_REFRESH_EVENTS in Web/src/contexts/SignalRContext/types.ts) and the database reset progress
+    // its dashboard and sign-in screen read. Every other event is unchanged.
+    private static readonly HashSet<string> _guestEvents =
+    [
+        SignalREvents.LogProcessingComplete, SignalREvents.DepotMappingComplete, SignalREvents.LogRemovalComplete,
+        SignalREvents.CorruptionRemovalComplete, SignalREvents.ServiceRemovalComplete, SignalREvents.GameDetectionComplete,
+        SignalREvents.GameRemovalComplete, SignalREvents.CacheClearingComplete, SignalREvents.CacheScanComplete,
+        SignalREvents.EvictionScanComplete, SignalREvents.EvictionRemovalComplete, SignalREvents.DatabaseResetProgress
+    ];
+
+    private IClientProxy ClientsFor(string eventName) =>
+        !_guestEvents.Contains(eventName)
+        && (eventName.EndsWith("Started", StringComparison.Ordinal)
+            || eventName.EndsWith("Progress", StringComparison.Ordinal)
+            || eventName.EndsWith("Complete", StringComparison.Ordinal)
+            || eventName.EndsWith("Completed", StringComparison.Ordinal)
+            || eventName.EndsWith("PrefillHistoryUpdated", StringComparison.Ordinal)
+            || eventName is SignalREvents.SchedulesUpdated or SignalREvents.AutomaticScanSkipped)
+            ? _downloadHubContext.Clients.Group(DownloadHub.AdminGroup)
+            : _downloadHubContext.Clients.All;
 
     public async Task NotifyAllAsync(string eventName, object? data = null)
     {
@@ -107,12 +129,12 @@ public class SignalRNotificationService : ISignalRNotificationService
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();
             }
 
-            await _downloadHubContext.Clients.All.SendAsync(eventName, data);
-            _logger.LogDebug("SignalR notification sent to all: {EventName}", eventName);
+            await ClientsFor(eventName).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR notification sent: {EventName}", eventName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send SignalR notification to all: {EventName}", eventName);
+            _logger.LogError(ex, "Failed to send SignalR notification: {EventName}", eventName);
         }
     }
 
@@ -122,7 +144,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         {
             try
             {
-                await _downloadHubContext.Clients.All.SendAsync(eventName, data);
+                await ClientsFor(eventName).SendAsync(eventName, data);
                 _logger.LogDebug("SignalR fire-and-forget notification sent: {EventName}", eventName);
             }
             catch (Exception ex)
@@ -168,59 +190,20 @@ public class SignalRNotificationService : ISignalRNotificationService
         await hubClients.Client(connectionId).SendAsync(eventName, data);
     }
 
-    /// <summary>
-    /// Shared broadcast helper. Fans one event out to every client on the primary download hub and on
-    /// a single daemon hub, with consistent debug logging and error handling. Does not rethrow on failure.
-    /// </summary>
-    private async Task NotifyDaemonHubAsync(
-        IHubClients daemonClients,
-        string eventName,
-        object? data,
-        string hubLabel)
-    {
-        try
-        {
-            await Task.WhenAll(
-                _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                daemonClients.All.SendAsync(eventName, data)
-            );
-            _logger.LogDebug("SignalR notification sent (downloads + {HubLabel}): {EventName}", hubLabel, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification (downloads + {HubLabel}): {EventName}", hubLabel, eventName);
-        }
-    }
-
-    public Task NotifySteamHubAsync(string eventName, object? data = null)
-        => NotifyDaemonHubAsync(_steamHubContext.Clients, eventName, data, "steam");
-
-    public Task NotifyEpicHubAsync(string eventName, object? data = null)
-        => NotifyDaemonHubAsync(_epicHubContext.Clients, eventName, data, "epic");
-
     // ===== Battle.net Prefill Hub Methods =====
 
     public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_battleNetHubContext.Clients, connectionId, eventName, data);
-
-    public Task NotifyBattleNetHubAsync(string eventName, object? data = null)
-        => NotifyDaemonHubAsync(_battleNetHubContext.Clients, eventName, data, "battlenet");
 
     // ===== Riot Prefill Hub Methods =====
 
     public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_riotHubContext.Clients, connectionId, eventName, data);
 
-    public Task NotifyRiotHubAsync(string eventName, object? data = null)
-        => NotifyDaemonHubAsync(_riotHubContext.Clients, eventName, data, "riot");
-
     // ===== Xbox Prefill Hub Methods =====
 
     public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_xboxHubContext.Clients, connectionId, eventName, data);
-
-    public Task NotifyXboxHubAsync(string eventName, object? data = null)
-        => NotifyDaemonHubAsync(_xboxHubContext.Clients, eventName, data, "xbox");
 
     // ===== DownloadHub Group Methods =====
 

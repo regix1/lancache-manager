@@ -1,6 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Core;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
@@ -21,6 +22,7 @@ namespace LancacheManager.Controllers;
 public class GamesController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;
+    private readonly GameDetectionService _gameDetectionService;
     private readonly CacheManagementService _cacheManagementService;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<GamesController> _logger;
@@ -33,6 +35,7 @@ public class GamesController : ControllerBase
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
+        GameDetectionService gameDetectionService,
         CacheManagementService cacheManagementService,
         ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
@@ -46,6 +49,7 @@ public class GamesController : ControllerBase
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
         _gameCacheDetectionService = gameCacheDetectionService;
+        _gameDetectionService = gameDetectionService;
         _cacheManagementService = cacheManagementService;
         _notifications = notifications;
         _logger = logger;
@@ -150,6 +154,7 @@ public class GamesController : ControllerBase
             appId: appId,
             entityKind: "steam",
             epicAppId: null,
+            service: null,
             removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress, opId),
             onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId));
@@ -228,6 +233,7 @@ public class GamesController : ControllerBase
             appId: null,
             entityKind: "epic",
             epicAppId: epicAppId,
+            service: "epicgames",
             removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress, opId),
             onSuccess: null);
@@ -309,6 +315,7 @@ public class GamesController : ControllerBase
             appId: null,
             entityKind: "named",
             epicAppId: null,
+            service: service,
             removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveNamedGameFromCacheAsync(service, gameName, ct, onProgress, opId),
             onSuccess: null);
@@ -346,6 +353,7 @@ public class GamesController : ControllerBase
     /// <param name="displayName">Game display name for notifications</param>
     /// <param name="operationLabel">Operation label for the tracker (e.g., "Game Removal: Halo")</param>
     /// <param name="appId">Steam AppId (0 for Epic games)</param>
+    /// <param name="service">Cache service the game belongs to (the named route's service, "epicgames" for Epic); null for Steam</param>
     /// <param name="removeFunc">The actual removal function that accepts cancellation token and progress callback</param>
     /// <param name="onSuccess">Optional callback after successful removal (e.g., Steam removes from detection cache)</param>
     private async Task<Guid> StartRemovalAsync(
@@ -355,6 +363,7 @@ public class GamesController : ControllerBase
         long? appId,
         string entityKind,
         string? epicAppId,
+        string? service,
         Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
         Func<long, Task>? onSuccess)
     {
@@ -377,7 +386,8 @@ public class GamesController : ControllerBase
             EntityKey = entityKey,
             EntityName = displayName,
             EntityKind = entityKind,
-            EpicAppId = epicAppId
+            EpicAppId = epicAppId,
+            Service = service
         };
         var operationId = await TrackedRemovalOperationRunner.StartAsync(
             _operationTracker,
@@ -394,7 +404,8 @@ public class GamesController : ControllerBase
                     GameName: displayName,
                     StageKey: startingStageKey,
                     Timestamp: DateTime.UtcNow,
-                    Context: RemovalContext(displayName, appId, epicAppId)),
+                    Context: RemovalContext(displayName, appId, epicAppId),
+                    Service: service),
                 ProgressEventName: SignalREvents.GameRemovalProgress,
                 InitialStageKey: startingStageKey,
                 BuildInitialProgressPayload: id => new GameRemovalProgress(
@@ -403,7 +414,8 @@ public class GamesController : ControllerBase
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: startingStageKey,
-                    Context: RemovalContext(displayName, appId, epicAppId)),
+                    Context: RemovalContext(displayName, appId, epicAppId),
+                    Service: service),
                 BuildProgressPayload: (id, update) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
@@ -413,7 +425,8 @@ public class GamesController : ControllerBase
                     PercentComplete: update.PercentComplete,
                     FilesDeleted: update.FilesDeleted,
                     BytesFreed: update.BytesFreed,
-                    Context: update.Context),
+                    Context: update.Context,
+                    Service: service),
                 CompleteEventName: SignalREvents.GameRemovalComplete,
                 FinalizingStageKey: "signalr.gameRemove.finalizing",
                 BuildFinalizingProgressPayload: (id, report) => new GameRemovalProgress(
@@ -431,7 +444,8 @@ public class GamesController : ControllerBase
                         epicAppId,
                         filesDeleted: report.CacheFilesDeleted,
                         bytesFreed: (long)report.TotalBytesFreed,
-                        logEntriesRemoved: report.LogEntriesRemoved)),
+                        logEntriesRemoved: report.LogEntriesRemoved),
+                    Service: service),
                 BuildSuccessPayload: (id, report) => new GameRemovalComplete(
                     Success: true,
                     OperationId: id,
@@ -468,7 +482,8 @@ public class GamesController : ControllerBase
                     GameName: displayName,
                     StageKey: errorStageKey,
                     PercentComplete: 0.0,
-                    Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
+                    Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message),
+                    Service: service),
                 BuildErrorCompletePayload: (id, ex) => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
@@ -562,11 +577,14 @@ public class GamesController : ControllerBase
         // forceRefresh=false means quick scan (incremental=true)
         var incremental = !forceRefresh;
 
+        // A scan started from this page follows the game detection schedule's notification mode.
+        var notice = new RunNotice(_gameDetectionService.EffectiveNotificationMode, RunTrigger.Manual);
+
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // StartDetectionAsync returns null only for the already-running race; capability
         // refusals remain failures so queue promotion cannot misclassify them as an active scan.
         Task<Guid?> StartDetectionCoreAsync() =>
-            _gameCacheDetectionService.StartDetectionAsync(incremental);
+            _gameCacheDetectionService.StartDetectionAsync(notice, incremental);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.GameDetection,
@@ -576,7 +594,7 @@ public class GamesController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-                StartDetectionCoreAsync, cancellationToken));
+                StartDetectionCoreAsync, cancellationToken, notice: notice));
         }
 
         var operationId = await StartDetectionCoreAsync();
@@ -587,7 +605,7 @@ public class GamesController : ControllerBase
             // (the queue re-checks under its gate and deduplicates against the now-active op).
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-                StartDetectionCoreAsync, cancellationToken));
+                StartDetectionCoreAsync, cancellationToken, notice: notice));
         }
 
         _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
@@ -617,9 +635,7 @@ public class GamesController : ControllerBase
         return Ok(new ActiveDetectionResponse
         {
             IsProcessing = true,
-            Operation = activeOperation,
-            ShowNotification = activeOperation.ShowNotification,
-            HideNotification = activeOperation.HideNotification
+            Operation = activeOperation
         });
     }
 

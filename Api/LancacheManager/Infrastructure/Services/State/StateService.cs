@@ -1203,6 +1203,17 @@ public class StateService : IStateService
         });
     }
 
+    // Global Notification Display Mode Methods
+    public NotificationDisplayMode GetGlobalNotificationDisplayMode()
+    {
+        return GetState().GlobalNotificationDisplayMode;
+    }
+
+    public void SetGlobalNotificationDisplayMode(NotificationDisplayMode mode)
+    {
+        UpdateState(state => state.GlobalNotificationDisplayMode = mode);
+    }
+
     // Game Detection Scan Mode Methods
     public GameDetectionScanMode GetGameDetectionScanMode()
     {
@@ -2335,16 +2346,6 @@ public class StateService : IStateService
     {
         var parsed = EvictedDataModeExtensions.TryParseWire(mode) ?? EvictedDataMode.Show;
         UpdateState(state => state.EvictedDataMode = parsed);
-    }
-
-    public bool GetEvictionScanNotifications()
-    {
-        return GetState().EvictionScanNotifications;
-    }
-
-    public void SetEvictionScanNotifications(bool enabled)
-    {
-        UpdateState(state => state.EvictionScanNotifications = enabled);
     }
 
     public bool GetClientHostnameLookup()

@@ -43,12 +43,13 @@ public partial class SteamKit2Service
             };
         }
 
-        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
         lock (_baselineLock) _baselineCommitted = false;
         _activeDepotScanMode = DepotScanMode.Incremental;
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
         _currentRebuildCts = runCts;
-        await using var reporter = CreateTrackedRebuildReporter(runCts);
+        // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run. [60]
+        await using var reporter = CreateTrackedRebuildReporter(runCts,
+            new RunNotice(EffectiveNotificationMode, RunTrigger.Manual));
 
         try
         {

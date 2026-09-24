@@ -10,6 +10,7 @@ import {
   indicatorColor
 } from './themeSchema';
 import { assertOk } from './apiError';
+import { getErrorMessage } from '@utils/error';
 import i18n from '@/i18n';
 import { APP_EVENTS } from '@utils/constants';
 
@@ -32,6 +33,11 @@ interface Theme {
   colors: Record<string, string | undefined>;
   custom?: Record<string, string>;
   css?: { content?: string };
+}
+
+interface ThemeLoadResult {
+  themes: Theme[];
+  loadError: string | null;
 }
 
 interface ApplyThemeOptions {
@@ -197,8 +203,7 @@ class ThemeService {
           new CustomEvent(APP_EVENTS.SHOW_TOAST, {
             detail: {
               type: 'info',
-              message,
-              duration: 5000
+              message
             }
           })
         );
@@ -213,64 +218,56 @@ class ThemeService {
     this.preferenceListenersSetup = true;
   }
 
-  async loadThemes(): Promise<Theme[]> {
+  async loadThemes(): Promise<ThemeLoadResult> {
     const builtInThemes = this.getBuiltInThemes();
 
     const apiThemes: Theme[] = [];
     const deletedThemeIds: string[] = [];
     // Every path below leaves the caller with a shorter list than the server has. The list itself
-    // cannot say so - a theme that failed to load looks exactly like a theme nobody created.
-    let themesFailed = false;
+    // cannot say so - a theme that failed to load looks exactly like a theme nobody created - so the
+    // reason travels beside it for the caller's error box.
+    let loadError: string | null = null;
 
     try {
       const response = await fetch(`${API_BASE}/themes`);
-      if (response.ok) {
-        const themeList = await response.json();
+      await assertOk(response);
+      const themeList = await response.json();
 
-        for (const themeInfo of themeList) {
-          if (themeInfo.format === 'toml') {
-            try {
-              const themeResponse = await fetch(`${API_BASE}/themes/${themeInfo.id}`);
+      for (const listedTheme of themeList) {
+        if (listedTheme.format === 'toml') {
+          try {
+            const themeResponse = await fetch(`${API_BASE}/themes/${listedTheme.id}`);
 
-              if (themeResponse.status === 404) {
-                deletedThemeIds.push(themeInfo.id);
-                continue;
-              }
-
-              if (themeResponse.ok) {
-                const tomlContent = await themeResponse.text();
-                const theme = this.parseTomlTheme(tomlContent);
-                if (theme) {
-                  apiThemes.push(theme);
-                }
-              }
-            } catch (error) {
-              console.error(`Failed to load theme ${themeInfo.id}:`, error);
-              themesFailed = true;
+            if (themeResponse.status === 404) {
+              deletedThemeIds.push(listedTheme.id);
+              continue;
             }
+
+            await assertOk(themeResponse);
+            const tomlContent = await themeResponse.text();
+            const theme = this.parseTomlTheme(tomlContent);
+            if (theme) {
+              apiThemes.push(theme);
+            }
+          } catch (error) {
+            console.error(`Failed to load theme ${listedTheme.id}:`, error);
+            loadError = getErrorMessage(error);
           }
         }
+      }
 
-        if (deletedThemeIds.length > 0) {
-          // If current theme was deleted, reset to default
-          if (this.currentTheme && deletedThemeIds.includes(this.currentTheme.meta.id)) {
-            const darkDefault = builtInThemes.find((t) => t.meta.id === 'dark-default');
-            if (darkDefault) {
-              this.applyTheme(darkDefault);
-            }
+      if (deletedThemeIds.length > 0) {
+        // If current theme was deleted, reset to default
+        if (this.currentTheme && deletedThemeIds.includes(this.currentTheme.meta.id)) {
+          const darkDefault = builtInThemes.find((t) => t.meta.id === 'dark-default');
+          if (darkDefault) {
+            this.applyTheme(darkDefault);
           }
         }
-      } else {
-        console.error('Failed to load themes from server:', response.status);
-        themesFailed = true;
       }
     } catch (error) {
       console.error('Failed to load themes from server:', error);
-      themesFailed = true;
-    }
-
-    if (themesFailed) {
-      notifyThemeError('management.themes.notifications.loadFailed');
+      loadError = getErrorMessage(error);
     }
 
     const allThemes = [...builtInThemes];
@@ -288,7 +285,7 @@ class ThemeService {
       }
     });
 
-    return allThemes;
+    return { themes: allThemes, loadError };
   }
 
   private _builtInThemesCache: Theme[] | null = null;

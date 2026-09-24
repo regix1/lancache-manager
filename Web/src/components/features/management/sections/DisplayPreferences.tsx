@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Brush, Bell, Database } from 'lucide-react';
 import { SettingRow } from '@components/ui/SettingRow';
 import { SettingSection } from '@components/ui/SettingSection';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
@@ -21,7 +22,8 @@ interface DisplayPreferenceWrite {
 
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
-  const { currentPreferences, setOptimisticPreference } = useSessionPreferences();
+  const { currentPreferences, setOptimisticPreference, error, resyncPreferences } =
+    useSessionPreferences();
   const { notifyError } = useErrorHandler();
 
   // Visual preferences
@@ -176,7 +178,7 @@ const DisplayPreferences: React.FC = () => {
     [writePreference, showDatasourceLabels]
   );
 
-  return (
+  const switches = (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Visual Settings */}
       <SettingSection icon={Brush} title={t('management.sections.displayPreferences.visual')}>
@@ -219,6 +221,24 @@ const DisplayPreferences: React.FC = () => {
           onChange={handleDatasourceLabelsChange}
         />
       </SettingSection>
+    </div>
+  );
+
+  if (error === null) {
+    return switches;
+  }
+
+  // The switches start at defaults, so before any preferences were read they would show a default
+  // as if it were saved; the box stands in for them until a read answers.
+  return (
+    <div className="space-y-4">
+      <ErrorBlock
+        title={t('activeSessions.errors.loadPreferences')}
+        message={error}
+        retryLabel={t('common.retry')}
+        onRetry={resyncPreferences}
+      />
+      {currentPreferences !== null && switches}
     </div>
   );
 };

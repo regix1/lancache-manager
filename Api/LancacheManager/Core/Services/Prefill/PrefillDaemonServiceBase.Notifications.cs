@@ -153,6 +153,13 @@ public abstract partial class PrefillDaemonServiceBase
                 };
 
                 session.AuthState = newAuthState;
+                // The daemon reports a refused sign-in as "awaiting-login" with a "Login failed:" message.
+                // Record it before the auth-state change below ends the tracked sign-in, so that sign-in
+                // ends as a failure rather than a cancel.
+                if (newAuthState == DaemonAuthState.NotAuthenticated && TryGetLoginFailureMessage(status, out var failureMessage))
+                {
+                    session.LastLoginFailureMessage = failureMessage;
+                }
                 if (newAuthState == DaemonAuthState.Authenticated
                     && session.LoginOperationId is null
                     && !session.SuppressLoginChallengePublication)
@@ -212,7 +219,7 @@ public abstract partial class PrefillDaemonServiceBase
                     try
                     {
                         var dto = DaemonSessionDto.FromSession(session);
-                        await NotifyHubAsync(EventSessionUpdated, dto);
+                        await NotifyHubAsync(session, EventSessionUpdated, dto);
                     }
                     catch (Exception ex)
                     {
@@ -371,6 +378,61 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
+    /// <summary>
+    /// Handles the daemon's socket or TCP connection dropping.
+    /// </summary>
+    private async Task OnDisconnectedAsync(DaemonSession session, IDaemonClient daemonClient)
+    {
+        if (session.Capabilities?.SupportsConcurrentPrefill == true || !session.Runs.IsEmpty)
+        {
+            lock (session.PrefillLock)
+            {
+                if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient)) return;
+                session.Recovering = true;
+                foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
+                    run.Recovering = true;
+            }
+            await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            FireAndForgetAsync(() => RefreshRunsAsync(session.Id), nameof(RefreshRunsAsync));
+            return;
+        }
+        Guid? runId;
+        lock (session.PrefillLock)
+        {
+            if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient)
+                || session.Status is DaemonSessionStatus.Error or DaemonSessionStatus.Terminated
+                || session.CancellationTokenSource.IsCancellationRequested)
+                return;
+            session.Status = DaemonSessionStatus.Error;
+            runId = session.PrefillRunId;
+        }
+        _logger.LogWarning("Socket disconnected for session {SessionId}", session.Id);
+        try
+        {
+            var failure = new DaemonCommandException();
+            // A sign-in waiting at a prompt has no daemon left to answer it, and neither expiry sweep looks
+            // at an Error session, so the disconnect ends it here as a failure.
+            if (session.LoginOperationId is not null)
+            {
+                session.LastLoginFailureMessage = failure.Message;
+                CompleteLoginOperation(session);
+            }
+            await TransitionToTerminalAsync(session, PrefillState.Failed, runId, failure.Message, failure.StageKey);
+            DaemonSessionDto snapshot;
+            lock (session.PrefillLock)
+            {
+                if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient))
+                    return;
+                snapshot = DaemonSessionDto.FromSession(session);
+            }
+            await NotifyHubAsync(session, EventSessionUpdated, snapshot);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to notify the socket disconnect for session {SessionId}", session.Id);
+        }
+    }
+
     #endregion
 
     /// <summary>
@@ -438,15 +500,15 @@ public abstract partial class PrefillDaemonServiceBase
         await BroadcastToSubscribersAsync(session, EventAuthStateChanged, payload);
 
         // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;
-        // stop before mirroring later auth/session updates to the hubs for a session no longer live.
+        // stop before mirroring later auth/session updates to the account holders for a session no longer live.
         if (!IsSessionLive(session) || session.AuthState != authState)
         {
             return;
         }
 
-        // Mirror to DownloadHub so management UIs (persistent container list, prefill sessions)
+        // Mirror to the account holders so management UIs (persistent container list, prefill sessions)
         // update via SignalR instead of polling when a daemon self-authenticates or logs in.
-        await NotifyHubAsync(EventAuthStateChanged, payload);
+        await _notifications.NotifyAdminAsync(EventAuthStateChanged, payload);
 
         // Re-check after the hub push before the session-update broadcast: teardown may have won during it.
         if (!IsSessionLive(session) || session.AuthState != authState)
@@ -457,7 +519,7 @@ public abstract partial class PrefillDaemonServiceBase
         try
         {
             var dto = DaemonSessionDto.FromSession(session);
-            await NotifyHubAsync(EventSessionUpdated, dto);
+            await NotifyHubAsync(session, EventSessionUpdated, dto);
         }
         catch (Exception ex)
         {
@@ -477,20 +539,18 @@ public abstract partial class PrefillDaemonServiceBase
             new { sessionId = session.Id, challenge });
 
         // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;
-        // don't mirror the challenge to the DownloadHub for a session that is no longer the live instance.
+        // don't mirror the challenge to the account holders for a session that is no longer the live instance.
         if (!IsSessionLive(session))
         {
             return;
         }
 
-        // Mirror to DownloadHub (matches NotifyAuthStateChangeAsync's AuthStateChanged/SessionUpdated
-        // mirror above) so the persistent-container config modal - which never calls
-        // SubscribeToSessionAsync, unlike the mapping-flow live login - receives the challenge the
-        // instant the daemon emits it instead of waiting on the REST challenge poll. Same Clients.All
-        // scoping as every other event this funnel already broadcasts; not narrowed to an admin-only
-        // group since no such group plumbing exists for this funnel today (see W4 results for the
-        // scoping rationale).
-        await NotifyHubAsync(EventCredentialChallenge, new { sessionId = session.Id, challenge });
+        // Mirror to the account holders (matches NotifyAuthStateChangeAsync's AuthStateChanged mirror
+        // above) so the persistent-container config modal - which never calls SubscribeToSessionAsync,
+        // unlike the mapping-flow live login - receives the challenge the instant the daemon emits it
+        // instead of waiting on the REST challenge poll. Only account holders get this copy: a challenge
+        // carries sign-in codes, so no other browser may receive it.
+        await _notifications.NotifyAdminAsync(EventCredentialChallenge, new { sessionId = session.Id, challenge });
     }
 
     private async Task NotifyStatusChangeAsync(DaemonSession session, DaemonStatus status)
@@ -511,7 +571,7 @@ public abstract partial class PrefillDaemonServiceBase
         var started = new { sessionId = session.Id, state, durationSeconds = (int?)null };
         await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, started);
         if (!IsSessionLive(session)) return;
-        await NotifyHubAsync(EventPrefillStateChanged, started);
+        await _notifications.NotifyAdminAsync(EventPrefillStateChanged, started);
         if (!IsSessionLive(session)) return;
         await ReportSessionActivityAsync(session, present: true);
     }
@@ -651,7 +711,7 @@ public abstract partial class PrefillDaemonServiceBase
                 if (!IsSessionLive(session)) return true;
                 try
                 {
-                    await NotifyHubAsync(EventPrefillStateChanged, terminal);
+                    await _notifications.NotifyAdminAsync(EventPrefillStateChanged, terminal);
                 }
                 catch (Exception ex)
                 {
@@ -661,7 +721,7 @@ public abstract partial class PrefillDaemonServiceBase
                 try
                 {
                     var snapshot = DaemonSessionDto.FromSession(session);
-                    await NotifyHubAsync(EventSessionUpdated, snapshot);
+                    await NotifyHubAsync(session, EventSessionUpdated, snapshot);
                     if (IsSessionLive(session))
                         await ReportSessionActivityAsync(session, present: true);
                 }
@@ -893,7 +953,7 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             var sessionBroadcast = appCompleted ? Task.CompletedTask
-                : NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+                : NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
             var subscriberBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
                 new { sessionId = session.Id, progress });
             try
@@ -1073,7 +1133,7 @@ public abstract partial class PrefillDaemonServiceBase
             }
             session.Recovering = session.Runs.Values.Any(run => run.Recovering && run.TerminalCompletedFlag == 0);
             session.NextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(10);
-            await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
         }
         finally { session.RecoveryWork.Release(); }
     }
@@ -1271,9 +1331,9 @@ public abstract partial class PrefillDaemonServiceBase
                 run = DaemonSessionDto.FromRun(run)
             };
             await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminalEvent);
-            await NotifyHubAsync(EventPrefillStateChanged, terminalEvent).WaitAsync(TimeSpan.FromSeconds(5));
+            await _notifications.NotifyAdminAsync(EventPrefillStateChanged, terminalEvent).WaitAsync(TimeSpan.FromSeconds(5));
         }
-        await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session)).WaitAsync(TimeSpan.FromSeconds(5));
+        await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session)).WaitAsync(TimeSpan.FromSeconds(5));
         await ReportSessionActivityAsync(session, present: true);
     }
 

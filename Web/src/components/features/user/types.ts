@@ -212,7 +212,7 @@ export const cleanIpAddress = (ip: string): string => {
 export const showToast = (type: 'success' | 'error' | 'info', message: string) => {
   window.dispatchEvent(
     new CustomEvent(APP_EVENTS.SHOW_TOAST, {
-      detail: { type, message, duration: 4000 }
+      detail: { type, message }
     })
   );
 };

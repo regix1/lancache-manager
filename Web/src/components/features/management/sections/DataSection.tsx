@@ -13,7 +13,6 @@ import { GroupHeading } from '@components/ui/GroupHeading';
 import { TabPanel } from '@components/features/management/TabPanel';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
 import { APP_EVENTS } from '@utils/constants';
 import { type ManagementSection } from '../ManagementNav';
 import DataImporter from '../data/DataImporter';
@@ -109,7 +108,7 @@ interface DataSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
   mockMode: boolean;
-  onError: (message: string) => void;
+  onError: (message: string, error?: unknown) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
   // Battle.net is anonymous (no login); this navigates to / highlights the
@@ -369,7 +368,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         }
       }
     } catch (err: unknown) {
-      onError(getErrorMessage(err));
+      onError(t('management.database.errors.failedToClear'), err);
     } finally {
       setLoading(false);
       clearInProgressRef.current = false;
@@ -577,7 +576,7 @@ const DataSection: React.FC<DataSectionProps> = ({
 
         {/* The generic cautions are one lead sentence; what follows is only the consequences the
             selected tables actually carry, run together as prose rather than a bullet per table. */}
-        <Alert color="yellow">
+        <Alert color="yellow" icon={null}>
           <p className="text-sm">
             {[
               t('management.sections.data.confirmClearWarnings.clearSummary'),

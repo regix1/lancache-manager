@@ -14,11 +14,12 @@ import {
 } from 'chart.js';
 import { Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useSparklines } from '@contexts/DashboardDataContext/hooks';
+import { useSparklines, useStats } from '@contexts/DashboardDataContext/hooks';
 import { useReaderClock } from '@hooks/useReaderClock';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { HelpNote, HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { WidgetPanel } from '../WidgetPanel';
@@ -48,7 +49,10 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   const { t } = useTranslation();
   const clock = useReaderClock();
   const themeRevision = useThemeRevision();
-  const { sparklines, loading } = useSparklines();
+  const { sparklines, loading, failed } = useSparklines();
+  // The sparklines hook carries no reason or refetch; both live with the rest of the batch.
+  const { error, refreshStats } = useStats();
+  const loadError = failed ? error : null;
   const [chartTab, setChartTab] = useState<ChartTab>('bandwidth');
   const { hiddenSeries, toggleSeries, seriesKey } = useHiddenSeries();
 
@@ -202,6 +206,16 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
     [chartTab, t]
   );
 
+  const loadErrorBlock =
+    loadError === null ? null : (
+      <ErrorBlock
+        title={t('widgets.bandwidthTrend.loadFailed')}
+        message={loadError}
+        retryLabel={t('common.retry')}
+        onRetry={() => void refreshStats(true)}
+      />
+    );
+
   return (
     <WidgetPanel className="widget-card--wide line-trend-card">
       <div className="line-trend-header">
@@ -241,11 +255,14 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
             </div>
           ) : hasSeries ? (
             <>
+              {loadError !== null && <div className="mb-3">{loadErrorBlock}</div>}
               <LineChartLegend items={legendItems} onToggle={toggleSeries} />
               <div className="dash-line-chart">
                 <Line key={seriesKey} data={chartData} options={chartOptions} />
               </div>
             </>
+          ) : loadError !== null ? (
+            loadErrorBlock
           ) : (
             <div className="dash-line-chart-placeholder">
               <EmptyState

@@ -1,5 +1,5 @@
 import i18n from '@/i18n';
-import { assertOk, type ApiErrorData } from './apiError';
+import { ApiError, assertOk, type ApiErrorData } from './apiError';
 import { isAbortError } from '@utils/error';
 import { antiforgeryHeaders } from '@utils/antiforgery';
 import { APP_EVENTS, getApiUrl } from '@utils/constants';
@@ -191,12 +191,16 @@ class AuthService {
         console.warn(`[AuthService] checkAuth timed out after ${AUTH_CHECK_TIMEOUT_MS}ms`);
       }
       console.error('[AuthService] checkAuth error:', error);
-      // Only a call that never got an answer keeps the last-known session: the 10s abort above, or
-      // a dropped network, which rejects fetch with a TypeError. AuthContext already keeps its own
-      // state on that answer, and these flags gate the SignalR connection - zeroing them here made
-      // the AUTH_SESSION_UPDATED dispatched in its finally stop a live socket over a blip, with
-      // nothing left to restart it.
-      const reachable = !aborted && !(error instanceof TypeError);
+      // Only a call that never got an answer keeps the last-known session: the 10s abort above, a
+      // dropped network, which rejects fetch with a TypeError, or a gateway's 502/503/504, which is
+      // a proxy answering for a server that did not. AuthContext already keeps its own state on
+      // that answer, and these flags gate the SignalR connection - zeroing them here made the
+      // AUTH_SESSION_UPDATED dispatched in its finally stop a live socket over a blip, with nothing
+      // left to restart it.
+      const gatewayAnswered =
+        error instanceof ApiError &&
+        (error.status === 502 || error.status === 503 || error.status === 504);
+      const reachable = !aborted && !(error instanceof TypeError) && !gatewayAnswered;
       if (reachable) {
         this.isAuthenticated = false;
         this.authMode = 'unauthenticated';

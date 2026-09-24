@@ -7,6 +7,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { getErrorMessage } from '@utils/error';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
@@ -15,6 +16,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { SectionErrorChip } from '@components/ui/SectionHeaderActions';
 import { Modal } from '@components/ui/Modal';
 import Badge from '@components/ui/Badge';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -179,14 +181,14 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
   );
   const [entries, setEntries] = useState<CorruptionScanHistoryEntry[] | null>(null);
   const [listLoading, setListLoading] = useState(false);
-  const [listError, setListError] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const listRequestSeqRef = useRef(0);
 
   const [viewEntry, setViewEntry] = useState<CorruptionScanHistoryEntry | null>(null);
   const [expandedDetailService, setExpandedDetailService] = useState<string | null>(null);
   const [detailChunks, setDetailChunks] = useState<Record<string, CorruptedChunkDetail[]>>({});
   const [detailLoadingService, setDetailLoadingService] = useState<string | null>(null);
-  const [detailErrorServices, setDetailErrorServices] = useState<Set<string>>(new Set());
+  const [detailErrorServices, setDetailErrorServices] = useState<Record<string, string>>({});
   const detailRequestSeqRef = useRef(0);
 
   const [pendingDelete, setPendingDelete] = useState<CorruptionScanHistoryEntry | null>(null);
@@ -201,14 +203,13 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
     }
     const seq = ++listRequestSeqRef.current;
     setListLoading(true);
-    setListError(false);
+    setListError(null);
     try {
       const response = await ApiService.getCorruptionScanHistory();
       if (seq !== listRequestSeqRef.current) return;
       const validated = validateCorruptionScanHistory(response);
       if (!validated) {
-        setEntries(null);
-        setListError(true);
+        setListError(t('common.errors.invalidJsonResponse'));
         notifyError(t('management.corruption.history.loadError'), undefined, {
           silent: true,
           logLabel: '[CorruptionScanHistory] History response failed contract validation'
@@ -218,8 +219,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
       setEntries(validated);
     } catch (error: unknown) {
       if (seq !== listRequestSeqRef.current) return;
-      setEntries(null);
-      setListError(true);
+      setListError(getErrorMessage(error));
       notifyError(t('management.corruption.history.loadError'), error, {
         silent: true,
         logLabel: '[CorruptionScanHistory] Failed to load scan history'
@@ -249,7 +249,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
     setViewEntry(entry);
     setExpandedDetailService(null);
     setDetailChunks({});
-    setDetailErrorServices(new Set());
+    setDetailErrorServices({});
     setDetailLoadingService(null);
   };
 
@@ -258,7 +258,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
     setViewEntry(null);
     setExpandedDetailService(null);
     setDetailChunks({});
-    setDetailErrorServices(new Set());
+    setDetailErrorServices({});
     setDetailLoadingService(null);
   };
 
@@ -266,8 +266,8 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
     async (entry: CorruptionScanHistoryEntry, service: string) => {
       const seq = ++detailRequestSeqRef.current;
       setDetailErrorServices((current) => {
-        const next = new Set(current);
-        next.delete(service);
+        const next = { ...current };
+        delete next[service];
         return next;
       });
       setDetailLoadingService(service);
@@ -276,7 +276,10 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         if (seq !== detailRequestSeqRef.current) return;
         const validated = validateCorruptionHistoryDetails(details, entry.detectionMethod);
         if (!validated || validated.length === 0) {
-          setDetailErrorServices((current) => new Set(current).add(service));
+          setDetailErrorServices((current) => ({
+            ...current,
+            [service]: t('management.corruption.errors.unsafeDetails')
+          }));
           notifyError(t('management.corruption.errors.unsafeDetails'), undefined, {
             silent: true,
             logLabel: '[CorruptionScanHistory] History detail response failed validation'
@@ -286,7 +289,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         setDetailChunks((current) => ({ ...current, [service]: validated }));
       } catch (error: unknown) {
         if (seq !== detailRequestSeqRef.current) return;
-        setDetailErrorServices((current) => new Set(current).add(service));
+        setDetailErrorServices((current) => ({ ...current, [service]: getErrorMessage(error) }));
         notifyError(
           t('management.corruption.errors.loadDetails', {
             service: getServiceDisplayName(service)
@@ -380,43 +383,50 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         isExpanded={expanded}
         onToggle={() => setExpanded((current) => !current)}
         surface="well"
+        badge={listError !== null && !expanded && <SectionErrorChip />}
       >
-        {listLoading && entries === null && !listError ? (
-          <div role="status" aria-live="polite" aria-busy="true">
-            <span className="sr-only">{t('management.corruption.history.loading')}</span>
-            <div className="mgmt-list divided-list" aria-hidden="true">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="mgmt-row flex-wrap">
-                  <div className="mgmt-row__body">
-                    <div
-                      className={`skeleton-shimmer rounded h-3.5 ${i % 2 === 0 ? 'w-2/5' : 'w-1/2'}`}
-                    />
-                    <div className="skeleton-shimmer rounded h-3 w-3/5 mt-1.5" />
+        <div className="space-y-3">
+          {listError !== null && (
+            <ErrorBlock
+              title={t('management.corruption.history.loadError')}
+              message={listError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void loadHistory()}
+            />
+          )}
+          {listLoading && entries === null && !listError ? (
+            <div role="status" aria-live="polite" aria-busy="true">
+              <span className="sr-only">{t('management.corruption.history.loading')}</span>
+              <div className="mgmt-list divided-list" aria-hidden="true">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="mgmt-row flex-wrap">
+                    <div className="mgmt-row__body">
+                      <div
+                        className={`skeleton-shimmer rounded h-3.5 ${i % 2 === 0 ? 'w-2/5' : 'w-1/2'}`}
+                      />
+                      <div className="skeleton-shimmer rounded h-3 w-3/5 mt-1.5" />
+                    </div>
+                    <div className="mgmt-row__actions mgmt-corruption-actions flex-wrap justify-end">
+                      <div className="skeleton-shimmer rounded-full h-5 w-16" />
+                      <div className="skeleton-shimmer rounded h-7 w-14" />
+                      <div className="skeleton-shimmer rounded h-7 w-24" />
+                    </div>
                   </div>
-                  <div className="mgmt-row__actions mgmt-corruption-actions flex-wrap justify-end">
-                    <div className="skeleton-shimmer rounded-full h-5 w-16" />
-                    <div className="skeleton-shimmer rounded h-7 w-14" />
-                    <div className="skeleton-shimmer rounded h-7 w-24" />
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ) : listError ? (
-          <ErrorBlock
-            title={t('management.corruption.history.loadError')}
-            message={t('management.corruption.history.loadErrorRetry')}
-            retryLabel={t('common.retry')}
-            onRetry={() => void loadHistory()}
-          />
-        ) : entries !== null && entries.length === 0 ? (
-          <EmptyState variant="text" title={t('management.corruption.history.empty')} />
-        ) : entries !== null ? (
-          <div className="space-y-4">
-            {renderGroup('management.corruption.methods.repeatedMiss.label', grouped.repeatedMiss)}
-            {renderGroup('management.corruption.methods.structural.label', grouped.structural)}
-          </div>
-        ) : null}
+          ) : entries !== null && entries.length > 0 ? (
+            <div className="space-y-4">
+              {renderGroup(
+                'management.corruption.methods.repeatedMiss.label',
+                grouped.repeatedMiss
+              )}
+              {renderGroup('management.corruption.methods.structural.label', grouped.structural)}
+            </div>
+          ) : entries !== null && listError === null ? (
+            <EmptyState variant="text" title={t('management.corruption.history.empty')} />
+          ) : null}
+        </div>
       </AccordionSection>
 
       <Modal
@@ -487,22 +497,15 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                       <CollapsibleRegion open={isDetailExpanded} contentClassName="mgmt-row-detail">
                         {detailLoadingService === service ? (
                           <LoadingState message={t('management.corruption.loadingDetails')} />
-                        ) : detailErrorServices.has(service) ? (
-                          <Alert color="red">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <p className="text-sm">
-                                {t('management.corruption.errors.loadDetails', {
-                                  service: getServiceDisplayName(service)
-                                })}
-                              </p>
-                              <Button
-                                size="sm"
-                                onClick={() => void loadHistoryDetails(viewEntry, service)}
-                              >
-                                {t('common.retry')}
-                              </Button>
-                            </div>
-                          </Alert>
+                        ) : detailErrorServices[service] !== undefined ? (
+                          <ErrorBlock
+                            title={t('management.corruption.errors.loadDetails', {
+                              service: getServiceDisplayName(service)
+                            })}
+                            message={detailErrorServices[service]}
+                            retryLabel={t('common.retry')}
+                            onRetry={() => void loadHistoryDetails(viewEntry, service)}
+                          />
                         ) : detailChunks[service]?.length > 0 ? (
                           <CorruptionChunkList chunks={detailChunks[service]} />
                         ) : (

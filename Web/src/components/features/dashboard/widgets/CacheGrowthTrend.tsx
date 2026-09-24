@@ -5,9 +5,10 @@ import { formatBytes, formatPercent } from '@utils/formatters';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useCacheSnapshot, useStats } from '@contexts/DashboardDataContext/hooks';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { Button } from '@components/ui/Button';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { WidgetPanel } from '../WidgetPanel';
 import { getCacheGrowth, getCacheGrowthEmptyState } from './cacheGrowth';
 
@@ -31,7 +32,9 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     const { t } = useTranslation();
     const { timeRange } = useTimeFilter();
     const { cacheSnapshot, loading, error, failed, refetch } = useCacheSnapshot();
+    const loadError = failed ? error : null;
     const { failedSections } = useStats();
+    const connectionLost = useConnectionLost();
     const nextSnapshotTime = useFormattedDateTime(cacheSnapshot?.nextSnapshotUtc ?? null);
 
     const growth = getCacheGrowth(timeRange, loading, cacheSnapshot);
@@ -78,7 +81,9 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
         </div>
 
-        {!hasCurrentCapacity && failedSections.cache && (
+        {/* One failure, one message: the red box below speaks for the card when it shows, and the
+            connection banner does while the connection is lost. */}
+        {!hasCurrentCapacity && failedSections.cache && loadError === null && !connectionLost && (
           <div className="text-sm text-themed-muted mb-3">{t('common.failedToLoad')}</div>
         )}
 
@@ -105,64 +110,63 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </>
         )}
 
-        <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
-          {loading && !growth && !error && !failed ? (
-            <div className="flex items-center justify-center gap-2 py-4 text-sm text-themed-muted">
-              <LoadingSpinner size="sm" inline />
-              <span>{t('common.loading')}</span>
-            </div>
-          ) : error || failed ? (
-            <EmptyState
-              action={
-                <Button size="sm" onClick={refetch}>
-                  {t('common.retry')}
-                </Button>
-              }
-              icon={TrendingUp}
-              subtitle={t('common.tryAgain')}
-              title={t('common.failedToLoad')}
-              variant="panel"
+        {loadError !== null && (
+          <div className="mb-3">
+            <ErrorBlock
+              title={t('widgets.cacheGrowthTrend.loadFailed')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void refetch()}
             />
-          ) : growth ? (
-            <div
-              className={`flex items-center justify-center gap-2 text-xs font-medium ${changeClass}`}
-            >
-              {recordedChange > 0 && <TrendingUp className="w-3 h-3" />}
-              {recordedChange < 0 && <TrendingDown className="w-3 h-3" />}
-              <span>{t(`widgets.cacheGrowthTrend.${changeState}`)}</span>
-            </div>
-          ) : emptyState === 'live' ? (
-            <EmptyState
-              icon={TrendingUp}
-              subtitle={t('widgets.cacheGrowthTrend.liveRangeDesc')}
-              title={t('widgets.cacheGrowthTrend.liveRangeTitle')}
-              variant="panel"
-            />
-          ) : emptyState === 'emptyCache' ? (
-            <EmptyState
-              icon={TrendingUp}
-              subtitle={t('widgets.cacheGrowthTrend.emptyCacheDesc')}
-              title={t('widgets.cacheGrowthTrend.emptyCacheTitle')}
-              variant="panel"
-            />
-          ) : (
-            <EmptyState
-              icon={TrendingUp}
-              subtitle={
-                emptyState === 'waitingWithNextSnapshot'
-                  ? t('widgets.cacheGrowthTrend.noDataNextDesc', { time: nextSnapshotTime })
-                  : t('widgets.cacheGrowthTrend.noDataDesc')
-              }
-              title={t('widgets.cacheGrowthTrend.noDataTitle')}
-              variant="panel"
-            />
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* A refetch whose snapshot sub-query comes back empty keeps the previous snapshot, so
-            `growth` survives while the well already reports the failure. The footer follows the
-            well rather than admitting failure above and printing last batch's numbers below. */}
-        {growth && !error && !failed && (
+        {/* A failed refetch keeps the previous snapshot, so the growth figures stay under the box. */}
+        {(loadError === null || growth) && (
+          <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
+            {loading && !growth && !failed ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-themed-muted">
+                <LoadingSpinner size="sm" inline />
+                <span>{t('common.loading')}</span>
+              </div>
+            ) : growth ? (
+              <div
+                className={`flex items-center justify-center gap-2 text-xs font-medium ${changeClass}`}
+              >
+                {recordedChange > 0 && <TrendingUp className="w-3 h-3" />}
+                {recordedChange < 0 && <TrendingDown className="w-3 h-3" />}
+                <span>{t(`widgets.cacheGrowthTrend.${changeState}`)}</span>
+              </div>
+            ) : emptyState === 'live' ? (
+              <EmptyState
+                icon={TrendingUp}
+                subtitle={t('widgets.cacheGrowthTrend.liveRangeDesc')}
+                title={t('widgets.cacheGrowthTrend.liveRangeTitle')}
+                variant="panel"
+              />
+            ) : emptyState === 'emptyCache' ? (
+              <EmptyState
+                icon={TrendingUp}
+                subtitle={t('widgets.cacheGrowthTrend.emptyCacheDesc')}
+                title={t('widgets.cacheGrowthTrend.emptyCacheTitle')}
+                variant="panel"
+              />
+            ) : (
+              <EmptyState
+                icon={TrendingUp}
+                subtitle={
+                  emptyState === 'waitingWithNextSnapshot'
+                    ? t('widgets.cacheGrowthTrend.noDataNextDesc', { time: nextSnapshotTime })
+                    : t('widgets.cacheGrowthTrend.noDataDesc')
+                }
+                title={t('widgets.cacheGrowthTrend.noDataTitle')}
+                variant="panel"
+              />
+            )}
+          </div>
+        )}
+
+        {growth && (
           <div className="dash-readout dash-readout--footer">
             <div className="dash-readout-item">
               <div
@@ -186,9 +190,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         )}
         {/* Joins the strip above when there is one, rules the card off itself when there is not. */}
         {badge ? (
-          <div
-            className={`dash-range-footer${growth && !error && !failed ? ' dash-range-footer--seamless' : ''}`}
-          >
+          <div className={`dash-range-footer${growth ? ' dash-range-footer--seamless' : ''}`}>
             {badge}
           </div>
         ) : null}

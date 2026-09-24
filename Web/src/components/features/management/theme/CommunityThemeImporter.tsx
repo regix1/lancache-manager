@@ -5,11 +5,12 @@ import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
@@ -17,6 +18,7 @@ import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { APP_EVENTS, API_BASE } from '@utils/constants';
 import { storage } from '@utils/storage';
+import { getErrorMessage } from '@utils/error';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 
 const COMMUNITY_THEMES_GITHUB_URL =
@@ -88,6 +90,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const { notifyError } = useErrorHandler();
   const [communityThemes, setCommunityThemes] = useState<CommunityTheme[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
   const [importedThemes, setImportedThemes] = useState<Set<string>>(new Set());
   const [showImported, setShowImported] = useState(false);
@@ -104,7 +107,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     window.dispatchEvent(
       new CustomEvent(APP_EVENTS.SHOW_TOAST, {
-        detail: { type, message, duration: 4000 }
+        detail: { type, message }
       })
     );
   };
@@ -179,7 +182,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           // Cache is missing despite having an ETag - refetch without ETag
           const freshResponse = await fetch(GITHUB_API_BASE);
           if (!freshResponse.ok) {
-            throw new Error('Failed to fetch community themes from GitHub');
+            throw new Error(t('management.themes.errors.githubUnreachable'));
           }
           files = await freshResponse.json();
         }
@@ -199,7 +202,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           console.warn(`GitHub API returned ${response.status}, falling back to cached data`);
           files = JSON.parse(cachedData) as GitHubFile[];
         } else {
-          throw new Error('Failed to fetch community themes from GitHub');
+          throw new Error(t('management.themes.errors.githubUnreachable'));
         }
       }
 
@@ -211,9 +214,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         await checkAndUpdateThemes(themes);
       }
     } catch (err: unknown) {
-      notifyError(t('management.themes.errors.failedToLoadCommunity'), err, {
-        logLabel: 'Error loading community themes'
-      });
+      // GitHub is not our server, so a network failure here names GitHub rather than the app
+      setLoadError(
+        err instanceof TypeError
+          ? t('management.themes.errors.githubUnreachable')
+          : getErrorMessage(err)
+      );
     } finally {
       setLoading(false);
       loadingInProgressRef.current = false;
@@ -227,11 +233,15 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     );
 
     // Fetch content for all theme files in parallel
+    let fileRequestFailed = false;
     const results = await Promise.all(
       tomlFiles.map(async (file): Promise<CommunityTheme | null> => {
         try {
           const contentResponse = await fetch(`${GITHUB_RAW_BASE}/${file.name}`);
-          if (!contentResponse.ok) return null;
+          if (!contentResponse.ok) {
+            fileRequestFailed = true;
+            return null;
+          }
           const content = await contentResponse.text();
           const parsedTheme = themeService.parseTomlTheme(content);
 
@@ -248,6 +258,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         } catch (err) {
           // Per-file parse tolerance inside a Promise.all - a single bad theme file must not
           // block the rest of the community list from loading, so this stays explicit noise.
+          fileRequestFailed = true;
           notifyError(t('management.themes.errors.failedToLoadCommunity'), err, {
             silent: true,
             logLabel: `Failed to load theme ${file.name}`
@@ -256,6 +267,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         }
       })
     );
+    // A file that did not arrive leaves the list short, so the section says so above the entries
+    // that did load; a file that arrived but does not parse stays silent
+    setLoadError(fileRequestFailed ? t('management.themes.errors.githubUnreachable') : null);
 
     return results.filter((t): t is CommunityTheme => t !== null);
   };
@@ -437,6 +451,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   const headerActions = (
     <SectionHeaderActions>
+      {loadError !== null && !sectionExpanded && <SectionErrorChip />}
       <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
@@ -502,6 +517,17 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       onToggle={() => setSectionExpanded((prev) => !prev)}
       badge={headerActions}
     >
+      {loadError !== null && (
+        <div className="mb-4">
+          <ErrorBlock
+            title={t('management.themes.errors.failedToLoadCommunity')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void loadCommunityThemes()}
+          />
+        </div>
+      )}
+
       {/* Auto-Update Progress */}
       {updatingThemes.size > 0 && (
         <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-themed-info">
@@ -521,7 +547,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       )}
 
       {/* Empty State */}
-      {!loading && communityThemes.length === 0 && (
+      {!loading && loadError === null && communityThemes.length === 0 && (
         <div className="text-center py-8 text-themed-muted">
           <p className="text-sm">{t('management.themes.community.noThemes')}</p>
         </div>

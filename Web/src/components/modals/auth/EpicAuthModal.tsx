@@ -202,7 +202,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 
           {/* Rendered in every state, including the ones with nothing to say, so the live region
               is already in the page when the login moves on and its label changes. The error rides
-              in the same reserved row: it is the same sentence the notification bar gets, drawn
+              in the same reserved row: it is the same title and reason the notification bar gets, drawn
               where the person is actually looking, because the modal sits over the bar and a
               rejected code used to change nothing on screen at all. */}
           <LoginAttemptStatus
@@ -215,6 +215,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
             }
             note={needsAuthorizationCode ? undefined : t('modals.epicAuth.signInDescription')}
             error={error}
+            errorTitle={t('common.errors.signInFailed', {
+              platform: t('prefill.persistent.services.epic')
+            })}
           />
         </div>
 

@@ -8,14 +8,13 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
-import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
 import { getIntegrationReasonKey } from '../../../../types';
 
 interface EpicDaemonStatusProps {
   authMode: AuthMode;
   mockMode: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
   onSuccess?: (message: string) => void;
 }
 
@@ -32,7 +31,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
     authStatus,
     refreshStatus: loadStatus,
     statusLoading: loading,
-    statusError: hasError,
+    statusError: loadError,
     loginDeadline,
     identity
   } = useEpicMappingAuth({
@@ -43,7 +42,10 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
     },
     onError: (message: string) => {
       console.error('Epic mapping login error:', message);
-      onError?.(message);
+      onError?.(
+        t('common.errors.signInFailed', { platform: t('prefill.persistent.services.epic') }),
+        message
+      );
     }
   });
 
@@ -101,11 +103,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
     } catch (err) {
       if (identityRef.current !== caller) return;
       console.error('Logout failed:', err);
-      onError?.(
-        err instanceof ApiError && err.body?.stageKey
-          ? t(err.body.stageKey, err.body.context ?? {})
-          : t('management.sections.integrations.epicDaemonStatus.logoutError')
-      );
+      onError?.(t('management.sections.integrations.epicDaemonStatus.logoutError'), err);
     } finally {
       if (identityRef.current === caller) setLoggingOut(false);
     }
@@ -150,8 +148,9 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
         }}
         loading={loading}
         loadingMessage={t('management.sections.integrations.epicDaemonStatus.loadingStatus')}
-        hasError={hasError}
-        errorMessage={t('management.sections.integrations.epicDaemonStatus.loadError')}
+        loadError={loadError}
+        loadErrorTitle={t('management.sections.integrations.epicDaemonStatus.loadError')}
+        onRetry={() => void loadStatus()}
         connected={isAuthenticated}
         connectedLabel={t('management.sections.integrations.epicDaemonStatus.connected')}
         notConnectedLabel={t('management.sections.integrations.epicDaemonStatus.notConnected')}

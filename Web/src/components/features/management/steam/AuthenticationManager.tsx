@@ -20,7 +20,7 @@ import { formatSessionTimeRemaining } from '@utils/timeFormatters';
 import { getErrorMessage } from '@utils/error';
 
 interface AuthenticationManagerProps {
-  onError?: (message: string) => void;
+  onError?: (message: string, error?: unknown) => void;
   onSuccess?: (message: string) => void;
 }
 
@@ -224,7 +224,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     if (!result.success) {
       const message = result.message || t('modals.auth.errors.guestModeUnavailable');
       setAuthError(message);
-      onError?.(message);
+      onError?.(t('management.auth.errors.startGuestFailed'), message);
       return;
     }
 
@@ -276,7 +276,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       onSuccess?.(t('management.auth.notifications.loggedOut'));
     } catch (error: unknown) {
       console.error('Error logging out:', error);
-      onError?.(t('management.auth.errors.logoutFailed', { message: getErrorMessage(error) }));
+      onError?.(t('management.auth.errors.logoutFailed'), error);
     } finally {
       setAuthLoading(false);
     }

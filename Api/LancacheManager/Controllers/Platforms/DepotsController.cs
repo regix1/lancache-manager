@@ -133,7 +133,9 @@ public class DepotsController : ControllerBase
         }
 
         // Proceed with scan
-        var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental);
+        // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run either. [60]
+        var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental,
+            notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
 
         if (started)
         {
@@ -247,7 +249,8 @@ public class DepotsController : ControllerBase
 
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
-            var success = await _steamKit2Service.ImportFromGitHubAsync(cancellationToken);
+            var success = await _steamKit2Service.ImportFromGitHubAsync(cancellationToken,
+                notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
 
             if (success)
             {

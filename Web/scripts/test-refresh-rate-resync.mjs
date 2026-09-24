@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { compileToUrl } from './transpile-module.mjs';
+import { bindLifted, compileToUrl, findSoleNode, parseSource } from './transpile-module.mjs';
 
 /**
  * `globalLocked` and `isControlledByAdmin` decide whether a guest may change their own refresh rate.
@@ -137,7 +137,8 @@ globalThis.fetch = (url) =>
   new Promise((resolve) => {
     state.requests.push({
       url,
-      respond: (body) => resolve({ ok: true, json: async () => body })
+      respond: (body) => resolve({ ok: true, json: async () => body }),
+      fail: (status) => resolve({ ok: false, status, json: async () => ({}) })
     });
   });
 
@@ -159,7 +160,9 @@ export const useSessionPreferences = () => ({
 `);
 
 const apiStubUrl = toUrl(`export default { getJsonFetchOptions: () => ({}) };`);
-const apiErrorStubUrl = toUrl(`export const assertOk = async () => {};`);
+const apiErrorStubUrl = toUrl(`export const assertOk = async (response) => {
+  if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
+};`);
 const contextTypesStubUrl = toUrl(`export const RefreshRateContext = { Provider: 'provider' };`);
 
 // The real constants module reads `import.meta.env`, which node has no value for, so the two names
@@ -202,6 +205,7 @@ const compileProvider = () => {
     '@utils/constants': constantsUrl,
     '@services/api.service': apiStubUrl,
     '@services/apiError': apiErrorStubUrl,
+    '@utils/error': toUrl(`export const getErrorMessage = (error) => error.message;`),
     '@contexts/SignalRContext/useSignalR': signalRStubUrl,
     '@hooks/useReconnectRefetch': reconnectRefetchUrl,
     '@contexts/useAuth': authStubUrl,
@@ -394,5 +398,118 @@ test('a rate the user picked mid-flight survives the resync answer', async () =>
     admin.published().refreshRate,
     'LIVE',
     'the pick was made after the request was sent'
+  );
+});
+
+test('a settings read that fails leaves its reason, and reading again clears it', async () => {
+  const admin = mount({ authMode: 'authenticated', isConnected: true });
+  state.requests[0].fail(502);
+  await settle();
+  assert.equal(
+    admin.published().error,
+    'HTTP 502',
+    'a failed read showed the default rate as the saved system rate'
+  );
+
+  admin.published().reload();
+  assert.deepEqual(
+    state.requests.map((request) => request.url),
+    ['/api/system/refresh-rate', '/api/system/refresh-rate']
+  );
+  state.requests[1].respond({ refreshRate: 'SLOW' });
+  await settle();
+  assert.equal(admin.published().error, null);
+  assert.equal(admin.published().refreshRate, 'SLOW');
+
+  const guest = mount({ authMode: 'guest', isConnected: true });
+  state.requests[0].fail(503);
+  await settle();
+  assert.equal(guest.published().error, 'HTTP 503', 'a failed read showed the admin lock as read');
+});
+
+test('an older read that fails after a newer one answered does not bring the chip back', async () => {
+  const admin = mount({ authMode: 'authenticated', isConnected: true });
+  state.requests[0].respond({ refreshRate: 'STANDARD' });
+  await settle();
+  admin.published().reload();
+  admin.published().reload();
+  state.requests[2].respond({ refreshRate: 'SLOW' });
+  await settle();
+  state.requests[1].fail(502);
+  await settle();
+  assert.equal(admin.published().error, null, 'the older failure replaced a confirmed rate');
+  assert.equal(admin.published().refreshRate, 'SLOW');
+
+  const guest = mount({ authMode: 'guest', isConnected: true });
+  state.requests[0].respond({ locked: true, refreshRate: null });
+  await settle();
+  guest.published().reload();
+  guest.published().reload();
+  state.requests[2].respond({ locked: false, refreshRate: null });
+  await settle();
+  state.requests[1].fail(502);
+  await settle();
+  assert.equal(guest.published().error, null, 'the older failure replaced a confirmed lock');
+  assert.equal(guest.published().isControlledByAdmin, false);
+});
+
+test('a failed settings read shows the red chip in place of the rate, and a click reads again', () => {
+  const source = parseSource('src/components/common/RefreshRateSelector.tsx', ts.ScriptKind.TSX);
+  const selector = findSoleNode(
+    source,
+    'RefreshRateSelector declaration',
+    (node) =>
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(source) === 'RefreshRateSelector' &&
+      node.initializer !== undefined
+  ).initializer.getText(source);
+  const h = (type, props, ...children) => ({
+    type,
+    props: { ...props, children: children.length <= 1 ? children[0] : children }
+  });
+  const reload = () => undefined;
+  const view = { error: null, connectionLost: false };
+  const RefreshRateSelector = bindLifted(
+    selector,
+    {
+      h,
+      useTranslation: () => ({ t: (key) => key }),
+      useRefreshRate: () => ({
+        refreshRate: 'STANDARD',
+        setRefreshRate: () => undefined,
+        isControlledByAdmin: true,
+        error: view.error,
+        reload
+      }),
+      useConnectionLost: () => view.connectionLost,
+      Tooltip: 'Tooltip',
+      SectionErrorChip: 'SectionErrorChip',
+      EnhancedDropdown: 'EnhancedDropdown',
+      Lightbulb: 'Lightbulb',
+      Gauge: 'Gauge',
+      Zap: 'Zap',
+      Lock: 'Lock'
+    },
+    { jsx: ts.JsxEmit.React, jsxFactory: 'h' }
+  );
+
+  view.error = 'HTTP 502';
+  const failed = RefreshRateSelector({});
+  assert.equal(failed.type, 'Tooltip');
+  assert.equal(failed.props.content, 'HTTP 502');
+  const retry = failed.props.children;
+  assert.equal(retry.type, 'button');
+  assert.equal(retry.props.onClick, reload);
+  assert.equal(retry.props.children.type, 'SectionErrorChip');
+
+  view.connectionLost = true;
+  assert.equal(RefreshRateSelector({}), null, 'the outage banner already names the reason');
+
+  view.error = null;
+  view.connectionLost = false;
+  assert.equal(
+    RefreshRateSelector({}).props.content,
+    'tooltips.refreshRateControlled',
+    'a lock that was read still shows the locked box'
   );
 });

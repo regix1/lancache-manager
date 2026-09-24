@@ -182,7 +182,7 @@ public abstract partial class PrefillDaemonServiceBase
         session.ErrorMessage = "Automatic sign-in could not be cancelled cleanly. Start the session again to recover.";
         try
         {
-            await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
         }
         catch (Exception ex)
         {
@@ -206,7 +206,10 @@ public abstract partial class PrefillDaemonServiceBase
         {
             if (status is not null)
             {
-                await OnStatusChangeAsync(session, status);
+                // A sign-in in flight reads the daemon's idle "awaiting-login" until the daemon itself reports
+                // the result, so only a logged-in reply may change the session's sign-in state from here.
+                if (session.LoginOperationId is null || status.Status == "logged-in")
+                    await OnStatusChangeAsync(session, status);
                 await RecoverRunsAsync(session, status, cancellationToken);
             }
             else session.Recovering = true;
@@ -228,6 +231,7 @@ public abstract partial class PrefillDaemonServiceBase
             accountId: null,
             onCommandDispatched: null,
             reuseIntegration: false,
+            ownerSessionId: null,
             cancellationToken);
 
     /// <summary>
@@ -235,10 +239,14 @@ public abstract partial class PrefillDaemonServiceBase
     /// been dispatched. Cached challenge resumes do not invoke the callback because they start no new
     /// daemon work.
     /// </summary>
+    /// <param name="ownerSessionId">The auth session that started this sign-in; only its browser
+    /// draws the sign-in's card. A persistent session belongs to the system owner, so its own
+    /// <see cref="DaemonSession.UserId"/> cannot name the caller.</param>
     internal Task<CredentialChallenge?> StartLoginForEditAsync(
         string sessionId,
         TimeSpan? timeout,
         Action onCommandDispatched,
+        Guid ownerSessionId,
         CancellationToken cancellationToken = default)
     {
         return StartLoginEntryAsync(
@@ -247,6 +255,7 @@ public abstract partial class PrefillDaemonServiceBase
             accountId: null,
             onCommandDispatched,
             reuseIntegration: false,
+            ownerSessionId,
             cancellationToken);
     }
 
@@ -254,10 +263,12 @@ public abstract partial class PrefillDaemonServiceBase
     /// Edit-session entry point for importing the server-side integration login into the exact
     /// persistent daemon session.
     /// </summary>
+    /// <param name="ownerSessionId">See <see cref="StartLoginForEditAsync"/>.</param>
     internal Task<CredentialChallenge?> ReuseIntegrationLoginForEditAsync(
         string sessionId,
         Guid? accountId,
         Action onCommandDispatched,
+        Guid ownerSessionId,
         CancellationToken cancellationToken = default,
         IntegrationLease? lease = null)
     {
@@ -267,6 +278,7 @@ public abstract partial class PrefillDaemonServiceBase
             accountId,
             onCommandDispatched,
             reuseIntegration: true,
+            ownerSessionId,
             cancellationToken,
             lease);
     }
@@ -325,7 +337,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// A resumed login (the modal closed and reopened, so the core answers with the cached challenge)
     /// keeps the card it already has instead of raising a second one for the same attempt.
     /// </summary>
-    private void RegisterLoginOperation(DaemonSession session)
+    private void RegisterLoginOperation(DaemonSession session, Guid ownerSessionId)
     {
         if (_operationTracker is null ||
             session.LoginOperationId is not null ||
@@ -343,7 +355,10 @@ public abstract partial class PrefillDaemonServiceBase
         session.LoginOperationId = _operationTracker.RegisterOperation(
             OperationType.PrefillLogin,
             $"{ServiceName} Prefill Sign-In",
-            loginCancellation);
+            loginCancellation,
+            metadata: Platform,
+            notice: new RunNotice(NotificationMode.All, RunTrigger.Manual),
+            ownerSessionId: ownerSessionId);
         session.LoginExpiresAtUtc = DateTime.UtcNow.AddSeconds(GetAbandonedLoginTimeoutSeconds());
 
         // Cancelling the operation only cancels a token; ending the login is real work, and it has one
@@ -358,8 +373,9 @@ public abstract partial class PrefillDaemonServiceBase
     /// Ends the tracked operation raised for this session's login, if there is one, and clears the
     /// session's handle on it. The terminal mirrors the auth state the attempt landed on: authenticated
     /// is a success, a fail-fast carries the daemon's own failure text, and every other ending (the user
-    /// cancelling, a logout, a login the sweep gave up on) is reported as cancelled rather than as an
-    /// error the user has to dismiss - the login modal already shows those failures itself.
+    /// cancelling, a logout, a login the sweep gave up on) ends as a cancelled run, which shows a gray
+    /// card that leaves on its own unless Keep Notifications Visible holds it; the login modal shows the
+    /// refusal itself.
     /// Idempotent: the handle is cleared before the tracker is called, so two terminal paths racing on
     /// one session cannot both hand the tracker the same id.
     /// </summary>
@@ -379,6 +395,10 @@ public abstract partial class PrefillDaemonServiceBase
             success: authenticated,
             error: authenticated ? null : session.LastLoginFailureMessage,
             cancelled: !authenticated && session.LastLoginFailureMessage is null);
+
+        // A guest's browser has no notification bar and cannot reach the close route, so a kept ending
+        // would stay until restart with nobody able to see or close it.
+        if (session.IsTemporary) _operationTracker.CloseRun(operationId);
     }
 
     private async Task<CredentialChallenge?> StartLoginEntryAsync(
@@ -387,6 +407,7 @@ public abstract partial class PrefillDaemonServiceBase
         Guid? accountId,
         Action? onCommandDispatched,
         bool reuseIntegration,
+        Guid? ownerSessionId,
         CancellationToken cancellationToken,
         IntegrationLease? lease = null)
     {
@@ -425,7 +446,9 @@ public abstract partial class PrefillDaemonServiceBase
             EnsureCurrentSession(session);
             session.PreserveLoginExpiry = false;
             session.LoginSettled = false;
-            RegisterLoginOperation(session);
+            // A hub session is created for the caller's own auth session, so its UserId names the
+            // caller; the persistent entry points pass the caller explicitly.
+            RegisterLoginOperation(session, ownerSessionId ?? session.UserId);
 
             CredentialChallenge? challenge;
             if (reuseIntegration)
@@ -463,9 +486,10 @@ public abstract partial class PrefillDaemonServiceBase
         }
         finally
         {
-            // A session still LoggingIn is genuinely mid-flow: the person is answering an interactive
-            // challenge, and the auth-state funnel closes the card when they finish.
-            if (session.AuthState != DaemonAuthState.LoggingIn)
+            // Only a signed-in or signed-out session has finished its sign-in. LoggingIn and the prompt
+            // states (a username, password, code or link the person still has to answer) are mid-flow, and
+            // the auth-state funnel closes the card when they finish.
+            if (session.AuthState is DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated)
             {
                 CompleteLoginOperation(session);
             }
@@ -1075,9 +1099,9 @@ public abstract partial class PrefillDaemonServiceBase
             // persisted via SetUsernameAsync above; keep only the session id in the log.
             _logger.LogDebug("Captured username for session {SessionId}", sessionId);
 
-            // Broadcast session update to all clients for real-time updates (both hubs)
+            // Send the session update to its own tabs and the account holders for real-time updates
             var updatedDto = DaemonSessionDto.FromSession(session);
-            await NotifyHubAsync(EventSessionUpdated, updatedDto);
+            await NotifyHubAsync(session, EventSessionUpdated, updatedDto);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",

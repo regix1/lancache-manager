@@ -152,9 +152,8 @@ public sealed class OperationQueueCancelDuringPromotionTests
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             Tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             var conflictChecker = new OperationConflictChecker(Tracker, NullLogger<OperationConflictChecker>.Instance);
-            var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
             _queue = new OperationQueueService(
-                Tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+                Tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
             _promotedCts.Token.Register(() => _promotedCancelled.TrySetResult());
         }

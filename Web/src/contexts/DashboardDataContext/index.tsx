@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import i18n from '@/i18n';
 import ApiService from '@services/api.service';
 import { ApiError } from '@services/apiError';
-import { isAbortError } from '@utils/error';
+import { getErrorMessage, isAbortError } from '@utils/error';
 import { EMPTY_CACHED_DETECTION, buildDetectionLookupMaps } from '@utils/gameDetection';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
@@ -44,9 +45,11 @@ import {
 import {
   applyDashboardBatchResponse,
   buildRangeKey,
+  unconfirmedSections,
   type DashboardSlices
 } from './applyBatchResponse';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { getEffectiveTimezone } from '@utils/timezone';
 import { useTimezone } from '@contexts/useTimezone';
 
@@ -88,6 +91,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const signalR = useSignalR();
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
+  const connectionLost = useConnectionLost();
 
   // State. Dashboard fields start empty and populate from the first batch fetch.
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
@@ -132,6 +136,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [dataStale, setDataStale] = useState(false);
   // Widgets read their own key to tell a failed sub-query from a successful empty result.
   const [failedSectionKeys, setFailedSectionKeys] = useState<(keyof DashboardBatchResponse)[]>([]);
+  // Failed sections with no confirmed value on screen; see `unconfirmedSections`.
+  const [unconfirmedSectionKeys, setUnconfirmedSectionKeys] = useState<
+    (keyof DashboardBatchResponse)[]
+  >([]);
 
   const [lastCustomDates, setLastCustomDates] = useState<{ start: Date | null; end: Date | null }>({
     start: null,
@@ -140,7 +148,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
   // Refs for tracking state
   const isInitialLoad = useRef(true);
-  const hasData = useRef(false);
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
@@ -372,20 +379,21 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           batchResponse,
           { rangeKey, previousRangeKey: appliedRangeKeyRef.current }
         );
+        const sameRange = appliedRangeKeyRef.current === rangeKey;
         appliedRangeKeyRef.current = rangeKey;
 
         // Apply state updates directly - React 18+ auto-batches setState in
         // async handlers/microtasks, so no explicit transition wrapper is needed.
         applySlices(next);
-        if (batchResponse.dashboard) {
-          hasData.current = true;
-        }
 
-        // A partial apply clears any prior hard error; the stale flag is now the
-        // degradation signal, so stale data never appears silently healthy.
-        setError(null);
+        // A failed sub-query arrives as null with no caught error, so the failed sections share
+        // the generic sentence; a fully successful apply clears any earlier reason.
+        setError(hadPartialFailure ? i18n.t('common.errors.requestFailed') : null);
         // Published even when none failed, so a recovered section drops the old failure.
         setFailedSectionKeys(failedSectionKeys);
+        setUnconfirmedSectionKeys((previous) =>
+          unconfirmedSections(previous, failedSectionKeys, sameRange)
+        );
         if (hadPartialFailure) {
           console.warn('Dashboard batch returned failed sections:', failedSectionKeys);
           setDataStale(true);
@@ -442,20 +450,22 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
         // Its own 10s timeout aborts too, and an API that never answers is not a cancellation.
         if (!isAbortError(err) || timedOut) {
-          if (!hasData.current) {
-            // Read for truthiness only and never rendered as text, so this is a flag rather
-            // than a message. Consumers switch on `error || failed` and show their own copy.
-            setError('Failed to fetch dashboard data from API'); // i18n-exempt
-          }
+          // The batch's own 10s limit ends the request with an abort, whose text would read as a
+          // cancellation, so that case gets the timeout sentence.
+          setError(timedOut ? i18n.t('errors.http.timeout') : getErrorMessage(err));
           // Figures for the range already displayed are kept, so a blip does not blank a working
           // dashboard; figures for a range the fetch never reached are cleared on rangeKey.
           const failedApply = applyDashboardBatchResponse(slicesRef.current, FAILED_BATCH, {
             rangeKey,
             previousRangeKey: appliedRangeKeyRef.current
           });
+          const sameRange = appliedRangeKeyRef.current === rangeKey;
           appliedRangeKeyRef.current = rangeKey;
           applySlices(failedApply.next);
           setFailedSectionKeys(failedApply.failedSectionKeys);
+          setUnconfirmedSectionKeys((previous) =>
+            unconfirmedSections(previous, failedApply.failedSectionKeys, sameRange)
+          );
           setDataStale(true);
         }
         setLoading(false);
@@ -702,7 +712,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       setError(null);
       setLoading(false);
 
-      hasData.current = true;
       isInitialLoad.current = false;
     }
   }, [mockMode]);
@@ -733,7 +742,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     if (prevHasAccessRef.current && !hasAccess) {
       // Access lost - reset to initial state so the next login starts clean
       isInitialLoad.current = true;
-      hasData.current = false;
       // A stale range key or stale flag from the ended session must not survive into the next login.
       appliedRangeKeyRef.current = null;
       setDataStale(false);
@@ -915,7 +923,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       isRefreshing,
       error,
       dataStale,
-      failedSectionKeys,
+      // While the connection banner is up the batch keeps its last slices, so a section reports
+      // its own failure only when it has no confirmed value on screen.
+      failedSectionKeys: connectionLost
+        ? failedSectionKeys.filter((key) => unconfirmedSectionKeys.includes(key))
+        : failedSectionKeys,
       refreshData,
       updateData,
       setDownloadFilters
@@ -943,6 +955,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       error,
       dataStale,
       failedSectionKeys,
+      connectionLost,
+      unconfirmedSectionKeys,
       refreshData,
       updateData,
       setDownloadFilters

@@ -256,6 +256,7 @@ public sealed partial class OperationTerminalContractTests
             _connections.Add(pipe);
             var id = await Clear.StartCacheClearAsync();
             Assert.NotNull(id);
+            AssertFullCardWithoutNotice(id.Value);
             await pipe.ConnectAsync(id.Value);
             return pipe;
         }
@@ -266,8 +267,16 @@ public sealed partial class OperationTerminalContractTests
             _connections.Add(pipe);
             var id = await Detection.StartDetectionAsync(detectionMethod: method,
                 scanMode: method == CorruptionDetectionMethod.Structural ? StructuralScanMode.Full : null);
+            AssertFullCardWithoutNotice(id);
             await pipe.ConnectAsync(id);
             return pipe;
+        }
+
+        // A cache clear and a corruption detection belong to no schedule: no notice, always a full card. [89]
+        private void AssertFullCardWithoutNotice(Guid id)
+        {
+            Assert.Null(Tracker.GetOperation(id)!.Notice);
+            Assert.Equal(RunVisibility.Card, Assert.Single(Tracker.GetRuns().Runs, run => run.OperationId == id).Visibility);
         }
 
         public async Task ClearProgressAsync(TerminalPipe pipe)
@@ -692,9 +701,9 @@ public sealed partial class OperationTerminalContractTests
     public void TrackerOptionalArgumentsKeepExistingPositionsAndVoidContracts()
     {
         var contract = typeof(IUnifiedOperationTracker);
-        Assert.Equal(new[] { "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "initialStatus", "parentOperationId", "startedAt" },
+        Assert.Equal(new[] { "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "initialStatus", "parentOperationId", "startedAt", "blockedByName", "notice", "liveIngest", "ownerSessionId" },
             contract.GetMethod(nameof(IUnifiedOperationTracker.RegisterOperation))!.GetParameters().Select(parameter => parameter.Name));
-        Assert.Equal(new[] { "operationId", "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "parentOperationId", "startedAt" },
+        Assert.Equal(new[] { "operationId", "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "parentOperationId", "startedAt", "notice" },
             contract.GetMethod(nameof(IUnifiedOperationTracker.TryRestoreOperation))!.GetParameters().Select(parameter => parameter.Name));
         foreach (var name in new[] { nameof(IUnifiedOperationTracker.CompleteOperation), nameof(IUnifiedOperationTracker.UpdateProgress) })
         {

@@ -21,7 +21,8 @@ public static class SignalRNotifications
         string GameName,
         string StageKey,
         DateTime Timestamp,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? Service = null
     );
 
     /// <summary>
@@ -36,7 +37,8 @@ public static class SignalRNotifications
         double PercentComplete = 0,
         int? FilesDeleted = null,
         long? BytesFreed = null,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? Service = null
     );
 
     /// <summary>
@@ -254,11 +256,7 @@ public static class SignalRNotifications
         // Additive terminal field (appended so positional callers are unaffected) — guarantees the
         // shared IOperationComplete contract on the failure path.
         string? Error = null,
-        // Run-stable presentation flags keep the terminal in the same full, background, or hidden
-        // mode that the operation started with. Appended to keep positional callers safe.
-        bool ShowNotification = true,
-        Guid? ParentOperationId = null,
-        bool HideNotification = false
+        Guid? ParentOperationId = null
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
@@ -404,7 +402,6 @@ public static class SignalRNotifications
         Guid OperationId,
         string StageKey,
         Dictionary<string, object?>? Context,
-        bool ShowNotification,
         Models.DepotScanMode ScanMode,
         string Message,
         bool IsLoggedOn,
@@ -412,8 +409,7 @@ public static class SignalRNotifications
         string Status = "running",
         double PercentComplete = 0,
         int TotalApps = 0,
-        int ProcessedApps = 0,
-        bool HideNotification = false
+        int ProcessedApps = 0
     );
 
     /// <summary>
@@ -427,7 +423,6 @@ public static class SignalRNotifications
         string StageKey,
         double PercentComplete,
         Dictionary<string, object?>? Context,
-        bool ShowNotification,
         Models.DepotScanMode ScanMode,
         string? Message,
         bool IsLoggedOn,
@@ -444,8 +439,7 @@ public static class SignalRNotifications
         int? MaxReconnectAttempts = null,
         int ProcessedMappings = 0,
         int TotalMappings = 0,
-        int MappingsApplied = 0,
-        bool HideNotification = false
+        int MappingsApplied = 0
     );
 
     /// <summary>
@@ -470,16 +464,12 @@ public static class SignalRNotifications
         bool IsLoggedOn = false,
         string? Error = null,
         DateTime? Timestamp = null,
-        // Run-stable display flag stamped from the service's notification mode + run trigger. The
-        // terminal event is always emitted; the frontend gates whether the card is shown.
-        bool ShowNotification = true,
         string StageKey = "signalr.depotMapping.completed",
         double PercentComplete = 100,
         Dictionary<string, object?>? Context = null,
         int? DepotMappingsFound = null,
         int? TotalApps = null,
-        int? TotalBatches = null,
-        bool HideNotification = false
+        int? TotalBatches = null
     ) : IOperationComplete
     {
         public string ServiceKey => "depotMapping";
@@ -515,8 +505,7 @@ public static class SignalRNotifications
         bool Cancelled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null,
-        string? Message = null,
-        bool ShowNotification = true
+        string? Message = null
     ) : IOperationComplete;
 
     /// <summary>

@@ -33,6 +33,8 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useMockMode } from '@contexts/useMockMode';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
@@ -208,9 +210,17 @@ const Dashboard: React.FC = () => {
   const { selectedEvent: _selectedEvent } = useEvents();
   const { speedSnapshot, activeDownloadCount } = useSpeed();
   const { mockMode } = useMockMode();
+  const { isConnected } = useSignalR();
+  // While the connection banner is up it is the one message, so a card still marked failed (a range
+  // the outage never let load) shows a blank subtitle, the way the widgets stay blank.
+  const connectionLost = useConnectionLost();
+  const failedToLoadSubtitle = connectionLost ? undefined : t('common.failedToLoad');
 
-  // Eviction mode - determines whether evicted games are included in "Games on Disk"
-  const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
+  // Eviction mode - determines whether evicted games are included in "Games on Disk". Null until a
+  // read answers, so a failed read shows no "evicted included" badge.
+  const [evictedDataMode, setEvictedDataMode] = useState<string | null>(null);
+  // Re-read after a reconnect, so a read that failed during an outage does not leave the badge
+  // missing.
   useEffect(() => {
     // Mock mode has no stored setting behind it. The mode read before the toggle was switched on
     // is a real server's, so it goes back to 'show' rather than narrowing the generated games list.
@@ -228,7 +238,7 @@ const Dashboard: React.FC = () => {
         /* ignore abort / network errors */
       });
     return () => controller.abort();
-  }, [mockMode]);
+  }, [mockMode, isConnected]);
 
   // Listen for in-session eviction-settings saves so the dashboard reflects
   // the new mode without waiting for a remount.
@@ -581,7 +591,7 @@ const Dashboard: React.FC = () => {
         title: t('dashboard.cards.totalCache'),
         value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '—',
         subtitle: failedSections.cache
-          ? t('common.failedToLoad')
+          ? failedToLoadSubtitle
           : [
               cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
                 ? t('dashboard.cards.driveCapacityValue', {
@@ -620,7 +630,7 @@ const Dashboard: React.FC = () => {
                 })
               : formatPercent(cacheInfo.usagePercent)
             : failedSections.cache || cacheSnapshotFailed
-              ? t('common.failedToLoad')
+              ? failedToLoadSubtitle
               : '—',
         icon: HardDrive,
         color: 'blue' as const,
@@ -631,7 +641,7 @@ const Dashboard: React.FC = () => {
         key: 'bandwidthSaved',
         title: t('dashboard.cards.bandwidthSaved'),
         value: stats.bandwidthSaved != null && !loading ? formatBytes(stats.bandwidthSaved) : '—',
-        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        subtitle: failedSections.dashboard ? failedToLoadSubtitle : undefined,
         badge: periodBadge,
         icon: TrendingUp,
         color: 'blue' as const,
@@ -642,7 +652,7 @@ const Dashboard: React.FC = () => {
         key: 'addedToCache',
         title: t('dashboard.cards.addedToCache'),
         value: stats.addedToCache != null && !loading ? formatBytes(stats.addedToCache) : '—',
-        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        subtitle: failedSections.dashboard ? failedToLoadSubtitle : undefined,
         badge: periodBadge,
         icon: Zap,
         color: 'blue' as const,
@@ -653,7 +663,7 @@ const Dashboard: React.FC = () => {
         key: 'totalServed',
         title: t('dashboard.cards.totalServed'),
         value: stats.totalServed != null && !loading ? formatBytes(stats.totalServed) : '—',
-        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        subtitle: failedSections.dashboard ? failedToLoadSubtitle : undefined,
         badge: periodBadge,
         icon: Server,
         color: 'blue' as const,
@@ -694,7 +704,7 @@ const Dashboard: React.FC = () => {
         key: 'cacheHitRatio',
         title: t('dashboard.cards.cacheHitRatio'),
         value: stats.cacheHitRatio != null && !loading ? formatPercent(stats.cacheHitRatio) : '—',
-        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        subtitle: failedSections.dashboard ? failedToLoadSubtitle : undefined,
         badge: periodBadge,
         icon: Activity,
         color: 'blue' as const,
@@ -742,7 +752,7 @@ const Dashboard: React.FC = () => {
           </div>
         ) : undefined,
         subtitle: failedSections.cache
-          ? t('common.failedToLoad')
+          ? failedToLoadSubtitle
           : cacheInfo && !hasCacheScan
             ? t('dashboard.cards.noCacheScanData')
             : [
@@ -791,7 +801,7 @@ const Dashboard: React.FC = () => {
               .filter(Boolean)
               .join(' • ')
           : detectionFailed
-            ? t('common.failedToLoad')
+            ? failedToLoadSubtitle
             : t('dashboard.cards.noScanData'),
         // Games on disk owns its own freshness: isStale compares live cache usage against
         // the baseline captured when detection last ran, so a download after detection flags
@@ -828,7 +838,7 @@ const Dashboard: React.FC = () => {
               .filter(Boolean)
               .join(' • ')
           : detectionFailed
-            ? t('common.failedToLoad')
+            ? failedToLoadSubtitle
             : t('dashboard.cards.noScanData'),
         badge: gamesOnDiskStats?.isStale ? staleScanBadge('gameDetection') : undefined,
         tone: gamesOnDiskStats?.isStale ? 'warning' : undefined,
@@ -859,7 +869,8 @@ const Dashboard: React.FC = () => {
       unmappedCacheBytes,
       failedSections,
       cacheSnapshotFailed,
-      detectionFailed
+      detectionFailed,
+      failedToLoadSubtitle
     ]
   );
 

@@ -38,6 +38,11 @@ interface SetupStatusContextType {
   isSetupStatusKnown: boolean;
   isLoading: boolean;
   syncError: string | null;
+  /**
+   * The sentence for the last failed setup-status read, `null` after a read that answered.
+   * AppSetup shows it on the startup card while no read has ever answered.
+   */
+  error: string | null;
   refreshSetupStatus: () => Promise<void>;
   markSetupCompleted: () => void;
   updateWizardState: (updates: WizardStateUpdate) => Promise<boolean>;

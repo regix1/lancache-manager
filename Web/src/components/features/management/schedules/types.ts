@@ -46,6 +46,7 @@ export interface ServiceScheduleInfo {
   nextRunUtc: string | null;
   notificationMode: NotificationMode;
   notificationDisplayMode: NotificationDisplayMode;
+  notificationDisplayModeOverridden: boolean;
   /**
    * Only on scheduled prefill, the one service running several platforms under a single key. Keyed
    * by platform or platform:scheduleId (dashed GUID). Each saved schedule owns its style;

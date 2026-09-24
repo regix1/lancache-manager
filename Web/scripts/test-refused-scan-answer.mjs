@@ -4,11 +4,10 @@ import typescript from 'typescript';
 import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './transpile-module.mjs';
 
 /**
- * Two places tell a person that a cache scan was refused while a client download writes to the
- * cache, and both used to say nothing at all on the screen the person was looking at:
+ * Where a person reads that a cache scan was refused while a client download writes to the cache:
  *
- *   - Run Now on a schedule set to the compact bar answered a refusal with a coloured line that
- *     carries no reason and clears itself, because the refused run has no card of its own to open.
+ *   - A popup that names a service follows that service's display style, like the service's own
+ *     run card, so it never stacks a second style beside it.
  *   - The Disk Cache Management card renders the server's refusal sentence, but the menu item that
  *     would fetch it is disabled while the download runs, so the sentence never arrives.
  *
@@ -19,40 +18,37 @@ import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './trans
 const BAR = 'src/components/common/UniversalNotificationBar.tsx';
 const CARD = 'src/components/features/management/cache/CacheManager.tsx';
 
-/** The notification bar's per-notification classifier, with its free variables supplied. */
-const classifier = (displayModes, scheduledTypeToServiceKey = {}) =>
-  bindLifted(liftHookCallback(BAR, 'map', 'condensedByService'), {
+/**
+ * The notification bar's per-notification classifier, with its free variables supplied and the
+ * styles already known; it answers the one card it draws.
+ */
+const classifier = (displayModes, scheduledTypeToServiceKey = {}) => {
+  const classify = bindLifted(liftHookCallback(BAR, 'flatMap', 'condensedByService'), {
     SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: scheduledTypeToServiceKey,
-    displayModes,
+    modes: displayModes,
+    defaultMode: 'full',
+    ready: true,
+    platformDisplayModeKey: () => '',
+    isTerminalNotificationStatus: (status) =>
+      ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
     fullOrder: 0,
     isMobile: false,
     MOBILE_FULL_CARD_CAP: 2
   });
+  return (notification) => classify(notification)[0];
+};
 
-test('a refused Run Now keeps its card on a service set to the compact bar', () => {
+test('a popup that names a service follows that service set to the compact bar', () => {
   const classify = classifier({ cacheReconciliation: 'condensed' });
 
-  const refused = classify({
+  const popup = classify({
     type: 'generic',
-    status: 'skipped',
+    status: 'failed',
     message: 'A client download is writing to the cache right now.',
-    details: { notificationType: 'warning', serviceKey: 'cacheReconciliation' }
+    details: { notificationType: 'error', serviceKey: 'cacheReconciliation' }
   });
 
-  assert.equal(refused.condensed, false);
-});
-
-test('an accepted Run Now still folds into its service line', () => {
-  const classify = classifier({ cacheReconciliation: 'condensed' });
-
-  const started = classify({
-    type: 'generic',
-    status: 'completed',
-    message: 'Started Eviction Scan',
-    details: { notificationType: 'success', serviceKey: 'cacheReconciliation' }
-  });
-
-  assert.equal(started.condensed, true);
+  assert.equal(popup.condensed, true);
 });
 
 test('a routine run that is skipped stays on the compact bar the schedule asked for', () => {

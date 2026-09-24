@@ -5,6 +5,8 @@ import { useRefreshRate } from '@contexts/useRefreshRate';
 import { type RefreshRate } from '@utils/constants';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
+import { SectionErrorChip } from '@components/ui/SectionHeaderActions';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 
 interface RefreshRateSelectorProps {
   disabled?: boolean;
@@ -16,7 +18,8 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
   iconOnly = false
 }) => {
   const { t } = useTranslation();
-  const { refreshRate, setRefreshRate, isControlledByAdmin } = useRefreshRate();
+  const { refreshRate, setRefreshRate, isControlledByAdmin, error, reload } = useRefreshRate();
+  const connectionLost = useConnectionLost();
 
   const refreshOptions = [
     {
@@ -74,6 +77,25 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
   };
 
   const isDisabled = disabled || isControlledByAdmin;
+
+  // A failed settings read shows no rate or lock, since either would read as the saved setting.
+  // The chip repeats the read on click; under the outage banner the slot stays empty until the
+  // reconnect read answers.
+  if (error !== null) {
+    if (connectionLost) return null;
+
+    return (
+      <Tooltip content={error}>
+        <button
+          type="button"
+          className="ed-trigger flex items-center justify-center px-3 h-10 themed-border-radius-sm border border-themed-secondary cursor-pointer"
+          onClick={reload}
+        >
+          <SectionErrorChip />
+        </button>
+      </Tooltip>
+    );
+  }
 
   // If controlled by admin (guest user), show a locked indicator with tooltip
   if (isControlledByAdmin) {

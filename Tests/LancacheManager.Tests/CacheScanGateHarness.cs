@@ -78,6 +78,7 @@ internal static class CacheScanGateHarness
         {
             nameof(IStateService.GetHiddenClientIps) => hiddenClientIps.ToList(),
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetGlobalNotificationDisplayMode) => NotificationDisplayMode.Condensed,
             _ => null
         });
 
@@ -131,7 +132,7 @@ internal static class CacheScanGateHarness
         throw new InvalidOperationException($"Field {fieldName} was not found on {instance.GetType().Name}");
     }
 
-    private static T CreateProxy<T>(Func<MethodInfo, object?[]?, object?> handler) where T : class
+    internal static T CreateProxy<T>(Func<MethodInfo, object?[]?, object?> handler) where T : class
     {
         var proxy = DispatchProxy.Create<T, ProxyDispatch<T>>();
         ((ProxyDispatch<T>)(object)proxy).Handler = handler;

@@ -36,7 +36,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly IOperationQueue _operationQueue;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private int _isRunning;
-    private bool _currentScanIsSilent = true;
     private Guid? _currentScanOperationId;
     // Broadcast gate shared by the rust stdout-tick callback and ReportScanProgressAsync.
     // Safe as instance fields: TryBeginRun guarantees at most one scan emits at a time.
@@ -50,12 +49,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// ({{totalProcessed}}/{{totalEstimate}}). Null when no scan is running or before the first tick.
     /// </summary>
     private volatile Dictionary<string, object?>? _currentScanProgressContext;
-    /// <summary>
-    /// Set of EvictionRemoval operationIds that should NOT emit SignalR notifications
-    /// (Remove-mode auto-cleanup). Helpers consult this before calling NotifyAllAsync so
-    /// the user never sees a removal notification for an automatic Remove-mode purge.
-    /// </summary>
-    private readonly ConcurrentDictionary<Guid, byte> _silentRemovalOperationIds = new();
     /// <summary>
     /// Per-operation terminal metrics for EvictionScan, captured BY VALUE just before
     /// CompleteOperation so the registered onTerminalEmit closure (the SOLE terminal emitter)
@@ -79,17 +72,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     // The 6-hour tick is maintenance: an unconfigured install stays off the notification bar
     // (Silent) and uses the condensed status line. The Schedules card is what turns those back on.
     protected override NotificationMode DefaultNotificationMode => NotificationMode.Silent;
-    public override NotificationDisplayMode DefaultNotificationDisplayMode => NotificationDisplayMode.Condensed;
 
     public override string ServiceKey => "cacheReconciliation";
 
     public bool IsRunning => Volatile.Read(ref _isRunning) == 1;
-    /// <summary>
-    /// Whether the current scan is display-silent. This is the schedule notification mode for the
-    /// trigger that started the run; evicted-data mode (including Remove) does not change it. The
-    /// recovery endpoint negates this into <c>showNotification</c>.
-    /// </summary>
-    public bool CurrentScanIsSilent => _currentScanIsSilent;
     public IReadOnlyDictionary<string, object?>? CurrentScanProgressContext => _currentScanProgressContext;
 
     private bool TryBeginRun() => Interlocked.CompareExchange(ref _isRunning, 1, 0) == 0;
@@ -105,17 +91,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Start reconciliation as a fire-and-forget background task.
-    /// Returns the operationId immediately, or null if already running. Honors this service's
-    /// notification mode the same way as a scheduler-triggered run, treating this call site as a
-    /// manual trigger (it bypasses TriggerImmediateRun entirely, so CurrentRunTrigger cannot be
-    /// relied on here - RunTrigger.Manual is passed explicitly instead).
+    /// Returns the operationId immediately, or null if already running. The caller's notice carries
+    /// this service's notification mode and the manual trigger (this call site bypasses
+    /// TriggerImmediateRun entirely, so CurrentRunTrigger cannot be relied on here).
     /// </summary>
-    public Guid? RunManualAsync(RunNotice? notice = null)
+    public Guid? RunManualAsync(RunNotice notice)
     {
-        notice ??= new RunNotice(EffectiveNotificationMode, RunTrigger.Manual);
         return StartScanInBackground(
             "Eviction Scan",
-            silent: !notice.ShowNotification,
             deferIfDownloading: false,
             notice: notice);
     }
@@ -132,13 +115,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </param>
     private Guid? StartScanInBackground(
         string name,
-        bool silent,
         bool deferIfDownloading,
-        Action? onCompleted = null,
-        RunNotice? notice = null)
+        RunNotice notice,
+        Action? onCompleted = null)
     {
-        silent = notice is null ? silent : !notice.ShowNotification;
-        var hideNotification = notice?.HideNotification == true;
         if (!TryBeginRun())
         {
             return null;
@@ -155,7 +135,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             // A scan that waited keeps the parked operation. A second registration is a second
             // notification. The parked token is the one the waiting card already cancels.
-            var parked = notice?.OperationId is Guid parkedId
+            var parked = notice.OperationId is Guid parkedId
                 ? _operationTracker.GetOperation(parkedId)
                 : null;
             var continueQueued = parked?.Status == OperationStatus.Waiting
@@ -186,7 +166,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 ownsToken = true;
             }
 
-            operationId = RegisterEvictionScanOperation(name, cts, silent, notice);
+            operationId = RegisterEvictionScanOperation(name, cts, notice);
             if (operationId == Guid.Empty)
             {
                 stopScanOnShutdown.Dispose();
@@ -209,8 +189,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         context,
                         operationId,
                         cts.Token,
-                        silent,
-                        hideNotification,
+                        notice,
                         deferIfDownloading);
                 }
                 catch (Exception ex)
@@ -320,7 +299,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
         var notice = CurrentRunNotice;
-        var silent = !notice.ShowNotification;
 
         try
         {
@@ -341,9 +319,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var scanCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Task<Guid?> StartStartupScanAsync() => Task.FromResult(StartScanInBackground(
                 "Eviction Scan",
-                silent,
                 deferIfDownloading: true,
-                () => scanCompleted.TrySetResult(), notice));
+                notice,
+                () => scanCompleted.TrySetResult()));
 
             // No reportRefusal here: that only fires for a refusal the start delegate throws, and
             // this one cannot. StartScanInBackground returns an id before any download is checked,
@@ -355,7 +333,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 "Eviction Scan",
                 StartStartupScanAsync,
                 stoppingToken,
-                showWaitingCard: !silent,
                 notice: notice);
 
             if (outcome.Queued || outcome.AlreadyRunning)
@@ -385,18 +362,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken)
     {
         var notice = CurrentRunNotice;
-        var silent = !notice.ShowNotification;
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
-        // Skip scan if there are no downloads in the database
+        // Skip scan if there are no downloads in the database. A Run Now reports itself skipped so the
+        // click is answered; an automatic run stays quiet. [59]
         if (!await context.Downloads.AnyAsync(stoppingToken))
         {
             _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
+            if (notice.Trigger == RunTrigger.Manual)
+            {
+                var skippedId = _operationTracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan",
+                    new CancellationTokenSource(), notice: notice);
+                notice.Attach(_operationTracker, skippedId);
+                _operationTracker.CompleteOperation(skippedId, success: true,
+                    error: ScheduledRunReporter.NothingToDoStageKey, skipped: true);
+            }
             return;
         }
 
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
-            StartScanInBackground("Eviction Scan", silent, deferIfDownloading: true, notice: notice));
+            StartScanInBackground("Eviction Scan", deferIfDownloading: true, notice: notice));
 
         // Same as the startup path: the start delegate cannot throw a refusal, so asking the queue
         // to announce one would announce nothing. The refusal this run can hit is reported by the
@@ -407,7 +392,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             "Eviction Scan",
             StartScheduledScanAsync,
             stoppingToken,
-            showWaitingCard: !silent,
             notice: notice);
 
         if (outcome.Queued)
@@ -434,17 +418,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         AppDbContext context,
         Guid operationId,
         CancellationToken stoppingToken,
-        bool silent,
-        bool hideNotification,
+        RunNotice notice,
         bool deferIfDownloading)
     {
-        // Display silence is the schedule notification mode only. Evicted-data mode (including
-        // Remove) does not change the scan presentation. Lifecycle events are always emitted. The
-        // incoming flags select background progress or complete suppression on the frontend.
-        // Stamped FIRST, before the capability revalidation below: that check can enumerate log
-        // directories (ms-scale I/O), and until the stamp lands the eviction scan status endpoint
-        // would report this already-running operation with the PREVIOUS run's silent flag, letting
-        // recovery resurrect a visible card for a silent run.
         var isRemoveMode = _stateService.GetEvictedDataMode() == EvictedDataMode.Remove.ToWireString();
 
         // A manual request parked behind another operation can be promoted much later, so the
@@ -490,30 +466,21 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         try
         {
-            // Always emit the lifecycle event; its presentation flags decide whether the frontend
-            // shows a card, background progress, or nothing.
             await _notifications.NotifyAllAsync(SignalREvents.EvictionScanStarted, new EvictionScanStarted(
                 StageKey: "signalr.evictionScan.detectingGames",
-                OperationId: operationId,
-                ShowNotification: !silent,
-                PreviousOperationId: QueuedPredecessor(operationId),
-                HideNotification: hideNotification));
+                OperationId: operationId));
 
             await RunFullDetectionPhaseAsync(
                 operationId,
-                showNotification: !silent,
-                hideNotification: hideNotification,
                 stoppingToken: stoppingToken);
             stoppingToken.ThrowIfCancellationRequested();
             await ReportScanProgressAsync(
                 operationId,
                 0,
                 "signalr.evictionScan.scanning",
-                new EvictionScanResult(),
-                !silent,
-                hideNotification);
+                new EvictionScanResult());
 
-            _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary (scanSilent: {ScanSilent})", silent);
+            _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary");
 
             // Write datasource configuration to temp file for the Rust binary
             datasourceConfigPath = Path.GetTempFileName();
@@ -586,10 +553,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         TotalEstimate: progress.TotalEstimate,
                         Evicted: progress.Evicted,
                         UnEvicted: progress.UnEvicted,
-                        Context: context,
-                        ShowNotification: !silent || context.ContainsKey("detectionError"),
-                        HideNotification: hideNotification,
-                        PreviousOperationId: QueuedPredecessor(operationId)));
+                        Context: context));
                 };
 
             // Execute the Rust binary
@@ -611,9 +575,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     operationId,
                     86.0,
                     "signalr.evictionScan.postProcessing",
-                    scanResult,
-                    showNotification: !silent,
-                    hideNotification: hideNotification);
+                    scanResult);
 
                 stoppingToken.ThrowIfCancellationRequested();
 
@@ -714,9 +676,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         operationId,
                         92.0,
                         "signalr.evictionScan.refreshingSummary",
-                        scanResult,
-                        showNotification: !silent,
-                        hideNotification: hideNotification);
+                        scanResult);
 
                     await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
                 }
@@ -738,12 +698,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // Handle evicted data "remove" mode. The removal self-registers its OWN
                 // OperationType.EvictionRemoval operation (operationId: null) so it is cancellable,
                 // visible to GET /api/cache/removals/active, and emits its own
-                // EvictionRemovalStarted/Progress/Complete events with its own operationId. Scan and
-                // removal both honor runSilent, so a visible schedule mode shows both cards.
+                // EvictionRemovalStarted/Progress/Complete events with its own operationId. The
+                // removal gets a fresh notice with the scan's mode and trigger, so it is drawn the
+                // way the scan is; the scan's own notice stays attached to the scan. [66]
                 if (isRemoveMode
                     && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
                 {
-                    await RemoveEvictedRecordsAsync(context, stoppingToken, operationId: null, silent: silent);
+                    await RemoveEvictedRecordsAsync(context, stoppingToken, operationId: null,
+                        notice: new RunNotice(notice.Mode, notice.Trigger));
                 }
 
                 // Notify clients to refresh if eviction flags changed
@@ -806,29 +768,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Registers an EvictionScan operation whose terminal SignalR event fires EXACTLY ONCE from
     /// inside CompleteOperation (via onTerminalEmit). A mutable terminal-state holder is created up
     /// front and captured by value; ReconcileCacheFilesAsync fills it just before CompleteOperation.
-    /// The terminal always emits with the scan's stable presentation flags so reconnect recovery
-    /// cannot change a Silent or Hidden run into a visible card.
+    /// The run's notice decides how the tracker draws it, so the terminal carries no display flags.
     /// </summary>
-    private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false, RunNotice? notice = null)
+    private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, RunNotice notice)
     {
-        var parked = notice?.OperationId is Guid parkedId ? _operationTracker.GetOperation(parkedId) : null;
+        var parked = notice.OperationId is Guid parkedId ? _operationTracker.GetOperation(parkedId) : null;
         var continueQueued = parked?.Status == OperationStatus.Waiting
             && parked.Type == OperationType.EvictionScan
             && parked.CancellationTokenSource == cts;
-        var previousOperationId = continueQueued ? null : notice?.OperationId;
-        var terminalState = new EvictionScanTerminalState
-        {
-            Silent = silent,
-            Hidden = notice?.HideNotification == true
-        };
+        var terminalState = new EvictionScanTerminalState();
         Guid operationId = default;
-        var scanState = new Dictionary<string, object?>
-        {
-            ["runNotice"] = notice,
-            ["showNotification"] = !silent,
-            ["hideNotification"] = terminalState.Hidden,
-            ["previousOperationId"] = previousOperationId
-        };
+        var scanState = new Dictionary<string, object?>();
         Action finish = () =>
         {
                 _evictionScanTerminalStates.TryRemove(operationId, out _);
@@ -843,7 +793,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             };
         Func<OperationTerminalInfo, Task> emit = terminal =>
             {
-                var showNotification = !terminalState.Silent || terminalState.DetectionError != null;
                 var context = new Dictionary<string, object?>
                 {
                     ["totalProcessed"] = terminalState.Processed,
@@ -862,10 +811,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Evicted: 0,
                         UnEvicted: 0,
                         Context: context,
-                        ShowNotification: showNotification,
-                        Cancelled: true,
-                        HideNotification: terminalState.Hidden,
-                        PreviousOperationId: QueuedPredecessor(operationId)));
+                        Cancelled: true));
                 }
 
                 // Above the success branch: a refused run completes successfully because it did
@@ -887,10 +833,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         UnEvicted: 0,
                         Error: terminal.Error,
                         Context: context,
-                        ShowNotification: showNotification,
-                        Skipped: true,
-                        HideNotification: terminalState.Hidden,
-                        PreviousOperationId: QueuedPredecessor(operationId)));
+                        Skipped: true));
                 }
 
                 if (terminal.Success)
@@ -902,10 +845,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Processed: terminalState.Processed,
                         Evicted: terminalState.Evicted,
                         UnEvicted: terminalState.UnEvicted,
-                        Context: context,
-                        ShowNotification: showNotification,
-                        HideNotification: terminalState.Hidden,
-                        PreviousOperationId: QueuedPredecessor(operationId)));
+                        Context: context));
                 }
 
                 return _notifications.NotifyOperationFailedAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
@@ -916,10 +856,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Evicted: 0,
                     UnEvicted: 0,
                     Error: terminal.Error ?? "Rust eviction scan binary returned failure",
-                    Context: context,
-                    ShowNotification: showNotification,
-                    HideNotification: terminalState.Hidden,
-                    PreviousOperationId: QueuedPredecessor(operationId)));
+                    Context: context));
             };
 
         if (continueQueued)
@@ -939,26 +876,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 cts,
                 scanState,
                 finish,
-                emit);
+                emit,
+                notice: notice);
         }
 
         _evictionScanTerminalStates[operationId] = terminalState;
         lock (_evictionScanTerminalStates)
         {
             _currentScanOperationId = operationId;
-            _currentScanIsSilent = silent;
             _currentScanProgressContext = null;
         }
-        cts.Token.Register(() => notice?.Cancel(_operationTracker, operationId));
-        notice?.Attach(_operationTracker, operationId);
+        cts.Token.Register(() => notice.Cancel(_operationTracker, operationId));
+        notice.Attach(_operationTracker, operationId);
         return operationId;
     }
-
-    private Guid? QueuedPredecessor(Guid operationId) =>
-        _operationTracker.GetOperation(operationId)?.Metadata is Dictionary<string, object?> scan &&
-        scan.GetValueOrDefault("previousOperationId") is Guid previousOperationId
-            ? previousOperationId
-            : null;
 
     /// <summary>
     /// Phase one of every scan: a full game detection under this scan's operation, so a game whose
@@ -971,12 +902,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     private async Task RunFullDetectionPhaseAsync(
         Guid operationId,
-        bool showNotification,
-        bool hideNotification,
         CancellationToken stoppingToken)
     {
-        var blockedBy = RunNotice.ReadRunNotice(_operationTracker.GetOperation(operationId)?.Metadata)
-            ?.BlockedByOperationId;
+        var blockedBy = _operationTracker.GetOperation(operationId)?.Notice?.BlockedByOperationId;
         if (blockedBy is Guid reusableDetectionId &&
             _gameCacheDetectionService.HasReusableFullDetection(reusableDetectionId))
         {
@@ -1037,9 +965,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     operationId,
                     detection.PercentComplete,
                     "signalr.evictionScan.detectingGames",
-                    new EvictionScanResult(),
-                    showNotification,
-                    hideNotification);
+                    new EvictionScanResult());
 
                 await Task.WhenAny(finished.Task, Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken.None));
             }
@@ -1056,7 +982,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         terminalState.DetectionError = detectionError;
                 });
                 await ReportScanProgressAsync(operationId, terminal.PercentComplete,
-                    "signalr.evictionScan.detectingGames", new EvictionScanResult(), showNotification, hideNotification);
+                    "signalr.evictionScan.detectingGames", new EvictionScanResult());
             }
 
             _logger.LogInformation("[EvictionScan] Full detection ahead of the scan finished (operation: {DetectionId})", detectionId);
@@ -1071,9 +997,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Guid operationId,
         double percentComplete,
         string stageKey,
-        EvictionScanResult scanResult,
-        bool showNotification,
-        bool hideNotification)
+        EvictionScanResult scanResult)
     {
         var context = new Dictionary<string, object?>
         {
@@ -1111,10 +1035,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             TotalEstimate: scanResult.Processed,
             Evicted: scanResult.Evicted,
             UnEvicted: scanResult.UnEvicted,
-            Context: context,
-            ShowNotification: showNotification || context.ContainsKey("detectionError"),
-            HideNotification: hideNotification,
-            PreviousOperationId: QueuedPredecessor(operationId)));
+            Context: context));
     }
 
     /// <summary>
@@ -1165,13 +1086,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionScan. Populated BY VALUE in
     /// ReconcileCacheFilesAsync immediately before CompleteOperation; read by the onTerminalEmit
-    /// closure registered at RegisterOperation time. The terminal is always emitted with the same
-    /// Silent and Hidden presentation flags captured when the scan started.
+    /// closure registered at RegisterOperation time.
     /// </summary>
     private sealed class EvictionScanTerminalState
     {
-        public bool Silent;
-        public bool Hidden;
         public string? DetectionError;
         public int Processed;
         public int Evicted;
@@ -1188,12 +1106,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionRemoval. Populated BY VALUE in
     /// CompleteEvictionRemovalAsync immediately before CompleteOperation; read by the onTerminalEmit
-    /// closure registered at RegisterOperation time. <see cref="Silent"/> is the per-op display flag
-    /// the closure negates into ShowNotification for Remove-mode auto-cleanup; the terminal always emits.
+    /// closure registered at RegisterOperation time.
     /// </summary>
     private sealed class EvictionRemovalTerminalState
     {
-        public bool Silent;
         public string StageKey = "signalr.evictionRemove.complete";
         public int DownloadsRemoved;
         public int LogEntriesRemoved;
@@ -1236,13 +1152,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             "Eviction Removal",
             cts,
             new EvictionRemovalMetadata(),
-            // critic-2: terminal cleanup is the sole remover of the silent-id entry so a universal
+            // Terminal cleanup is the sole remover of the terminal-state entry so a universal
             // force-kill (which bypasses CompleteEvictionRemovalAsync) cannot leak it.
-            onTerminalCleanup: () =>
-            {
-                _silentRemovalOperationIds.TryRemove(operationId, out _);
-                _evictionRemovalTerminalStates.TryRemove(operationId, out _);
-            },
+            onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(operationId, out _),
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
             onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
@@ -1306,13 +1218,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             $"Eviction Removal ({scope}: {key})",
             cts,
             metadata,
-            // critic-2: terminal cleanup is the sole remover of the silent-id entry so a universal
+            // Terminal cleanup is the sole remover of the terminal-state entry so a universal
             // force-kill (which bypasses CompleteEvictionRemovalAsync) cannot leak it.
-            onTerminalCleanup: () =>
-            {
-                _silentRemovalOperationIds.TryRemove(operationId, out _);
-                _evictionRemovalTerminalStates.TryRemove(operationId, out _);
-            },
+            onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(operationId, out _),
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
             onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
@@ -1361,7 +1269,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Dictionary<string, object?>? context = null)
     {
         var accepted = false;
-        var showNotification = !_silentRemovalOperationIds.ContainsKey(operationId);
         context = context == null ? null : new Dictionary<string, object?>(context);
         _operationTracker.UpdateProgress(operationId, percentComplete, stageKey, onProgress: operation =>
         {
@@ -1369,8 +1276,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         });
         if (!accepted) return;
 
-        // Always emit; silent ops (Remove-mode auto-cleanup) carry the display flag false so the
-        // frontend hides the removal bar instead of the transport suppressing the event.
         await _notifications.NotifyAllAsync(
             SignalREvents.EvictionRemovalProgress,
             new EvictionRemovalProgress(
@@ -1380,8 +1285,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 percentComplete,
                 downloadsRemoved,
                 logEntriesRemoved,
-                context,
-                ShowNotification: showNotification));
+                context));
     }
 
     private Task CompleteRemovalAsync(
@@ -1421,9 +1325,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         return info =>
         {
-            // Always emit; silent ops (Remove-mode auto-cleanup) carry the display flag false so the
-            // frontend hides the terminal card instead of the transport suppressing the event.
-            var showNotification = !terminalState.Silent;
             var operationId = operationIdAccessor();
 
             if (info.Cancelled)
@@ -1437,8 +1338,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         DownloadsRemoved: terminalState.DownloadsRemoved,
                         LogEntriesRemoved: terminalState.LogEntriesRemoved,
                         Error: info.Error,
-                        Cancelled: true,
-                        ShowNotification: showNotification));
+                        Cancelled: true));
             }
 
             return _notifications.NotifyAllAsync(
@@ -1450,8 +1350,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     DownloadsRemoved: terminalState.DownloadsRemoved,
                     LogEntriesRemoved: terminalState.LogEntriesRemoved,
                     Error: info.Success ? null : info.Error,
-                    Cancelled: false,
-                    ShowNotification: showNotification));
+                    Cancelled: false));
         };
     }
 
@@ -1691,27 +1590,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// True when the given EvictionRemoval operation runs silently (automatic Remove-mode
-    /// auto-cleanup). Silent removals emit no SignalR events, so recovery endpoints must not
-    /// report them either - otherwise the frontend would resurrect a notification card for an
-    /// operation that is deliberately invisible.
-    /// </summary>
-    public bool IsSilentRemovalOperation(Guid operationId)
-    {
-        return _silentRemovalOperationIds.ContainsKey(operationId);
-    }
-
-    /// <summary>
     /// Deletes all evicted Download records, their associated LogEntries, and their matching
     /// CachedGameDetections / CachedServiceDetections rows from the database. Called either
     /// from the scan flow (no operationId, mode == Remove) or from the controller's
     /// "Remove All Evicted" button (pre-registered operationId).
-    /// When <paramref name="silent"/> is true, no EvictionRemoval SignalR notifications are
-    /// emitted - the operationId is added to _silentRemovalOperationIds so downstream
-    /// Progress/Complete helpers also skip their sends. Silent is only used by the
-    /// scan-driven Remove-mode auto-cleanup; the controller-driven bulk button always notifies.
+    /// <paramref name="notice"/> is the scan's mode and trigger for the scan-driven cleanup, which
+    /// registers its own operation with it; the pre-registered path already has its operation.
     /// </summary>
-    public async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken, Guid? operationId = null, bool silent = false)
+    public async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken, Guid? operationId = null, RunNotice? notice = null)
     {
         // Revalidate immediately before mutation (never trust an earlier check): evicted-record
         // removal purges logs and deletes rows based on recipe-derived eviction evidence.
@@ -1734,45 +1620,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // pre-registered path, where the caller passes its tracker CTS token as
             // stoppingToken. Host/scan shutdown still propagates through the link.
             stoppingToken = cts.Token;
-            var terminalState = new EvictionRemovalTerminalState { Silent = silent };
+            var terminalState = new EvictionRemovalTerminalState();
             Guid selfRegisteredId = default;
             selfRegisteredId = _operationTracker.RegisterOperation(
                 OperationType.EvictionRemoval,
                 "Eviction Removal",
                 cts,
-                new EvictionRemovalMetadata(), // bulk removal - no specific scope/key
-                // critic-2: this scan-driven path can run silently; the terminal cleanup is the sole
-                // remover of the silent-id entry so a universal force-kill cannot leak it.
-                onTerminalCleanup: () =>
-                {
-                    _silentRemovalOperationIds.TryRemove(selfRegisteredId, out _);
-                    _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _);
-                },
+                // Bulk removal - no specific scope/key.
+                new EvictionRemovalMetadata(),
+                // Terminal cleanup is the sole remover of the terminal-state entry so a universal
+                // force-kill cannot leak it.
+                onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _),
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-                // Silent Remove-mode auto-cleanup carries the display flag false (always emitted).
-                onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState));
+                onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState),
+                notice: notice);
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
-
-            // Record silent ops in _silentRemovalOperationIds so every removal event stamps the
-            // display flag false; the lifecycle events are ALWAYS emitted (display-flag pattern) so
-            // the frontend gates the removal bar rather than the transport suppressing it.
-            if (silent)
-            {
-                _silentRemovalOperationIds.TryAdd(operationId.Value, 0);
-            }
 
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
                 new EvictionRemovalStarted(
                     "signalr.evictionRemove.starting.bulk",
-                    operationId.Value,
-                    ShowNotification: !silent));
-        }
-        else if (silent)
-        {
-            // Caller already registered the operation and emitted Started; honor silent for the
-            // remaining Progress/Complete events.
-            _silentRemovalOperationIds.TryAdd(operationId.Value, 0);
+                    operationId.Value));
         }
 
         // At this point operationId is guaranteed non-null; capture as non-nullable for the rest of the method.
@@ -2369,15 +2237,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
         if (operationId == null)
         {
-            // G3 intentional exemption: unlike the three sibling EvictionRemoval registers, this
-            // self-start register never needs the silent-id cleanup. That is correct because this path
-            // can never be silent: it is reached only when operationId == null, and the sole caller
-            // (StartScopedEvictionRemovalAsync) ALWAYS passes a non-null, pre-registered operationId — so
-            // this branch is the never-silent self-start fallback. It also emits a NON-silent
-            // EvictionRemovalStarted below and never adds opId to _silentRemovalOperationIds (the only
-            // TryAdd sites are in the bulk RemoveEvictedRecordsAsync path). It DOES, however, register an
-            // onTerminalEmit (so the terminal EvictionRemovalComplete fires exactly once from inside
-            // CompleteOperation) and a cleanup lambda that removes the terminal-state holder.
+            // Self-start fallback: the sole caller (StartScopedEvictionRemovalAsync) always passes a
+            // pre-registered operationId, so this registers with no notice and draws a full card. It
+            // registers an onTerminalEmit (so the terminal EvictionRemovalComplete fires exactly once
+            // from inside CompleteOperation) and a cleanup lambda that removes the terminal-state holder.
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             var terminalState = new EvictionRemovalTerminalState();
             Guid selfRegisteredId = default;

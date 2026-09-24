@@ -412,7 +412,7 @@
 .status-check-verdict-warning {
   margin: 0.25rem 0 0;
   font-size: var(--font-size-md);
-  color: var(--theme-warning);
+  color: var(--theme-warning-text);
 }
 
 .status-check-verdict-actions {

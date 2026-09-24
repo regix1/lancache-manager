@@ -60,7 +60,6 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
 
     private async Task WarmAsync(CancellationToken stoppingToken)
     {
-        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -68,8 +67,8 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
             OperationType.DashboardCacheWarmer,
             _eventNames,
             $"{StageBase}.complete",
-            show,
-            stoppingToken, notice: CurrentRunNotice);
+            CurrentRunNotice,
+            stoppingToken);
 
         await reporter.StartAsync($"{StageBase}.starting");
 

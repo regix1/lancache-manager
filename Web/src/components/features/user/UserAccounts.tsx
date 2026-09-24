@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { UserCog } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
-import { Alert } from '@components/ui/Alert';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import Badge from '@components/ui/Badge';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import FormField from '@components/ui/FormField';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
@@ -58,7 +58,7 @@ const UserAccounts: React.FC = () => {
 
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [openMenuAccountId, setOpenMenuAccountId] = useState<string | null>(null);
@@ -69,20 +69,24 @@ const UserAccounts: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
 
   const scheduleReload = useTimeoutCallback(RELOAD_DEBOUNCE_MS);
+  const accountsRequestRef = useRef(0);
 
   /**
    * @param firstLoad True for the load that fills an empty screen: it shows the loading state while
-   * the request is out and the failure state if it never arrives. A reload behind somebody else's
-   * change passes false, because rows that are still correct are worse blanked than left a moment
-   * stale, and a failure there is reported as a notification with the table left standing.
+   * the request is out. A reload behind somebody else's change passes false, because rows that are
+   * still correct are worse blanked than left a moment stale; a failure there shows the error box
+   * above the table and leaves the table standing.
    */
   const loadAccounts = useCallback(
     async (firstLoad: boolean) => {
+      // Mount, reconnect, account events and Retry can overlap; only the newest request writes
+      // the rows, the error or the loading state.
+      const request = ++accountsRequestRef.current;
       // These are real accounts. Mock mode shows none rather than listing them on a screen the
       // reader turned on to see generated data.
       if (mockMode) {
         setAccounts([]);
-        setLoadFailed(false);
+        setLoadError(null);
         setLoading(false);
         return;
       }
@@ -91,22 +95,24 @@ const UserAccounts: React.FC = () => {
           setLoading(true);
         }
         const response = await fetch(`${API_BASE}/accounts`, ApiService.getFetchOptions({}));
-        setAccounts(await ApiService.handleResponse<UserAccount[]>(response));
-        setLoadFailed(false);
+        const loadedAccounts = await ApiService.handleResponse<UserAccount[]>(response);
+        if (request !== accountsRequestRef.current) return;
+        setAccounts(loadedAccounts);
+        setLoadError(null);
       } catch (err: unknown) {
-        // The list stays empty on a failure, so without this the screen would show the empty state
-        // and report "no accounts" for what is actually a request that never arrived.
-        if (firstLoad) {
-          setLoadFailed(true);
-        }
-        notifyError(t('user.accounts.errors.load'), err, { logLabel: 'Failed to load accounts' });
+        if (request !== accountsRequestRef.current) return;
+        // With no rows yet the box replaces the empty state, so a request that never arrived is
+        // not reported as "no accounts"; with rows it sits above them.
+        setLoadError(getErrorMessage(err));
       } finally {
-        if (firstLoad) {
+        // Not gated on firstLoad: a later reload that supersedes the first load has to end the
+        // loading state the first load started.
+        if (request === accountsRequestRef.current) {
           setLoading(false);
         }
       }
     },
-    [mockMode, notifyError, t]
+    [mockMode]
   );
 
   useEffect(() => {
@@ -374,6 +380,7 @@ const UserAccounts: React.FC = () => {
         onToggle={() => setExpanded((prev: boolean) => !prev)}
         badge={
           <SectionHeaderActions>
+            {loadError !== null && !expanded && <SectionErrorChip />}
             <Button
               variant="filled"
               color="primary"
@@ -390,17 +397,25 @@ const UserAccounts: React.FC = () => {
         }
       >
         <div className="space-y-4">
+          {!loading && loadError !== null && (
+            <ErrorBlock
+              title={t('user.accounts.errors.load')}
+              message={loadError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void loadAccounts(true)}
+            />
+          )}
           {loading ? (
             <LoadingState message={t('user.accounts.loading')} />
-          ) : loadFailed ? (
-            <Alert color="red">{t('user.accounts.errors.load')}</Alert>
           ) : accounts.length === 0 ? (
-            // No icon: the section header already carries UserCog, and repeating it here would put
-            // the same icon twice on one item.
-            <EmptyState
-              title={t('user.accounts.empty.title')}
-              subtitle={t('user.accounts.empty.subtitle')}
-            />
+            loadError === null && (
+              // No icon: the section header already carries UserCog, and repeating it here would
+              // put the same icon twice on one item.
+              <EmptyState
+                title={t('user.accounts.empty.title')}
+                subtitle={t('user.accounts.empty.subtitle')}
+              />
+            )
           ) : (
             <>
               <DataTable<UserAccount>

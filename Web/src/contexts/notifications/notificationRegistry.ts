@@ -1,8 +1,10 @@
 /**
  * Declarative notification registry.
- * Each entry describes the full lifecycle (started -> progress -> complete) of a
- * notification type, including the SignalR event names, handler configurations,
- * cancel wiring (cancelKind + tooltip), and recovery wiring.
+ * Each entry describes what a notification type's per-type SignalR events say
+ * (started -> progress -> complete): the event names, the getters that turn an event
+ * into a card's text, detail line and percent, the cancel wiring (cancelKind +
+ * tooltip), and the detail recovery wiring. A run card itself opens and ends on the
+ * server's run rows, never on these events.
  *
  * An entry that declares `events` is subscribed by the {@link useNotificationHandlers}
  * loop, phase by phase, so an announcement whose single event is already terminal
@@ -29,10 +31,7 @@ import {
   ACTIVE_PROGRESS_PERCENT_CAP,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
-  NOTIFICATION_IDS,
-  NOTIFICATION_STORAGE_KEYS,
-  REMOVING_GAME_I18N_KEY,
-  STEAM_ERROR_DISMISS_DELAY_MS
+  REMOVING_GAME_I18N_KEY
 } from './constants';
 import i18n from '@/i18n';
 import {
@@ -79,8 +78,7 @@ import {
   errorOrStageKeyMessage,
   operationIdDetails,
   skippedOrStageKeyMessage,
-  stageKeyMessage,
-  visibleWhenNotSilent
+  stageKeyMessage
 } from './registryEntries';
 import {
   hasUnresolvedInterpolation,
@@ -115,6 +113,7 @@ import type {
   CorruptionDetectionCompleteEvent,
   DatabaseResetStartedEvent,
   DatabaseResetProgressEvent,
+  DatabaseResetCompleteEvent,
   CacheClearingStartedEvent,
   CacheClearProgressEvent,
   CacheClearCompleteEvent,
@@ -154,25 +153,6 @@ import type {
 } from '../SignalRContext/types';
 
 /**
- * Terminal `DatabaseResetComplete` SignalR payload (camelCase, mirrors the backend
- * `SignalRNotifications.DatabaseResetComplete` record). Emitted exactly once via
- * `OperationInfo.OnTerminalEmit` on the normal success/error path AND the universal
- * force-kill/cancel path. Declared here because `DatabaseResetStartedEvent` and
- * `DatabaseResetProgressEvent` have SignalR contract types but the terminal payload
- * does not; it satisfies the completion config's `{ success; stageKey?; context?;
- * message?; cancelled? }` constraint.
- */
-interface DatabaseResetCompleteEvent {
-  operationId: string;
-  success: boolean;
-  stageKey?: string;
-  status?: string;
-  cancelled?: boolean;
-  error?: string;
-  context?: Record<string, string | number | boolean>;
-}
-
-/**
  * Prefixes a translated corruption-removal progress message with the display
  * service name so the shared notification card always shows which service is
  * being worked. During "Remove All" the per-service position is appended when
@@ -196,13 +176,8 @@ function prefixCorruptionRemovalService(
 }
 
 // ============================================================================
-// Scheduled prefill: one card per attempt
+// Scheduled prefill: one card per platform run
 // ============================================================================
-// An overlap is a separate terminal attempt while the admitted operation remains active.
-function scheduledPrefillCardId(serviceId: string, operationId?: string | null): string {
-  const id = `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}`;
-  return operationId ? `${id}_${operationId}` : id;
-}
 
 /** The platform's display name, as the Schedules page spells it. */
 function scheduledPrefillServiceLabel(serviceId: string, scheduleName?: string | null): string {
@@ -357,8 +332,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     LogProcessingCompleteEvent
   >({
     type: 'log_processing',
-    id: NOTIFICATION_IDS.LOG_PROCESSING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
     eventPrefix: 'LogProcessing',
     cancelTooltipKey: CANCEL_TOOLTIP.logProcessing,
     recovery: {
@@ -367,7 +340,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       apiEndpoint: '/api/logs/process/status',
       isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing,
       createNotification: (data: LogProcessingStatusResponse) => ({
-        controlOnly: data.silentMode,
         message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
         detailMessage: formatLogProcessingRecoveryDetailMessage(data.entriesProcessed),
         progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
@@ -377,8 +349,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           mbTotal: data.mbTotal,
           entriesProcessed: data.entriesProcessed
         }
-      }),
-      staleMessageKey: 'signalr.logProcessing.stale'
+      })
     } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
     started: {
       defaultMessage: 'Starting log processing...',
@@ -394,9 +365,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         formatLogProcessingCompletionMessage(event.entriesSaved)
     },
     complete: {
-      // Translated, not a hardcoded English literal: this now actually reaches the card (the
-      // completion handler never applied getSuccessMessage to an existing card before), so a
-      // literal here would switch a localized card to English at the moment it finishes.
+      // Translated, not a hardcoded English literal: a literal here would switch a localized card
+      // to English at the moment it finishes.
       getSuccessMessage: stageKeyMessage('signalr.logProcessing.complete'),
       getDetailMessage: (event: LogProcessingCompleteEvent) =>
         formatLogProcessingDetailMessage(
@@ -414,8 +384,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     LogRemovalCompleteEvent
   >({
     type: 'log_removal',
-    id: NOTIFICATION_IDS.LOG_REMOVAL,
-    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
     eventPrefix: 'LogRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.logRemoval,
     recovery: {
@@ -467,16 +435,25 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           linesProcessed: data.linesProcessed,
           linesRemoved: data.linesRemoved
         }
-      }),
-      staleMessageKey: 'signalr.logRemoval.stale'
+      })
     } satisfies SimpleRecoveryConfig<LogRemovalStatusResponse>,
     started: {
       defaultMessage: 'Starting log removal...',
-      getMessage: stageKeyMessage('signalr.logRemoval.starting.default')
+      getMessage: stageKeyMessage('signalr.logRemoval.starting.default'),
+      // The service drives the Log Removal row's busy spinner. The Started event carries it only
+      // inside its stage context (RustLogRemovalService sends no top-level Service on this event).
+      getDetails: (event: LogRemovalStartedEvent) => ({
+        operationId: event.operationId ?? undefined,
+        service: event.context?.service as string | undefined
+      })
     },
     progress: {
       getMessage: (event: LogRemovalProgressEvent) => formatLogRemovalProgressMessage(event),
       getProgress: (event: LogRemovalProgressEvent) => event.percentComplete,
+      getDetails: (event: LogRemovalProgressEvent) => ({
+        ...operationIdDetails(event),
+        service: event.service
+      }),
       // Not the shared three-status pattern: this pipeline does report a cancelled terminal,
       // and the shared getter folds cancelled into failed, which would paint a stopped run red.
       getStatus: (event: LogRemovalProgressEvent) =>
@@ -493,8 +470,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessDetails: (event: LogRemovalCompleteEvent, existing) => ({
         ...existing?.details,
         linesProcessed: event.linesProcessed
-      }),
-      useAnimationDelay: true
+      })
     }
   }),
 
@@ -505,8 +481,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     GameRemovalCompleteEvent
   >({
     type: 'game_removal',
-    id: NOTIFICATION_IDS.GAME_REMOVAL,
-    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
     eventPrefix: 'GameRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.gameRemoval,
     // Recovered by the shared /api/cache/removals/active batch fetch (one GET
@@ -524,6 +498,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         const base = {
           operationId: event.operationId,
           gameName: event.gameName,
+          ...(event.service != null && { service: event.service }),
           stageKey: event.stageKey,
           cancelling: false
         };
@@ -553,15 +528,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         operationId: event.operationId,
         gameName: event.gameName,
         ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
-        ...(event.epicAppId !== null && { epicAppId: event.epicAppId })
+        ...(event.epicAppId !== null && { epicAppId: event.epicAppId }),
+        ...(event.service != null && { service: event.service })
       })
     },
     complete: {
       getSuccessDetails: (event: GameRemovalCompleteEvent, existing) => ({
         ...existing?.details,
-        // Seed operationId + scope identity from the event so the fast-completion create
-        // path (no prior running slot) still produces a cancellable, scope-aware card.
-        // gameAppId/epicAppId are scope-exclusive (exactly one non-null).
+        // Scope identity from the event, so a card first seen at its end (after a reload) still
+        // names its game. gameAppId/epicAppId are scope-exclusive (exactly one non-null).
         operationId: event.operationId,
         ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
         ...(event.epicAppId !== null && { epicAppId: event.epicAppId }),
@@ -580,19 +555,26 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     ServiceRemovalCompleteEvent
   >({
     type: 'service_removal',
-    id: NOTIFICATION_IDS.SERVICE_REMOVAL,
-    storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
     eventPrefix: 'ServiceRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.serviceRemoval,
     recovery: { kind: 'cacheRemovalsBatch' },
     started: {
       defaultMessage: 'Starting service removal...',
-      getMessage: stageKeyMessage('signalr.serviceRemove.starting.default')
+      getMessage: stageKeyMessage('signalr.serviceRemove.starting.default'),
+      // The service is what keeps that service's remove button busy while the run is live.
+      getDetails: (event: ServiceRemovalStartedEvent) => ({
+        ...operationIdDetails(event),
+        service: event.serviceName
+      })
     },
     progress: {
       getMessage: (event: ServiceRemovalProgressEvent) =>
         formatServiceRemovalProgressMessage(event),
       getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete,
+      getDetails: (event: ServiceRemovalProgressEvent) => ({
+        ...operationIdDetails(event),
+        service: event.serviceName
+      }),
       // See GameRemovalProgress - no `status` on this event either.
       getStatus: () => undefined,
       getCompletedMessage: (event: ServiceRemovalProgressEvent) =>
@@ -609,10 +591,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessDetails: (event: ServiceRemovalCompleteEvent, existing) => ({
         ...existing?.details,
-        // Seed operationId + service identity from the event so the fast-completion
-        // create path (no prior running slot) still produces a cancellable, scope-aware
-        // card. When `existing` is present these are merged after its details (event
-        // values win, which is fine - they describe the same completed op).
+        // Service identity from the event, merged after the card's own details (event values
+        // win, which is fine - they describe the same completed op).
         operationId: event.operationId,
         service: event.serviceName,
         filesDeleted: event.filesDeleted,
@@ -629,8 +609,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     CorruptionRemovalCompleteEvent
   >({
     type: 'corruption_removal',
-    id: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-    storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
     eventPrefix: 'CorruptionRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.corruptionRemoval,
     recovery: { kind: 'cacheRemovalsBatch' },
@@ -666,8 +644,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessDetails: (event: CorruptionRemovalCompleteEvent) => ({
         service: event.service,
         detectionMethod: event.detectionMethod
-      }),
-      useAnimationDelay: true
+      })
     }
   }),
 
@@ -678,24 +655,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     GameDetectionCompleteEvent
   >({
     type: 'game_detection',
-    id: NOTIFICATION_IDS.GAME_DETECTION,
-    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
     eventPrefix: 'GameDetection',
     cancelTooltipKey: CANCEL_TOOLTIP.gameDetection,
-    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/games/detect/active',
       isProcessing: (data: GameDetectionStatusResponse) =>
         data.isProcessing && data.operation !== null,
-      // A hidden run still emits its lifecycle for operation ownership, but recovery must never
-      // create a notification for it.
       createNotification: (data: GameDetectionStatusResponse) => {
         // `isProcessing` guard above ensures `data.operation !== null` here.
         const op = data.operation!;
         return {
-          controlOnly: data.showNotification === false,
           message: translateStageKeyMessage(
             op.statusMessage,
             buildGameDetectionInterpolation(op.context, {
@@ -710,8 +681,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             scanType: op.scanType
           }
         };
-      },
-      staleMessageKey: 'signalr.gameDetect.stale'
+      }
     } satisfies SimpleRecoveryConfig<GameDetectionStatusResponse>,
     started: {
       defaultMessage: 'Detecting games and services...',
@@ -762,8 +732,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     CorruptionDetectionCompleteEvent
   >({
     type: 'corruption_detection',
-    id: NOTIFICATION_IDS.CORRUPTION_DETECTION,
-    storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
     eventPrefix: 'CorruptionDetection',
     cancelTooltipKey: CANCEL_TOOLTIP.corruptionDetection,
     recovery: {
@@ -796,8 +764,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           progressAriaValueText: presentation.progressAriaValueText,
           details: corruptionNotificationDetails(data)
         };
-      },
-      staleMessageKey: 'signalr.corruptionDetect.stale'
+      }
     } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
     started: {
       defaultMessage: 'Scanning for corrupted cache chunks...',
@@ -840,8 +807,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     CacheClearCompleteEvent
   >({
     type: 'cache_clearing',
-    id: NOTIFICATION_IDS.CACHE_CLEARING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
     eventPrefix: 'CacheClearing',
     cancelTooltipKey: CANCEL_TOOLTIP.cacheClearing,
     recovery: {
@@ -878,8 +843,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             bytesDeleted: activeOp?.bytesDeleted ?? 0
           }
         };
-      },
-      staleMessageKey: 'signalr.cacheClear.stale'
+      }
     } satisfies SimpleRecoveryConfig<CacheOperationsResponse>,
     started: {
       defaultMessage: 'Starting cache clearing...',
@@ -925,8 +889,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     DataImportCompleteEvent
   >({
     type: 'data_import',
-    id: NOTIFICATION_IDS.DATA_IMPORT,
-    storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
     eventPrefix: 'DataImport',
     cancelTooltipKey: CANCEL_TOOLTIP.dataImport,
     recovery: {
@@ -950,8 +912,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         details: {
           operationId: data.operationId ?? undefined
         }
-      }),
-      staleMessageKey: 'signalr.dataImport.stale'
+      })
     } satisfies SimpleRecoveryConfig<DataImportStatusResponse>,
     started: {
       defaultMessage: 'Starting data import...',
@@ -991,11 +952,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     EvictionScanCompleteEvent
   >({
     type: 'eviction_scan',
-    id: NOTIFICATION_IDS.EVICTION_SCAN,
-    storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
     eventPrefix: 'EvictionScan',
     cancelTooltipKey: CANCEL_TOOLTIP.evictionScan,
-    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -1015,7 +973,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       apiEndpoint: '/api/stats/eviction/scan/status',
       isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing,
       createNotification: (data: EvictionScanStatusResponse) => ({
-        controlOnly: !(data.showNotification ?? !data.silentMode),
         message: translateRecoveryStage(
           data.stageKey,
           data.context,
@@ -1024,11 +981,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         progress: data.percentComplete,
         detailMessage: detectionErrorDetail(data),
         details: {
-          operationId: data.operationId ?? undefined,
-          previousOperationId: data.previousOperationId
+          operationId: data.operationId ?? undefined
         }
-      }),
-      staleMessageKey: 'signalr.evictionScan.stale'
+      })
     } satisfies SimpleRecoveryConfig<EvictionScanStatusResponse>,
     started: {
       defaultMessage: 'Starting eviction scan...',
@@ -1060,11 +1015,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     CacheSizeScanCompleteEvent
   >({
     type: 'cache_size_scan',
-    id: NOTIFICATION_IDS.CACHE_SIZE_SCAN,
-    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SIZE_SCAN,
     eventPrefix: 'CacheSizeScan',
     cancelTooltipKey: CANCEL_TOOLTIP.cacheSizeScan,
-    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -1085,10 +1037,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       },
       apiEndpoint: '/api/cache/size/scan/status',
       isProcessing: (data: CacheSizeScanStatusResponse) => data.isProcessing,
-      // A hidden scan still emits its lifecycle for operation ownership, but recovery must never
-      // create a notification for it.
       createNotification: (data: CacheSizeScanStatusResponse) => ({
-        controlOnly: data.showNotification === false,
         message: translateRecoveryStage(
           data.stageKey,
           data.context,
@@ -1096,11 +1045,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ),
         progress: data.percentComplete,
         details: {
-          operationId: data.operationId ?? undefined,
-          previousOperationId: data.previousOperationId
+          operationId: data.operationId ?? undefined
         }
-      }),
-      staleMessageKey: 'signalr.cacheSizeScan.stale'
+      })
     } satisfies SimpleRecoveryConfig<CacheSizeScanStatusResponse>,
     started: {
       defaultMessage: 'Starting cache file scan...',
@@ -1128,53 +1075,35 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     ScheduledPrefillCompletedEvent
   >({
     type: 'scheduled_prefill',
-    id: NOTIFICATION_IDS.SCHEDULED_PREFILL,
-    // Run-level events carry no platform and open no card.
-    getId: (event: unknown) => {
-      const { serviceId, operationId } = event as ScheduledPrefillCompletedEvent;
-      return serviceId
-        ? scheduledPrefillCardId(serviceId, operationId)
-        : NOTIFICATION_IDS.SCHEDULED_PREFILL;
-    },
-    storageKey: NOTIFICATION_STORAGE_KEYS.SCHEDULED_PREFILL,
+    // Run-level events name the run-level container, which has no run row, so they reach no card;
+    // each platform's run has its own row and its own card.
     eventPrefix: 'ScheduledPrefill',
     // This pipeline's terminal event is `...Completed`, not the `...Complete` the
     // other operations emit.
     completeEvent: 'ScheduledPrefillCompleted',
     cancelTooltipKey: CANCEL_TOOLTIP.scheduledPrefill,
-    silentRunGate: true,
-    // The run's card persists via storageKey, so a terminal event missed while the page was
-    // closed or reconnecting mid-run used to leave a ghost "Prefill in progress" card forever.
-    // This endpoint stale-completes it (or re-seeds a card for a genuinely active run).
+    // The run-status response names each platform's current event series (`eventEpoch`), which is
+    // how a card adopts a restarted daemon's events.
     recovery: {
       kind: 'simple',
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/system/schedules/scheduledPrefill/run-status',
       isProcessing: (data: ScheduledPrefillRunStatusResponse) => data.isRunning,
-      // One card per service still running, each on the operation that service's own cancel
-      // needs, so a reload mid-run comes back with the run it left rather than one card for it.
+      // One result per service still running, each on its own operation, so a reload mid-run
+      // fills in every platform card the run has.
       recoverCards: (data: ScheduledPrefillRunStatusResponse) =>
-        data.services
-          .filter((service) => !service.hideNotification)
-          .map((service) => ({
-            id: scheduledPrefillCardId(service.serviceId, service.operationId),
-            controlOnly: (service.showNotification ?? data.showNotification) === false,
-            message: scheduledPrefillServiceMessage(service),
-            progress: service.percentComplete ?? undefined,
-            detailMessage: formatScheduledPrefillDetailMessage({
-              ...service,
-              message: service.message ?? ''
-            }),
-            details: scheduledPrefillDetails({ ...service, runOperationId: data.operationId })
-          })),
-      staleMessageKey: 'signalr.scheduledPrefill.stale'
+        data.services.map((service) => ({
+          message: scheduledPrefillServiceMessage(service),
+          progress: service.percentComplete ?? undefined,
+          detailMessage: formatScheduledPrefillDetailMessage({
+            ...service,
+            message: service.message ?? ''
+          }),
+          details: scheduledPrefillDetails({ ...service, runOperationId: data.operationId })
+        }))
     } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
     started: {
       defaultMessage: 'Scheduled prefill started',
-      // The run-level start opens no card: it names no platform, and every card on screen is one
-      // platform's. Its per-service siblings are what open the cards.
-      shouldDisplay: (event: ScheduledPrefillStartedEvent) =>
-        visibleWhenNotSilent(event) && event.serviceId != null,
       getMessage: (event: ScheduledPrefillStartedEvent) =>
         event.stage && event.message
           ? scheduledPrefillServiceMessage({
@@ -1185,8 +1114,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           : i18n.t('management.schedules.services.scheduledPrefill.events.started', {
               service: scheduledPrefillServiceLabel(event.serviceId ?? '', event.scheduleName)
             }),
-      getDetails: scheduledPrefillDetails,
-      replaceExisting: true
+      getDetails: scheduledPrefillDetails
     },
     progress: {
       getDetails: scheduledPrefillDetails,
@@ -1211,9 +1139,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getStatus: () => undefined
     },
     complete: {
-      // The run-level terminal closes no card, for the same reason its start opens none.
-      shouldDisplay: (event: ScheduledPrefillCompletedEvent) =>
-        visibleWhenNotSilent(event) && event.serviceId != null,
       // A skipped service keeps the line its own progress already put on the card: that sentence
       // names the service and the precise prerequisite, and the terminal has nothing better to say.
       getSuccessMessage: (event: ScheduledPrefillCompletedEvent, existing) =>
@@ -1273,11 +1198,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     EvictionRemovalCompleteEvent
   >({
     type: 'eviction_removal',
-    id: NOTIFICATION_IDS.EVICTION_REMOVAL,
-    storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
     eventPrefix: 'EvictionRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.evictionRemoval,
-    silentRunGate: true,
     // Scope-aware recovery lives inside the /api/cache/removals/active batch fn
     // (recoverEvictionRemovals). Marked as part of that batch.
     recovery: { kind: 'cacheRemovalsBatch' },
@@ -1295,6 +1217,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       //             as details.gameAppId (typed as number). Also set steamAppId for parity with game_removal.
       //   epic    → details.epicAppId: string (= event.epicAppId, with event.gameAppId as legacy fallback)
       //             event.epicAppId is the dedicated field; event.gameAppId fallback handles pre-fix payloads.
+      //             details.service: 'epicgames', so only the Epic game of that name reads as busy.
+      //   named   → details.service: string (= context.key, the lowercase service) + details.gameName
       //   service → details.service: string (= context.key)
       //   bulk    → no entity identifier (scope/key are undefined); only operationId is set.
       //
@@ -1322,7 +1246,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             }),
           ...(scope === 'steam' &&
             event.gameAppId !== undefined && { steamAppId: event.gameAppId }),
-          ...(scope === 'service' && key !== undefined && { service: key })
+          ...((scope === 'service' || scope === 'named') && key !== undefined && { service: key }),
+          ...(scope === 'epic' && { service: 'epicgames' })
         };
       }
     },
@@ -1334,16 +1259,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // EvictionRemovalProgressEvent does NOT carry scope identity fields
       // (gameAppId, epicAppId, service, gameName are absent from the backend event).
       // Only operationId is available here. Scope identity is set by the started
-      // handler and preserved by createStatusAwareProgressHandler's merge semantics
-      // ({...n.details, ...eventDetails}). If the notification slot is ever
-      // re-created from a progress tick alone, the scope identity would be lost —
-      // but that can happen: createStatusAwareProgressHandler's running branch DOES
-      // create a missing slot from a bare progress tick (fast-completion path). For
-      // eviction_removal this means a bare tick would produce a slot without scope
-      // identity. In practice the backend always emits EvictionRemovalStarted before
-      // any progress tick, so there is always a prior started slot — but this is a
-      // runtime guarantee, not a registry-level opt-out. Spelled out rather than left
-      // to the builder default so the reasoning above stays attached to the field.
+      // event and kept by the run store, which merges each event's details key by key
+      // over the card's. A card seen first mid-run gets it from detail recovery
+      // (recovery.ts recoverEvictionRemovals). Spelled out rather than left to the
+      // builder default so the reasoning above stays attached to the field.
       getDetails: operationIdDetails
     },
     complete: {
@@ -1356,62 +1275,47 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   buildScheduledRunEntry({
     type: 'log_rotation',
     cancellable: false,
-    id: NOTIFICATION_IDS.LOG_ROTATION,
-    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_ROTATION,
     serviceKey: 'logRotation',
     eventPrefix: 'LogRotation',
     i18nBase: 'signalr.scheduledRun.logRotation',
     countable: false,
-    defaultMessage: 'Starting log rotation...',
-    staleMessageKey: 'signalr.scheduledRun.logRotation.complete'
+    defaultMessage: 'Starting log rotation...'
   }),
   buildScheduledRunEntry({
     type: 'game_image_fetch',
     cancellable: true,
-    id: NOTIFICATION_IDS.GAME_IMAGE_FETCH,
-    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_IMAGE_FETCH,
     serviceKey: 'gameImageFetch',
     eventPrefix: 'GameImageFetch',
     i18nBase: 'signalr.scheduledRun.gameImageFetch',
     countable: true,
-    defaultMessage: 'Starting game image fetch...',
-    staleMessageKey: 'signalr.scheduledRun.gameImageFetch.complete'
+    defaultMessage: 'Starting game image fetch...'
   }),
   buildScheduledRunEntry({
     type: 'cache_snapshot',
     cancellable: true,
-    id: NOTIFICATION_IDS.CACHE_SNAPSHOT,
-    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SNAPSHOT,
     serviceKey: 'cacheSnapshot',
     eventPrefix: 'CacheSnapshot',
     i18nBase: 'signalr.scheduledRun.cacheSnapshot',
     countable: false,
-    defaultMessage: 'Starting cache snapshot...',
-    staleMessageKey: 'signalr.scheduledRun.cacheSnapshot.complete'
+    defaultMessage: 'Starting cache snapshot...'
   }),
   buildScheduledRunEntry({
     type: 'operation_history_cleanup',
     cancellable: true,
-    id: NOTIFICATION_IDS.OPERATION_HISTORY_CLEANUP,
-    storageKey: NOTIFICATION_STORAGE_KEYS.OPERATION_HISTORY_CLEANUP,
     serviceKey: 'operationHistoryCleanup',
     eventPrefix: 'OperationHistoryCleanup',
     i18nBase: 'signalr.scheduledRun.operationHistoryCleanup',
     countable: true,
-    defaultMessage: 'Starting operation history cleanup...',
-    staleMessageKey: 'signalr.scheduledRun.operationHistoryCleanup.complete'
+    defaultMessage: 'Starting operation history cleanup...'
   }),
   buildScheduledRunEntry({
     type: 'dashboard_cache_warmer',
     cancellable: true,
-    id: NOTIFICATION_IDS.DASHBOARD_CACHE_WARMER,
-    storageKey: NOTIFICATION_STORAGE_KEYS.DASHBOARD_CACHE_WARMER,
     serviceKey: 'dashboardCacheWarmer',
     eventPrefix: 'DashboardCacheWarmer',
     i18nBase: 'signalr.scheduledRun.dashboardCacheWarmer',
     countable: true,
-    defaultMessage: 'Warming dashboard cache...',
-    staleMessageKey: 'signalr.scheduledRun.dashboardCacheWarmer.complete'
+    defaultMessage: 'Warming dashboard cache...'
   }),
 
   // ==========================================================================
@@ -1423,14 +1327,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     DepotMappingCompleteEvent
   >({
     type: 'depot_mapping',
-    id: NOTIFICATION_IDS.DEPOT_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
     serviceKey: 'depotMapping',
     eventPrefix: 'DepotMapping',
     i18nBase: 'signalr.depotMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
     defaultMessage: 'Starting depot mapping...',
-    staleMessageKey: 'signalr.depotMapping.stale',
     recoveryCases: [
       { stageKey: 'signalr.depotMapping.starting', context: {} },
       {
@@ -1455,14 +1356,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     EpicMappingCompleteEvent
   >({
     type: 'epic_game_mapping',
-    id: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
     serviceKey: 'epicMapping',
     eventPrefix: 'EpicMapping',
     i18nBase: 'signalr.epicMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.epicGameMapping,
     defaultMessage: 'Starting Epic game mapping...',
-    staleMessageKey: 'signalr.epicMapping.stale',
     recoveryCases: [
       { stageKey: 'signalr.epicMapping.starting', context: {} },
       { stageKey: 'signalr.epicMapping.fetchingGames', context: {} },
@@ -1481,14 +1379,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     XboxMappingCompleteEvent
   >({
     type: 'xbox_game_mapping',
-    id: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
     serviceKey: 'xboxMapping',
     eventPrefix: 'XboxMapping',
     i18nBase: 'signalr.xboxMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.xboxGameMapping,
     defaultMessage: 'Starting Xbox game mapping...',
-    staleMessageKey: 'signalr.xboxMapping.stale',
     recoveryCases: [
       { stageKey: 'signalr.xboxMapping.starting', context: {} },
       { stageKey: 'signalr.xboxMapping.collecting', context: {} },
@@ -1506,14 +1401,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     BattleNetMappingCompleteEvent
   >({
     type: 'battle_net_game_mapping',
-    id: NOTIFICATION_IDS.BATTLE_NET_GAME_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.BATTLE_NET_GAME_MAPPING,
     serviceKey: 'battleNetMapping',
     eventPrefix: 'BattleNetMapping',
     i18nBase: 'signalr.battleNetMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.battleNetGameMapping,
     defaultMessage: 'Starting Battle.net game mapping...',
-    staleMessageKey: 'signalr.battleNetMapping.completed',
     recoveryCases: [
       { stageKey: 'signalr.battleNetMapping.starting', context: {} },
       { stageKey: 'signalr.battleNetMapping.resolving', context: {} },
@@ -1530,14 +1422,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     RiotMappingCompleteEvent
   >({
     type: 'riot_game_mapping',
-    id: NOTIFICATION_IDS.RIOT_GAME_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.RIOT_GAME_MAPPING,
     serviceKey: 'riotMapping',
     eventPrefix: 'RiotMapping',
     i18nBase: 'signalr.riotMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.riotGameMapping,
     defaultMessage: 'Starting Riot game mapping...',
-    staleMessageKey: 'signalr.riotMapping.completed',
     recoveryCases: [
       { stageKey: 'signalr.riotMapping.starting', context: {} },
       { stageKey: 'signalr.riotMapping.resolving', context: {} },
@@ -1555,15 +1444,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     DatabaseResetCompleteEvent
   >({
     type: 'database_reset',
-    id: NOTIFICATION_IDS.DATABASE_RESET,
-    storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
     eventPrefix: 'DatabaseReset',
     cancelTooltipKey: CANCEL_TOOLTIP.databaseReset,
-    // The reset is already marked as processing before its operationId is registered, so a page
-    // load in that window recovers a running card with no id (see createNotification below). The
-    // id then arrives on a progress tick, which is exactly what a deferred cancel needs, so the
-    // card keeps its X through that window.
-    allowsDeferredCancel: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -1595,12 +1477,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         message: translateRecoveryStage(data.stageKey, data.context, 'signalr.dbReset.starting'),
         // `??` (not `||`): backend field is `double?` - nullable. `??` preserves 0.
         progress: data.percentComplete ?? 0,
-        // Always emit a defined details object so the deferred-cancel watchdog can
-        // attach an operationId when it arrives via a later SignalR progress tick.
+        // The reset is marked as processing before its operationId is registered, so this can be
+        // missing; the result then fills the one live reset run.
         // `?? undefined` normalises null→undefined (backend field is `string?`).
         details: { operationId: data.operationId ?? undefined }
-      }),
-      staleMessageKey: 'signalr.dbReset.stale'
+      })
     } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,
     started: {
       defaultMessage: 'Starting database reset...',
@@ -1613,12 +1494,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getErrorMessage: (event: DatabaseResetProgressEvent) =>
         event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
-          : i18n.t(GENERIC_FAILURE_I18N_KEY),
-      supportFastCompletion: true
+          : i18n.t(GENERIC_FAILURE_I18N_KEY)
     },
-    // The terminal DatabaseResetComplete event is idempotent with the legacy
-    // progress-status completion: whichever arrives first wins and the other is a
-    // no-op, because the completion handler only acts on a still-running card.
+    // The terminal DatabaseResetComplete event and the legacy progress-status completion
+    // both only fill in the finished card's text; the run row decides when the card ends.
     complete: {
       getSuccessMessage: formatDatabaseResetCompleteMessage,
       getSuccessDetails: operationIdDetails,
@@ -1639,15 +1518,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // --------------------------------------------------------------------------
   // One event carries the whole lifecycle: there is no run to open a card for and
   // no progress to report, so these declare `events.complete` alone and state the
-  // outcome their event always means. They persist nothing and recover nothing -
-  // an announcement that was missed while the tab was closed is simply gone.
+  // outcome their event always means. They recover nothing - an announcement that
+  // was missed while the tab was closed is simply gone.
   // ==========================================================================
 
   // ========== Epic catalog update (one-shot toast) ==========
   {
     type: 'epic_catalog_update',
-    id: NOTIFICATION_IDS.EPIC_GAME_MAPPING_UPDATE,
-    storageKey: '',
     cancelKind: 'none',
     recovery: { kind: 'none' },
     events: { complete: 'EpicGameMappingsUpdated' },
@@ -1663,8 +1540,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Xbox catalog update (one-shot toast) ==========
   {
     type: 'xbox_catalog_update',
-    id: NOTIFICATION_IDS.XBOX_GAME_MAPPING_UPDATE,
-    storageKey: '',
     cancelKind: 'none',
     recovery: { kind: 'none' },
     events: { complete: 'XboxGameMappingsUpdated' },
@@ -1683,18 +1558,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // Both lines come off the event: the title from the key the emitter mapped from its error type,
   // the detail from the event's own stage key, the same reading every operation card uses. Keeping
   // the error-type mapping on the emitter leaves one copy of it rather than two that can disagree.
-  // The card stays twice as long as the shared default because a dropped Steam session is
+  // The card stays until it is closed, like a failed run, because a dropped Steam session is
   // something a person has to act on.
   {
     type: 'steam_session_error',
-    id: NOTIFICATION_IDS.STEAM_SESSION_ERROR,
-    storageKey: '',
     cancelKind: 'none',
     recovery: { kind: 'none' },
     events: { complete: 'SteamSessionError' },
     complete: {
       succeeded: false,
-      dismissDelayMs: STEAM_ERROR_DISMISS_DELAY_MS,
       getFailureMessage: (event: SteamSessionErrorEvent) =>
         i18n.t(event.titleStageKey ?? 'signalr.steamSession.errorTitle.generic'),
       getDetailMessage: (event: SteamSessionErrorEvent) =>
@@ -1723,26 +1595,21 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // no recovery (the run loop survives in-app tab switches by construction).
   {
     type: 'bulk_removal',
-    id: 'bulk_removal',
-    storageKey: '',
     cancelKind: 'clientQueue',
     cancelTooltipKey: CANCEL_TOOLTIP.bulkRemoval,
     recovery: { kind: 'none' }
   },
 
-  // ========== Prefill Login (card raised by the login hooks) ==========
-  // Metadata-only entry, same reason as bulk_removal above: the card is created by
-  // usePrefillSteamAuth / usePersistentXboxAuth while a daemon sign-in waits on the
-  // person, and this entry exists so UniversalNotificationBar's cancel-config loop is
-  // the single source for its cancel wiring. cancelKind 'serverOp' → the X posts to
-  // /api/operations/{id}/cancel using details.operationId, which the login challenge
-  // carries; a card without one simply shows no X. No SignalR events (the hooks own
-  // the card's whole life) and no recovery (a reload ends the browser side of the
-  // sign-in, and the server's own sweep ends the daemon side).
+  // ========== Prefill Login (card drawn from the sign-in's run row) ==========
+  // Unlike bulk_removal, this card is not created by client code: the server's run row
+  // for the sign-in opens and ends it, in the browser whose session started the sign-in
+  // only. The entry exists so UniversalNotificationBar's cancel-config loop is the single
+  // source for its cancel wiring. cancelKind 'serverOp' → the X posts to
+  // /api/operations/{id}/cancel using the row's operation id. No SignalR events (the row
+  // carries everything the card says) and no recovery (the run list redraws it after a
+  // reload).
   {
     type: 'prefill_login',
-    id: 'prefill_login',
-    storageKey: '',
     cancelKind: 'serverOp',
     cancelTooltipKey: CANCEL_TOOLTIP.prefillLogin,
     recovery: { kind: 'none' }

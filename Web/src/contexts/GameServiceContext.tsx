@@ -38,13 +38,12 @@ export const GameServiceProvider: React.FC<GameServiceProviderProps> = ({ childr
       // this session via the wrapper's memory fallback, but won't survive a reload - surface it.
       // GameServiceProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
       // useErrorHandler is not reachable here; use the existing show-toast bridge instead
-      // (mirrors NotificationsContext.tsx:332-356).
+      // (the SHOW_TOAST listener in NotificationsContext.tsx).
       window.dispatchEvent(
         new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
           detail: {
             type: 'error',
-            message: i18n.t('prefill.errors.saveServiceSelectionFailed'),
-            duration: 4000
+            message: i18n.t('prefill.errors.saveServiceSelectionFailed')
           }
         })
       );

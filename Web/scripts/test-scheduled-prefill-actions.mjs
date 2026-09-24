@@ -61,6 +61,22 @@ test('phone download actions use equal columns until the labels need equal stack
     /@media \(max-width: 339px\)[\s\S]*?\.scheduled-prefill-record-games\s*{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/
   );
 });
+
+test('a failed schedules load shows the shared error block once, not inside a second red panel', () => {
+  const section = readFileSync(
+    new URL(
+      '../src/components/features/management/schedules/SchedulesSection.tsx',
+      import.meta.url
+    ),
+    'utf8'
+  );
+  // The error block draws its own red alert; a colored wrapper around it doubled the red.
+  assert.match(
+    section,
+    /if \(error && schedules\.length === 0\) \{\s*return \(\s*<TabPanel tabId="schedules">\s*<ErrorBlock\s*title=\{t\('management\.schedules\.fetchError'\)\}/
+  );
+  assert.doesNotMatch(schedulesCss, /\.schedules-error\b/);
+});
 const prefillCss = readFileSync(
   new URL('../src/styles/features/prefill.css', import.meta.url),
   'utf8'
@@ -79,7 +95,7 @@ const cacheStatusUrl = await compileToUrl('../src/components/features/prefill/ca
 const { completeCacheApps, groupCacheApps, markCacheAppsUnknown } = await import(cacheStatusUrl);
 globalThis.HTMLInputElement = class HTMLInputElement {};
 
-test('Run Now clears only optimistic state when no follow-up was queued, including silent responses', async () => {
+test('Run Now clears only optimistic state when no follow-up was queued', async () => {
   const file = process.env.SCHEDULE_ACTION_SOURCE
     ? ts.createSourceFile(
         'SchedulesSection.tsx',
@@ -100,45 +116,190 @@ test('Run Now clears only optimistic state when no follow-up was queued, includi
       node.name.getText(file) === 'handleRunNow' &&
       node.initializer.getText(file).includes('ApiService.triggerSchedule')
   );
-  for (const showNotification of [true, false]) {
-    for (const followUpQueued of [false, true, undefined]) {
-      const notifications = [];
-      const pending = new Set();
-      let completed = { other: 'completed' };
-      const run = bindLifted(declaration.initializer.arguments[0].getText(file), {
-        t: (key) => key,
-        recoverScheduledPrefillEditSession: async () => undefined,
-        sessionStore: {},
-        markStarting: (key) => pending.add(key),
-        clearPending: (key) => pending.delete(key),
-        setCompletedKeys: (update) => {
-          completed = update(completed);
-        },
-        setTimeout: () => undefined,
-        cacheQueuedReasonKey: 'queued',
-        ApiService: {
-          triggerSchedule: async () => ({
-            alreadyRunning: true,
-            status: 'alreadyRunning',
-            showNotification,
-            followUpQueued
-          })
-        },
-        addNotification: (notification) => notifications.push(notification),
-        getErrorMessage: (error) => error.message
-      });
-      await run('scheduledPrefill');
-      assert.equal(pending.has('scheduledPrefill'), followUpQueued !== false);
-      assert.equal(completed.other, 'completed');
-      assert.equal(completed.scheduledPrefill, followUpQueued === false ? undefined : 'navigate');
-      assert.equal(notifications.length, showNotification ? 1 : 0);
-      if (showNotification)
-        assert.equal(
-          notifications[0].message,
-          followUpQueued === false
-            ? 'management.schedules.runNowAlreadyRunning'
-            : 'management.schedules.runNowQueuedNext'
-        );
+  for (const followUpQueued of [false, true, undefined]) {
+    const notifications = [];
+    const pending = new Set();
+    let completed = { other: 'completed' };
+    const run = bindLifted(declaration.initializer.arguments[0].getText(file), {
+      recoverScheduledPrefillEditSession: async () => undefined,
+      sessionStore: {},
+      markStarting: (key) => pending.add(key),
+      clearPending: (key) => pending.delete(key),
+      setCompletedKeys: (update) => {
+        completed = update(completed);
+      },
+      setTimeout: () => undefined,
+      ApiService: {
+        triggerSchedule: async () => ({
+          alreadyRunning: true,
+          status: 'alreadyRunning',
+          followUpQueued
+        })
+      },
+      addNotification: (notification) => notifications.push(notification),
+      getErrorMessage: (error) => error.message
+    });
+    await run('scheduledPrefill');
+    assert.equal(pending.has('scheduledPrefill'), followUpQueued !== false);
+    assert.equal(completed.other, 'completed');
+    assert.equal(completed.scheduledPrefill, followUpQueued === false ? undefined : 'navigate');
+    assert.deepEqual(notifications, []);
+  }
+});
+
+test('the prefill Run Now explains itself only when no schedule is enabled', () => {
+  const tooltip = findSoleNode(
+    detailSource,
+    'Run Now tooltip',
+    (node) =>
+      ts.isJsxOpeningElement(node) &&
+      node.tagName.getText(detailSource) === 'Tooltip' &&
+      node.attributes.getText(detailSource).includes('scheduled-prefill-card-summary__run-help')
+  );
+  const attribute = (element, name) =>
+    element.attributes.properties
+      .find((property) => property.name.getText(detailSource) === name)
+      .initializer.expression.getText(detailSource);
+  // A non-admin or an active run also disables the button, and "enable a schedule" would be
+  // wrong then, so neither the text nor the focus stop may key on the disabled flag.
+  const focusStop = tooltip.parent.children.find(ts.isJsxElement).openingElement;
+  for (const text of [attribute(tooltip, 'content'), attribute(focusStop, 'tabIndex')]) {
+    assert.match(text, /^noScheduleEnabled\s*\?/);
+  }
+  const declaration = findSoleNode(
+    detailSource,
+    'noScheduleEnabled',
+    (node) =>
+      ts.isVariableDeclaration(node) && node.name.getText(detailSource) === 'noScheduleEnabled'
+  );
+  const noScheduleEnabled = (loading, rows) =>
+    bindLifted(`() => (${declaration.initializer.getText(detailSource)})`, { loading, rows })();
+  assert.equal(noScheduleEnabled(false, [{ enabled: false }, { enabled: false }]), true);
+  assert.equal(noScheduleEnabled(false, [{ enabled: false }, { enabled: true }]), false);
+  assert.equal(noScheduleEnabled(true, [{ enabled: false }]), false);
+  for (const locale of [en, zh]) {
+    assert.equal(
+      typeof locale.management.schedules.services.scheduledPrefill.runNowNoSchedule,
+      'string'
+    );
+  }
+});
+
+const runNowSource = liftHookCallback(
+  'src/components/features/management/schedules/SchedulesSection.tsx',
+  'useCallback',
+  'ApiService.triggerSchedule'
+);
+
+/** Runs Run Now once against one server answer, or a rejected request when `answer` is null. */
+const runNowOnce = async (key, answer) => {
+  const notifications = [];
+  const pending = new Set();
+  const run = bindLifted(runNowSource, {
+    recoverScheduledPrefillEditSession: async () => undefined,
+    sessionStore: {},
+    markStarting: (pendingKey) => pending.add(pendingKey),
+    clearPending: (pendingKey) => pending.delete(pendingKey),
+    setCompletedKeys: () => undefined,
+    setTimeout: () => undefined,
+    ApiService: {
+      triggerSchedule: async () => {
+        if (answer === null) throw new Error('Request failed with status 409');
+        return answer;
+      }
+    },
+    addNotification: (notice) => notifications.push(notice),
+    getErrorMessage: (error) => error.message,
+    t: (key, options) => (options ? `${key}(${options.service})` : key)
+  });
+  await run(key);
+  return { notifications, pending };
+};
+
+test('a Run Now draws no popup of its own for any answer the server accepts', async () => {
+  for (const [key, answer, stillPending] of [
+    ['cacheReconciliation', { status: 'started' }, true],
+    [
+      'gameDetection',
+      { status: 'alreadyRunning', alreadyRunning: true, followUpQueued: false },
+      false
+    ],
+    [
+      'depotMapping',
+      { status: 'alreadyRunning', alreadyRunning: true, followUpQueued: true },
+      true
+    ],
+    [
+      'scheduledPrefill',
+      { status: 'alreadyRunning', alreadyRunning: true, followUpQueued: true },
+      true
+    ],
+    [
+      'cacheReconciliation',
+      { status: 'skipped', skippedReason: 'management.schedules.queuedUntilCacheFree' },
+      false
+    ],
+    ['gameDetection', { status: 'skipped', skippedReason: 'management.schedules.other' }, false]
+  ]) {
+    const { notifications, pending } = await runNowOnce(key, answer);
+    assert.deepEqual(notifications, [], `${key} ${answer.status}`);
+    assert.equal(pending.has(key), stillPending, `${key} ${answer.status}`);
+  }
+});
+
+test('a Run Now the server refuses still shows its error popup', async () => {
+  const { notifications, pending } = await runNowOnce('scheduledPrefill', null);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].status, 'failed');
+  assert.equal(
+    notifications[0].message,
+    'management.schedules.runNowFailed(management.schedules.services.scheduledPrefill.displayName)'
+  );
+  assert.equal(notifications[0].error, 'Request failed with status 409');
+  assert.deepEqual(notifications[0].details, {
+    notificationType: 'error',
+    serviceKey: 'scheduledPrefill'
+  });
+  assert.equal(pending.has('scheduledPrefill'), false);
+});
+
+test('a platform Run draws no popup when it starts or is already running', async () => {
+  const source = liftHookCallback(
+    'src/components/features/management/schedules/SchedulesSection.tsx',
+    'useCallback',
+    'runScheduledPrefillService'
+  );
+  for (const answer of [{ alreadyRunning: false }, { alreadyRunning: true }, null]) {
+    const notifications = [];
+    const pending = new Set();
+    const run = bindLifted(source, {
+      recoverScheduledPrefillEditSession: async () => undefined,
+      sessionStore: {},
+      markStarting: (key) => pending.add(key),
+      clearPending: (key) => pending.delete(key),
+      ApiService: {
+        runScheduledPrefillService: async () => {
+          if (answer === null) throw new Error('Log in first');
+          return answer;
+        }
+      },
+      addNotification: (notice) => notifications.push(notice),
+      notifyError: (message, error) => notifications.push([message, error.message]),
+      t: (key, options) => (options ? `${key}(${options.service})` : key),
+      SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY: { Steam: 'steam' }
+    });
+    await run('Steam', 'schedule-7');
+    if (answer === null) {
+      assert.deepEqual(notifications, [
+        [
+          'management.schedules.runNowFailed(management.schedules.services.scheduledPrefill.config.services.steam)',
+          'Log in first'
+        ]
+      ]);
+      assert.equal(pending.has('Steam:schedule-7'), false);
+    } else {
+      assert.deepEqual(notifications, [], JSON.stringify(answer));
+      assert.equal(pending.has('Steam:schedule-7'), true);
     }
   }
 });
@@ -3242,6 +3403,7 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
       serviceIds.map((service, index) => [service, order[index]])
     ),
     isScheduledPrefillAccountService: (key) => ['steam', 'epic', 'xbox'].includes(key),
+    Tooltip: 'Tooltip',
     ScheduledPrefillServiceScheduleRow: 'Row',
     ScheduledPrefillConfigModal: 'Editor',
     ScheduledPrefillContainerModal: 'Container',
@@ -3249,6 +3411,8 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
     ScheduledPrefillSharedSettingsModal: 'Settings',
     ConfirmationModal: 'ConfirmationModal',
     PersistentLoginHost: 'Login',
+    ErrorBlock: 'ErrorBlock',
+    useErrorHandler: () => ({ notifyError: () => undefined }),
     getErrorMessage: (error) => error.message,
     isAbortError: () => false,
     setInterval: () => 1,

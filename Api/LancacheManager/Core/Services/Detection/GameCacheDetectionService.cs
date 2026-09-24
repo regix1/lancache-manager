@@ -31,6 +31,10 @@ public partial class GameCacheDetectionService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
 
+    // The worker running the current detection and the operation it completes. A new start asks
+    // this, not the detection's age, whether an active detection still has a worker behind it.
+    private (Guid OperationId, Task Worker)? _currentDetectionTask;
+
     // In-memory cache for detection response - avoids 10+ DB queries on every dashboard load.
     // Invalidated when detection scans, eviction scans, or game removals change the data.
     private DetectionOperationResponse? _cachedDetectionResponse;
@@ -60,13 +64,6 @@ public partial class GameCacheDetectionService : IDisposable
         public int TotalGamesDetected { get; set; }
         public int TotalServicesDetected { get; set; }
         public string? Error { get; set; }
-
-        /// <summary>
-        /// Run-stable presentation flags for the active run. Silent detections use background
-        /// progress, while Hidden detections never enter notification state.
-        /// </summary>
-        public bool ShowNotification { get; set; } = true;
-        public bool HideNotification { get; set; }
 
         /// <summary>
         /// i18n interpolation values for <see cref="Message"/> when it is a signalr stage key.
@@ -125,10 +122,8 @@ public partial class GameCacheDetectionService : IDisposable
         RestoreInterruptedOperations();
     }
 
-    public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true, RunNotice? notice = null, Guid? parentOperationId = null)
+    public async Task<Guid?> StartDetectionAsync(RunNotice notice, bool incremental = true, Guid? parentOperationId = null)
     {
-        showNotification = notice?.ShowNotification ?? showNotification;
-        var hideNotification = notice?.HideNotification == true;
         // Game detection derives logical objects from cache keys, so ambiguous datasource
         // evidence must be rejected even when this service is called without a controller.
         // The caller awaits this before any background work starts, so the refusal is answered
@@ -151,11 +146,13 @@ public partial class GameCacheDetectionService : IDisposable
         await _startLock.WaitAsync();
         try
         {
-            // Clean up stale operations (running for more than 30 minutes). Each stale op's terminal
-            // is fired below via CompleteOperation, which runs THAT op's own onTerminalEmit closure -
-            // carrying the stale run's own captured visibility, never this new attempt's flag.
+            // Clean up detections nothing will ever finish: one with no worker recorded for it (it was
+            // registered, then its start threw before the worker began) or whose worker has ended
+            // without completing it. A detection whose worker still runs is left alone however long
+            // it takes. Each stale op's terminal is fired below via CompleteOperation, which runs THAT
+            // op's own onTerminalEmit closure; the tracker draws it from the stale run's own notice.
             var staleOperations = _operationTracker.GetActiveOperations(OperationType.GameDetection)
-                .Where(op => op.StartedAt < DateTime.UtcNow.AddMinutes(-30))
+                .Where(op => _currentDetectionTask is not { } worker || worker.OperationId != op.Id || worker.Worker.IsCompleted)
                 .ToList();
             foreach (var stale in staleOperations)
             {
@@ -185,8 +182,6 @@ public partial class GameCacheDetectionService : IDisposable
             var metadata = new GameDetectionMetrics
             {
                 ScanType = scanType,
-                ShowNotification = showNotification,
-                HideNotification = hideNotification,
                 Notice = notice,
                 ParentOperationId = parentOperationId,
                 StartTime = DateTime.UtcNow
@@ -208,12 +203,13 @@ public partial class GameCacheDetectionService : IDisposable
                     },
                     onTerminalEmit: info => EmitTerminalAsync(registeredId, info, metadata),
                     parentOperationId: parentOperationId,
-                    startedAt: metadata.StartTime);
+                    startedAt: metadata.StartTime,
+                    notice: notice);
                 _currentTrackerOperationId = registeredId;
             }
             var operationId = registeredId;
-            cancellationToken.Register(() => notice?.Cancel(_operationTracker, operationId));
-            notice?.Attach(_operationTracker, operationId);
+            cancellationToken.Register(() => notice.Cancel(_operationTracker, operationId));
+            notice.Attach(_operationTracker, operationId);
 
             // Set initial progress message
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
@@ -233,8 +229,8 @@ public partial class GameCacheDetectionService : IDisposable
                         {
                             operationId,
                             parentOperationId,
-                            showNotification,
-                            hideNotification,
+                            notificationMode = notice.Mode,
+                            trigger = notice.Trigger,
                             scanType,
                             startedAt = metadata.StartTime
                         })
@@ -251,20 +247,16 @@ public partial class GameCacheDetectionService : IDisposable
                 ParentOperationId = parentOperationId,
                 StageKey = stageKeyStarting,
                 scanType,
-                timestamp = DateTime.UtcNow,
-                ShowNotification = showNotification,
-                HideNotification = hideNotification
+                timestamp = DateTime.UtcNow
             });
 
             // Start detection in background with cancellation token
-            _ = Task.Run(
+            _currentDetectionTask = (operationId, Task.Run(
                 async () => await RunDetectionAsync(
                     operationId,
                     incremental,
-                    showNotification,
-                    hideNotification,
                     cancellationToken),
-                CancellationToken.None);
+                CancellationToken.None));
 
             return operationId;
         }
@@ -363,8 +355,6 @@ public partial class GameCacheDetectionService : IDisposable
     private async Task RunDetectionAsync(
         Guid operationId,
         bool incremental,
-        bool showNotification,
-        bool hideNotification,
         CancellationToken cancellationToken = default)
     {
         var trackerOp = _operationTracker.GetOperation(operationId);
@@ -416,9 +406,7 @@ public partial class GameCacheDetectionService : IDisposable
                 StageKey = stageKey,
                 Context = context,
                 gamesDetected,
-                servicesDetected,
-                ShowNotification = showNotification,
-                HideNotification = hideNotification
+                servicesDetected
             });
         }
 
@@ -646,9 +634,7 @@ public partial class GameCacheDetectionService : IDisposable
                             gamesDetected = aggregatedGames.Count,
                             servicesDetected = skipServiceScan && existingServices != null ? existingServices.Count : aggregatedServices.Count,
                             gamesProcessed = progress.GamesProcessed,
-                            totalGames = progress.TotalGames,
-                            ShowNotification = showNotification,
-                            HideNotification = hideNotification
+                            totalGames = progress.TotalGames
                         });
                     },
                     "cache_game_detect");
@@ -1142,9 +1128,7 @@ public partial class GameCacheDetectionService : IDisposable
             Timestamp: DateTime.UtcNow,
             Context: metrics.CompletionContext,
             Error: info.Error,
-            ShowNotification: metrics.ShowNotification,
-            ParentOperationId: metrics.ParentOperationId,
-            HideNotification: metrics.HideNotification);
+            ParentOperationId: metrics.ParentOperationId);
 
         InvalidateDetectionCache();
         RememberCompletedDetection(operationId, metrics.ScanType, info.Success, info.Cancelled);
@@ -1160,8 +1144,6 @@ public partial class GameCacheDetectionService : IDisposable
                 {
                     operationId,
                     parentOperationId = metrics.ParentOperationId,
-                    showNotification = metrics.ShowNotification,
-                    hideNotification = metrics.HideNotification,
                     scanType = metrics.ScanType,
                     startedAt = metrics.StartTime,
                     cancelled = info.Cancelled,
@@ -1427,8 +1409,20 @@ public partial class GameCacheDetectionService : IDisposable
                 Guid? parentOperationId = saved.TryGetProperty("parentOperationId", out var parent) &&
                     parent.ValueKind == JsonValueKind.String && parent.TryGetGuid(out var parentId) ? parentId : null;
                 if (parentOperationId == null && state.CreatedAt <= recentCutoff) continue;
-                var showNotification = !saved.TryGetProperty("showNotification", out var visibility) || visibility.GetBoolean();
-                var hideNotification = saved.TryGetProperty("hideNotification", out var hidden) && hidden.GetBoolean();
+                // A child phase is hidden, as it is live. A state saved by this version carries the
+                // run's mode and trigger; one saved by the previous version carries display flags
+                // instead, translated to the notice that draws the same way. [83]
+                RunNotice notice;
+                if (parentOperationId != null)
+                    notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual);
+                else if (saved.TryGetProperty("notificationMode", out var savedMode) && saved.TryGetProperty("trigger", out var savedTrigger))
+                    notice = new RunNotice(savedMode.Deserialize<NotificationMode>(), savedTrigger.Deserialize<RunTrigger>());
+                else if (saved.TryGetProperty("hideNotification", out var hidden) && hidden.GetBoolean())
+                    notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual);
+                else if (!saved.TryGetProperty("showNotification", out var visibility) || visibility.GetBoolean())
+                    notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+                else
+                    notice = new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled);
                 var scanType = saved.TryGetProperty("scanType", out var scan)
                     ? scan.ValueKind == JsonValueKind.String
                         ? Enum.Parse<DetectionScanType>(scan.GetString()!, ignoreCase: true)
@@ -1441,8 +1435,7 @@ public partial class GameCacheDetectionService : IDisposable
                 {
                     ScanType = scanType,
                     StartTime = startedAt,
-                    ShowNotification = parentOperationId == null && showNotification,
-                    HideNotification = hideNotification,
+                    Notice = notice,
                     ParentOperationId = parentOperationId
                 };
 
@@ -1461,7 +1454,8 @@ public partial class GameCacheDetectionService : IDisposable
                         },
                         onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, metadata),
                         parentOperationId: parentOperationId,
-                        startedAt: startedAt))
+                        startedAt: startedAt,
+                        notice: notice))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.
@@ -1484,12 +1478,10 @@ public partial class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
 
                 var cancellationToken = cancellationSource.Token;
-                _ = Task.Run(async () => await RunDetectionAsync(
+                _currentDetectionTask = (persistedGuid, Task.Run(async () => await RunDetectionAsync(
                     persistedGuid,
                     incremental: scanType == DetectionScanType.Incremental,
-                    showNotification,
-                    hideNotification,
-                    cancellationToken));
+                    cancellationToken)));
             }
         }
         catch (Exception ex)
@@ -1514,8 +1506,6 @@ public partial class GameCacheDetectionService : IDisposable
             Message = opInfo.Message,
             PercentComplete = opInfo.PercentComplete,
             ScanType = metrics?.ScanType ?? DetectionScanType.Incremental,
-            ShowNotification = metrics?.ShowNotification ?? true,
-            HideNotification = metrics?.HideNotification ?? false,
             Games = metrics?.Games,
             Services = metrics?.Services,
             TotalGamesDetected = metrics?.TotalGamesDetected ?? 0,

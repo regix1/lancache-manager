@@ -19,19 +19,18 @@ import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
 import { recoverScheduledPrefillEditSession } from './scheduled-prefill/scheduledPrefillEditSessionLedger';
 import { sessionStore } from '@utils/storage';
-import { ApiError } from '@services/apiError';
 import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ScheduleIntervalPicker from './ScheduleIntervalPicker';
-import { cacheQueuedReasonKey, getNotificationStyleOptions } from './constants';
+import { getNotificationStyleOptions } from './constants';
 import type { CustomSchedule } from './custom-schedule/types';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
 import { useOptimisticPending } from '@hooks/useOptimisticPending';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
-import { useNotifySuccess } from '@/hooks/useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { TabPanel } from '@components/features/management/TabPanel';
 import {
   isNotificationMode,
@@ -50,13 +49,14 @@ import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { useMockMode } from '@contexts/useMockMode';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import StatusDot from '@components/common/StatusDot';
 import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
-import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from './scheduled-prefill/constants';
 import type { ScheduledPrefillServiceId } from './scheduled-prefill/types';
+import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from './scheduled-prefill/constants';
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
@@ -155,20 +155,6 @@ interface DepotScanModeRequirement {
   labelKey: string;
   helpKey: string;
 }
-
-// The refusal names the requirement in the same stage key the dropdown shows for it, so a save the
-// server refuses says which requirement is missing rather than only that the save failed. The
-// browser's copy of the facts can be a moment behind the server's - a key removed in another tab,
-// or a progress blob restored from sessionStorage - and that is exactly when this runs.
-const getScanModeRefusalKey = (error: unknown): string | null => {
-  if (!(error instanceof ApiError) || error.status !== 400) {
-    return null;
-  }
-  const refusal = error.body;
-  return typeof refusal?.stageKey === 'string' && refusal.stageKey.length > 0
-    ? refusal.stageKey
-    : null;
-};
 
 // One place decides what each scan mode needs, so the dropdown and the save path can never
 // disagree about which modes can run. Every term here reads a fact that survives at rest: the
@@ -611,7 +597,11 @@ interface ScheduleRowProps {
   completedVariant: HighlightGlowVariant;
   onNavigateToEvictionSettings?: () => void;
   onNotificationModeChange: (key: string, mode: NotificationMode) => Promise<void>;
-  onNotificationDisplayModeChange: (key: string, mode: NotificationDisplayMode) => Promise<void>;
+  onNotificationDisplayModeChange: (
+    key: string,
+    mode: NotificationDisplayMode | 'default'
+  ) => Promise<void>;
+  defaultMode: NotificationDisplayMode;
   onNavigateToSteamApi?: () => void;
 }
 
@@ -635,6 +625,7 @@ const ScheduleRow = memo(function ScheduleRow({
   onNavigateToEvictionSettings,
   onNotificationModeChange,
   onNotificationDisplayModeChange,
+  defaultMode,
   onNavigateToSteamApi
 }: ScheduleRowProps) {
   const { t } = useTranslation();
@@ -751,7 +742,7 @@ const ScheduleRow = memo(function ScheduleRow({
 
   const handleNotificationDisplayModeChange = useCallback(
     (value: string) => {
-      if (!isNotificationDisplayMode(value)) return;
+      if (value !== 'default' && !isNotificationDisplayMode(value)) return;
       void onNotificationDisplayModeChange(service.key, value);
     },
     [service.key, onNotificationDisplayModeChange]
@@ -780,7 +771,7 @@ const ScheduleRow = memo(function ScheduleRow({
     }
   ];
 
-  const notificationStyleOptions = getNotificationStyleOptions(t);
+  const notificationStyleOptions = getNotificationStyleOptions(t, defaultMode);
 
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
   // ~50ms an API save is in flight causes every control on the row to briefly flash to
@@ -1215,7 +1206,11 @@ const ScheduleRow = memo(function ScheduleRow({
                 <div className="schedule-detail-control">
                   <EnhancedDropdown
                     options={notificationStyleOptions}
-                    value={service.notificationDisplayMode}
+                    value={
+                      service.notificationDisplayModeOverridden
+                        ? service.notificationDisplayMode
+                        : 'default'
+                    }
                     onChange={handleNotificationDisplayModeChange}
                     disabled={isDisabled}
                     variant="button"
@@ -1363,6 +1358,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   onNavigateToSteamApi
 }) => {
   const { t } = useTranslation();
+  const { defaultMode } = useScheduleDisplayModes();
   const { mockMode } = useMockMode();
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
   const { isLoading, setLoading, markLoaded } = useManagerLoading(true);
@@ -1385,6 +1381,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const { on, off, isConnected } = useSignalR();
   const { addNotification } = useNotifications();
   const { notifySuccess } = useNotifySuccess();
+  const { notifyError } = useErrorHandler();
   const scheduleFlashClear = useTimeoutCallback(1400);
   const {
     progress: picsProgress,
@@ -1482,15 +1479,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             setSchedules(data);
             setError(null);
           }
-        } catch {
-          // Only surface the fatal error view on an initial-load failure (nothing on screen yet) AND
-          // only when no SignalR push landed during this GET - a push may have just populated the list
-          // (schedulesRef lags a render), and a transient refetch failure must not blank live data.
-          if (
-            schedulesRef.current.length === 0 &&
-            signalrGenerationRef.current === generationAtRequest
-          ) {
-            setError(t('management.schedules.fetchError'));
+        } catch (err) {
+          // A push that landed during this GET already replaced the list with fresher data and
+          // cleared the error, so only a failure with no push in between is reported. The render
+          // keeps any rows already on screen under the error box.
+          if (signalrGenerationRef.current === generationAtRequest) {
+            setError(getErrorMessage(err));
           }
         }
         // If another refresh was requested mid-fetch, run one more pass rather than dropping it.
@@ -1498,7 +1492,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     } finally {
       isFetchingRef.current = false;
     }
-  }, [mockMode, t]);
+  }, [mockMode]);
 
   // Initial load
   useEffect(() => {
@@ -1537,6 +1531,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
   const handleIntervalChange = useCallback(
     async (key: string, intervalHours: number) => {
+      const displayName = t(`management.schedules.services.${key}.displayName`);
       try {
         const current = schedulesRef.current.find((s) => s.key === key);
 
@@ -1557,11 +1552,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         }
 
         await fetchSchedules();
-      } catch {
-        // Revert silently - SignalR SchedulesUpdated will correct state
+      } catch (err) {
+        // The custom schedule may already be cleared on the server, so the row is read back.
+        await fetchSchedules();
+        notifyError(t('management.schedules.intervalFailed', { service: displayName }), err);
       }
     },
-    [fetchSchedules]
+    [fetchSchedules, notifyError, t]
   );
 
   const handleCustomScheduleChange = useCallback(
@@ -1574,18 +1571,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       try {
         await ApiService.setScheduleCustomSchedule(key, schedule);
         await fetchSchedules();
-      } catch {
+      } catch (err) {
         // Revert optimistic update by refetching authoritative state
         await fetchSchedules();
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: t('management.schedules.customScheduleFailed', { service: displayName }),
-          details: { notificationType: 'error' }
-        });
+        notifyError(t('management.schedules.customScheduleFailed', { service: displayName }), err);
       }
     },
-    [fetchSchedules, addNotification, t]
+    [fetchSchedules, notifyError, t]
   );
 
   const handleRunOnStartupChange = useCallback(
@@ -1596,18 +1588,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       try {
         await ApiService.setScheduleRunOnStartup(key, runOnStartup);
         await fetchSchedules();
-      } catch {
+      } catch (err) {
         // Revert optimistic update by refetching authoritative state
         await fetchSchedules();
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: t('management.schedules.runOnStartupFailed', { service: displayName }),
-          details: { notificationType: 'error' }
-        });
+        notifyError(t('management.schedules.runOnStartupFailed', { service: displayName }), err);
       }
     },
-    [fetchSchedules, addNotification, t]
+    [fetchSchedules, notifyError, t]
   );
 
   const handleNotificationModeChange = useCallback(
@@ -1620,42 +1607,63 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       try {
         await ApiService.setScheduleNotificationMode(key, mode);
         await fetchSchedules();
-      } catch {
+      } catch (err) {
         // Revert optimistic update by refetching authoritative state
         await fetchSchedules();
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: t('management.schedules.notificationModeFailed', { service: displayName }),
-          details: { notificationType: 'error' }
-        });
+        notifyError(
+          t('management.schedules.notificationModeFailed', { service: displayName }),
+          err
+        );
       }
     },
-    [fetchSchedules, addNotification, t]
+    [fetchSchedules, notifyError, t]
   );
 
   const handleNotificationDisplayModeChange = useCallback(
-    async (key: string, mode: NotificationDisplayMode) => {
+    async (key: string, mode: NotificationDisplayMode | 'default') => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
       // Optimistic update so the dropdown flips immediately even before the server responds
       setSchedules((prev) =>
-        prev.map((s) => (s.key === key ? { ...s, notificationDisplayMode: mode } : s))
+        prev.map((s) =>
+          s.key === key
+            ? {
+                ...s,
+                notificationDisplayMode: mode === 'default' ? defaultMode : mode,
+                notificationDisplayModeOverridden: mode !== 'default'
+              }
+            : s
+        )
       );
       try {
-        await ApiService.setScheduleNotificationDisplayMode(key, mode);
+        if (mode === 'default') {
+          await ApiService.clearScheduleNotificationDisplayMode(key);
+        } else {
+          await ApiService.setScheduleNotificationDisplayMode(key, mode);
+        }
         await fetchSchedules();
-      } catch {
+      } catch (err) {
         // Revert optimistic update by refetching authoritative state
         await fetchSchedules();
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: t('management.schedules.notificationStyleFailed', { service: displayName }),
-          details: { notificationType: 'error' }
-        });
+        notifyError(
+          t('management.schedules.notificationStyleFailed', { service: displayName }),
+          err
+        );
       }
     },
-    [fetchSchedules, addNotification, t]
+    [defaultMode, fetchSchedules, notifyError, t]
+  );
+
+  const handleDefaultNotificationDisplayModeChange = useCallback(
+    async (value: string) => {
+      if (!isNotificationDisplayMode(value)) return;
+      try {
+        await ApiService.setGlobalNotificationDisplayMode(value);
+        await fetchSchedules();
+      } catch (err) {
+        notifyError(t('management.schedules.defaultNotificationStyleFailed'), err);
+      }
+    },
+    [fetchSchedules, notifyError, t]
   );
 
   const handleScanModeChange = useCallback(
@@ -1666,20 +1674,16 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       try {
         await ApiService.setScheduleScanMode(key, mode);
         await fetchSchedules();
-      } catch {
+      } catch (err) {
         // Revert optimistic update by refetching authoritative state
         await fetchSchedules();
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: t('management.schedules.services.gameDetection.scanModeFailed', {
-            service: displayName
-          }),
-          details: { notificationType: 'error' }
-        });
+        notifyError(
+          t('management.schedules.services.gameDetection.scanModeFailed', { service: displayName }),
+          err
+        );
       }
     },
-    [fetchSchedules, addNotification, t]
+    [fetchSchedules, notifyError, t]
   );
 
   const handleDepotScanModeChange = useCallback(
@@ -1726,18 +1730,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         const scanModeFailed = t('management.schedules.services.depotMapping.scanModeFailed', {
           service: t('management.schedules.services.depotMapping.displayName')
         });
-        const refusalKey = getScanModeRefusalKey(error);
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          // A stage key this build does not carry a translation for falls back to the plain
-          // failure rather than printing the key path at the user.
-          message: refusalKey ? t(refusalKey, { defaultValue: scanModeFailed }) : scanModeFailed,
-          details: { notificationType: 'error' }
-        });
+        notifyError(scanModeFailed, error);
       }
     },
-    [depotScanModeAvailability, updateProgress, refreshProgress, addNotification, t]
+    [depotScanModeAvailability, updateProgress, refreshProgress, addNotification, notifyError, t]
   );
 
   const flashAll = useCallback(() => {
@@ -1757,18 +1753,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       notifySuccess(t('management.schedules.resetComplete'));
 
       flashAll();
-    } catch {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.schedules.resetFailed'),
-        details: { notificationType: 'error' }
-      });
+    } catch (err) {
+      notifyError(t('management.schedules.resetFailed'), err);
     } finally {
       setResetting(false);
       setResetConfirmOpen(false);
     }
-  }, [fetchSchedules, flashAll, notifySuccess, addNotification, t]);
+  }, [fetchSchedules, flashAll, notifySuccess, notifyError, t]);
 
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
@@ -1791,21 +1782,15 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         });
       }
     } catch (err: unknown) {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: getErrorMessage(err),
-        details: { notificationType: 'error' }
-      });
+      notifyError(t('management.schedules.runAllFailed'), err);
     } finally {
       setRunningAll(false);
       setRunAllConfirmOpen(false);
     }
-  }, [fetchSchedules, flashAll, addNotification, t]);
+  }, [fetchSchedules, flashAll, addNotification, notifyError, t]);
 
   const handleRunNow = useCallback(
     async (key: string) => {
-      const displayName = t(`management.schedules.services.${key}.displayName`);
       markStarting(key);
 
       // Flash the row border immediately on click. Each service key needs its own independent
@@ -1830,54 +1815,18 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           );
         }
         const result = await ApiService.triggerSchedule(key);
-        if (result.status === 'skipped') {
-          // A retained hold owns its waiting event; retire the optimistic running state.
+        // A Run Now draws no popup of its own: a started run, a queued follow-up and a held run
+        // each answer with their own card or row. A skip (a retained hold owns its waiting event)
+        // and a run already going with nothing queued retire the optimistic running state. [75]
+        if (
+          result.status === 'skipped' ||
+          (result.alreadyRunning && result.followUpQueued === false)
+        ) {
           clearPending(key);
           setCompletedKeys((prev) => {
             const next = { ...prev };
             delete next[key];
             return next;
-          });
-          if (result.skippedReason === cacheQueuedReasonKey) return;
-          if (result.hideNotification) return;
-          addNotification({
-            type: 'generic',
-            status: 'skipped',
-            message: result.skippedReason
-              ? t(result.skippedReason)
-              : t('management.schedules.runNowSkipped', { service: displayName }),
-            details: { notificationType: 'warning', serviceKey: key }
-          });
-        } else if (result.alreadyRunning && result.followUpQueued === false) {
-          clearPending(key);
-          setCompletedKeys((prev) => {
-            const next = { ...prev };
-            delete next[key];
-            return next;
-          });
-          if (result.showNotification === false) return;
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('management.schedules.runNowAlreadyRunning', { service: displayName }),
-            details: { notificationType: 'info', serviceKey: key }
-          });
-        } else if (result.showNotification === false) {
-          return;
-        } else if (result.alreadyRunning) {
-          // Generic services and older servers retain their existing follow-up behavior.
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('management.schedules.runNowQueuedNext', { service: displayName }),
-            details: { notificationType: 'info', serviceKey: key }
-          });
-        } else {
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('management.schedules.runNowTriggered', { service: displayName }),
-            details: { notificationType: 'success', serviceKey: key }
           });
         }
       } catch (err: unknown) {
@@ -1885,22 +1834,21 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: getErrorMessage(err),
+          message: t('management.schedules.runNowFailed', {
+            service: t(`management.schedules.services.${key}.displayName`)
+          }),
+          error: getErrorMessage(err),
           details: { notificationType: 'error', serviceKey: key }
         });
       }
     },
-    [addNotification, t, markStarting, clearPending]
+    [addNotification, markStarting, clearPending, t]
   );
 
   // One scheduled-prefill platform, started from its own table row. The platform names and the
   // twelve schedule keys share the pending set without colliding, so the same hook covers both.
   const handleRunService = useCallback(
     async (platform: ScheduledPrefillServiceId, scheduleId: string) => {
-      const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[platform];
-      const displayName = t(
-        `management.schedules.services.scheduledPrefill.config.services.${serviceKey}`
-      );
       const pendingKey = `${platform}:${scheduleId}`;
       markStarting(pendingKey);
 
@@ -1908,37 +1856,24 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         await recoverScheduledPrefillEditSession(sessionStore, (request) =>
           ApiService.cleanupPersistentPrefillEditSession(request)
         );
-        const result = await ApiService.runScheduledPrefillService(platform, scheduleId);
-        // Two outcomes now: it started, or this platform was already running. A run started on its
-        // own task no longer waits behind another platform's run, so there is no queued outcome left
-        // to word. A refused start is left pending on purpose: the platform is running, and clearing
-        // it here would re-enable the row before server truth lands. [49]
-        const runMessage = result.alreadyRunning
-          ? t('management.schedules.services.scheduledPrefill.runServiceAlreadyRunning', {
-              service: displayName
-            })
-          : t('management.schedules.services.scheduledPrefill.runServiceStarted', {
-              service: displayName
-            });
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: runMessage,
-          details: {
-            notificationType: result.alreadyRunning ? 'info' : 'success'
-          }
-        });
+        // Two outcomes: it started, or this platform was already running. Neither draws a popup:
+        // the platform's own card answers both. [75] An already-running answer is left pending on
+        // purpose: the platform is running, and clearing it here would re-enable the row before
+        // server truth lands. [49]
+        await ApiService.runScheduledPrefillService(platform, scheduleId);
       } catch (err: unknown) {
         clearPending(pendingKey);
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: getErrorMessage(err),
-          details: { notificationType: 'error' }
-        });
+        notifyError(
+          t('management.schedules.runNowFailed', {
+            service: t(
+              `management.schedules.services.scheduledPrefill.config.services.${SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[platform]}`
+            )
+          }),
+          err
+        );
       }
     },
-    [addNotification, t, markStarting, clearPending]
+    [notifyError, markStarting, clearPending, t]
   );
 
   if (isLoading) {
@@ -1951,11 +1886,11 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     );
   }
 
-  if (error) {
+  if (error && schedules.length === 0) {
     return (
-      <TabPanel tabId="schedules" className="schedules-error">
+      <TabPanel tabId="schedules">
         <ErrorBlock
-          title={t('management.schedules.title')}
+          title={t('management.schedules.fetchError')}
           message={error}
           retryLabel={t('common.retry')}
           onRetry={() => void fetchSchedules()}
@@ -1975,6 +1910,26 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           <h3 className="management-group-label caps-label">{t('management.schedules.title')}</h3>
         </div>
         <div className="schedules-section-actions">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 max-sm:flex-col max-sm:items-stretch">
+            <Tooltip
+              content={t('management.schedules.defaultNotificationStyleHelp')}
+              position="bottom"
+              className="inline-flex flex-shrink-0"
+            >
+              <span className="schedule-detail-label">
+                {t('management.schedules.defaultNotificationStyle')}
+              </span>
+            </Tooltip>
+            <EnhancedDropdown
+              options={getNotificationStyleOptions(t)}
+              value={defaultMode}
+              onChange={handleDefaultNotificationDisplayModeChange}
+              disabled={!isAdmin || resetting || runningAll}
+              variant="button"
+              size="md"
+              className="min-w-0 w-40 max-sm:w-full"
+            />
+          </div>
           <Button
             variant="filled"
             color="run"
@@ -1996,6 +1951,15 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           </Button>
         </div>
       </div>
+
+      {error && (
+        <ErrorBlock
+          title={t('management.schedules.fetchError')}
+          message={error}
+          retryLabel={t('common.retry')}
+          onRetry={() => void fetchSchedules()}
+        />
+      )}
 
       {genericSchedules.length > 0 && (
         <div className="schedule-table divided-list">
@@ -2032,6 +1996,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               }
               onNotificationModeChange={handleNotificationModeChange}
               onNotificationDisplayModeChange={handleNotificationDisplayModeChange}
+              defaultMode={defaultMode}
             />
           ))}
         </div>

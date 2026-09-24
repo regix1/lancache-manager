@@ -60,17 +60,45 @@ test('session loads stage every page and reject late identity responses', () => 
   assert.match(activeSource, /sessionsRef\.current = \[\][\s\S]*setSessions\(\[\]\)/);
 });
 
-test('initial and refresh failures remain visibly distinct', () => {
-  assert.match(activeSource, /<ErrorBlock[\s\S]*activeSessions\.initialLoadFailed/);
-  assert.match(activeSource, /activeSessions\.initialLoadFailedMessage/);
-  assert.match(activeSource, /activeSessions\.retry/);
-  assert.match(activeSource, /const hasSnapshot =[\s\S]*setRefreshFailed\(true\)/);
+test('a failed sessions load shows one box with the reason, above rows loaded earlier', () => {
   assert.match(
     activeSource,
-    /<Alert color="error">\{t\('activeSessions\.refreshFailed'\)\}<\/Alert>/
+    /<ErrorBlock\s+title=\{t\('activeSessions\.initialLoadFailed'\)\}\s+message=\{loadError\}\s+retryLabel=\{t\('common\.retry'\)\}/
   );
-  assert.match(activeSource, /!initialLoadFailed && activeSessions\.length === 0/);
+  assert.match(activeSource, /setLoadError\(getErrorMessage\(err\)\)/);
+  assert.match(
+    activeSource,
+    /const loadFailedWithoutSnapshot =\s*loadError !== null && sessions\.length === 0 && historySessions\.length === 0/
+  );
+  assert.match(activeSource, /!loadFailedWithoutSnapshot && activeSessions\.length === 0/);
+  assert.match(
+    activeSource,
+    /\{loadError !== null && !sessionsExpanded && <SectionErrorChip \/>\}/
+  );
+  assert.doesNotMatch(activeSource, /activeSessions\.initialLoadFailedMessage/);
+  assert.doesNotMatch(activeSource, /activeSessions\.retry/);
+  assert.doesNotMatch(activeSource, /activeSessions\.refreshFailed/);
+  assert.doesNotMatch(activeSource, /initialLoadFailed\b(?!')/);
   assert.match(activeSource, /activeSessions\.noMatches/);
+});
+
+test('only the newest thread-limit read writes the limits or the box', () => {
+  assert.match(activeSource, /const request = \+\+threadConfigRequestRef\.current/);
+  assert.equal(
+    (activeSource.match(/if \(request !== threadConfigRequestRef\.current\) return;/g) ?? [])
+      .length,
+    2,
+    'both the value writes and the error write must be guarded by the request number'
+  );
+  assert.match(
+    activeSource,
+    /<ErrorBlock\s+title=\{t\('user\.errors\.loadThreadConfig'\)\}\s+message=\{threadConfigError\}/
+  );
+  assert.doesNotMatch(activeSource, /notifyError\(t\('user\.errors\.loadThreadConfig'\)/);
+  assert.match(
+    activeSource,
+    /useReconnectRefetch\(isConnected, \(\) => \{\s*loadSessions\(false\);\s*void loadThreadConfig\(\);\s*\}\)/
+  );
 });
 
 test('destructive row actions use visible menus and nested controls keep disclosure separate', () => {
@@ -118,9 +146,6 @@ test('published session copy exists in both locales', () => {
     'deletedAccount',
     'sharedAccess',
     'initialLoadFailed',
-    'initialLoadFailedMessage',
-    'refreshFailed',
-    'retry',
     'noMatches',
     'showDetails',
     'hideDetails',

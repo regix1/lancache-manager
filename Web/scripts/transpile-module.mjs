@@ -139,12 +139,126 @@ export const loadNotificationModules = async (
       'notificationStatus',
       'notificationRegistry',
       'recovery',
+      'runStore',
       'detailMessageFormatters'
     ].map(
       async (name) => import(await compileTree(`../src/contexts/notifications/${name}.ts`, aliases))
     )
   );
   return Object.assign({}, ...modules);
+};
+
+// ── Run rows and the run store, shared by every test that feeds the notification store ──
+
+let runRevision = 0;
+const runStartTimes = new Map();
+
+/**
+ * The next server revision. Rows take theirs from this one counter, as the server's rows do, so
+ * a row built later is always newer; a test that republishes a row or stamps a snapshot asks here.
+ *
+ * @returns {number} A revision above every row built so far.
+ */
+export const nextRunRevision = () => ++runRevision;
+
+/**
+ * A valid `OperationRun` wire row, as `readOperationRun` accepts it, with `overrides` on top. Each
+ * operation id keeps one start time, one second after the previous new id, so the older of two
+ * merged runs is decided by time as it is on the server. A terminal row carries its own revision
+ * as `completedRevision`, as the server's first terminal row does; pass one to override it.
+ *
+ * @param {string} operationId The run's operation id.
+ * @param {Record<string, unknown>} [overrides] Fields that replace the defaults.
+ * @returns {Record<string, unknown>} The row.
+ */
+export const operationRunRow = (operationId, overrides = {}) => {
+  if (!runStartTimes.has(operationId))
+    runStartTimes.set(
+      operationId,
+      new Date(Date.UTC(2026, 8, 22, 10, 0, runStartTimes.size)).toISOString()
+    );
+  const revision = nextRunRevision();
+  const terminal = ['completed', 'failed', 'cancelled', 'skipped'].includes(overrides.status);
+  return {
+    operationId,
+    operationType: 'evictionScan',
+    name: 'Eviction Scan',
+    status: 'running',
+    visibility: 'card',
+    percentComplete: 0,
+    message: 'signalr.evictionScan.scanning',
+    startedAt: runStartTimes.get(operationId),
+    revision,
+    ...(terminal ? { completedRevision: revision } : {}),
+    ...overrides
+  };
+};
+
+/** The fields that make an `operationRunRow` one platform's scheduled prefill run. */
+export const prefillRunFields = {
+  operationType: 'scheduledPrefill',
+  name: 'Scheduled Prefill',
+  message: 'signalr.scheduledPrefill.running',
+  serviceId: 'Steam',
+  scheduleId: 'S1'
+};
+
+/**
+ * One pushed row applied to a run store the way the provider applies an `OperationUpdated` push,
+ * with Keep Notifications Visible off.
+ *
+ * @param {Record<string, Function>} modules The notification modules (`loadNotificationModules`).
+ * @param {object} state The run store state.
+ * @param {Record<string, unknown>} row The row.
+ * @param {object[]} [localCards] The browser's own cards (a bulk card folds its items).
+ * @returns {object} The next state.
+ */
+export const pushRun = (modules, state, row, localCards = []) =>
+  modules.applyRun(state, row, { keepSuccessVisible: false, localCards, pushed: true }).next;
+
+/**
+ * A `bulk_removal` card the browser owns, running by default.
+ *
+ * @param {Record<string, unknown>} details The card's details (`itemTypes`, `currentOperationId`,
+ *   `itemOperationIds`, ...).
+ * @param {Record<string, unknown>} [overrides] Card fields that replace the defaults (id, status,
+ *   message).
+ * @returns {object} The card.
+ */
+export const bulkRemovalCard = (details, overrides = {}) => ({
+  id: 'bulk',
+  type: 'bulk_removal',
+  status: 'running',
+  message: 'Removing 1 of 3',
+  startedAt: new Date(Date.UTC(2026, 8, 22, 9)),
+  details,
+  ...overrides
+});
+
+const busyRunsUrl = moduleUrl(`
+  export const box = { runs: [] };
+  export const useNotifications = () => ({ runs: box.runs });
+`);
+
+/**
+ * Whether `identifier`'s remove button is busy over a run list, through the real
+ * `useIsEntityBusy`. React's `useMemo` runs its factory on every call and the notification context
+ * hands over `runs`, so no component render is needed.
+ *
+ * @param {Record<string, unknown>} identifier The entity (`{ kind: 'namedGame', ... }`).
+ * @param {object[]} runs The context's `runs`: every live run as a card object.
+ * @returns {Promise<boolean>} True while a removal of that entity runs or unwinds.
+ */
+export const entityBusyFor = async (identifier, runs) => {
+  const { box } = await import(busyRunsUrl);
+  box.runs = runs;
+  const { useIsEntityBusy } = await import(
+    await compileToUrl('../src/hooks/useIsEntityBusy.ts', {
+      react: moduleUrl('export const useMemo = (fn) => fn();'),
+      '../contexts/notifications/useNotifications': busyRunsUrl
+    })
+  );
+  return useIsEntityBusy(identifier);
 };
 
 /**
@@ -183,25 +297,6 @@ export const parseSource = (relativePath, scriptKind = typescript.ScriptKind.TS)
     true,
     scriptKind
   );
-};
-
-/** A fresh shared event ref with exactly the shape initialized by the mounted component. */
-export const notificationEvents = () => {
-  const source = parseSource(
-    'src/contexts/notifications/NotificationsContext.tsx',
-    typescript.ScriptKind.TSX
-  );
-  const declaration = findSoleNode(
-    source,
-    'events ref',
-    (node) =>
-      typescript.isVariableDeclaration(node) &&
-      node.name.getText(source) === 'events' &&
-      typescript.isCallExpression(node.initializer)
-  );
-  return {
-    current: bindLifted(`() => (${declaration.initializer.arguments[0].getText(source)})`, {})()
-  };
 };
 
 /**

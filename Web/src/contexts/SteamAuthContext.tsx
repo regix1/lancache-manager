@@ -3,6 +3,7 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { getErrorMessage } from '@utils/error';
 import type { SteamAutoLogoutEvent, SteamSessionErrorEvent } from '@contexts/SignalRContext/types';
 import { SteamAuthContext, type SteamAuthMode } from './SteamAuthContext.types';
 import type { IntegrationAccess } from '../types';
@@ -40,6 +41,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
   const [isLoading, setIsLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   const [autoLogoutMessage, setAutoLogoutMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchSteamAuth = useCallback(async () => {
     if (authLoading || !isAdmin || identityRef.current !== identity) return;
@@ -50,6 +52,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
       const authState = await ApiService.handleResponse<SteamAuthenticationState>(response);
       if (!current()) return;
       ApiService.assertIntegrationAccess(authState, 'login', response.status);
+      setError(null);
       setStatusIdentity(identity);
       if (authState) {
         setAccess(authState);
@@ -66,16 +69,18 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
         setSteamAuthMode('anonymous');
         setUsername('');
       }
-    } catch (error) {
+    } catch (err) {
       if (!current()) return;
       setStatusIdentity(identity);
       setAccess(null);
       setSteamAuthMode('anonymous');
       setUsername('');
+      setError(getErrorMessage(err));
       // Background poll (mount + SteamAutoLogout/SteamSessionError SignalR recovery). Steam
-      // auth state degrades to its 'anonymous' default, which already gates Steam-prefill UI.
-      // Deliberately silent.
-      console.error('[SteamAuth] Failed to fetch Steam auth status:', error);
+      // auth state still resets to 'anonymous', because that value gates Steam-prefill UI and an
+      // unread status must not leave a signed-in account usable; the Steam card shows this
+      // reason in its error box.
+      console.error('[SteamAuth] Failed to fetch Steam auth status:', err);
     } finally {
       if (current()) {
         setIsLoading(false);
@@ -170,6 +175,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
         isLoading: authLoading || (isAdmin && (statusIdentity !== identity || isLoading)),
         revision,
         autoLogoutMessage,
+        error: statusIdentity === identity && isAdmin && !authLoading ? error : null,
         refreshSteamAuth,
         setSteamAuthMode,
         setUsername,

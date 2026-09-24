@@ -15,13 +15,6 @@ public partial class SteamKit2Service
     // still notify.
     protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
-    // Run-stable display flag for the depot-mapping run currently executing. Stamped once per run
-    // inside TryStartRebuild (under the _rebuildActive single-flight guard, before any lifecycle
-    // event is emitted) from the effective notification mode + the run's trigger, then read by every
-    // DepotMapping lifecycle emit. Only one rebuild runs at a time, so a single field is safe.
-    // Defaults to visible as a backstop for any read that precedes the first rebuild.
-    private bool _depotRunShowNotification = true;
-
     /// <summary>Terminal stage keys for a scheduled run that stopped before doing any depot work.</summary>
     private const string SetupIncompleteSkipStageKey = "signalr.depotMapping.skippedSetupIncomplete";
     private const string SteamUnreachableSkipStageKey = "signalr.depotMapping.skippedSteamUnreachable";
@@ -36,8 +29,8 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ReportRunSkippedAsync(string stageKey, CancellationToken stoppingToken)
     {
-        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
-        await using var reporter = CreateDepotMappingReporter(stoppingToken);
+        // The notice carries the Hidden flag too, so a Hidden schedule draws nothing here. [60]
+        await using var reporter = CreateDepotMappingReporter(stoppingToken, CurrentRunNotice);
         reporter.SuppressProgress();
         await reporter.StartAsync(CreateDepotContext());
         await reporter.CompleteSkippedAsync(stageKey, CreateDepotContext());
@@ -50,8 +43,7 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ReportRunFailedAsync(string error, CancellationToken stoppingToken)
     {
-        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
-        await using var reporter = CreateDepotMappingReporter(stoppingToken);
+        await using var reporter = CreateDepotMappingReporter(stoppingToken, CurrentRunNotice);
         reporter.SuppressProgress();
         await reporter.StartAsync(CreateDepotContext());
         await reporter.CompleteAsync(

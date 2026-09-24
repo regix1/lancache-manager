@@ -36,14 +36,6 @@ public class ActiveDetectionResponse
     /// (no detection is active).
     /// </summary>
     public object? Operation { get; set; }
-
-    /// <summary>
-    /// Run-stable display flag for the active detection. Lifecycle events are always emitted so
-    /// recovery works, but a silent automatic run reports false here so the recovery path can skip
-    /// resurrecting a card on page reload instead of leaving it stuck once the silent terminal arrives.
-    /// </summary>
-    public bool ShowNotification { get; set; } = true;
-    public bool HideNotification { get; set; }
 }
 
 /// <summary>

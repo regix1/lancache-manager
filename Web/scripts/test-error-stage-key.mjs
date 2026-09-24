@@ -93,14 +93,95 @@ test('the typed error rejects empty messages at construction', () => {
   assert.equal(getErrorMessage(error), 'Authoritative sentence');
 });
 
-test('empty and non-JSON HTTP failures normalize once at their boundary', async () => {
-  for (const text of ['', '  ', 'Upstream failure']) {
-    const error = await buildApiError(
-      new Response(text, { status: 503, statusText: 'Service Unavailable' })
-    );
-    assert.ok(error.message.trim());
-    assert.equal(getErrorMessage(error), error.message);
+/** The failed response for a status whose body is exactly `text`, as the browser hands it over. */
+const failedWith = (status, text) => buildApiError(new Response(text, { status }));
+
+/** The current language's sentence for `key`, failing when the locale has no words for it. */
+const sentence = (key) => {
+  const translated = translator.t(key);
+  assert.notEqual(translated, key, `${key} is missing from the ${translator.language} locale`);
+  return translated;
+};
+
+test('a gateway failure with no reason reads as the server being unreachable', async () => {
+  // What a reverse proxy answers while the API is down: an empty body, a plain-text line, or its
+  // own HTML page. None of it is a sentence the reader can act on, and the status alone says why.
+  const bodies = [
+    '',
+    '  ',
+    'Upstream failure',
+    '<html><body><h1>502 Bad Gateway</h1></body></html>'
+  ];
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    for (const status of [502, 503, 504]) {
+      for (const text of bodies) {
+        const error = await failedWith(status, text);
+        assert.ok(error.message.trim());
+        assert.equal(
+          getErrorMessage(error),
+          sentence('common.errors.serverUnreachable'),
+          `${status} with body ${JSON.stringify(text)} in ${language}`
+        );
+      }
+    }
   }
+});
+
+test('a failure with no reason reads as its status class', async () => {
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    // A bare 401 challenge. Built directly: the API layer dispatches a browser event on 401.
+    const unauthorized = new ApiError({
+      message: 'HTTP 401: Unauthorized',
+      status: 401,
+      kind: 'auth',
+      body: null
+    });
+    assert.equal(getErrorMessage(unauthorized), sentence('common.errors.notAuthorized'));
+    assert.equal(
+      getErrorMessage(await failedWith(403, '{}')),
+      sentence('common.errors.notAuthorized')
+    );
+    assert.equal(
+      getErrorMessage(await failedWith(500, '')),
+      sentence('common.errors.requestFailed')
+    );
+    // A framework ProblemDetails body names no reason a reader can use.
+    assert.equal(
+      getErrorMessage(await failedWith(400, JSON.stringify({ title: 'x', status: 400 }))),
+      sentence('common.errors.requestFailed')
+    );
+  }
+});
+
+test('a failure that names its reason keeps the server sentence whatever its status', async () => {
+  const reason = 'The container could not start the prefill. Try again.';
+  assert.equal(getErrorMessage(await failedWith(503, JSON.stringify({ error: reason }))), reason);
+});
+
+test('a request that never reached the server reads as unreachable or timed out', async () => {
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    // Chrome, Safari and Firefox word the same unreachable server three ways.
+    for (const message of [
+      'Failed to fetch',
+      'Load failed',
+      'NetworkError when attempting to fetch resource.'
+    ]) {
+      assert.equal(
+        getErrorMessage(new TypeError(message)),
+        sentence('common.errors.serverUnreachable'),
+        message
+      );
+    }
+    assert.equal(
+      getErrorMessage(new DOMException('signal timed out', 'TimeoutError')),
+      sentence('errors.http.timeout')
+    );
+  }
+  // A TypeError thrown by a bug is not a network failure and keeps its own text.
+  assert.equal(getErrorMessage(new TypeError('x is not a function')), 'x is not a function');
 });
 
 test('unknown empty failures receive the shared unknown-error translation', async () => {

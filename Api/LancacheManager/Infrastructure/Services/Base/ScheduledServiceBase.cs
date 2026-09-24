@@ -65,6 +65,10 @@ public abstract class ScheduledServiceBase : BackgroundService
     {
         lock (IntervalLock)
         {
+            // A Run Now pressed while a Run All run is still pending makes that run a person's own, so it
+            // draws the way a Run Now does, also on a schedule that takes no second run. [67] [103]
+            if (_manualNotice is not null && notice.Trigger == RunTrigger.Manual && _manualNotice.Trigger != RunTrigger.Manual)
+                _manualNotice.Trigger = RunTrigger.Manual;
             var busy = _startingNotice is not null || IsCurrentlyExecuting;
             if (!QueueManualRuns && (busy || _pendingManualRun != 0))
             {
@@ -387,13 +391,6 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// constructor and updated via the Schedules UI.
     /// </summary>
     protected virtual NotificationMode DefaultNotificationMode => NotificationMode.All;
-
-    /// <summary>
-    /// How this service's notifications render in the universal bar when the user has not
-    /// picked a style: maintenance chores default to the condensed line so routine runs stay
-    /// out of the way; a service whose runs deserve the full card overrides this.
-    /// </summary>
-    public virtual NotificationDisplayMode DefaultNotificationDisplayMode => NotificationDisplayMode.Condensed;
 
     /// <summary>
     /// User-controlled override for the notification mode (null = use DefaultNotificationMode).

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
-import { Shield, AlertCircle, ChevronDown } from 'lucide-react';
+import { Shield, ChevronDown } from 'lucide-react';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import type { GameServiceId } from '@/types/gameService';
 import { PREFILL_SERVICES, type PrefillServiceConfig } from './hooks/prefillServiceConfig';
@@ -48,8 +48,6 @@ function ServiceFeatureList({ items }: ServiceFeatureListProps) {
 
 interface PrefillHomePageProps {
   onServiceStart: (serviceId: GameServiceId) => void;
-  error: string | null;
-  errorService: GameServiceId;
   isAdmin: boolean;
   steamPrefillEnabled: boolean;
   epicPrefillEnabled: boolean;
@@ -60,8 +58,6 @@ interface PrefillHomePageProps {
 
 export function PrefillHomePage({
   onServiceStart,
-  error,
-  errorService,
   isAdmin,
   steamPrefillEnabled,
   epicPrefillEnabled,
@@ -110,22 +106,12 @@ export function PrefillHomePage({
                 </div>
                 <div className="prefill-service-meta">
                   <h2 className="prefill-service-name">{service.displayName}</h2>
-                  <div className="caps-label prefill-service-status">
-                    <span>{t('prefill.home.ready')}</span>
-                  </div>
                 </div>
               </div>
 
               <p className="prefill-service-description">{t(service.homeDescriptionKey)}</p>
 
               <ServiceFeatureList items={service.homeFeatureKeys.map((key: string) => t(key))} />
-
-              {error && errorService === service.id && (
-                <div className="prefill-service-error">
-                  <AlertCircle size={16} />
-                  <span>{error}</span>
-                </div>
-              )}
 
               <div className="prefill-service-action">
                 <span className="prefill-service-note">

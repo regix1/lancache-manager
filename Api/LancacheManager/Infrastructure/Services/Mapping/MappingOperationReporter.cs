@@ -17,13 +17,11 @@ public sealed class MappingOperationReporter : IAsyncDisposable
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker tracker,
         MappingOperationDefinition definition,
-        bool showNotification,
+        RunNotice notice,
         CancellationToken stoppingToken,
         ILogger logger,
         ScheduledRunPayloadFactories? payloadFactories = null,
-        Action? onTerminalCleanup = null,
-        RunNotice? notice = null,
-        bool hideNotification = false)
+        Action? onTerminalCleanup = null)
     {
         _definition = definition;
         _inner = new ScheduledRunReporter(
@@ -33,15 +31,13 @@ public sealed class MappingOperationReporter : IAsyncDisposable
             definition.OperationType,
             definition.Events,
             $"{definition.StageKeyPrefix}.completed",
-            showNotification,
+            notice,
             stoppingToken,
             payloadFactories,
             onTerminalCleanup,
             logger,
             info =>
-                $"{definition.StageKeyPrefix}.{GetTerminalSuffix(info.Success, info.Cancelled)}",
-            notice,
-            hideNotification);
+                $"{definition.StageKeyPrefix}.{GetTerminalSuffix(info.Success, info.Cancelled)}");
     }
 
     public Guid OperationId => _inner.OperationId;

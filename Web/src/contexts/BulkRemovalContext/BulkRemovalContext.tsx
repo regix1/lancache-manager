@@ -3,30 +3,18 @@ import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
-import {
-  settleBatchItem,
-  waitForSignalRCompletion
-} from '@contexts/notifications/waitForSignalRCompletion';
+import type { NotificationTerminal } from '@contexts/notifications/types';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useBatchQueue } from '@/hooks/useBatchQueue';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
-import {
-  classifyGameFromCacheInfo,
-  matchesGameRemovalComplete,
-  matchesGameRemovalIdentity
-} from '@components/features/management/game-detection/gameRemovalEntity';
+import { classifyGameFromCacheInfo } from '@components/features/management/game-detection/gameRemovalEntity';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import type {
-  EvictionRemovalStartedEvent,
-  EvictionRemovalCompleteEvent,
   EvictionRemovalProgressEvent,
   GameRemovalProgressEvent,
-  LogRemovalStartedEvent,
-  LogRemovalCompleteEvent,
   LogRemovalProgressEvent,
-  ServiceRemovalStartedEvent,
-  ServiceRemovalCompleteEvent,
-  ServiceRemovalProgressEvent
+  ServiceRemovalProgressEvent,
+  SignalREventName
 } from '@contexts/SignalRContext/types';
 import type { OperationStatus } from '@/types/operations';
 import {
@@ -57,6 +45,25 @@ interface BulkProgressUpdate {
   updateNotification: (id: string, updates: { progress: number }) => void;
 }
 
+/** One batch item's request, followed to its run's end by `followBatchItem`. */
+interface BatchItemRequest {
+  /** The item type's progress event; its payloads feed the bulk card's bar. */
+  progressEvent: SignalREventName;
+  /** Sends the item's removal request. */
+  request: () => Promise<{ operationId: string; status?: OperationStatus }>;
+  ctx: { setOperationId: (opId: string | null) => void };
+  /** Receives the item's own percent (0-100). */
+  onPercent: (inner: number) => void;
+}
+
+/** Inputs for {@link settleBatchItem}: the run's end and the item's own failure text. */
+interface SettleBatchItemOptions {
+  end: NotificationTerminal;
+  ctx: { cancelRun: () => void };
+  failedMessage: string;
+  neverStartedMessage: string;
+}
+
 /**
  * Maps a per-item inner percent (0-100) onto the overall bulk-removal progress
  * bar and pushes it to the bulk notification.
@@ -75,16 +82,41 @@ function updateBulkProgress({
 }
 
 /**
+ * Turns how an item's run ended into the queue item's outcome. A canceled run ends the batch as
+ * canceled, never as a failed item; `gone` is a run the server stopped tracking without saying
+ * how it ended.
+ */
+function settleBatchItem({
+  end,
+  ctx,
+  failedMessage,
+  neverStartedMessage
+}: SettleBatchItemOptions): void {
+  switch (end.status) {
+    case 'completed':
+      return;
+    case 'cancelled':
+      ctx.cancelRun();
+      return;
+    case 'failed':
+      throw new Error(end.error ?? failedMessage);
+    case 'skipped':
+      throw new Error(end.error ?? neverStartedMessage);
+    case 'gone':
+      throw new Error(failedMessage);
+  }
+}
+
+/**
  * App-root provider that owns the sequential full-cache bulk-removal queue.
  * Because it is mounted near the top of the provider tree and never unmounts,
  * the queue run loop survives in-app tab switches by construction — there is
  * no unmount-abort path to misfire on a Management-tab navigation.
  *
  * The queue is PRE-BAKED here: the i18n strings, the per-item ApiService
- * selection, and the `waitForSignalRCompletion` plumbing all live in this file
- * (moved verbatim from GameCacheDetector). Callers only supply the item list
- * and the per-run options (`onSettled` refresh, inline `onProgress`, and
- * `onRunningChange`).
+ * selection, and following each item's run to its end all live in this file.
+ * Callers only supply the item list and the per-run options (`onSettled`
+ * refresh, inline `onProgress`, and `onRunningChange`).
  *
  * The evicted-items "Remove All" no longer queues per-entity removals here:
  * it calls the batched DELETE /api/cache/evicted endpoint (one log rewrite
@@ -93,8 +125,51 @@ function updateBulkProgress({
  */
 export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ children }) => {
   const { t } = useTranslation();
-  const { addNotification, updateNotification, events } = useNotifications();
+  const { addNotification, updateNotification, runs, waitForRunEnd } = useNotifications();
   const { on, off } = useSignalR();
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+
+  // Registers the progress listener before the request so no progress for this item is missed,
+  // then waits for the run's end. A promotion keeps every merged id in `details.operationIds`
+  // and the id doing the work in `details.operationId`, so progress is matched against that.
+  const followBatchItem = useCallback(
+    async ({
+      progressEvent,
+      request,
+      ctx,
+      onPercent
+    }: BatchItemRequest): Promise<NotificationTerminal> => {
+      let itemOperationId: string | null = null;
+      const handleProgress = (
+        progress:
+          | ServiceRemovalProgressEvent
+          | GameRemovalProgressEvent
+          | EvictionRemovalProgressEvent
+          | LogRemovalProgressEvent
+      ) => {
+        const requested = itemOperationId;
+        if (!requested) return;
+        const liveOperationId =
+          runsRef.current.find((run) => run.details?.operationIds?.includes(requested))?.details
+            ?.operationId ?? requested;
+        if (progress.operationId !== liveOperationId) return;
+        onPercent(progress.percentComplete ?? 0);
+      };
+
+      on(progressEvent, handleProgress);
+      try {
+        const response = await request();
+        itemOperationId = response.operationId;
+        // An identical removal that was already live is not this batch's to cancel.
+        ctx.setOperationId(response.status === 'alreadyRunning' ? null : response.operationId);
+        return await waitForRunEnd(response.operationId);
+      } finally {
+        off(progressEvent, handleProgress);
+      }
+    },
+    [on, off, waitForRunEnd]
+  );
 
   // Per-run options are captured at run() time but the hook-level onSettled is
   // instantiation-time, so we stash the current run's options in a ref that the
@@ -121,17 +196,8 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
-      // While an item is parked behind another operation, the wait-queue handler replaces this
-      // card's text with the blocker's name. Keeping the item's own line here is what lets the
-      // card go back to naming the item the moment the queue promotes it.
-      let currentItemMessage = '';
-      const restoreItemMessage = (): void => {
-        if (bulkNotifId && currentItemMessage) {
-          // Back to running as well as back to the item's own line: the card turned purple while
-          // this item sat in the queue, and the promotion is what makes it a live removal again.
-          updateNotification(bulkNotifId, { status: 'running', message: currentItemMessage });
-        }
-      };
+      const onPercent = (inner: number): void =>
+        updateBulkProgress({ bulkNotifId, currentIndex, total, inner, updateNotification });
 
       await runCacheQueue({
         items,
@@ -147,7 +213,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             // No operationId → handleCancel special-cases bulk_removal
             // A cache run queues both service and game entries, so its per-item
             // cards can be either type.
-            details: { itemTypes: ['service_removal', 'game_removal'] }
+            details: { itemTypes: ['service_removal', 'game_removal'], itemOperationIds: [] }
           });
           bulkNotifId = id;
           return id;
@@ -157,132 +223,50 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           const label =
             entry.kind === 'service' ? entry.service.service_name : entry.game.game_name;
           options.onProgress?.({ current: index, total, label });
-          currentItemMessage = t('management.sections.data.gameCacheRemoveAllProgress', {
-            current: index,
-            total,
-            label
-          });
           updateNotification(notifId, {
-            message: currentItemMessage,
+            message: t('management.sections.data.gameCacheRemoveAllProgress', {
+              current: index,
+              total,
+              label
+            }),
             progress: Math.floor(((index - 1) / total) * 100)
           });
         },
         processItem: async (entry, ctx) => {
           if (entry.kind === 'service') {
             const serviceName = entry.service.service_name;
-            let operationId: string | null = null;
-            const waitPromise = waitForSignalRCompletion<
-              ServiceRemovalStartedEvent,
-              ServiceRemovalCompleteEvent,
-              ServiceRemovalProgressEvent
-            >({
-              signalR: { on, off },
-              events,
-              completeEvent: 'ServiceRemovalComplete',
-              startedEvent: 'ServiceRemovalStarted',
-              match: (payload) => !!operationId && payload.operationId === operationId,
-              // Until promotion rebinds it below, operationId still holds the waiting op's id,
-              // which is exactly what a waiting-complete for this item carries.
-              waitingOperationId: () => operationId,
-              onStartedCapture: (payload) =>
-                payload.serviceName === serviceName ? { opId: payload.operationId } : null,
-              onOperationIdCaptured: (opId, ownsCancellation = true) => {
-                operationId = opId;
-                ctx.setOperationId(ownsCancellation ? opId : null);
-                if (!events.current.waiting.has(opId)) restoreItemMessage();
-              },
+            const end = await followBatchItem({
               progressEvent: 'ServiceRemovalProgress',
-              onProgress: (payload) => {
-                if (!operationId || payload.operationId !== operationId) return;
-                updateBulkProgress({
-                  bulkNotifId,
-                  currentIndex,
-                  total,
-                  inner: payload.percentComplete,
-                  updateNotification
-                });
-              },
-              timeoutMs: 600_000
-            });
-            const response = await ApiService.removeServiceFromCache(serviceName);
-            waitPromise.captureOperationId(response.operationId, response.status);
-            const outcome = await waitPromise;
-            const stillRunning = settleBatchItem({
-              outcome,
+              request: () => ApiService.removeServiceFromCache(serviceName),
               ctx,
-              timedOutMessage: `Service removal timed out for ${serviceName}`,
-              neverStartedMessage: `Service removal never started for ${serviceName}`,
-              failedMessage: `Service removal failed for ${serviceName}`
+              onPercent
             });
-            if (!stillRunning) return;
+            settleBatchItem({
+              end,
+              ctx,
+              failedMessage: `Service removal failed for ${serviceName}`,
+              neverStartedMessage: `Service removal never started for ${serviceName}`
+            });
           } else {
             const game = entry.game;
             const entity = classifyGameFromCacheInfo(game);
-            let currentOperationId: string | null = null;
-            const waitPromise = waitForSignalRCompletion<
-              {
-                gameAppId?: number | null;
-                epicAppId?: string | null;
-                gameName?: string;
-                service?: string | null;
-                operationId?: string;
-              },
-              {
-                gameAppId?: number | null;
-                epicAppId?: string | null;
-                gameName?: string;
-                service?: string | null;
-                operationId?: string;
-              },
-              GameRemovalProgressEvent
-            >({
-              signalR: { on, off },
-              events,
-              completeEvent: 'GameRemovalComplete',
-              startedEvent: 'GameRemovalStarted',
-              match: (payload) => matchesGameRemovalComplete(payload, entity, currentOperationId),
-              waitingOperationId: () => currentOperationId,
-              onStartedCapture: (payload) =>
-                matchesGameRemovalIdentity(payload, entity) &&
-                typeof payload.operationId === 'string'
-                  ? { opId: payload.operationId }
-                  : null,
-              onOperationIdCaptured: (opId, ownsCancellation = true) => {
-                currentOperationId = opId;
-                ctx.setOperationId(ownsCancellation ? opId : null);
-                if (!events.current.waiting.has(opId)) restoreItemMessage();
-              },
+            const end = await followBatchItem({
               progressEvent: 'GameRemovalProgress',
-              onProgress: (payload) => {
-                if (!currentOperationId || payload.operationId !== currentOperationId) return;
-                updateBulkProgress({
-                  bulkNotifId,
-                  currentIndex,
-                  total,
-                  inner: payload.percentComplete,
-                  updateNotification
-                });
-              },
-              timeoutMs: 600_000
-            });
-
-            const response =
-              entity.kind === 'epicGame'
-                ? await ApiService.removeEpicGameFromCache(game.game_name)
-                : entity.kind === 'namedGame'
-                  ? await ApiService.removeNamedGameFromCache(entity.service, entity.gameName)
-                  : await ApiService.removeGameFromCache(entity.gameAppId);
-            waitPromise.captureOperationId(response.operationId, response.status);
-            const outcome = await waitPromise;
-            const label = game.game_name;
-            const stillRunning = settleBatchItem({
-              outcome,
+              request: () =>
+                entity.kind === 'epicGame'
+                  ? ApiService.removeEpicGameFromCache(game.game_name)
+                  : entity.kind === 'namedGame'
+                    ? ApiService.removeNamedGameFromCache(entity.service, entity.gameName)
+                    : ApiService.removeGameFromCache(entity.gameAppId),
               ctx,
-              timedOutMessage: `Game removal timed out for ${label}`,
-              neverStartedMessage: `Game removal never started for ${label}`,
-              failedMessage: `Game removal failed for ${label}`
+              onPercent
             });
-            if (!stillRunning) return;
+            settleBatchItem({
+              end,
+              ctx,
+              failedMessage: `Game removal failed for ${game.game_name}`,
+              neverStartedMessage: `Game removal never started for ${game.game_name}`
+            });
           }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
@@ -310,16 +294,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         }
       });
     },
-    [addNotification, updateNotification, runCacheQueue, on, off, t, events]
+    [addNotification, updateNotification, runCacheQueue, followBatchItem, t]
   );
 
   const isCacheRemovalRunning = cacheState.status === 'running';
 
   // --- Evicted-items queue -------------------------------------------------
   // Sequential/cancellable pipeline like the cache queue, but each item hits a
-  // per-entity evicted endpoint. Completion carries only operationId, so after
-  // a queued DELETE the waiter re-binds from EvictionRemovalStarted context
-  // (scope + key). The HTTP body id is the waiting id and would never match.
+  // per-entity evicted endpoint.
   const evictedRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
   const { run: runEvictedQueue, state: evictedState } = useBatchQueue<EvictedQueueEntry>({
@@ -340,16 +322,8 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
-      // Same reason as the cache run: the wait-queue handler borrows this card's text to name
-      // the blocking operation, and this is what the card goes back to once the item starts.
-      let currentItemMessage = '';
-      const restoreItemMessage = (): void => {
-        if (bulkNotifId && currentItemMessage) {
-          // Back to running as well as back to the item's own line: the card turned purple while
-          // this item sat in the queue, and the promotion is what makes it a live removal again.
-          updateNotification(bulkNotifId, { status: 'running', message: currentItemMessage });
-        }
-      };
+      const onPercent = (inner: number): void =>
+        updateBulkProgress({ bulkNotifId, currentIndex, total, inner, updateNotification });
 
       await runEvictedQueue({
         items,
@@ -363,7 +337,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             }),
             progress: 0,
             // No operationId → handleCancel special-cases bulk_removal
-            details: { itemTypes: ['eviction_removal'] }
+            details: { itemTypes: ['eviction_removal'], itemOperationIds: [] }
           });
           bulkNotifId = id;
           return id;
@@ -373,129 +347,49 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           const label =
             entry.kind === 'service' ? entry.service.service_name : entry.game.game_name;
           options.onProgress?.({ current: index, total, label });
-          currentItemMessage = t('management.sections.data.evictionRemoveSelectedProgress', {
-            current: index,
-            total,
-            label,
-            defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
-          });
           updateNotification(notifId, {
-            message: currentItemMessage,
+            message: t('management.sections.data.evictionRemoveSelectedProgress', {
+              current: index,
+              total,
+              label,
+              defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
+            }),
             progress: Math.floor(((index - 1) / total) * 100)
           });
         },
         processItem: async (entry, ctx) => {
-          let operationId: string | null = null;
-
-          // Entity identity as the backend encodes it in the EvictionRemovalStarted context
-          // ({scope, key}). Needed because a QUEUED item is promoted under a NEW operationId:
-          // the id in the DELETE response is the waiting op's id and the completion event
-          // would never match it. Re-capturing the promoted id from the Started event keeps
-          // the opId-based match (and cancel) correct across promotion.
-          const evictedGame = entry.kind === 'game' ? entry.game : null;
-          const evictedEntity = evictedGame ? classifyGameFromCacheInfo(evictedGame) : null;
-          const expectedScope =
-            entry.kind === 'service'
-              ? 'service'
-              : evictedEntity?.kind === 'epicGame'
-                ? 'epic'
-                : evictedEntity?.kind === 'namedGame'
-                  ? 'named'
-                  : 'steam';
-          const expectedKey =
-            entry.kind === 'service'
-              ? entry.service.service_name
-              : evictedEntity?.kind === 'epicGame'
-                ? (evictedGame?.epic_app_id ?? '')
-                : evictedEntity?.kind === 'namedGame'
-                  ? `${evictedEntity.service}:${evictedEntity.gameName}`
-                  : String(evictedGame?.game_app_id ?? '');
-          const matchesEntryIdentity = (
-            contextBag?: Record<string, string | number | boolean | null>
-          ): boolean => {
-            const scope = contextBag?.scope;
-            const key = contextBag?.key;
-            return (
-              typeof scope === 'string' &&
-              typeof key === 'string' &&
-              scope.toLowerCase() === expectedScope &&
-              key.toLowerCase() === expectedKey.toLowerCase()
-            );
-          };
-
-          const waitPromise = waitForSignalRCompletion<
-            EvictionRemovalStartedEvent,
-            EvictionRemovalCompleteEvent,
-            EvictionRemovalProgressEvent
-          >({
-            signalR: { on, off },
-            events,
-            completeEvent: 'EvictionRemovalComplete',
-            // The id is the sharper test, but this item can legitimately have none: a request
-            // deduplicated onto an eviction removal that is already live hands back that
-            // removal's id, which the batch refuses. The completion carries the same
-            // {scope, key} context the Started event does, so identity still settles the item
-            // instead of leaving it to time out ten minutes later.
-            match: (payload) =>
-              operationId !== null
-                ? payload.operationId === operationId
-                : matchesEntryIdentity(payload.context),
-            // Until promotion rebinds it below, operationId still holds the waiting op's id,
-            // which is exactly what a waiting-complete for this item carries.
-            waitingOperationId: () => operationId,
-            startedEvent: 'EvictionRemovalStarted',
-            onStartedCapture: (payload) =>
-              matchesEntryIdentity(payload.context) ? { opId: payload.operationId } : null,
-            onOperationIdCaptured: (opId, ownsCancellation = true) => {
-              operationId = opId;
-              ctx.setOperationId(ownsCancellation ? opId : null);
-              if (!events.current.waiting.has(opId)) restoreItemMessage();
-            },
+          const end = await followBatchItem({
             progressEvent: 'EvictionRemovalProgress',
-            onProgress: (payload) => {
-              if (!operationId || payload.operationId !== operationId) return;
-              updateBulkProgress({
-                bulkNotifId,
-                currentIndex,
-                total,
-                inner: payload.percentComplete ?? 0,
-                updateNotification
-              });
-            },
-            timeoutMs: 600_000
-          });
-
-          // Dispatch to the per-entity evicted endpoint. Identity logic mirrors
-          // StorageSection.confirmPartialEvictedRemoval exactly: Epic games are
-          // keyed by epic_app_id, named (Blizzard/Riot/Xbox) games by
-          // (service, gameName), Steam games by game_app_id.
-          let response: { operationId: string; status?: OperationStatus };
-          if (entry.kind === 'service') {
-            response = await ApiService.removeEvictedForService(entry.service.service_name);
-          } else {
-            const game = entry.game;
-            const entity = classifyGameFromCacheInfo(game);
-            if (entity.kind === 'epicGame') {
-              if (!game.epic_app_id) {
-                throw new Error(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
+            // Dispatch to the per-entity evicted endpoint. Identity logic mirrors
+            // StorageSection.confirmPartialEvictedRemoval exactly: Epic games are
+            // keyed by epic_app_id, named (Blizzard/Riot/Xbox) games by
+            // (service, gameName), Steam games by game_app_id.
+            request: async () => {
+              if (entry.kind === 'service') {
+                return ApiService.removeEvictedForService(entry.service.service_name);
               }
-              response = await ApiService.removeEvictedForEpicGame(game.epic_app_id);
-            } else if (entity.kind === 'namedGame') {
-              response = await ApiService.removeEvictedForNamedGame(game.service!, game.game_name);
-            } else {
-              response = await ApiService.removeEvictedForGame(game.game_app_id);
-            }
-          }
-          waitPromise.captureOperationId(response.operationId, response.status);
-          const outcome = await waitPromise;
-          const stillRunning = settleBatchItem({
-            outcome,
+              const game = entry.game;
+              const entity = classifyGameFromCacheInfo(game);
+              if (entity.kind === 'epicGame') {
+                if (!game.epic_app_id) {
+                  throw new Error(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
+                }
+                return ApiService.removeEvictedForEpicGame(game.epic_app_id);
+              }
+              if (entity.kind === 'namedGame') {
+                return ApiService.removeEvictedForNamedGame(game.service!, game.game_name);
+              }
+              return ApiService.removeEvictedForGame(game.game_app_id);
+            },
             ctx,
-            timedOutMessage: 'Evicted removal timed out',
-            neverStartedMessage: 'Evicted removal never started',
-            failedMessage: 'Evicted removal failed'
+            onPercent
           });
-          if (!stillRunning) return;
+          settleBatchItem({
+            end,
+            ctx,
+            failedMessage: 'Evicted removal failed',
+            neverStartedMessage: 'Evicted removal never started'
+          });
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
           finalizeBulkRemovalNotification({
@@ -523,16 +417,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         }
       });
     },
-    [addNotification, updateNotification, runEvictedQueue, on, off, t, events]
+    [addNotification, updateNotification, runEvictedQueue, followBatchItem, t]
   );
 
   const isEvictedRemovalRunning = evictedState.status === 'running';
 
   // --- Log-removal queue ---------------------------------------------------
   // Same sequential/cancellable pipeline, but each item rewrites one datasource's
-  // log entries for one service. Log removal is single-flight server-side and this
-  // queue runs one item at a time, so matching on the captured operationId (else
-  // the service name on the terminal event) is unambiguous within the batch.
+  // log entries for one service.
   const logRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
   const { run: runLogQueue, state: logState } = useBatchQueue<LogBatchEntry>({
@@ -553,16 +445,8 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
-      // Same reason as the cache run: the wait-queue handler borrows this card's text to name
-      // the blocking operation, and this is what the card goes back to once the item starts.
-      let currentItemMessage = '';
-      const restoreItemMessage = (): void => {
-        if (bulkNotifId && currentItemMessage) {
-          // Back to running as well as back to the item's own line: the card turned purple while
-          // this item sat in the queue, and the promotion is what makes it a live removal again.
-          updateNotification(bulkNotifId, { status: 'running', message: currentItemMessage });
-        }
-      };
+      const onPercent = (inner: number): void =>
+        updateBulkProgress({ bulkNotifId, currentIndex, total, inner, updateNotification });
 
       await runLogQueue({
         items,
@@ -573,7 +457,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             message: t('management.batchSelect.removeSelected', { count: total }),
             progress: 0,
             // No operationId → handleCancel special-cases bulk_removal
-            details: { itemTypes: ['log_removal'] }
+            details: { itemTypes: ['log_removal'], itemOperationIds: [] }
           });
           bulkNotifId = id;
           return id;
@@ -582,69 +466,32 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           currentIndex = index;
           const label = getServiceDisplayName(entry.service);
           options.onProgress?.({ current: index, total, label });
-          currentItemMessage = t('signalr.logRemoval.removing', { service: label });
           updateNotification(notifId, {
-            message: currentItemMessage,
+            message: t('signalr.logRemoval.removing', { service: label }),
             progress: Math.floor(((index - 1) / total) * 100)
           });
         },
         processItem: async (entry, ctx) => {
           const { datasource, service } = entry;
-          let operationId: string | null = null;
-          // Register the SignalR listeners BEFORE the DELETE so the Started/Complete
-          // events are never missed in a race.
-          const waitPromise = waitForSignalRCompletion<
-            LogRemovalStartedEvent,
-            LogRemovalCompleteEvent,
-            LogRemovalProgressEvent
-          >({
-            signalR: { on, off },
-            events,
-            completeEvent: 'LogRemovalComplete',
-            startedEvent: 'LogRemovalStarted',
-            match: (payload) =>
-              operationId ? payload.operationId === operationId : payload.service === service,
-            // Until promotion rebinds it below, operationId still holds the waiting op's id,
-            // which is exactly what a waiting-complete for this item carries.
-            waitingOperationId: () => operationId,
-            onStartedCapture: (payload) => {
-              const startedService = payload.context?.service;
-              return startedService === undefined || startedService === service
-                ? { opId: payload.operationId ?? undefined }
-                : null;
-            },
-            onOperationIdCaptured: (opId, ownsCancellation = true) => {
-              operationId = opId;
-              ctx.setOperationId(ownsCancellation ? opId : null);
-              if (!events.current.waiting.has(opId)) restoreItemMessage();
-            },
+          const failedMessage = `Log removal failed for ${service}`;
+          const end = await followBatchItem({
             progressEvent: 'LogRemovalProgress',
-            onProgress: (payload) => {
-              if (!operationId || payload.operationId !== operationId) return;
-              updateBulkProgress({
-                bulkNotifId,
-                currentIndex,
-                total,
-                inner: payload.percentComplete,
-                updateNotification
-              });
+            request: async () => {
+              const result = await ApiService.removeServiceFromDatasourceLogs(datasource, service);
+              // The response type leaves the id optional; the route answers every accepted
+              // request with one (LogsController's 202 bodies).
+              if (!result.operationId) throw new Error(failedMessage);
+              return { operationId: result.operationId, status: result.status };
             },
-            // Large log files can take several minutes to rewrite; give each item a
-            // generous window so a legitimately-slow removal is not misreported.
-            timeoutMs: 600_000
-          });
-
-          const result = await ApiService.removeServiceFromDatasourceLogs(datasource, service);
-          waitPromise.captureOperationId(result?.operationId, result?.status);
-          const outcome = await waitPromise;
-          const stillRunning = settleBatchItem({
-            outcome,
             ctx,
-            timedOutMessage: `Log removal timed out for ${service}`,
-            neverStartedMessage: `Log removal never started for ${service}`,
-            failedMessage: `Log removal failed for ${service}`
+            onPercent
           });
-          if (!stillRunning) return;
+          settleBatchItem({
+            end,
+            ctx,
+            failedMessage,
+            neverStartedMessage: `Log removal never started for ${service}`
+          });
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
           finalizeBulkRemovalNotification({
@@ -670,7 +517,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         }
       });
     },
-    [addNotification, updateNotification, runLogQueue, on, off, t, events]
+    [addNotification, updateNotification, runLogQueue, followBatchItem, t]
   );
 
   const isLogRemovalRunning = logState.status === 'running' || logState.status === 'cancelling';

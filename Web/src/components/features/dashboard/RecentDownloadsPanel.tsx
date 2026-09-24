@@ -8,6 +8,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -368,8 +369,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     filteredDownloadTotals,
     serviceOptions,
     clientOptions: clientAddresses,
-    setDownloadFilters
+    setDownloadFilters,
+    failed,
+    error,
+    refreshDownloads
   } = useDownloads();
+  const loadError = failed ? error : null;
   // Set while the answer to the current selection is still on its way. The rows below narrow
   // themselves the moment a dropdown moves; the totals cannot, so they need a way to say so.
   const downloadFilterFetching = useContext(DownloadFilterFetchContext);
@@ -538,6 +543,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       ? hasActiveDownloads && activeGames.length > 0
       : !loading && visibleGroups.length > 0;
 
+  const loadErrorBlock =
+    loadError === null ? null : (
+      <ErrorBlock
+        title={t('dashboard.downloadsPanel.loadFailed')}
+        message={loadError}
+        retryLabel={t('common.retry')}
+        onRetry={() => void refreshDownloads()}
+      />
+    );
+
   return (
     <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
       {/* Header: the title owns the first row and every control shares the second one, so this panel
@@ -687,6 +702,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               )
             ) : (
               <>
+                {/* A failed refresh keeps the recorded rows already shown, so the box sits above
+                    them; with no rows it takes the empty state's place below. */}
+                {loadErrorBlock !== null && visibleDbItems.length > 0 && (
+                  <div className="p-3">{loadErrorBlock}</div>
+                )}
                 {/* In-progress previews stay visible even while the recorded list is
                     loading or empty - they come from the speed snapshot, not the DB. */}
                 <LiveDownloadRows previews={displayedLivePreviews} />
@@ -727,6 +747,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                       />
                     );
                   })
+                ) : loadErrorBlock !== null ? (
+                  <div className="p-3">{loadErrorBlock}</div>
                 ) : displayedLivePreviews.length === 0 ? (
                   // A selection whose rows are all older than the slice held here empties the list
                   // as soon as it is made, and the answer that refills it is a round trip away.

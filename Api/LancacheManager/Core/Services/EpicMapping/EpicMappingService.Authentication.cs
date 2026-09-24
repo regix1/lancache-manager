@@ -159,11 +159,11 @@ public partial class EpicMappingService
             authCts.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
 
-            // Authentication is an explicit user action. Do not inherit the visibility decision
-            // from the last scheduled refresh (which may have been silent under Manual mode).
-            _showNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+            // Authentication is an explicit user action, so it gets a fresh manual notice rather than
+            // the last scheduled refresh's (which may have been silent under Manual mode).
             reporter = CreateEpicMappingReporter(
                 authCts.Token,
+                new RunNotice(EffectiveNotificationMode, RunTrigger.Manual),
                 () =>
                 {
                     if (ReferenceEquals(_currentRefreshCts, authCts))

@@ -174,7 +174,7 @@ export function ScheduledPrefillSharedSettingsModal({
       if (current())
         setClearOutcome({
           failed: true,
-          text: t(`${baseKey}.summaryError`, { error: getErrorMessage(error) })
+          text: t(`${baseKey}.settings.clearLogins.failed`, { error: getErrorMessage(error) })
         });
     } finally {
       if (current()) {
@@ -237,12 +237,12 @@ export function ScheduledPrefillSharedSettingsModal({
                   </div>
                   {readErrors.days && (
                     <Alert color="red" className="scheduled-prefill-shared-settings__feedback">
-                      {t(`${baseKey}.summaryError`, { error: readErrors.days })}
+                      {t(`${baseKey}.settings.loadError`, { error: readErrors.days })}
                     </Alert>
                   )}
                   {saveErrors.days && (
                     <Alert color="red" className="scheduled-prefill-shared-settings__feedback">
-                      {t(`${baseKey}.summaryError`, { error: saveErrors.days })}
+                      {t(`${baseKey}.settings.saveError`, { error: saveErrors.days })}
                     </Alert>
                   )}
                   <div className="scheduled-prefill-config-modal__setting-row">
@@ -277,12 +277,12 @@ export function ScheduledPrefillSharedSettingsModal({
                   </div>
                   {readErrors.mode && (
                     <Alert color="red" className="scheduled-prefill-shared-settings__feedback">
-                      {t(`${baseKey}.summaryError`, { error: readErrors.mode })}
+                      {t(`${baseKey}.settings.loadError`, { error: readErrors.mode })}
                     </Alert>
                   )}
                   {saveErrors.mode && (
                     <Alert color="red" className="scheduled-prefill-shared-settings__feedback">
-                      {t(`${baseKey}.summaryError`, { error: saveErrors.mode })}
+                      {t(`${baseKey}.settings.saveError`, { error: saveErrors.mode })}
                     </Alert>
                   )}
                   {(saveErrors.days || saveErrors.mode) &&

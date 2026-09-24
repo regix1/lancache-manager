@@ -48,8 +48,8 @@ export interface BulkRemovalRunOptions {
 
 /**
  * Context surface for the app-root bulk-removal provider. The cache queue is
- * pre-baked inside the provider (i18n + ApiService selection +
- * waitForSignalRCompletion live there); callers only pass the item list and the
+ * pre-baked inside the provider (i18n + ApiService selection + following each
+ * item's run to its end live there); callers only pass the item list and the
  * per-run options. The run loop survives in-app tab switches because the
  * provider never unmounts.
  *
@@ -63,15 +63,15 @@ interface BulkRemovalContextType {
   /**
    * Sequential queue for the evicted-items "Remove Selected" batch. Dispatches
    * each entry to the correct per-entity evicted endpoint and waits for its
-   * EvictionRemovalComplete before advancing. Shares the same run-options shape,
+   * run to end before advancing. Shares the same run-options shape,
    * seeded bulk_removal card, and finalize transition as {@link runCacheRemoval}.
    */
   runEvictedRemoval: (items: EvictedQueueEntry[], options: BulkRemovalRunOptions) => Promise<void>;
   isEvictedRemovalRunning: boolean;
   /**
    * Sequential queue for the log-processing "Remove Selected" batch. Rewrites one
-   * (datasource, service) pair's log entries at a time and waits for its
-   * LogRemovalComplete before advancing. Shares the same run-options shape, seeded
+   * (datasource, service) pair's log entries at a time and waits for its run to
+   * end before advancing. Shares the same run-options shape, seeded
    * bulk_removal card, and finalize transition as {@link runCacheRemoval}.
    */
   runLogRemoval: (items: LogBatchEntry[], options: BulkRemovalRunOptions) => Promise<void>;

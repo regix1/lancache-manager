@@ -32,10 +32,12 @@ public sealed partial class CacheFileRemovalScopeTests
         operationQueue: null!,
         capabilityService: null!,
         stateService: null!,
-        cacheScanGate: CacheScanGateHarness.Idle());
+        cacheScanGate: CacheScanGateHarness.Idle(),
+        cacheSizeScan: null!);
 
     private static GamesController NewGamesController() => new GamesController(
         gameCacheDetectionService: null!,
+        gameDetectionService: null!,
         cacheManagementService: null!,
         notifications: null!,
         logger: NullLogger<GamesController>.Instance,

@@ -66,8 +66,18 @@ public static class SignalREvents
     public const string CacheSizeScanStarted = "CacheSizeScanStarted";
     public const string CacheSizeScanProgress = "CacheSizeScanProgress";
     public const string CacheSizeScanComplete = "CacheSizeScanComplete";
-    public const string OperationWaiting = "OperationWaiting";
-    public const string OperationWaitingComplete = "OperationWaitingComplete";
+
+    /// <summary>
+    /// Sent by the operation tracker to the admin group on every state change of a tracked run.
+    /// Payload is one <c>OperationRun</c> row; revisions rise by exactly one in send order.
+    /// </summary>
+    public const string OperationUpdated = "OperationUpdated";
+
+    /// <summary>
+    /// Sent to all clients when the global notification display mode changes. Payload is the new
+    /// <c>GlobalNotificationDisplayMode</c>.
+    /// </summary>
+    public const string NotificationDisplayModeChanged = "NotificationDisplayModeChanged";
     public const string ServiceRemovalStarted = "ServiceRemovalStarted";
     public const string ServiceRemovalProgress = "ServiceRemovalProgress";
     public const string ServiceRemovalComplete = "ServiceRemovalComplete";

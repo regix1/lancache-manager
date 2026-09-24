@@ -1,13 +1,19 @@
 using System.Reflection;
+using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -22,20 +28,20 @@ public class ScheduleControllerNotificationModeTests
 {
     [Theory]
     [InlineData(NotificationMode.All, RunTrigger.Scheduled, true, false)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, true)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, false)]
     [InlineData(NotificationMode.Manual, RunTrigger.Manual, true, false)]
     [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, false, false)]
     [InlineData(NotificationMode.Hidden, RunTrigger.Manual, false, true)]
     public void RunNotice_DistinguishesCardsBackgroundProgressAndHiddenRuns(
         NotificationMode mode,
         RunTrigger trigger,
-        bool showNotification,
-        bool hideNotification)
+        bool shown,
+        bool hidden)
     {
         var notice = new RunNotice(mode, trigger);
 
-        Assert.Equal(showNotification, notice.ShowNotification);
-        Assert.Equal(hideNotification, notice.HideNotification);
+        Assert.Equal(shown, notice.ShowNotification);
+        Assert.Equal(hidden, notice.HideNotification);
     }
 
     [Theory]
@@ -280,8 +286,7 @@ public class ScheduleControllerNotificationModeTests
                 IsRunning = true,
                 OperationId = "op-1",
                 PercentComplete = 42,
-                StageKey = "signalr.scheduledRun.logRotation.running",
-                ShowNotification = true
+                StageKey = "signalr.scheduledRun.logRotation.running"
             }
         };
         var controller = CreateController(registry);
@@ -312,9 +317,6 @@ public class ScheduleControllerNotificationModeTests
         Assert.NotNull(status);
         Assert.False(status!.IsRunning);
         Assert.Null(status.OperationId);
-        // An idle service is visible by default so recovery stale-completes a persisted running card
-        // on reconnect after a missed terminal instead of deleting it.
-        Assert.True(status.ShowNotification);
     }
 
     [Fact]
@@ -324,7 +326,6 @@ public class ScheduleControllerNotificationModeTests
         using var cts = new CancellationTokenSource();
         var metadata = new Dictionary<string, object?>
         {
-            ["showNotification"] = true,
             ["context"] = new Dictionary<string, object?> { ["processed"] = 3, ["total"] = 9 },
         };
         var operationId = tracker.RegisterOperation(OperationType.LogRotation, "logRotation", cts, metadata);
@@ -356,43 +357,63 @@ public class ScheduleControllerNotificationModeTests
         Assert.Equal(operationId.ToString(), status.OperationId);
         Assert.Equal(45, status.PercentComplete);
         Assert.Equal("signalr.scheduledRun.logRotation.running", status.StageKey);
-        // No showNotification metadata key (non-reporter registration): treated as visible.
-        Assert.True(status.ShowNotification);
     }
 
+    // The status reports the run; how it is drawn comes from its row, which reads the notice the
+    // run was admitted with.
     [Fact]
-    public void RegistryGetRunStatus_ActiveOperationWithSilentDisplayFlag_ReportsRunningButNotShown()
-    {
-        var tracker = CreateTracker();
-        using var cts = new CancellationTokenSource();
-        var metadata = new Dictionary<string, object?> { ["showNotification"] = false };
-        var operationId = tracker.RegisterOperation(OperationType.LogRotation, "logRotation", cts, metadata);
-        tracker.UpdateProgress(operationId, 20, "signalr.scheduledRun.logRotation.running");
-
-        var registry = CreateRegistry(tracker);
-        var status = registry.GetRunStatus("logRotation");
-
-        Assert.NotNull(status);
-        Assert.True(status!.IsRunning);
-        Assert.False(status.ShowNotification);
-        Assert.False(status.HideNotification);
-    }
-
-    [Fact]
-    public void GetRunStatus_ActiveHiddenOperation_ReportsHidden()
+    public void GetRunStatus_ActiveHiddenOperation_IsRunningAndItsRowIsHidden()
     {
         var tracker = CreateTracker();
         using var cts = new CancellationTokenSource();
         var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled);
-        var state = new Dictionary<string, object?> { ["runNotice"] = notice };
-        var operationId = tracker.RegisterOperation(OperationType.LogRotation, "logRotation", cts, state);
+        var operationId = tracker.RegisterOperation(OperationType.LogRotation, "logRotation", cts, notice: notice);
         tracker.UpdateProgress(operationId, 20, "signalr.scheduledRun.logRotation.running");
 
         var status = CreateRegistry(tracker).GetRunStatus("logRotation");
 
         Assert.NotNull(status);
-        Assert.False(status!.ShowNotification);
-        Assert.True(status.HideNotification);
+        Assert.True(status!.IsRunning);
+        Assert.Equal(RunVisibility.Hidden, Assert.Single(tracker.GetRuns().Runs).Visibility);
+    }
+
+    // Run Now on scheduled prefill with no prefill schedule enabled is refused with a key the
+    // browser translates, and nothing is started or left pending. [69]
+    [Fact]
+    public async Task TriggerRunAsync_ScheduledPrefillWithNoScheduleEnabled_Answers409WithItsKeyAndStartsNothing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-run-now-no-schedule-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var state = StateTestMethods.CreateStateService(root);
+            using var prefill = new NoPrefillScheduleEnabledProbe();
+            var tracker = CreateTracker();
+            var controller = new ScheduleController(new ServiceScheduleRegistry(
+                [prefill], state, (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(), tracker));
+
+            var context = new DefaultHttpContext();
+            var body = new MemoryStream();
+            context.Response.Body = body;
+            var middleware = new GlobalExceptionMiddleware(
+                async _ => await controller.TriggerRunAsync("scheduledPrefill"),
+                NullLogger<GlobalExceptionMiddleware>.Instance,
+                new HostingEnvironment { EnvironmentName = Environments.Production });
+            await middleware.InvokeAsync(context);
+
+            Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+            using var document = JsonDocument.Parse(body.ToArray());
+            Assert.Equal("management.schedules.services.scheduledPrefill.runNowNoSchedule",
+                document.RootElement.GetProperty("stageKey").GetString());
+            Assert.Empty(tracker.GetRuns().Runs);
+            Assert.Null(typeof(ScheduledServiceBase)
+                .GetField("_manualNotice", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(prefill));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static ScheduleController CreateController(IServiceScheduleRegistry registry)
@@ -411,6 +432,22 @@ public class ScheduleControllerNotificationModeTests
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         return new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
+    }
+
+    // The scheduled prefill loop as the registry sees it, with every prefill schedule disabled.
+    private sealed class NoPrefillScheduleEnabledProbe : ConfigurableScheduledService, IScheduleEnabledGate
+    {
+        public NoPrefillScheduleEnabledProbe()
+            : base(NullLogger<NoPrefillScheduleEnabledProbe>.Instance, TimeSpan.FromMinutes(1))
+        {
+        }
+
+        public string ScheduleServiceKey => "scheduledPrefill";
+        protected override string ServiceName => ScheduleServiceKey;
+
+        public bool HasAnyServiceEnabled() => false;
+
+        protected override Task ExecuteWorkAsync(CancellationToken stoppingToken) => Task.CompletedTask;
     }
 
     private sealed class FakeScheduleRegistry : IServiceScheduleRegistry
@@ -450,8 +487,8 @@ public class ScheduleControllerNotificationModeTests
             return ScanModeAccepted;
         }
 
-        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification, bool HideNotification, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
-            => Task.FromResult<(ScheduleRunStatus, string?, bool, bool, bool)>((RunStatus ?? new ScheduleRunStatus(), null, true, false, FollowUpQueued));
+        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
+            => Task.FromResult<(ScheduleRunStatus, string?, bool)>((RunStatus ?? new ScheduleRunStatus(), null, FollowUpQueued));
         public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync()
             => Task.FromResult<(int, int, int, string?, int)>((0, 2, 0, null, FollowUpCount));
         public bool FollowUpQueued { get; set; }
@@ -460,6 +497,9 @@ public class ScheduleControllerNotificationModeTests
         public void NotifySchedulesChanged() { }
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;
         public ScheduleRunStatus? GetRunStatus(string serviceKey) => RunStatus;
-        public string? GetHeldRunBlockerName(Guid heldOperationId) => null;
+        public void ClearNotificationDisplayMode(string serviceKey) { }
+        public NotificationDisplayMode GetGlobalNotificationDisplayMode() => NotificationDisplayMode.Condensed;
+        public Task SetGlobalNotificationDisplayModeAsync(NotificationDisplayMode mode) => Task.CompletedTask;
+        public Task PublishGlobalNotificationDisplayModeAsync() => Task.CompletedTask;
     }
 }

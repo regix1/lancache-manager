@@ -5,7 +5,7 @@
 
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
-import type { OperationWaitingCompleteEvent } from '../SignalRContext/types';
+import type { RunDetail } from './runStore';
 import type {
   StructuralBaselineStatus,
   StructuralEffectiveScanMode,
@@ -56,41 +56,14 @@ export type NotificationType =
  */
 export type NotificationStatus = OperationStatus;
 
-export interface NotificationEvent {
-  type: NotificationType;
-  phase: 'started' | 'progress' | 'complete';
-  eventName: string;
-  body: Record<string, unknown>;
-  revision: number;
-}
-
+/**
+ * How a run ended, as far as this browser can tell. `gone` means the server no longer tracks the
+ * run and never told this browser how it ended (it was reaped while the page was away).
+ */
 export interface NotificationTerminal {
   operationId: string;
-  status: 'completed' | 'failed' | 'cancelled' | 'skipped';
+  status: 'completed' | 'failed' | 'cancelled' | 'skipped' | 'gone';
   error?: string;
-  eventName?: string;
-  presented?: boolean;
-}
-
-/** Values retained for this mounted notification session, independent of card dismissal. */
-export interface NotificationEvents {
-  connectionGeneration?: number;
-  requestRecovery?: () => void;
-  versions?: Map<
-    string,
-    { epoch: string; sequence: number; daemonInstanceId?: string; retired: Set<string> }
-  >;
-  pending?: Map<string, NotificationEvent>;
-  revision: number;
-  records: Map<string, Partial<Record<NotificationEvent['phase'], NotificationEvent>>>;
-  handoffs: Map<string, OperationWaitingCompleteEvent>;
-  terminals: Map<string, NotificationTerminal>;
-  acknowledgedIds: Set<string>;
-  revisions: Map<string, number>;
-  typeRevisions: Map<NotificationType, number>;
-  children: Map<string, string>;
-  waiting: Set<string>;
-  held: Map<string, number>;
 }
 
 /** Whether a running notification has a known progress denominator. */
@@ -120,14 +93,6 @@ export interface UnifiedNotification {
   detailMessage?: string;
   /** Timestamp when the operation started */
   startedAt: Date;
-  /**
-   * Version counter for tracking notification instances.
-   * Used to prevent race conditions with auto-dismiss timers.
-   * When a notification is updated, this counter is incremented so that
-   * stale auto-dismiss callbacks can detect they should not proceed.
-   * Optional for backwards compatibility - defaults to 0 if not provided.
-   */
-  instanceVersion?: number;
 
   /** Type-specific details for the notification */
   details?: {
@@ -141,7 +106,19 @@ export interface UnifiedNotification {
     filesDeleted?: number;
     directoriesProcessed?: number;
     bytesDeleted?: number;
+    /** The operation doing the work now: the id a cancel or a status request targets. */
     operationId?: string;
+    /**
+     * Every operation id merged into this run card, oldest first, its current one included. A
+     * caller holding an older id (a batch item, a cancel answer) finds the card through it.
+     */
+    operationIds?: string[];
+    /**
+     * The kept endings this card closes on the server when it is dismissed: a kept run card lists
+     * its own id, a bulk card the kept runs folded under it. Present and non-empty means the
+     * dismiss asks the server first.
+     */
+    closeOperationIds?: string[];
     eventEpoch?: string;
     eventSequence?: number;
     daemonInstanceId?: string;
@@ -150,10 +127,9 @@ export interface UnifiedNotification {
     connectionRecovering?: boolean;
     scheduleId?: string;
     scheduleName?: string;
+    /** Scheduled prefill's run-level operation, the container of this per-platform card. */
     runOperationId?: string;
-    previousOperationId?: string | null;
-    /** The visible message still belongs to the predecessor operation. */
-    handoffPending?: boolean;
+    /** The run this phase belongs to; the phase draws no card of its own. */
     parentOperationId?: string | null;
     /** First cancel click sent; second click force-kills. */
     cancelRequested?: boolean;
@@ -192,6 +168,16 @@ export interface UnifiedNotification {
      * batch card cancels its run through the client queue instead.
      */
     currentOperationId?: string;
+    /**
+     * Every item operation id this batch card has owned, kept after the batch ends, so an item's
+     * run stays folded inside the batch card (never its own card) for as long as it is tracked.
+     */
+    itemOperationIds?: string[];
+    /**
+     * An item failed before the server answered with an operation id. That failure can be closed
+     * nowhere else, so the batch card stays until it is closed here.
+     */
+    failedWithoutRun?: boolean;
     /**
      * True while the batch has sent its current item's request and has not learned that item's
      * operation id yet. The queue announces a parked operation from inside the request, so the
@@ -259,23 +245,35 @@ export interface UnifiedNotification {
  * Context type for the notifications provider.
  * Provides access to notifications state and mutation functions.
  */
+/** The cards the browser owns itself; every run card comes from the server's run rows. */
+export type LocalNotificationType = 'generic' | 'bulk_removal';
+
+export type LocalNotificationInput = Omit<UnifiedNotification, 'id' | 'startedAt' | 'type'> & {
+  type: LocalNotificationType;
+};
+
 export interface NotificationsContextType {
-  events: React.RefObject<NotificationEvents>;
-  /** Array of all current notifications */
+  /** Every card on screen: run cards first, then the browser's own cards. */
   notifications: UnifiedNotification[];
   /**
-   * Adds a new notification to the system.
-   * @param notification - The notification data (id and startedAt are generated automatically)
+   * Every live run the server tracks, Hidden ones included, drawn or not: what keeps a page's own
+   * buttons busy until the run ends. A phase folded under a parent run is left out.
+   */
+  runs: UnifiedNotification[];
+  /**
+   * Adds a card the browser owns itself.
+   * @param notification - The card data (id and startedAt are generated automatically)
    * @returns The generated notification ID
    */
-  addNotification: (notification: Omit<UnifiedNotification, 'id' | 'startedAt'>) => string;
+  addNotification: (notification: LocalNotificationInput) => string;
   /**
-   * Updates an existing notification.
+   * Updates an existing notification. A card the browser owns merges the patch. A run card takes
+   * only the cancel flags and a `cancelling` status: the server owns the rest of a run's state.
    * @param id - The notification ID to update
    * @param updates - Partial notification data to merge, or a function handed the live
    * notification that returns it. Use the function form for a read-modify-write of a nested
-   * object such as `details`, which merges only at the top level: it reads the card React is
-   * about to update rather than a snapshot taken before the caller's own earlier writes landed.
+   * object such as `details`, which merges only at the top level: it reads the current card
+   * rather than a snapshot taken before the caller's own earlier writes landed.
    */
   updateNotification: (
     id: string,
@@ -286,50 +284,48 @@ export interface NotificationsContextType {
   /**
    * Removes a notification immediately without animation.
    * @param id - The notification ID to remove
+   * @param closedOperationIds - The kept endings the server confirmed closed for this card; their
+   * later `closed` rows then change nothing
    */
-  removeNotification: (id: string) => void;
+  removeNotification: (id: string, closedOperationIds?: string[]) => void;
   /**
-   * Removes all completed or failed notifications.
+   * Hides a live run card on this screen until the next row for its run. Offered only while the
+   * server is unreachable; the run stays in `runs`.
    */
-  clearCompletedNotifications: () => void;
+  hideNotification: (id: string) => void;
   /**
    * Returns true if any removal operation is currently running.
    * Used to disable all removal buttons since they share a backend lock.
    */
   isAnyRemovalRunning: boolean;
   /**
-   * Returns the type of removal currently running, or null if none.
+   * Schedules a card the browser owns to leave after the one popup time.
+   * Respects the user's "Keep Notifications Visible" preference: while it is on when the time
+   * ends, the card stays.
+   * A run card waits the same time in the provider, not here; a failed bulk card never leaves on
+   * a timer.
    */
-  activeRemovalType: NotificationType | null;
+  scheduleAutoDismiss: (notificationId: string) => void;
   /**
-   * Schedules a notification to auto-dismiss after the configured delay.
-   * Respects the user's "Keep Notifications Visible" preference (no-op when enabled).
-   * Used by caller-managed notifications (e.g. useBatchQueue's bulk_removal)
-   * that don't go through a registry handler and therefore don't get auto-dismiss
-   * scheduled for them automatically.
+   * Resolves when the run ends: at once for a run that already ended, following a promotion to the
+   * operation that did the work, and `gone` for a run the server no longer knows. No timeout.
    */
-  scheduleAutoDismiss: (notificationId: string, delayMs?: number) => void;
+  waitForRunEnd: (operationId: string, signal?: AbortSignal) => Promise<NotificationTerminal>;
 }
 
 // ============================================================================
 // Handler Factory Types
 // ============================================================================
 
-/** React setState dispatch function for notifications */
-export type SetNotifications = React.Dispatch<React.SetStateAction<UnifiedNotification[]>>;
-
 /**
- * Function to schedule automatic dismissal of a notification.
- * @param notificationId - The notification ID to dismiss
- * @param delayMs - Optional delay in milliseconds before dismissal
+ * Hands a detail patch for one run to the store. `build` is called with the card currently drawn
+ * for that run, so a getter that reads the existing card sees it; a `null` result changes nothing.
  */
-export type ScheduleAutoDismiss = (notificationId: string, delayMs?: number) => void;
-
-/**
- * Function to cancel a pending auto-dismiss timer.
- * @param notificationId - The notification ID whose timer should be cancelled
- */
-export type CancelAutoDismissTimer = (notificationId: string) => void;
+export type DispatchDetail = (
+  operationId: string,
+  build: (existing: UnifiedNotification | undefined) => RunDetail | null,
+  source: 'event' | 'completion'
+) => void;
 
 // ============================================================================
 // Notification Registry Types
@@ -347,21 +343,16 @@ type LifecycleEvent = any;
  * Configuration for a started event handler within a registry entry.
  */
 export interface RegistryStartedConfig<TEvent = LifecycleEvent> {
-  /** Optional gate that suppresses and removes the notification for this event */
-  shouldDisplay?: (event: TEvent) => boolean;
   /** Default message shown when the operation starts */
   defaultMessage: string;
   /** Optional function to get a custom message from the event */
   getMessage?: (event: TEvent) => string;
   /** Optional function to get notification details from the event */
   getDetails?: (event: TEvent) => UnifiedNotification['details'];
-  /** If true, always replace existing notification (for restartable operations) */
-  replaceExisting?: boolean;
   /**
-   * Progress semantics for the card this event opens. A started card is built with
-   * `progress: 0`, which reads as determinate and freezes the bar at zero for the whole
-   * wait; an operation that starts by waiting on a person sets 'indeterminate' so the
-   * card sweeps until real progress arrives.
+   * Progress semantics for the card this event describes. Left unset the card shows the run's
+   * percentage, which reads as a bar frozen at zero for an operation that starts by waiting on a
+   * person; such an operation sets 'indeterminate' so the card sweeps until real progress arrives.
    */
   progressMode?: UnifiedNotification['progressMode'];
 }
@@ -370,8 +361,6 @@ export interface RegistryStartedConfig<TEvent = LifecycleEvent> {
  * Configuration for a progress event handler within a registry entry.
  */
 export interface RegistryProgressConfig<TEvent = LifecycleEvent> {
-  /** Optional gate that suppresses and removes the notification for this event */
-  shouldDisplay?: (event: TEvent) => boolean;
   /** Function to get the progress message from the event */
   getMessage: (event: TEvent) => string;
   /** Function to get progress percentage (0-100) from the event */
@@ -388,8 +377,6 @@ export interface RegistryProgressConfig<TEvent = LifecycleEvent> {
   getCompletedMessage?: (event: TEvent) => string;
   /** Message to show on error */
   getErrorMessage?: (event: TEvent) => string | undefined;
-  /** If true, support fast completion */
-  supportFastCompletion?: boolean;
   /** Optional function to get notification details from the event */
   getDetails?: (event: TEvent) => UnifiedNotification['details'];
 }
@@ -398,7 +385,7 @@ export interface RegistryProgressConfig<TEvent = LifecycleEvent> {
  * Configuration for a completion event handler within a registry entry.
  */
 export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
-  /** Optional gate that suppresses and removes the notification for this event */
+  /** Gate for an announcement: an event it rejects raises no card */
   shouldDisplay?: (event: TEvent) => boolean;
   /** Optional function to get the success message */
   getSuccessMessage?: (event: TEvent, existing?: UnifiedNotification) => string;
@@ -415,9 +402,9 @@ export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
   /**
-   * Optional function to get detail message (shown below main message). May return undefined, in
-   * which case the card KEEPS its existing detail line - the completion handler falls back with
-   * `?? n.detailMessage` - so a formatter with nothing to say cannot blank a useful line.
+   * Optional function to get detail message (shown below main message). An entry that configures
+   * one owns the finished card's detail line, so returning undefined clears it; an eviction scan
+   * keeps its existing line instead, because its line is the warning its detection phase left.
    */
   getDetailMessage?: (event: TEvent) => string | undefined;
   /** Optional function to get the failure message */
@@ -425,21 +412,16 @@ export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
   /**
    * Fixed outcome for an entry whose single event IS the whole lifecycle. Such a payload reports
    * no `success` field, because there was no run to report on, so the entry states what its event
-   * always means. Setting it also lets the event replace a terminal card in its slot: with no
-   * started or progress phase there is no second operation of this type to confuse the card with,
-   * and whatever sits there can only be an older announcement of the same kind.
+   * always means.
    */
   succeeded?: boolean;
-  /** Auto-dismiss delay for this type's terminal card, where the shared default is wrong. */
-  dismissDelayMs?: number;
-  /** If true, show a brief animation delay before marking complete */
-  useAnimationDelay?: boolean;
 }
 
 /**
  * How the X button cancels a notification.
- *   - 'serverOp': cancellable server operation (soft-cancel → force-kill, with
- *     a deferred watchdog when the operationId hasn't arrived yet).
+ *   - 'serverOp': cancellable server operation (soft-cancel → force-kill) through
+ *     `details.operationId`, which every run card carries from its first row; a
+ *     card without one (a sign-in card before its challenge) shows no X.
  *   - 'clientQueue': client-side bulk queue (flag flip only; the
  *     BulkRemovalProvider's always-mounted cascade effect performs the cancel).
  *   - 'none': not cancellable (no X button shown).
@@ -447,14 +429,13 @@ export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
 export type CancelKind = 'serverOp' | 'clientQueue' | 'none';
 
 /**
- * Simple recovery: a single GET to a per-type status endpoint that either
- * re-seeds a running card, skips (silent self-heal), or stale-completes a stuck
- * running card. The 10 former RECOVERY_CONFIGS entries map onto this shape.
+ * Simple recovery: a single GET to a per-type status endpoint whose answer fills in the text and
+ * details of a run card that has had no event yet (after a reload or a reconnect). It never opens,
+ * ends or restyles a card: the server's run rows do that.
  *
- * The generic `TData` is the REST response DTO. `isProcessing`/`shouldSkip`/
- * `createNotification` read REST snake_case/camelCase fields directly and MUST
- * NOT be normalized against the SignalR event property names (a field can cross
- * both boundaries with different casing).
+ * The generic `TData` is the REST response DTO. `isProcessing`/`createNotification` read REST
+ * snake_case/camelCase fields directly and MUST NOT be normalized against the SignalR event
+ * property names (a field can cross both boundaries with different casing).
  */
 export type StageContext = Record<string, string | number | boolean | null>;
 
@@ -471,18 +452,13 @@ interface SimpleRecoveryBase<TData> {
   translationValidation: RecoveryTranslationValidation;
   apiEndpoint: string;
   isProcessing: (data: TData) => boolean;
-  shouldSkip?: (data: TData) => boolean;
-  /**
-   * Key rather than text: the registry is a module-level literal, so a translated string here
-   * would freeze at import time and survive a language change.
-   */
-  staleMessageKey: string;
 }
 
 /**
- * How many cards this type's status endpoint rebuilds. A singleton type re-seeds its one card
- * from `createNotification`; a type that owns one card per entity names them itself in
- * `recoverCards`, ids included, because the response is what knows which entities are running.
+ * How many runs this type's status endpoint describes. A singleton type maps its one run from
+ * `createNotification`; a type that runs one operation per entity names them itself in
+ * `recoverCards`, each carrying its `details.operationId`, because the response is what knows
+ * which entities are running.
  */
 export type SimpleRecoveryConfig<TData = unknown> = SimpleRecoveryBase<TData> &
   (
@@ -494,7 +470,9 @@ export type SimpleRecoveryConfig<TData = unknown> = SimpleRecoveryBase<TData> &
       }
     | {
         createNotification?: never;
-        recoverCards: (data: TData) => Omit<UnifiedNotification, 'type' | 'status' | 'startedAt'>[];
+        recoverCards: (
+          data: TData
+        ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>[];
       }
   );
 
@@ -525,41 +503,22 @@ export type RecoveryConfig =
  *   - any other `cancelKind` → `cancelTooltipKey` is REQUIRED, so a cancellable
  *     entry can never compile without the tooltip key that
  *     `UniversalNotificationBar` needs to render its cancel button.
- *
- * `allowsDeferredCancel` (read for 'serverOp' only) says this type's first
- * operationId can arrive on a PROGRESS event, so a click on a running card that
- * has no id yet is remembered and sent by the bar's watchdog once the id lands.
- * A type whose only id-bearing event is a Started event cannot do that -
- * mergeEventDetails strips the cancel flags at the moment that id arrives - so
- * its cards show no X until they carry an operationId.
  */
 type CancelWiring =
-  | { cancelKind: 'none'; cancelTooltipKey?: never; allowsDeferredCancel?: never }
+  | { cancelKind: 'none'; cancelTooltipKey?: never }
   | {
       cancelKind: Exclude<CancelKind, 'none'>;
       cancelTooltipKey: string;
-      allowsDeferredCancel?: boolean;
     };
 
 /**
- * Declarative registry entry describing the full lifecycle of a notification type.
- * Each entry specifies the started, progress, and completion handler configs
- * along with the SignalR event names they map to, plus cancel + recovery wiring.
+ * Declarative registry entry describing a notification type: the per-type SignalR events that
+ * supply a run card's text and progress, plus cancel + recovery wiring. A run card itself opens
+ * and ends on the server's run rows, never on these events.
  */
 export type NotificationRegistryEntry = CancelWiring & {
   /** The notification type */
   type: NotificationType;
-  /** Singleton notification ID */
-  id: string;
-  /**
-   * Card id for THIS event, for a type that owns one live card per entity rather than a
-   * singleton. Left unset, every event of the type lands on {@link id}, which is what the
-   * other entries rely on. Setting it also makes the type's storage key hold a record of
-   * card id to card, so one entity's card can be cleared without destroying its siblings.
-   */
-  getId?: (event: unknown) => string;
-  /** localStorage persistence key */
-  storageKey: string;
   /** Recovery wiring (discriminated union). */
   recovery: RecoveryConfig;
   /**

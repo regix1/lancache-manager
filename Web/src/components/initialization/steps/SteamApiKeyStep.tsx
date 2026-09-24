@@ -105,6 +105,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           icon={
             testResult.valid ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />
           }
+          title={testResult.title}
         >
           {testResult.message}
         </Alert>
@@ -120,12 +121,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       <div className="setup-actions pt-2">
         <Button
           variant="default"
-          onClick={() =>
-            handleTest(
-              t('initialization.steamWebApiKey.pleaseEnter'),
-              t('initialization.steamWebApiKey.networkError')
-            )
-          }
+          onClick={() => handleTest(t('initialization.steamWebApiKey.pleaseEnter'))}
           loading={testing}
           disabled={!canManage || !apiKey.trim() || testing || saving}
           className="flex-1"
@@ -138,12 +134,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
         <Button
           variant="filled"
           color="primary"
-          onClick={() =>
-            handleSave(
-              t('initialization.steamWebApiKey.pleaseEnter'),
-              t('initialization.steamWebApiKey.networkErrorSave')
-            )
-          }
+          onClick={() => handleSave(t('initialization.steamWebApiKey.pleaseEnter'))}
           loading={saving}
           disabled={!canManage || !apiKey.trim() || testing || saving || !testResult?.valid}
           className="flex-1"

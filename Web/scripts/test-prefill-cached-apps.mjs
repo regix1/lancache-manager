@@ -201,7 +201,7 @@ const panel = (
     reloadGamesAgainRef: { current: false },
     ownedGames: previous.map((appId) => ({ appId })),
     assertOk: async () => undefined,
-    ApiError: Error,
+    getErrorMessage: (error) => error.message,
     setOutdatedAppIds: (value) => {
       outdated = value;
     },

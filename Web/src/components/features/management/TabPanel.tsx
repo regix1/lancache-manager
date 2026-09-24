@@ -5,7 +5,7 @@ interface TabPanelProps {
    *  aria-labelledby="tab-clients" so it resolves against ManagementNav's id="tab-clients" button. */
   tabId: string;
   /** Extra class for a section's own layout rules, e.g. PrefillSessionsSection's
-   *  .prefill-sessions-section or SchedulesSection's .schedules-section/-loading/-error. */
+   *  .prefill-sessions-section or SchedulesSection's .schedules-section/-loading. */
   className?: string;
   children: React.ReactNode;
 }

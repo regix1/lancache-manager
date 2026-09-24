@@ -46,10 +46,51 @@
 }
 
 /* ==============================================
+ * Notification status colors
+ * The one status -> color map for the full card and the compact strip. The card root and
+ * every strip segment carry `notification-status--<variant>` (the variant from
+ * getNotificationVariant), and everything they draw in their status reads these two
+ * properties: the card's left border and icon, the progress fill and sweep, the strip
+ * segment and its glow.
+ * ============================================== */
+.notification-status--success {
+  --notification-status-color: var(--theme-success);
+  --notification-status-glow: var(--theme-success-glow);
+}
+
+.notification-status--error {
+  --notification-status-color: var(--theme-error);
+  --notification-status-glow: var(--theme-error-glow);
+}
+
+.notification-status--warning {
+  --notification-status-color: var(--theme-warning);
+  --notification-status-glow: var(--theme-warning-glow);
+}
+
+.notification-status--info {
+  --notification-status-color: var(--theme-info);
+  --notification-status-glow: var(--theme-info-glow);
+}
+
+.notification-status--waiting {
+  --notification-status-color: var(--theme-waiting);
+  --notification-status-glow: var(--theme-waiting-glow);
+}
+
+/* The gray a stopped run is drawn in has no -glow sibling, so it borrows the muted tier of the
+   same color. That tier is fainter than the shared glow alpha, which suits the one status that
+   is deliberately quiet. */
+.notification-status--neutral {
+  --notification-status-color: var(--theme-text-secondary);
+  --notification-status-glow: var(--theme-text-secondary-muted);
+}
+
+/* ==============================================
  * Universal notification progress bar
- * One track shared by every notification type. The fill colour comes from the card's
- * status colour via --notification-progress-color, so the bar always matches the border
- * and icon (blue running, green completed, red failed, grey cancelled, purple waiting).
+ * One track shared by every notification type. The fill color comes from the card's
+ * status color via --notification-status-color, so the bar always matches the border
+ * and icon (blue running, green completed, red failed, gray cancelled, purple waiting).
  * ============================================== */
 .notification-progress-track {
   position: relative;
@@ -63,9 +104,10 @@
 /* Determinate: the width is set per render from the operation's percentage, so it is
    eased rather than snapped - server checkpoints land every few hundred ms. */
 .notification-progress-fill {
+  width: var(--progress-width);
   height: 100%;
   border-radius: inherit;
-  background: var(--notification-progress-color, var(--theme-info));
+  background: var(--notification-status-color, var(--theme-info));
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -86,7 +128,7 @@
   left: 0;
   width: 40%;
   border-radius: inherit;
-  background: var(--notification-progress-color, var(--theme-info));
+  background: var(--notification-status-color, var(--theme-info));
   animation: notificationProgressIndeterminate 1.4s linear infinite;
 }
 

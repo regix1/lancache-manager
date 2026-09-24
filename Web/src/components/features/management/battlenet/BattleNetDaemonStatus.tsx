@@ -24,17 +24,12 @@ const BATTLENET_DAEMON: AnonymousDaemonService = {
   ]
 };
 
-interface BattleNetDaemonStatusProps {
-  onError?: (message: string) => void;
-}
-
-const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }) => {
+const BattleNetDaemonStatus: React.FC = () => {
   const { t } = useTranslation();
 
   return (
     <AnonymousDaemonStatus
       service={BATTLENET_DAEMON}
-      onError={onError}
       copy={{
         title: t('management.sections.integrations.battlenetDaemonStatus.title'),
         summary: t('management.sections.integrations.battlenetDaemonStatus.summary'),

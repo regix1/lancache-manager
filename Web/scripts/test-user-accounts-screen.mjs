@@ -146,7 +146,7 @@ test('the screen defines an empty, a loading and an error state', () => {
     )
   );
 
-  for (const tag of ['LoadingState', 'EmptyState', 'Alert']) {
+  for (const tag of ['LoadingState', 'EmptyState', 'ErrorBlock']) {
     assert.ok(rendered.has(tag), `the screen never renders ${tag}`);
   }
 

@@ -13,8 +13,8 @@ import {
  * Run All fans a trigger out across every schedule. Each service's own lifecycle or retained-run
  * notice is the acknowledgment owner, so the HTTP response never adds an aggregate success,
  * queued, held or skipped toast beside those notices. The button still waits for the request,
- * refreshes schedules, flashes the rows and clears its pending state; a real request failure still
- * uses the existing error notification.
+ * refreshes schedules, flashes the rows and clears its pending state; a real request failure raises
+ * one "Failed to run all schedules" popup with the reason on its second line.
  *
  * The handler is a callback inside a component, so its branch and its message are lifted out of
  * the file that ships and run here.
@@ -26,6 +26,7 @@ const runAllSource = liftHookCallback(SCHEDULES, 'useCallback', 'ApiService.runA
 const runAll = async ({ response, failure, recoveryFailure } = {}) => {
   const calls = [];
   const notices = [];
+  const errors = [];
   const running = [];
   const confirmations = [];
   const handler = bindLifted(runAllSource, {
@@ -46,14 +47,14 @@ const runAll = async ({ response, failure, recoveryFailure } = {}) => {
     fetchSchedules: async () => calls.push('refresh'),
     flashAll: () => calls.push('flash'),
     addNotification: (notice) => notices.push(notice),
-    getErrorMessage: (error) => error.message,
+    notifyError: (message, error) => errors.push({ message, error }),
     t: (key) => key,
     setRunningAll: (value) => running.push(value),
     setRunAllConfirmOpen: (value) => confirmations.push(value)
   });
 
   await handler();
-  return { calls, notices, running, confirmations };
+  return { calls, notices, errors, running, confirmations };
 };
 
 test('result fixtures without unqueued active work rely only on per-service acknowledgments', async () => {
@@ -75,36 +76,120 @@ test('result fixtures without unqueued active work rely only on per-service ackn
   }
 });
 
-test('a Run All request failure still uses the existing error notification and finally cleanup', async () => {
-  const result = await runAll({ failure: new Error('Run All transport failed') });
+test('a Run All request failure raises one titled popup with the reason and finally cleanup', async () => {
+  const failure = new Error('Run All transport failed');
+  const result = await runAll({ failure });
 
   assert.deepEqual(result.calls, ['recover', 'cleanup', 'request']);
-  assert.deepEqual(result.notices, [
-    {
-      type: 'generic',
-      status: 'failed',
-      message: 'Run All transport failed',
-      details: { notificationType: 'error' }
-    }
+  assert.deepEqual(result.notices, []);
+  assert.deepEqual(result.errors, [
+    { message: 'management.schedules.runAllFailed', error: failure }
   ]);
   assert.deepEqual(result.running, [true, false]);
   assert.deepEqual(result.confirmations, [false]);
 });
 
 test('cleanup rejection prevents dispatch and still uses failure and finally handling', async () => {
-  const result = await runAll({ recoveryFailure: new Error('Old edit cleanup failed') });
+  const recoveryFailure = new Error('Old edit cleanup failed');
+  const result = await runAll({ recoveryFailure });
 
   assert.deepEqual(result.calls, ['recover']);
-  assert.deepEqual(result.notices, [
-    {
-      type: 'generic',
-      status: 'failed',
-      message: 'Old edit cleanup failed',
-      details: { notificationType: 'error' }
-    }
+  assert.deepEqual(result.notices, []);
+  assert.deepEqual(result.errors, [
+    { message: 'management.schedules.runAllFailed', error: recoveryFailure }
   ]);
   assert.deepEqual(result.running, [true, false]);
   assert.deepEqual(result.confirmations, [false]);
+});
+
+const fetchSchedulesSource = liftHookCallback(
+  SCHEDULES,
+  'useCallback',
+  'ApiService.getSchedules()'
+);
+
+const fetchSchedulesWith = (getSchedules, generation) => {
+  const errors = [];
+  const shown = [];
+  const fetchSchedules = bindLifted(fetchSchedulesSource, {
+    mockMode: false,
+    isFetchingRef: { current: false },
+    pendingRefetchRef: { current: false },
+    signalrGenerationRef: generation,
+    ApiService: { getSchedules },
+    setSchedules: (value) => shown.push(value),
+    setError: (value) => errors.push(value),
+    getErrorMessage: (error) => `reason: ${error.message}`
+  });
+  return { fetchSchedules, errors, shown };
+};
+
+test('a failed schedules refresh is reported with its reason while rows are on screen', async () => {
+  const { fetchSchedules, errors, shown } = fetchSchedulesWith(
+    async () => {
+      throw new Error('server down');
+    },
+    { current: 0 }
+  );
+
+  await fetchSchedules();
+
+  assert.deepEqual(errors, ['reason: server down']);
+  assert.deepEqual(shown, [], 'the rows already on screen stay under the box');
+});
+
+test('a schedules read that fails after a live push leaves the pushed list without an error', async () => {
+  const generation = { current: 0 };
+  const { fetchSchedules, errors } = fetchSchedulesWith(async () => {
+    generation.current += 1;
+    throw new Error('server down');
+  }, generation);
+
+  await fetchSchedules();
+
+  assert.deepEqual(errors, []);
+});
+
+test('a failed interval change refetches the schedules and raises one titled popup', async () => {
+  const failure = new Error('server refused');
+  const calls = [];
+  const errors = [];
+  const changeInterval = bindLifted(
+    liftHookCallback(SCHEDULES, 'useCallback', 'ApiService.updateSchedule(key, intervalHours)'),
+    {
+      schedulesRef: {
+        current: [{ key: 'cacheReconciliation', customSchedule: { days: [1] }, runOnStartup: true }]
+      },
+      ApiService: {
+        setScheduleCustomSchedule: async (key, schedule) =>
+          calls.push(['clearCustom', key, schedule]),
+        updateSchedule: async () => {
+          calls.push(['interval']);
+          throw failure;
+        },
+        setScheduleRunOnStartup: async () => calls.push(['runOnStartup'])
+      },
+      fetchSchedules: async () => calls.push(['refresh']),
+      notifyError: (message, error) => errors.push({ message, error }),
+      t: (key, options) => (options ? `${key}(${options.service})` : key)
+    }
+  );
+
+  await changeInterval('cacheReconciliation', 6);
+
+  // The custom schedule was already cleared on the server, so the row has to be read back.
+  assert.deepEqual(calls, [
+    ['clearCustom', 'cacheReconciliation', null],
+    ['interval'],
+    ['refresh']
+  ]);
+  assert.deepEqual(errors, [
+    {
+      message:
+        'management.schedules.intervalFailed(management.schedules.services.cacheReconciliation.displayName)',
+      error: failure
+    }
+  ]);
 });
 
 /**
