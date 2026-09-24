@@ -119,6 +119,22 @@ const text = (nodes) =>
       typeof node === 'string' ? [node] : node?.type === 'Tooltip' ? [node.props.content] : []
     )
     .join(' ');
+test('a container whose first status is still loading shows one loading line and no guessed status', () => {
+  const nodes = card({ container: undefined, statusLoading: true });
+
+  assert.equal(
+    nodes.filter((node) => node.type === 'LoadingSpinner').length,
+    1,
+    'the body loading line is the one indicator'
+  );
+  assert.equal(nodes.filter((node) => node.type === 'StatusDot').length, 0);
+  assert.ok(
+    text(nodes).includes(
+      en.management.schedules.services.scheduledPrefill.config.persistentContainers.loadingStatus
+    )
+  );
+});
+
 for (const [reason, sentence] of [
   ['account-required', en.errors.integration.accountRequired],
   ['no-saved-login', en.errors.integration.noSavedLogin]

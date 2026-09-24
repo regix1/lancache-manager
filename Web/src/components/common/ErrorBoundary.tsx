@@ -2,6 +2,7 @@ import React, { Component, type ReactNode } from 'react';
 import i18n from '../../i18n';
 import { getErrorMessage } from '@utils/error';
 import { APP_EVENTS } from '@utils/constants';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 
 interface Props {
@@ -41,44 +42,29 @@ class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="error-boundary-root">
           <div className="error-boundary-container">
-            <div className="error-boundary-content">
-              <div className="error-boundary-icon">
-                <svg
-                  width="32"
-                  height="32"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+            {/* The title stays a real h2 for heading navigation; the base styles give a heading
+                the inherited size and weight, so it looks like any other Alert title. */}
+            <Alert
+              color="error"
+              title={<h2>{i18n.t('common.errorBoundary.title')}</h2>}
+              className="w-full text-left"
+              action={
+                <Button
+                  type="button"
+                  variant="filled"
+                  color="secondary"
+                  size="sm"
+                  className="pointer-target-44"
+                  onClick={() => window.location.reload()}
                 >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-              </div>
-
-              <div className="error-boundary-body">
-                <h2 className="error-boundary-title">{i18n.t('common.errorBoundary.title')}</h2>
-                {/* Never render the raw error message to the user - the technical detail already
-                    went to console/the reporting sink in componentDidCatch. */}
-                <pre className="error-boundary-message">
-                  {i18n.t('common.errorBoundary.unexpectedError')}
-                </pre>
-              </div>
-
-              <Button
-                type="button"
-                variant="filled"
-                color="destructive"
-                fullWidth
-                className="error-boundary-button"
-                onClick={() => window.location.reload()}
-              >
-                {i18n.t('common.errorBoundary.reload')}
-              </Button>
-            </div>
+                  {i18n.t('common.errorBoundary.reload')}
+                </Button>
+              }
+            >
+              {/* Never render the raw error message to the user - the technical detail already
+                  went to console/the reporting sink in componentDidCatch. */}
+              <p className="text-sm">{i18n.t('common.errorBoundary.unexpectedError')}</p>
+            </Alert>
           </div>
         </div>
       );

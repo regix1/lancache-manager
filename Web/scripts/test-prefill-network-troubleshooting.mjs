@@ -13,8 +13,8 @@ const english = JSON.parse(readFileSync(resolve(webRoot, 'src/i18n/locales/en.js
 test('prefill diagnostics do not expose container command failures', () => {
   assert.doesNotMatch(networkSection, /diagnostics\.internetConnectivityError/);
   assert.doesNotMatch(networkSection, /result\.error/);
-  assert.match(networkSection, /prefill\.network\.internetCheckFailed/);
-  assert.match(networkSection, /prefill\.network\.dnsCheckFailed/);
+  // A failed check says Failed / Not resolved on its own row; no box repeats it underneath.
+  assert.doesNotMatch(networkSection, /prefill\.network\.(internetCheckFailed|dnsCheckFailed)/);
 });
 
 test('prefill troubleshooting explains the DNS override', () => {

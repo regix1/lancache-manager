@@ -193,6 +193,28 @@ public class PrefillLoginRunTests
         Assert.Contains(tracker.GetRuns().Runs, row => row.OperationId == operationId && row.Retained);
     }
 
+    /// <summary>
+    /// A persistent container's refused sign-in already shows as the red line on its container card, so
+    /// the sign-in's own run ends without a kept card; a refused sign-in on the Prefill page keeps its card.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ARefusedContainerSignInKeepsNoRunCard(bool isPersistent)
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent);
+        await (isPersistent
+            ? daemon.StartLoginForEditAsync(session.Id, null, () => { }, Guid.NewGuid())
+            : daemon.StartLoginAsync(session.Id));
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+
+        session.LastLoginFailureMessage = "Sign-in was refused.";
+        await daemon.CancelLoginAsync(session.Id);
+
+        Assert.Equal(!isPersistent, tracker.GetRuns().Runs.Any(row => row.OperationId == operationId && row.Retained));
+    }
+
     private static void AssertSignIn(UnifiedOperationTracker tracker, Guid operationId, Guid ownerSessionId)
     {
         var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(operationId));

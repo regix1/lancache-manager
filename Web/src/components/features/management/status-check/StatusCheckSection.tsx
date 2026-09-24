@@ -372,14 +372,13 @@ const StatusCheckSection: React.FC = () => {
   return sectionShell(
     <>
       {statusError && status && (
-        <div className="mb-4">
-          <ErrorBlock
-            title={t(`${keys}.loadFailed`)}
-            message={statusError}
-            retryLabel={t('common.retry')}
-            onRetry={() => void loadAll()}
-          />
-        </div>
+        <ErrorBlock
+          title={t(`${keys}.loadFailed`)}
+          message={statusError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void loadAll()}
+          className="mb-4"
+        />
       )}
       <div className="space-y-8">
         <section>

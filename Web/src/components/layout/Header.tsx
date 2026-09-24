@@ -91,17 +91,15 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
                   )}
                   {connectionStatus === 'disconnected' && (
                     <Tooltip content={t('status.disconnectedTooltip')}>
-                      <div className="flex items-center gap-1 text-themed-error">
+                      <div className="flex items-center">
                         <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-error)]"></div>
-                        <span className="text-xs">{t('status.disconnectedLabel')}</span>
                       </div>
                     </Tooltip>
                   )}
                   {connectionStatus === 'reconnecting' && (
                     <Tooltip content={t('status.reconnectingTooltip')}>
-                      <div className="flex items-center gap-1 text-themed-warning">
+                      <div className="flex items-center">
                         <div className="w-2 h-2 rounded-full animate-pulse flex-shrink-0 bg-[var(--theme-warning-indicator)]"></div>
-                        <span className="text-xs">{t('status.reconnectingLabel')}</span>
                       </div>
                     </Tooltip>
                   )}

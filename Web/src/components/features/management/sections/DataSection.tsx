@@ -420,7 +420,6 @@ const DataSection: React.FC<DataSectionProps> = ({
             isAdmin={isAdmin}
             mockMode={mockMode}
             onError={onError}
-            onSuccess={onSuccess}
             onDataRefresh={onDataRefresh}
           />
         </div>

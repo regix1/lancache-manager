@@ -310,6 +310,28 @@ test('a reset whose follow-up position read fails reports the reset, never a fai
   assert.deepEqual(calls.actionLoading, ['reset-Default', null]);
 });
 
+test('a finished Management import refreshes the data and raises no popup of its own', () => {
+  const calls = { success: [], refreshes: 0 };
+  const handleImportComplete = bindLifted(
+    liftConstArrow(
+      'src/components/features/management/data/DataImporter.tsx',
+      'handleImportComplete'
+    ),
+    {
+      t: (key) => key,
+      onSuccess: (message) => calls.success.push(message),
+      onDataRefresh: () => {
+        calls.refreshes += 1;
+      }
+    }
+  );
+
+  handleImportComplete({ imported: 3, skipped: 1, errors: 0 });
+
+  assert.deepEqual(calls.success, [], 'the run card and the form already show the result');
+  assert.equal(calls.refreshes, 1);
+});
+
 /** The detector's `startDetection`, lifted, with its React state as plain recorders. */
 const liftStartDetection = ({ startGameCacheDetection }) => {
   const state = { starting: [], scanType: [], toasts: [], errors: [] };

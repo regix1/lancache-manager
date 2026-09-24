@@ -13,7 +13,6 @@ import { useNotifications } from '@contexts/notifications';
 import { useBulkRemoval, type LogBatchEntry } from '@contexts/BulkRemovalContext';
 import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -34,11 +33,9 @@ import {
 } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
-import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
-import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
+import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
-import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
@@ -152,8 +149,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
-  const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
-    useDirectoryPermissionsContext();
 
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
@@ -161,7 +156,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     () => resolveDatasources(config),
     [config]
   );
-  const cardNginxReopenGate = getNginxReopenGate(configuredDatasources);
   const datasourceInfoByName = useMemo<Map<string, DatasourceInfo>>(
     () => new Map(configuredDatasources.map((ds) => [ds.name, ds])),
     [configuredDatasources]
@@ -442,17 +436,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     Object.values(ds.serviceCounts).some((count) => count > 0)
   );
 
-  const directoryNotice = resolveCardNotice(
-    { cacheWrite: false, cacheRead: false, logsWrite: true, nginx: true },
-    {
-      cacheReadOnly,
-      logsReadOnly,
-      cacheExist,
-      logsExist,
-      checkingPermissions,
-      nginxReopenGate: cardNginxReopenGate
-    }
-  );
   const selectedDatasourceNames = [...selection.selected].map((key) =>
     key.slice(0, key.indexOf('::'))
   );
@@ -538,15 +521,16 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         onToggle={() => setSectionExpanded((prev) => !prev)}
         badge={headerBadge}
       >
-        <div className="space-y-4">
-          <CardDirectoryNotice notice={directoryNotice} />
-
+        {/* No spacing wrapper: the section body hides itself only when nothing renders in it, and
+            this box renders nothing under the connection banner. */}
+        <>
           {loadError && (
             <ErrorBlock
               title={t('management.logRemoval.errors.loadFailed')}
               message={loadError}
               retryLabel={t('common.retry')}
               onRetry={() => void loadData(true)}
+              className={hasAnyLogEntries ? 'mb-4' : undefined}
             />
           )}
 
@@ -627,9 +611,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                     >
                       {hasEntries ? (
                         <div className="space-y-3 pt-3">
-                          {!nginxReopenGate.available && (
-                            <ReadOnlyBadge message={nginxReopenMessage} />
-                          )}
                           {isBareMetalLayout && (
                             <Alert color="blue">
                               <p className="text-sm">{t('management.logRemoval.bareMetal.note')}</p>
@@ -761,7 +742,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
               />
             ) : null}
           </>
-        </div>
+        </>
       </AccordionSection>
 
       {/* Log Removal Confirmation Modal */}
@@ -821,7 +802,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           })}
         </p>
 
-        <Alert color="red">
+        <Alert color="red" icon={null}>
           <p className="text-sm">{t('management.logRemoval.modal.fileSummary')}</p>
         </Alert>
       </ConfirmationModal>

@@ -28,12 +28,10 @@ import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
-import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
-import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
@@ -533,22 +531,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const directoryMissing = !cacheExist || (requiresRepeatedMissResources && !logsExist);
   const isReadOnly = cacheReadOnly || (requiresRepeatedMissResources && logsReadOnly);
   const hasRemovalPermissionIssue = directoryMissing || isReadOnly;
-  const directoryNotice = resolveCardNotice(
-    {
-      cacheWrite: true,
-      cacheRead: false,
-      logsWrite: requiresRepeatedMissResources,
-      nginx: requiresRepeatedMissResources
-    },
-    {
-      cacheReadOnly,
-      logsReadOnly,
-      cacheExist,
-      logsExist,
-      checkingPermissions,
-      nginxReopenGate: repeatedMissNginxReopenGate
-    }
-  );
   const nginxReopenAvailable =
     !requiresRepeatedMissResources || repeatedMissNginxReopenGate.available;
   const nginxReopenUnavailableMessage = repeatedMissNginxReopenGate.messageKey
@@ -1163,8 +1145,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               onRetry={() => void loadCachedData()}
             />
           )}
-
-          <CardDirectoryNotice notice={directoryNotice} />
 
           {isLoading && !isScanning ? (
             <div role="status" aria-live="polite" aria-busy="true">

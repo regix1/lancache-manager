@@ -27,3 +27,7 @@ test('phone header controls retain their tighter icon-only fit', () => {
   assert.match(classes, /(?:^|\s)gap-0\.5(?:\s|$)/);
   assert.match(classes, /(?:^|\s)xs:gap-1(?:\s|$)/);
 });
+
+test('a lost connection shows only the dot, because the outage banner already says it in words', () => {
+  assert.doesNotMatch(headerSource, /status\.(?:disconnected|reconnecting)Label/);
+});

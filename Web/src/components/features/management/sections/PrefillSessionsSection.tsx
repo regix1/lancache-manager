@@ -1294,13 +1294,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : (
-              <div className="space-y-4">
+              <>
                 {sessionsError && (
                   <ErrorBlock
                     title={t('management.prefillSessions.errors.loadSessions')}
                     message={sessionsError}
                     retryLabel={t('common.retry')}
                     onRetry={loadSessions}
+                    className="mb-4 last:mb-0"
                   />
                 )}
                 {guestActiveSessions.length === 0 ? (
@@ -1339,7 +1340,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     ))}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </AccordionSection>
 
@@ -1363,13 +1364,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : (
-              <div className="space-y-4">
+              <>
                 {persistentError && (
                   <ErrorBlock
                     title={t('management.prefillSessions.persistentSessions.errors.load')}
                     message={persistentError}
                     retryLabel={t('common.retry')}
                     onRetry={loadPersistentContainers}
+                    className="mb-4 last:mb-0"
                   />
                 )}
                 {persistentContainers.length === 0 ? (
@@ -1394,7 +1396,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     ))}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </AccordionSection>
         </div>
@@ -1492,13 +1494,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : (
-              <div className="space-y-4">
-                {sessionsError && (
+              <>
+                {/* Live Sessions and History come from one read, so while Live Sessions is open
+                    its box is the one that reports the failure. */}
+                {sessionsError && !liveSessionsExpanded && (
                   <ErrorBlock
                     title={t('management.prefillSessions.errors.loadHistory')}
                     message={sessionsError}
                     retryLabel={t('common.retry')}
                     onRetry={loadSessions}
+                    className="mb-4 last:mb-0"
                   />
                 )}
                 {sessions.length === 0 ? (
@@ -1556,7 +1561,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     )}
                   </>
                 )}
-              </div>
+              </>
             )}
           </AccordionSection>
 
@@ -1593,13 +1598,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : (
-              <div className="space-y-4">
+              <>
                 {bansError && (
                   <ErrorBlock
                     title={t('management.prefillSessions.errors.loadBans')}
                     message={bansError}
                     retryLabel={t('common.retry')}
                     onRetry={loadBans}
+                    className="mb-4 last:mb-0"
                   />
                 )}
                 {!hasVisibleBans ? (
@@ -1625,7 +1631,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     ))}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </AccordionSection>
         </div>
@@ -1676,7 +1682,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             className="focus-ring prefill-input"
           />
         </div>
-        <Alert color="red">
+        <Alert color="red" icon={null}>
           <p className="text-sm">{t('management.prefillSessions.modals.ban.warning')}</p>
         </Alert>
       </ConfirmationModal>

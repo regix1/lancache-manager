@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -20,6 +21,9 @@ export function ScheduledPrefillContainerModal({
   onClose
 }: ScheduledPrefillContainerModalProps) {
   const { t } = useTranslation();
+  // While the connection banner is up every read fails for that reason, so the banner speaks for
+  // the two load alerts. A failed start, stop or sign-in still shows its own alert.
+  const connectionLost = useConnectionLost();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const service = serviceKey ? t(`${baseKey}.services.${serviceKey}`) : '';
   return (
@@ -49,12 +53,12 @@ export function ScheduledPrefillContainerModal({
                       {t(`${baseKey}.summaryError`, { error: containers.errors[serviceKey] })}
                     </Alert>
                   )}
-                  {containers.persistentError && (
+                  {containers.persistentError && !connectionLost && (
                     <Alert color="red">
                       {t(`${baseKey}.summaryError`, { error: containers.persistentError })}
                     </Alert>
                   )}
-                  {containers.visibleIntegrationLoginErrors[serviceKey] && (
+                  {containers.visibleIntegrationLoginErrors[serviceKey] && !connectionLost && (
                     <Alert color="red">
                       {t(`${baseKey}.summaryError`, {
                         error: containers.visibleIntegrationLoginErrors[serviceKey]

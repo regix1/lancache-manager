@@ -205,12 +205,6 @@ const SteamWebApiStatus: React.FC = () => {
           </HelpPopover>
         </div>
 
-        {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
-          <Alert color="red" title={t('management.steamWebApi.bothUnavailable.title')}>
-            {t('management.steamWebApi.bothUnavailable.description')}
-          </Alert>
-        )}
-
         {/* While the read has failed, the box above is the status and its Retry the refresh, so
             the status row goes; the key row from an earlier read stays. */}
         {(error === null || showKeyRow) && (
@@ -225,6 +219,11 @@ const SteamWebApiStatus: React.FC = () => {
                   {!loading && status && (
                     <p className="mgmt-row__meta">
                       {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
+                    </p>
+                  )}
+                  {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
+                    <p className="mgmt-row__meta">
+                      {t('management.steamWebApi.bothUnavailable.description')}
                     </p>
                   )}
                 </div>

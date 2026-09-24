@@ -98,8 +98,10 @@ const MemoryDiagnostics: React.FC = () => {
   }
 
   if (error && !stats) {
+    // Under the connection banner the box renders nothing, and the page frame hides with it
+    // instead of standing as a blank screen.
     return (
-      <div className="min-h-screen p-6 bg-themed-primary">
+      <div className="min-h-screen p-6 bg-themed-primary empty:hidden">
         <ErrorBlock
           title={t('memory.failedToLoad')}
           message={error}
@@ -122,14 +124,13 @@ const MemoryDiagnostics: React.FC = () => {
 
       {/* A failed refresh keeps the last figures under the box. */}
       {error && (
-        <div className="mb-6">
-          <ErrorBlock
-            title={t('memory.failedToLoad')}
-            message={error}
-            retryLabel={t('common.retry')}
-            onRetry={() => void fetchMemoryStats()}
-          />
-        </div>
+        <ErrorBlock
+          className="mb-6"
+          title={t('memory.failedToLoad')}
+          message={error}
+          retryLabel={t('common.retry')}
+          onRetry={() => void fetchMemoryStats()}
+        />
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

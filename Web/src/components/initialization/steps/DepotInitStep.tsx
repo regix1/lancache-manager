@@ -350,19 +350,23 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
       {/* Steam Auth Warning */}
       {usingSteamAuth && (
-        <Alert color="warning">
+        <Alert
+          color="warning"
+          action={
+            onBackToSteamAuth && (
+              <Button
+                variant="filled"
+                color="secondary"
+                size="sm"
+                className="pointer-target-44"
+                onClick={onBackToSteamAuth}
+              >
+                {t('initialization.depotInit.changeAuthMethod')}
+              </Button>
+            )
+          }
+        >
           <p>{t('initialization.depotInit.githubUnavailable')}</p>
-          {onBackToSteamAuth && (
-            <Button
-              size="xs"
-              variant="filled"
-              color="secondary"
-              onClick={onBackToSteamAuth}
-              className="mt-2"
-            >
-              {t('initialization.depotInit.changeAuthMethod')}
-            </Button>
-          )}
         </Alert>
       )}
 

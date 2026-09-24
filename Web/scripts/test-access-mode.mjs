@@ -289,6 +289,31 @@ test('setup fields and action rows share one recipe across the access dialog and
   );
 });
 
+test('a timed-out permissions check shows only the timeout notice, not a second error box', () => {
+  assert.match(
+    readWebSource('src/components/initialization/steps/PermissionsCheckStep.tsx'),
+    /\{error && !timedOut && \(?\s*<Alert color="error"[^>]*>\s*\{error\}\s*<\/Alert>/
+  );
+});
+
+test('the depot step puts Change auth method in its warning box action slot', () => {
+  // The box's only body is its sentence; the button rides in the action slot at the right.
+  assert.match(
+    readWebSource('src/components/initialization/steps/DepotInitStep.tsx'),
+    /<Alert\s+color="warning"\s+action=\{\s*onBackToSteamAuth && \(\s*<Button\b[\s\S]*?depotInit\.changeAuthMethod[\s\S]*?\)\s*\}\s*>\s*<p>\{t\('initialization\.depotInit\.githubUnavailable'\)\}<\/p>\s*<\/Alert>/
+  );
+});
+
+test('Recheck sits inside the permissions result message and Continue stays the step action', () => {
+  const source = readWebSource('src/components/initialization/steps/PermissionsCheckStep.tsx');
+  // The error, the summary and the timeout notice each carry Recheck; only one of them shows.
+  assert.equal((source.match(/action=\{recheckAction\}/g) ?? []).length, 3);
+  const actionRow = source.slice(source.indexOf('className="setup-actions"'));
+  assert.ok(actionRow.includes('permissionsCheck.continue'), 'Continue left the step action row');
+  assert.ok(!actionRow.includes('permissionsCheck.recheck'), 'Recheck is still in the action row');
+  assert.ok(!actionRow.includes('<Alert'), 'a result message sits below the step action');
+});
+
 test('the flow only grows to three steps once new credentials are committed', () => {
   const match = accessSource.match(/const showsTestStep =([\s\S]*?);\r?\n/);
   assert.ok(match, 'showsTestStep is not declared');

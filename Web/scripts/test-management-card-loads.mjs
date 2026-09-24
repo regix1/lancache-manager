@@ -376,54 +376,58 @@ test('a mount read that fails while a newer read is out keeps the daemon card lo
   assert.deepEqual(state.errors, [null]);
 });
 
+const passthrough = ({ children }) => React.createElement(React.Fragment, null, children);
+
 /**
- * The Steam Web API panel rendered to markup with a status hook that reports `webApi`. Shared
- * controls render as plain tags that carry their text, so the markup shows what the user would read.
+ * Renders the component `name` declared as `const name = (...) => ...` in `relativePath` to
+ * markup with `props`, with `bindings` standing in for everything it imports. Shared controls are
+ * bound to plain tags that carry their text, so the markup shows what the user would read.
  */
-const renderSteamWebApiStatus = (webApi) => {
-  const sourceFile = parseSource(STEAM_WEB_API, ts.ScriptKind.TSX);
+const renderComponent = (relativePath, name, bindings, props = {}) => {
+  const sourceFile = parseSource(relativePath, ts.ScriptKind.TSX);
   const component = findSoleNode(
     sourceFile,
-    'SteamWebApiStatus component',
+    `${name} component`,
     (node) =>
       ts.isVariableDeclaration(node) &&
-      node.name.getText(sourceFile) === 'SteamWebApiStatus' &&
+      node.name.getText(sourceFile) === name &&
       node.initializer !== undefined &&
       ts.isArrowFunction(node.initializer)
   );
-  const passthrough = ({ children }) => React.createElement(React.Fragment, null, children);
-  const SteamWebApiStatus = bindLifted(
+  const Component = bindLifted(
     component.initializer.getText(sourceFile),
-    {
-      React,
-      useState: React.useState,
-      useRef: React.useRef,
-      useEffect: React.useEffect,
-      useTranslation: () => ({ t: (key) => key }),
-      useSteamWebApiStatus: () => ({ refresh: async () => undefined, ...webApi }),
-      useAuth: () => ({ authenticationEnabled: false, isLoading: false }),
-      usePicsProgress: () => ({ updateProgress: () => undefined }),
-      useNotifications: () => ({}),
-      useFormattedDateTime: () => 'checked',
-      getIntegrationReasonKey: (reason) => reason,
-      getErrorMessage: (error) => String(error),
-      ApiService: {},
-      Button: ({ children }) => React.createElement('button', null, children),
-      Alert: ({ title, children }) => React.createElement('div', null, title, children),
-      ErrorBlock: ({ title, message, retryLabel }) =>
-        React.createElement('section', null, title, message, retryLabel),
-      LoadingSpinner: () => null,
-      HelpPopover: () => null,
-      HelpSection: passthrough,
-      HelpNote: passthrough,
-      HelpDefinition: () => null,
-      SteamWebApiKeyModal: () => null,
-      ConfirmationModal: () => null
-    },
+    { React, useTranslation: () => ({ t: (key) => key }), ...bindings },
     { jsx: ts.JsxEmit.React }
   );
-  return renderToStaticMarkup(React.createElement(SteamWebApiStatus));
+  return renderToStaticMarkup(React.createElement(Component, props));
 };
+
+/** The Steam Web API panel with a status hook that reports `webApi`. */
+const renderSteamWebApiStatus = (webApi) =>
+  renderComponent(STEAM_WEB_API, 'SteamWebApiStatus', {
+    useState: React.useState,
+    useRef: React.useRef,
+    useEffect: React.useEffect,
+    useSteamWebApiStatus: () => ({ refresh: async () => undefined, ...webApi }),
+    useAuth: () => ({ authenticationEnabled: false, isLoading: false }),
+    usePicsProgress: () => ({ updateProgress: () => undefined }),
+    useNotifications: () => ({}),
+    useFormattedDateTime: () => 'checked',
+    getIntegrationReasonKey: (reason) => reason,
+    getErrorMessage: (error) => String(error),
+    ApiService: {},
+    Button: ({ children }) => React.createElement('button', null, children),
+    Alert: ({ title, children }) => React.createElement('div', null, title, children),
+    ErrorBlock: ({ title, message, retryLabel }) =>
+      React.createElement('section', null, title, message, retryLabel),
+    LoadingSpinner: () => null,
+    HelpPopover: () => null,
+    HelpSection: passthrough,
+    HelpNote: passthrough,
+    HelpDefinition: () => null,
+    SteamWebApiKeyModal: () => null,
+    ConfirmationModal: () => null
+  });
 
 test('a failed Steam Web API read shows only its box, with no status line or second Refresh', () => {
   const markup = renderSteamWebApiStatus({
@@ -458,4 +462,366 @@ test('a failed Steam Web API refresh keeps the key row it read before, under the
     markup.includes('management.steamWebApi.keyConfigured'),
     'the key row from the last good read stays, as the other cards keep earlier data'
   );
+});
+
+test('both Steam Web API versions down reads as the status row alone, with its advice', () => {
+  const markup = renderSteamWebApiStatus({
+    status: { hasApiKey: true, isFullyOperational: false, version: 'BothFailed', canManage: true },
+    loading: false,
+    error: null
+  });
+
+  assert.ok(markup.includes('management.steamWebApi.state.down'), 'the row says the API is down');
+  assert.ok(
+    !markup.includes('management.steamWebApi.bothUnavailable.title'),
+    'a red box restating the down row is the same failure said twice'
+  );
+  assert.ok(
+    markup.includes('management.steamWebApi.bothUnavailable.description'),
+    'the "try again later" advice is not said anywhere else, so the row keeps it'
+  );
+});
+
+/** Stand-ins for an AccordionSection card: the header badge, then the body. */
+const cardBindings = {
+  AccordionSection: ({ badge, children }) =>
+    React.createElement('div', null, React.createElement('header', null, badge), children),
+  SectionHeaderChip: ({ children }) => React.createElement('span', null, children),
+  SectionErrorChip: () => React.createElement('span', null, 'common.failedToLoad'),
+  SectionHeaderActions: passthrough,
+  ErrorBlock: ({ title }) => React.createElement('section', null, title),
+  Button: ({ children }) => React.createElement('button', null, children),
+  Alert: ({ children }) => React.createElement('div', null, children),
+  HelpPopover: () => null,
+  HelpSection: passthrough,
+  HelpNote: passthrough,
+  HelpDefinition: () => null,
+  useAccordionGroupItem: () => undefined,
+  useCallback: (callback) => callback
+};
+
+/** Every `useState` answers `[open, noop]`: in these cards it only holds whether a section is open. */
+const openState = (open) => () => [open, () => undefined];
+
+const renderDaemonCard = (open) =>
+  renderComponent(
+    'src/components/features/management/daemon-status/DaemonStatusCard.tsx',
+    'DaemonStatusCard',
+    { ...cardBindings, useState: openState(open), LoadingState: () => null },
+    {
+      title: 'Riot',
+      description: 'about',
+      help: { title: 'help', definitions: [], note: 'note' },
+      loading: false,
+      loadError: null,
+      loadErrorTitle: 'Failed to load Riot status',
+      onRetry: () => undefined,
+      connected: false,
+      connectedLabel: 'chip: connected',
+      notConnectedLabel: 'chip: not connected',
+      headline: 'headline: not connected',
+      detail: 'detail'
+    }
+  );
+
+test('an open daemon card says its status once, in its headline', () => {
+  assert.ok(
+    renderDaemonCard(false).includes('chip: not connected'),
+    'closed, the chip is the status'
+  );
+
+  const open = renderDaemonCard(true);
+  assert.ok(open.includes('headline: not connected'));
+  assert.ok(!open.includes('chip: not connected'), 'open, the headline already says it');
+});
+
+test('an open API Authentication card does not repeat its state in the header', () => {
+  const markup = renderComponent(
+    'src/components/features/management/sections/SettingsSection.tsx',
+    'SettingsSection',
+    {
+      ...cardBindings,
+      useState: openState(true),
+      useMockMode: () => ({ mockMode: true, setMockMode: () => undefined }),
+      useAuth: () => ({ authenticationEnabled: false }),
+      useSessionPreferences: () => ({ error: null }),
+      useErrorHandler: () => ({ notifyError: () => undefined }),
+      useNotifySuccess: () => ({ notifySuccess: () => undefined }),
+      AccordionGroupToggle: () => null,
+      GroupHeading: () => null,
+      TabPanel: passthrough,
+      AuthenticationManager: () => null,
+      DisplayPreferences: () => null,
+      Shield: () => null,
+      Sparkles: () => null,
+      Settings: () => null
+    }
+  );
+
+  assert.ok(
+    !markup.includes('management.sections.settings.disabled'),
+    'the open card body says authentication is off, so a "Disabled" chip beside it repeats it'
+  );
+});
+
+test('an open Steam card shows no header status chips; its body carries the status', () => {
+  const markup = renderComponent(
+    'src/components/features/management/steam/SteamIntegrationCard.tsx',
+    'SteamIntegrationCard',
+    {
+      ...cardBindings,
+      useState: openState(true),
+      useSteamAuth: () => ({
+        steamAuthMode: 'anonymous',
+        error: null,
+        refreshSteamAuth: async () => undefined
+      }),
+      useSteamWebApiStatus: () => ({
+        status: { hasApiKey: true, isFullyOperational: false, version: 'BothFailed' },
+        loading: false,
+        error: null
+      }),
+      SteamIcon: () => null,
+      SteamLoginManager: () => null,
+      SteamWebApiStatus: () => null
+    },
+    {
+      authMode: 'authenticated',
+      mockMode: false,
+      onError: () => undefined,
+      onSuccess: () => undefined
+    }
+  );
+
+  assert.ok(!markup.includes('management.steamAuth.anonymous'));
+  assert.ok(!markup.includes('management.steamWebApi.badgeUnavailable'));
+});
+
+const STEAM_LOGIN_FLOW = 'src/hooks/useSteamLoginFlow.ts';
+
+/**
+ * The Management Steam sign-in's submit handler with its state as recorders; `fetch` answers the
+ * sign-in request. The sign-in dialog shows `setError`'s value, and `notifyLoginFailure` was the
+ * popup behind it.
+ */
+const liftSteamSignIn = (fetch) => {
+  const state = { popups: [], errors: [], deadlines: [] };
+  const handleAuthenticate = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'handleAuthenticate'), {
+    canAuthenticate: true,
+    identityRef: { current: undefined },
+    integration: undefined,
+    busyRef: { current: false },
+    needsTwoFactor: false,
+    needsEmailCode: false,
+    useManualCode: false,
+    username: 'user',
+    password: 'secret',
+    setError: (value) => state.errors.push(value),
+    setLoading: () => undefined,
+    requestRef: { current: 0 },
+    cancelledAttemptRef: { current: null },
+    attemptRef: { current: null },
+    setAttemptId: () => undefined,
+    setAbortController: () => undefined,
+    setWaitingForMobileConfirmation: () => undefined,
+    STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS: 120000,
+    setLoginDeadline: (value) => state.deadlines.push(value),
+    fetch,
+    loginUrl: '/api/steam-auth/login',
+    ApiService: { getJsonFetchOptions: (_body, options) => options },
+    getExtraRequestBody: undefined,
+    ApiError: class ApiError extends Error {},
+    t: (key) => key,
+    notifyLoginFailure: (message) => state.popups.push(message),
+    resetAuthForm: () => undefined,
+    onError: undefined
+  });
+  return { state, handleAuthenticate };
+};
+
+test('a failed Management Steam sign-in shows its reason in the dialog only', async () => {
+  const { state, handleAuthenticate } = liftSteamSignIn(async () => {
+    throw new TypeError('Failed to fetch');
+  });
+
+  await handleAuthenticate();
+
+  assert.equal(state.errors.at(-1), 'modals.steamAuth.errors.authenticationFailed');
+  assert.deepEqual(
+    state.popups,
+    [],
+    'the open dialog already shows it; a popup behind it repeats it'
+  );
+});
+
+test('a Steam sign-in that times out ends its countdown', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { state, handleAuthenticate } = liftSteamSignIn(
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () =>
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        );
+      })
+  );
+
+  const signIn = handleAuthenticate();
+  t.mock.timers.tick(120000);
+  await signIn;
+
+  assert.equal(state.errors.at(-1), 'modals.steamAuth.errors.attemptTimedOut');
+  assert.equal(
+    state.deadlines.at(-1),
+    null,
+    'an expired countdown beside "timed out" says the same thing twice'
+  );
+});
+
+test('a Steam sign-in the server refuses or answers unreadably ends its countdown', async () => {
+  const refused = liftSteamSignIn(async () => ({
+    ok: true,
+    json: async () => ({ success: false })
+  }));
+  await refused.handleAuthenticate();
+  assert.equal(refused.state.errors.at(-1), 'modals.steamAuth.errors.authenticationFailed');
+  assert.equal(refused.state.deadlines.at(-1), null);
+
+  const unreadable = liftSteamSignIn(async () => ({
+    ok: true,
+    json: async () => {
+      throw new SyntaxError('Unexpected token');
+    }
+  }));
+  await unreadable.handleAuthenticate();
+  assert.equal(unreadable.state.errors.at(-1), 'modals.steamAuth.errors.invalidServerResponse');
+  assert.equal(unreadable.state.deadlines.at(-1), null);
+});
+
+test('resetting the Steam sign-in form ends its countdown', () => {
+  const deadlines = [];
+  const noop = () => undefined;
+  const resetAuthForm = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'resetAuthForm'), {
+    attemptRef: { current: null },
+    cancelledAttemptRef: { current: null },
+    setAttemptId: noop,
+    cancelPendingRequest: noop,
+    setError: noop,
+    setPassword: noop,
+    setTwoFactorCode: noop,
+    setEmailCode: noop,
+    setNeedsTwoFactor: noop,
+    setNeedsEmailCode: noop,
+    setWaitingForMobileConfirmation: noop,
+    setUseManualCode: noop,
+    setLoading: noop,
+    setLoginDeadline: (value) => deadlines.push(value)
+  });
+
+  resetAuthForm();
+
+  assert.deepEqual(
+    deadlines,
+    [null],
+    'a closed or refused attempt keeps no countdown for the next'
+  );
+});
+
+test('the Epic and Xbox cards leave a sign-in failure to their open dialog', () => {
+  for (const [path, hook] of [
+    ['src/components/features/management/epic/EpicDaemonStatus.tsx', 'useEpicMappingAuth'],
+    ['src/components/features/management/xbox/XboxDaemonStatus.tsx', 'useXboxMappingAuth']
+  ]) {
+    const sourceFile = parseSource(path, ts.ScriptKind.TSX);
+    const call = findSoleNode(
+      sourceFile,
+      `${hook} call`,
+      (node) => ts.isCallExpression(node) && node.expression.getText(sourceFile) === hook
+    );
+    const names = call.arguments[0].properties.map((property) => property.name.getText(sourceFile));
+    assert.ok(
+      !names.includes('onError'),
+      `${hook}: the dialog shows "Failed to sign in" with the reason, so a popup repeats it`
+    );
+  }
+});
+
+test('the key regeneration error box carries no icon of its own under the dialog title icon', () => {
+  const sourceFile = parseSource(
+    'src/components/features/management/steam/AuthenticationManager.tsx',
+    ts.ScriptKind.TSX
+  );
+  const alert = findSoleNode(
+    sourceFile,
+    'regenerate error Alert',
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(sourceFile) === 'Alert' &&
+      node.getText(sourceFile).includes('regenerateError')
+  );
+  const icon = alert.openingElement.attributes.properties.find(
+    (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(sourceFile) === 'icon'
+  );
+  assert.equal(icon?.initializer.expression.getText(sourceFile), 'null');
+});
+
+test('the API Authentication box puts its buttons in the shared action slot', () => {
+  const sourceFile = parseSource(
+    'src/components/features/management/steam/AuthenticationManager.tsx',
+    ts.ScriptKind.TSX
+  );
+  const statusBox = findSoleNode(
+    sourceFile,
+    'authentication status Alert',
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(sourceFile) === 'Alert' &&
+      node.openingElement.getText(sourceFile).includes('getAlertColor()')
+  );
+  const action = statusBox.openingElement.attributes.properties.find(
+    (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(sourceFile) === 'action'
+  );
+  assert.ok(action, 'the slot keeps the buttons at the right edge, centered, like every other box');
+  for (const label of ['management.auth.regenerate', 'management.auth.logout']) {
+    assert.ok(action.getText(sourceFile).includes(label), `${label} sits in the action slot`);
+  }
+  const body = statusBox.children.map((child) => child.getText(sourceFile)).join('');
+  assert.ok(!body.includes('<Button'), 'no button is left in the text column');
+});
+
+test('the sign-in dialog boxes carry no icon of their own under the Key title icon', () => {
+  const sourceFile = parseSource(
+    'src/components/features/management/steam/AuthenticationManager.tsx',
+    ts.ScriptKind.TSX
+  );
+  const dialog = findSoleNode(
+    sourceFile,
+    'sign-in Modal with the Key title icon',
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(sourceFile) === 'Modal' &&
+      node.openingElement.getText(sourceFile).includes('<Key')
+  );
+  const alerts = [];
+  const visit = (node) => {
+    if (
+      (ts.isJsxElement(node) && node.openingElement.tagName.getText(sourceFile) === 'Alert') ||
+      (ts.isJsxSelfClosingElement(node) && node.tagName.getText(sourceFile) === 'Alert')
+    ) {
+      alerts.push(ts.isJsxElement(node) ? node.openingElement : node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(dialog, visit);
+
+  assert.equal(alerts.length, 2, 'the error box and the API key help box');
+  for (const alert of alerts) {
+    const icon = alert.attributes.properties.find(
+      (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(sourceFile) === 'icon'
+    );
+    assert.equal(
+      icon?.initializer.expression.getText(sourceFile),
+      'null',
+      'one icon per item: the dialog title already has the Key'
+    );
+  }
 });

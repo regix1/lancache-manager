@@ -85,12 +85,15 @@ const SettingsSection: React.FC = () => {
             icon={Shield}
             isExpanded={apiAuthExpanded}
             onToggle={() => setApiAuthExpanded((prev) => !prev)}
+            // The open card states the authentication mode itself, so the chip is for the closed card.
             badge={
-              <SectionHeaderChip variant={authenticationEnabled ? 'success' : 'neutral'}>
-                {authenticationEnabled
-                  ? t('management.sections.settings.enabled')
-                  : t('management.sections.settings.disabled')}
-              </SectionHeaderChip>
+              apiAuthExpanded ? undefined : (
+                <SectionHeaderChip variant={authenticationEnabled ? 'success' : 'neutral'}>
+                  {authenticationEnabled
+                    ? t('management.sections.settings.enabled')
+                    : t('management.sections.settings.disabled')}
+                </SectionHeaderChip>
+              )
             }
           >
             <AuthenticationManager onError={notifyError} onSuccess={handleSuccess} />

@@ -14,13 +14,12 @@ import { useSelectionSet } from '@hooks/useSelectionSet';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
-import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { Alert } from '@components/ui/Alert';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
-import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
+import { isCardDiskActionBlocked } from '@utils/cardDirectoryNotice';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -268,7 +267,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     checkingPermissions,
     nginxReopenGate: { available: true, messageKey: null }
   };
-  const directoryNotice = resolveCardNotice(directoryNoticeConditions, directoryNoticeLiveState);
   const diskActionBlocked = isCardDiskActionBlocked(
     directoryNoticeConditions,
     directoryNoticeLiveState
@@ -348,8 +346,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         badge={headerActions}
       >
         <div className="space-y-3">
-          <CardDirectoryNotice notice={directoryNotice} />
-
           <>
             {/* Cache Size Info */}
             <div className="space-y-3">

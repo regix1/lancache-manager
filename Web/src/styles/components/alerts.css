@@ -55,6 +55,28 @@
     opacity: 1;
   }
 
+  /* A control that belongs to the message, such as Retry, sits inside the box at its right edge,
+     centered top to bottom; the text wraps beside it. The box's top and bottom padding are equal,
+     so the center of its content line is the center of the box. The text keeps a readable width
+     (the basis below): in a box too narrow for both, the control moves to its own row, still at
+     the right edge, instead of squeezing the text until words split. A pair of controls keeps
+     the gap between them. */
+  .alert:has(> .alert-action) {
+    flex-wrap: wrap;
+  }
+
+  .alert:has(> .alert-action) > .alert-content {
+    flex-basis: 9rem;
+  }
+
+  .alert-action {
+    flex-shrink: 0;
+    display: flex;
+    align-self: center;
+    margin-left: auto;
+    gap: 0.5rem;
+  }
+
   /* Severity variants */
   .alert-info {
     background-color: var(--theme-info-bg);

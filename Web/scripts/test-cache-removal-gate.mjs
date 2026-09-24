@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 import {
   bindLifted,
@@ -319,4 +321,123 @@ test('a scan history refresh that fails keeps the rows it already showed', async
     null,
     'common.errors.invalidJsonResponse'
   ]);
+});
+
+test('a hidden load box leaves no wrapper behind in its section body', () => {
+  // The shared section body hides itself only when it renders no node at all, so the load box
+  // must sit in the body directly rather than inside a spacing wrapper that stays mounted.
+  for (const [file, titleKey] of [
+    [
+      'src/components/features/management/cache/CorruptionScanHistory.tsx',
+      'management.corruption.history.loadError'
+    ],
+    [
+      'src/components/features/management/log-processing/LogRemovalManager.tsx',
+      'management.logRemoval.errors.loadFailed'
+    ]
+  ]) {
+    const source = parseSource(file, ts.ScriptKind.TSX);
+    const box = findSoleNode(
+      source,
+      `${titleKey} ErrorBlock`,
+      (node) =>
+        ts.isJsxSelfClosingElement(node) &&
+        node.tagName.getText(source) === 'ErrorBlock' &&
+        node.getText(source).includes(titleKey)
+    );
+    let parent = box.parent;
+    while (!ts.isJsxElement(parent)) parent = parent.parent;
+    assert.equal(parent.openingElement.tagName.getText(source), 'AccordionSection', file);
+  }
+});
+
+/** The children of the AccordionSection whose title uses `titleKey`, as one lifted fragment. */
+const sectionBody = (file, titleKey) => {
+  const source = parseSource(file, ts.ScriptKind.TSX);
+  const section = findSoleNode(
+    source,
+    `${titleKey} section`,
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(source) === 'AccordionSection' &&
+      node.openingElement.getText(source).includes(`title={t('${titleKey}')}`)
+  );
+  return `() => (<>${section.children.map((child) => child.getText(source)).join('')}</>)`;
+};
+
+// The load box renders nothing while the connection banner is up; the shared section body
+// hides itself only when its children render no node at all.
+const OUTAGE_ERROR_BLOCK = function ErrorBlock() {
+  return null;
+};
+
+test('an evicted items load that failed during an outage leaves the section body empty', () => {
+  const body = bindLifted(
+    sectionBody(
+      'src/components/features/management/sections/StorageSection.tsx',
+      'management.sections.data.evictedItemsHeading'
+    ),
+    {
+      React,
+      ErrorBlock: OUTAGE_ERROR_BLOCK,
+      EvictedItemsList: function EvictedItemsList() {
+        return React.createElement('ul');
+      },
+      t: (key) => key,
+      evictedItemsError: 'reason: server down',
+      evictedGames: [],
+      evictedServices: [],
+      fetchEvictedItems: async () => undefined
+    },
+    { jsx: ts.JsxEmit.React }
+  );
+  assert.equal(renderToStaticMarkup(body()), '');
+});
+
+test('a game detection load that failed during an outage leaves the section body empty', () => {
+  const file = 'src/components/features/management/game-detection/GameCacheDetector.tsx';
+  const source = parseSource(file, ts.ScriptKind.TSX);
+  const state = {
+    showBlockingLoader: false,
+    cacheExist: true,
+    datasources: [{ name: 'default' }],
+    hasResults: false,
+    unmappedServices: null,
+    loading: false,
+    loadError: 'reason: server down',
+    lastDetectionTime: null,
+    selectedDatasource: null,
+    filteredGames: [],
+    filteredServices: []
+  };
+  const hasBodyContent = bindLifted(
+    `() => (${findSoleNode(
+      source,
+      'hasBodyContent declaration',
+      (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === 'hasBodyContent'
+    ).initializer.getText(source)})`,
+    state
+  )();
+  const body = bindLifted(
+    sectionBody(file, 'management.gameDetection.title'),
+    {
+      ...state,
+      hasBodyContent,
+      React,
+      ErrorBlock: OUTAGE_ERROR_BLOCK,
+      t: (key) => key,
+      setInitialLoadRetry: () => undefined
+    },
+    { jsx: ts.JsxEmit.React }
+  );
+  assert.equal(renderToStaticMarkup(body()), '');
+});
+
+test('a saved scan says it is view only once, in its notice, with no badge beside it', () => {
+  const source = parseSource(
+    'src/components/features/management/cache/CorruptionScanHistory.tsx',
+    ts.ScriptKind.TSX
+  ).getFullText();
+  assert.ok(source.includes('management.corruption.history.viewOnlyNotice'));
+  assert.equal(source.includes('management.corruption.history.viewOnlyBadge'), false);
 });

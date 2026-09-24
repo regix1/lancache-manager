@@ -483,14 +483,13 @@ export function GameSelectionModal({
         >
           {/* Search and actions */}
           {error && onRescan && (
-            <div className="game-selection-modal__alert">
-              <ErrorBlock
-                title={t('prefill.log.failedLoadLibrary')}
-                message={error}
-                retryLabel={t('common.retry')}
-                onRetry={() => void onRescan()}
-              />
-            </div>
+            <ErrorBlock
+              className="game-selection-modal__alert"
+              title={t('prefill.log.failedLoadLibrary')}
+              message={error}
+              retryLabel={t('common.retry')}
+              onRetry={() => void onRescan()}
+            />
           )}
           {error && !onRescan && (
             <Alert color="red" className="game-selection-modal__alert">

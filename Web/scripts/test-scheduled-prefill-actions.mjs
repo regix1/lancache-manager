@@ -1780,6 +1780,7 @@ test('Activity renders five stable service sections and sends cancel to the exac
   const calls = [];
   const render = component(activitySource, 'ScheduledPrefillActivityModal', {
     useTranslation: primitives.useTranslation,
+    useConnectionLost: () => false,
     Modal: 'Modal',
     Button: 'Button',
     Alert: 'Alert',
@@ -2679,6 +2680,7 @@ test('outer editor composes record controls and selection save and clear remain 
     useScrollAreaHeight: () => [() => undefined, 400],
     useSignalR: () => ({ on: () => undefined, off: () => undefined, isConnected: true }),
     useReconnectRefetch: () => undefined,
+    useConnectionLost: () => false,
     Modal: 'Modal',
     Button: 'Button',
     Alert: 'Alert',
@@ -3262,6 +3264,7 @@ test('Activity shows localized capacity only for concurrent service containers',
       }
     }),
     useScrollAreaHeight: () => [() => undefined, 400],
+    useConnectionLost: () => false,
     Modal: 'Modal',
     Button: 'Button',
     CustomScrollbar: 'Scrollbar',

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -21,6 +22,9 @@ export function ScheduledPrefillActivityModal({
   onClose
 }: ScheduledPrefillActivityModalProps) {
   const { t } = useTranslation();
+  // While the connection banner is up every read fails for that reason, so the banner speaks for
+  // the load alert.
+  const connectionLost = useConnectionLost();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   return (
     <Modal
@@ -40,7 +44,7 @@ export function ScheduledPrefillActivityModal({
             radius="none"
           >
             <div className="scheduled-prefill-activity">
-              {containers.persistentError && (
+              {containers.persistentError && !connectionLost && (
                 <Alert color="red">
                   {t(`${baseKey}.summaryError`, { error: containers.persistentError })}
                 </Alert>

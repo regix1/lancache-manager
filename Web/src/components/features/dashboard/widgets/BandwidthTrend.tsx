@@ -51,7 +51,8 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   const themeRevision = useThemeRevision();
   const { sparklines, loading, failed } = useSparklines();
   // The sparklines hook carries no reason or refetch; both live with the rest of the batch.
-  const { error, refreshStats } = useStats();
+  // A batch whose every section failed (`batchFailed`) has one box at the top of the Dashboard.
+  const { error, refreshStats, batchFailed } = useStats();
   const loadError = failed ? error : null;
   const [chartTab, setChartTab] = useState<ChartTab>('bandwidth');
   const { hiddenSeries, toggleSeries, seriesKey } = useHiddenSeries();
@@ -207,8 +208,9 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   );
 
   const loadErrorBlock =
-    loadError === null ? null : (
+    loadError === null || batchFailed ? null : (
       <ErrorBlock
+        className="mb-3 last:mb-0"
         title={t('widgets.bandwidthTrend.loadFailed')}
         message={loadError}
         retryLabel={t('common.retry')}
@@ -255,7 +257,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
             </div>
           ) : hasSeries ? (
             <>
-              {loadError !== null && <div className="mb-3">{loadErrorBlock}</div>}
+              {loadErrorBlock}
               <LineChartLegend items={legendItems} onToggle={toggleSeries} />
               <div className="dash-line-chart">
                 <Line key={seriesKey} data={chartData} options={chartOptions} />

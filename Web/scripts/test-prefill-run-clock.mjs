@@ -75,6 +75,7 @@ const PrefillProgressCard = bindLifted(
     CollapsibleRegion: content,
     Badge: content,
     ChevronDown: () => null,
+    Download: () => null,
     LoadingSpinner: () => null,
     isPrefillRunActive,
     formatBytes: String,
@@ -147,6 +148,59 @@ test('run dates cross midnight with the selected zone without changing the recor
   assert.notEqual(utc, server);
   assert.equal(render('utc', 'cancelled'), utc);
   assert.equal(render('server-24h', 'cancelled'), server);
+});
+
+test('a card says reconnecting once, and the older card says a cached or finished game once', () => {
+  const markup = (props) =>
+    renderToStaticMarkup(
+      React.createElement(
+        ClockContext.Provider,
+        { value: { ...clockFromTimeSetting('utc'), refreshKey: 0 } },
+        React.createElement(PrefillProgressCard, props)
+      )
+    );
+  const recovering = {
+    runId: 'run',
+    sessionId: 'session',
+    daemonInstanceId: 'daemon',
+    scheduleName: 'Daily',
+    options: { selection: 'selected', appIds: ['440'], operatingSystems: ['windows'] },
+    snapshot: {
+      startedAt,
+      state: 'running',
+      totalApps: 1,
+      completedApps: 0,
+      cachedApps: 0,
+      failedApps: 0,
+      skippedApps: 0,
+      cancelledApps: 0,
+      bytesTransferred: 0
+    },
+    recovering: true,
+    cancelRequested: false
+  };
+  const card = markup({ run: recovering, progress: getPrefillRunProgress(recovering) });
+  assert.equal(card.match(/prefill\.progress\.reconnecting/g).length, 1);
+
+  const older = (state) =>
+    markup({
+      onCancel: () => undefined,
+      progress: {
+        state,
+        currentAppId: '440',
+        currentAppName: 'Portal',
+        percentComplete: 100,
+        bytesDownloaded: 0,
+        totalBytes: 0,
+        bytesPerSecond: 0,
+        elapsedSeconds: 0
+      }
+    });
+  assert.doesNotMatch(older('already_cached'), /[uU]pToDate/);
+  assert.equal(older('reconnecting').match(/prefill\.progress\.reconnecting/g).length, 1);
+  const finished = older('app_completed');
+  assert.equal(finished.match(/prefill\.progress\.loadingNextGame/g).length, 1);
+  assert.doesNotMatch(finished, /prefill\.progress\.complete\b/);
 });
 
 test('missing and invalid run starts use the shared timestamp placeholders', () => {

@@ -8,7 +8,7 @@ import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import type { NetworkDiagnostics } from '@services/api.service';
 
 interface NetworkStatusSectionProps {
-  diagnostics: NetworkDiagnostics | undefined;
+  diagnostics: NetworkDiagnostics;
 }
 
 interface HintDetailsProps {
@@ -75,10 +75,6 @@ function hasIpv6Resolution(result: NetworkDiagnostics['dnsResults'][number]) {
 export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
-
-  if (!diagnostics) {
-    return null;
-  }
 
   // With host networking, public DNS IPs are expected - prefill daemon detects lancache via localhost/gateway
   const hasPublicDnsWithHostNetworking =
@@ -287,15 +283,8 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
               </HintDetails>
             )}
 
-            {/* Internet Error Details */}
-            {!diagnostics.internetConnectivity && (
-              <>
-                <Alert color="error" icon={null}>
-                  {t('prefill.network.internetCheckFailed')}
-                </Alert>
-                <NetworkTroubleshooting />
-              </>
-            )}
+            {/* The row above already says Failed; the troubleshooting steps are the way out. */}
+            {!diagnostics.internetConnectivity && <NetworkTroubleshooting />}
           </div>
 
           {/* DNS Resolution */}
@@ -380,13 +369,6 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                           {t('prefill.network.ipv6BypassDetected')}
                         </Alert>
                       )}
-
-                    {/* DNS Error Details */}
-                    {!result.success && (
-                      <Alert color="error" icon={null}>
-                        {t('prefill.network.dnsCheckFailed')}
-                      </Alert>
-                    )}
                   </div>
                 );
               })}

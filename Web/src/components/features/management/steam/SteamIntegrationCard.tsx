@@ -91,17 +91,20 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
       iconColor="--theme-steam"
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
+      // The open card shows the same states in its body, so the chips are for the closed card.
       badge={
-        <SectionHeaderActions>
-          {loadError !== null || webApiError !== null ? (
-            !expanded && <SectionErrorChip />
-          ) : (
-            <>
-              {steamChip}
-              {webApiChip}
-            </>
-          )}
-        </SectionHeaderActions>
+        expanded ? undefined : (
+          <SectionHeaderActions>
+            {loadError !== null || webApiError !== null ? (
+              <SectionErrorChip />
+            ) : (
+              <>
+                {steamChip}
+                {webApiChip}
+              </>
+            )}
+          </SectionHeaderActions>
+        )
       }
     >
       {loadError !== null ? (

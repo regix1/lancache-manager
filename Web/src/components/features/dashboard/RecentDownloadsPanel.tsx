@@ -15,7 +15,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { useDownloads } from '@contexts/DashboardDataContext/hooks';
+import { useDownloads, useStats } from '@contexts/DashboardDataContext/hooks';
 import {
   DownloadFilterFetchContext,
   type DashboardGameGroup,
@@ -375,6 +375,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     refreshDownloads
   } = useDownloads();
   const loadError = failed ? error : null;
+  // A batch whose every section failed has one box at the top of the Dashboard instead.
+  const { batchFailed } = useStats();
   // Set while the answer to the current selection is still on its way. The rows below narrow
   // themselves the moment a dropdown moves; the totals cannot, so they need a way to say so.
   const downloadFilterFetching = useContext(DownloadFilterFetchContext);
@@ -544,7 +546,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       : !loading && visibleGroups.length > 0;
 
   const loadErrorBlock =
-    loadError === null ? null : (
+    loadError === null || batchFailed ? null : (
       <ErrorBlock
         title={t('dashboard.downloadsPanel.loadFailed')}
         message={loadError}
@@ -703,9 +705,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             ) : (
               <>
                 {/* A failed refresh keeps the recorded rows already shown, so the box sits above
-                    them; with no rows it takes the empty state's place below. */}
+                    them; with no rows it takes the empty state's place below. The inset wrapper
+                    hides when the box renders nothing under the connection banner. */}
                 {loadErrorBlock !== null && visibleDbItems.length > 0 && (
-                  <div className="p-3">{loadErrorBlock}</div>
+                  <div className="p-3 empty:hidden">{loadErrorBlock}</div>
                 )}
                 {/* In-progress previews stay visible even while the recorded list is
                     loading or empty - they come from the speed snapshot, not the DB. */}
@@ -747,8 +750,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                       />
                     );
                   })
-                ) : loadErrorBlock !== null ? (
-                  <div className="p-3">{loadErrorBlock}</div>
+                ) : loadError !== null ? (
+                  loadErrorBlock !== null && (
+                    <div className="p-3 empty:hidden">{loadErrorBlock}</div>
+                  )
                 ) : displayedLivePreviews.length === 0 ? (
                   // A selection whose rows are all older than the slice held here empties the list
                   // as soon as it is made, and the answer that refills it is a round trip away.

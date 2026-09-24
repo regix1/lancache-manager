@@ -270,7 +270,6 @@
     "on": "On",
     "off": "Off",
     "moreActions": "More actions",
-    "bytes": {},
     "dateRangePicker": {
       "daysSelected": "{{count}} day selected",
       "daysSelected_other": "{{count}} days selected",
@@ -621,8 +620,6 @@
     "connectedTooltip": "API Status: Connected - All backend services are responding normally",
     "disconnectedTooltip": "API Status: Disconnected - Unable to connect to backend services",
     "reconnectingTooltip": "API Status: Reconnecting - Attempting to restore connection to backend services",
-    "disconnectedLabel": "Disconnected",
-    "reconnectingLabel": "Reconnecting",
     "staleDataTooltip": "Some dashboard data could not be refreshed. Showing the last good values."
   },
   "guest": {
@@ -702,7 +699,6 @@
       "cacheFilesSize": "Cache Size",
       "driveCapacityValue": "Drive: {{size}}",
       "disabled": "Disabled",
-      "liveDataOnly": "Live data only",
       "startedAt": "started at {{size}}",
       "snapshots": "{{count}} snapshot",
       "snapshots_other": "{{count}} snapshots",
@@ -928,7 +924,8 @@
       }
     },
     "errors": {
-      "refreshSpeedsFailed": "Failed to refresh download speeds."
+      "refreshSpeedsFailed": "Failed to refresh download speeds.",
+      "loadFailed": "Failed to load dashboard data"
     },
     "sparkline": {
       "ariaLabel_one": "Sparkline chart showing {{count}} data point",
@@ -1758,7 +1755,6 @@
         "unknownOther": "Unknown/Other",
         "serviceDownloads": "{{service}} Downloads"
       },
-      "warnings": {},
       "emptyRange": {
         "title": "No downloads found in selected time range",
         "description": "The dashboard shows active downloads (currently in progress), while this list shows downloads that started within the selected time period. Try switching to Live to see all downloads, or adjust your time range."
@@ -2207,7 +2203,6 @@
           "evictedVsOthersTitle": "What this does not cover",
           "evictedVsOthers": "This starts from a download and asks whether its cache files are still on disk. It cannot see a file that no download claims, because there is nothing to ask on its behalf, and that is what the Unmapped section of the Game Cache Detection scan lists. A file that is present but damaged is the Cache Integrity scan's job."
         },
-        "epicResolve": {},
         "dataImport": "Data Import",
         "evictedCacheData": "Eviction Detection and Removal",
         "evictedCacheDataShort": "Cache Eviction",
@@ -3023,7 +3018,6 @@
         "loadError": "Failed to load scan history",
         "currentBadge": "Current",
         "historicalBadge": "Historical",
-        "viewOnlyBadge": "View only",
         "view": "View",
         "deleteSavedScan": "Delete saved scan",
         "thresholdMeta": "Threshold {{threshold}}",
@@ -3234,16 +3228,10 @@
     "dataImporter": {
       "title": "Import Historical Data",
       "subtitle": "Import from another LANCache Manager database",
-      "progress": {},
       "buttons": {
         "importRecords": "Import {{formattedCount}} Records",
         "import": "Import"
       },
-      "confirm": {},
-      "messages": {
-        "importCompleted": "Import completed! {{imported}} imported, {{skipped}} skipped, {{errors}} errors"
-      },
-      "errors": {},
       "help": {
         "aboutTitle": "About"
       },
@@ -3251,8 +3239,7 @@
         "mockMode": "Mock mode is enabled - import functionality is disabled",
         "skipInfo": "Most users can skip this feature. Only use if you have an existing database from a previous installation that you want to import.",
         "authRequired": "Authentication required to import data"
-      },
-      "aria": {}
+      }
     },
     "logRemoval": {
       "title": "Log Removal",
@@ -3327,7 +3314,6 @@
       "remove": "Remove",
       "lastChecked": "Last checked",
       "bothUnavailable": {
-        "title": "Both V2 and V1 Unavailable",
         "description": "Both Steam Web API V2 and V1 are currently unavailable. This may be a temporary Steam service issue. Please try again later."
       },
       "removeModal": {
@@ -4396,7 +4382,6 @@
         "steamSignOutFailed": "Signed out, but the Steam login and Web API key could not be cleared from the server."
       }
     },
-    "sessions": {},
     "prefillSessions": {
       "help": {
         "liveSessionsTitle": "About",
@@ -4934,8 +4919,6 @@
       "notResolved": "Not resolved",
       "trySetting": "Try setting",
       "inDockerCompose": "in your docker-compose.yml",
-      "internetCheckFailed": "The prefill container could not reach the connectivity test endpoint.",
-      "dnsCheckFailed": "The prefill container could not resolve this domain.",
       "lancacheDnsIpInstruction": "If bridge mode still cannot resolve LANCache domains, set this to the LAN-reachable IP of the DNS server that maps those domains to your cache:",
       "lancacheDnsIpExplanation": "This is usually lancache-dns, AdGuard Home, or Pi-hole. After changing it, recreate LANCache Manager and start a new prefill session. Do not use the prefill container IP.",
       "publicDnsExpected": "Public DNS is expected with host networking. Steam-prefill will detect lancache automatically via localhost. If your cache size grows during downloads, everything is working correctly.",
@@ -4964,10 +4947,7 @@
       "reconnecting": "Reconnecting...",
       "reconnectingMessage": "Prefill in progress. Reconnecting to get current status...",
       "appId": "App {{id}}",
-      "complete": "Complete",
-      "upToDate": "Up to Date",
       "elapsed": "elapsed",
-      "gameUpToDate": "Game is already up to date in cache",
       "preparingOperation": "Preparing prefill operation...",
       "gameXofN": "Game {{current}} of {{total}}",
       "etaCurrentGame": "{{time}} left on this game",
@@ -5476,7 +5456,6 @@
     "epicAuth": {
       "title": "Epic Games Account Login",
       "containerAccountNotice": "This is the container's Epic Games account, not your LANCache Manager login.",
-      "errors": {},
       "signInTitle": "Sign in with Epic Games",
       "signInDescription": "You sign in at Epic, then paste a code here.",
       "connectingSubtitle": "Getting your sign-in link",
@@ -6778,8 +6757,6 @@
     }
   },
   "initialization": {
-    "steamApiKey": {},
-    "importData": {},
     "apiKey": {
       "placeholder": "Enter your API key",
       "label": "API Key",
@@ -7276,9 +7253,6 @@
       "minimumSelections": "Minimum {{count}} selection required",
       "minimumSelections_other": "Minimum {{count}} selections required",
       "noMatches": "No matches"
-    },
-    "managerCard": {
-      "readOnly": "Read-only"
     },
     "datasource": {
       "disabled": "Disabled"

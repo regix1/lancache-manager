@@ -6,7 +6,7 @@ import { type HourlyActivityItem, type HourlyActivityResponse } from '../../../.
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/useTimezone';
-import { useHourlyActivity } from '@contexts/DashboardDataContext/hooks';
+import { useHourlyActivity, useStats } from '@contexts/DashboardDataContext/hooks';
 import {
   getCurrentHour,
   getDayBoundsInTimezone,
@@ -114,6 +114,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // Consume hourly activity data from batched context
   const { hourlyActivity: displayData, loading, error, failed, refetch } = useHourlyActivity();
   const loadError = failed ? error : null;
+  // A batch whose every section failed has one box at the top of the Dashboard instead.
+  const { batchFailed } = useStats();
 
   const viewerZone = getEffectiveTimezone();
 
@@ -299,12 +301,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         <div className="flex items-center gap-2 mb-3">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
-        <ErrorBlock
-          title={t('widgets.peakUsageHours.loadFailed')}
-          message={loadError}
-          retryLabel={t('common.retry')}
-          onRetry={() => void refetch()}
-        />
+        {!batchFailed && (
+          <ErrorBlock
+            title={t('widgets.peakUsageHours.loadFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refetch()}
+          />
+        )}
         {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </WidgetPanel>
     );
@@ -495,15 +499,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         </div>
       </div>
 
-      {loadError !== null && (
-        <div className="mb-3">
-          <ErrorBlock
-            title={t('widgets.peakUsageHours.loadFailed')}
-            message={loadError}
-            retryLabel={t('common.retry')}
-            onRetry={() => void refetch()}
-          />
-        </div>
+      {loadError !== null && !batchFailed && (
+        <ErrorBlock
+          className="mb-3"
+          title={t('widgets.peakUsageHours.loadFailed')}
+          message={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void refetch()}
+        />
       )}
 
       {/* Heatmap well - 24 hour blocks. flex-1 so the small row-stretch

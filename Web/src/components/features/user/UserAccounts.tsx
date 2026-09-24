@@ -396,49 +396,48 @@ const UserAccounts: React.FC = () => {
           </SectionHeaderActions>
         }
       >
-        <div className="space-y-4">
-          {!loading && loadError !== null && (
-            <ErrorBlock
-              title={t('user.accounts.errors.load')}
-              message={loadError}
-              retryLabel={t('common.retry')}
-              onRetry={() => void loadAccounts(true)}
+        {!loading && loadError !== null && (
+          <ErrorBlock
+            title={t('user.accounts.errors.load')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void loadAccounts(true)}
+            className={accounts.length > 0 ? 'mb-4' : undefined}
+          />
+        )}
+        {loading ? (
+          <LoadingState message={t('user.accounts.loading')} />
+        ) : accounts.length === 0 ? (
+          loadError === null && (
+            // No icon: the section header already carries UserCog, and repeating it here would
+            // put the same icon twice on one item.
+            <EmptyState
+              title={t('user.accounts.empty.title')}
+              subtitle={t('user.accounts.empty.subtitle')}
             />
-          )}
-          {loading ? (
-            <LoadingState message={t('user.accounts.loading')} />
-          ) : accounts.length === 0 ? (
-            loadError === null && (
-              // No icon: the section header already carries UserCog, and repeating it here would
-              // put the same icon twice on one item.
-              <EmptyState
-                title={t('user.accounts.empty.title')}
-                subtitle={t('user.accounts.empty.subtitle')}
+          )
+        ) : (
+          <div className="space-y-4">
+            <DataTable<UserAccount>
+              columns={columns}
+              data={visibleAccounts}
+              keyExtractor={(account: UserAccount) => account.id}
+              striped
+              compact
+            />
+            {accounts.length > PAGE_SIZE && (
+              <Pagination
+                currentPage={safePage}
+                totalPages={totalPages}
+                totalItems={accounts.length}
+                itemsPerPage={PAGE_SIZE}
+                onPageChange={(page: number) => setCurrentPage(page)}
+                itemLabel={t('user.accounts.paginationLabel')}
+                showCard={false}
               />
-            )
-          ) : (
-            <>
-              <DataTable<UserAccount>
-                columns={columns}
-                data={visibleAccounts}
-                keyExtractor={(account: UserAccount) => account.id}
-                striped
-                compact
-              />
-              {accounts.length > PAGE_SIZE && (
-                <Pagination
-                  currentPage={safePage}
-                  totalPages={totalPages}
-                  totalItems={accounts.length}
-                  itemsPerPage={PAGE_SIZE}
-                  onPageChange={(page: number) => setCurrentPage(page)}
-                  itemLabel={t('user.accounts.paginationLabel')}
-                  showCard={false}
-                />
-              )}
-            </>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </AccordionSection>
 
       {editor && (

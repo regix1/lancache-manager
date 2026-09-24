@@ -148,3 +148,49 @@ test('blank names stop Save before the request', () => {
   })();
   assert.equal(message, translate(baseKey + '.records.nameRequired'));
 });
+
+// Every read these dialogs make fails for the same reason while the connection banner is up, so
+// their red load alerts stay hidden then; connected, each still shows. Evaluates the condition in
+// front of each alert as the component ships it.
+test('scheduled prefill dialogs hide their load alerts under the connection banner', () => {
+  const dialogs = [
+    ['ScheduledPrefillConfigModal.tsx', 'loadError.message'],
+    ['ScheduledPrefillContainerModal.tsx', 'error: containers.persistentError'],
+    ['ScheduledPrefillContainerModal.tsx', 'containers.visibleIntegrationLoginErrors[serviceKey]'],
+    ['ScheduledPrefillActivityModal.tsx', 'error: containers.persistentError'],
+    ['ScheduledPrefillSharedSettingsModal.tsx', 'error: readErrors.days'],
+    ['ScheduledPrefillSharedSettingsModal.tsx', 'error: readErrors.mode']
+  ];
+  const failedReads = {
+    loadError: { key: 'steam:new', message: 'reason' },
+    loadKey: 'steam:new',
+    serviceKey: 'steam',
+    containers: {
+      persistentError: 'reason',
+      visibleIntegrationLoginErrors: { steam: 'reason' }
+    },
+    readErrors: { days: 'reason', mode: 'reason' }
+  };
+
+  for (const [file, marker] of dialogs) {
+    const dialog = parseSource(
+      `src/components/features/management/schedules/scheduled-prefill/${file}`,
+      ts.ScriptKind.TSX
+    );
+    const alert = findSoleNode(
+      dialog,
+      `${file} alert for ${marker}`,
+      (node) =>
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        /^\(?\s*<Alert/.test(node.right.getText(dialog)) &&
+        node.right.getText(dialog).includes(marker)
+    );
+    const shows = (connectionLost) =>
+      Boolean(
+        bindLifted(`() => (${alert.left.getText(dialog)})`, { ...failedReads, connectionLost })()
+      );
+    assert.equal(shows(true), false, `${file}: ${marker} shows under the banner`);
+    assert.equal(shows(false), true, `${file}: ${marker} must still show while connected`);
+  }
+});

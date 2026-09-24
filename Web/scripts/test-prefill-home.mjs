@@ -295,36 +295,223 @@ test('a failed settings save raises one popup, and a guest sends no save', async
   assert.deepEqual(notified, [['prefill.errors.saveSettingsFailed', failure]]);
 });
 
-test('a failed End Session or Cancel Login raises one popup and logs the reason', async () => {
+test('a failed End Session or Cancel Login reaches an admin as one popup and a guest as one log line', async () => {
   const failure = new Error('Hub down');
   for (const [invoked, key] of [
     ["'EndSessionAsync'", 'prefill.errors.endSessionFailed'],
     ["'CancelLoginAsync'", 'prefill.errors.cancelLoginFailed']
   ]) {
-    const notified = [];
-    const logged = [];
-    await bindLifted(liftHookCallback(panelPath, 'useCallback', invoked), {
-      signalR: {
-        session: { id: 'session-a' },
-        hubConnection: {
-          current: {
-            invoke: async () => {
-              throw failure;
+    for (const isAdmin of [true, false]) {
+      const notified = [];
+      const logged = [];
+      await bindLifted(liftHookCallback(panelPath, 'useCallback', invoked), {
+        isAdmin,
+        signalR: {
+          session: { id: 'session-a' },
+          hubConnection: {
+            current: {
+              invoke: async () => {
+                throw failure;
+              }
             }
           }
-        }
-      },
-      setShowAuthModal: () => undefined,
-      authActions: { resetAuthForm: () => undefined },
-      addLog: (type, message) => logged.push([type, message]),
-      getErrorMessage: (error) => error.message,
-      notifyError: (...popup) => notified.push(popup),
-      t: (text) => text
-    })();
-    assert.deepEqual(notified, [[key, failure]], invoked);
-    assert.ok(
-      logged.some(([type, message]) => type === 'error' && message === 'Hub down'),
-      invoked
-    );
+        },
+        setShowAuthModal: () => undefined,
+        authActions: { resetAuthForm: () => undefined },
+        addLog: (type, message) => logged.push([type, message]),
+        getErrorMessage: (error) => error.message,
+        notifyError: (...popup) => notified.push(popup),
+        t: (text) => text
+      })();
+      const errorLines = logged.filter(([type]) => type === 'error');
+      assert.deepEqual(notified, isAdmin ? [[key, failure]] : [], `${invoked} admin ${isAdmin}`);
+      assert.deepEqual(
+        errorLines,
+        isAdmin ? [] : [['error', 'Hub down']],
+        `${invoked} admin ${isAdmin}`
+      );
+    }
   }
+});
+
+test('an expiring session writes no second error beside the expired panel', () => {
+  const written = [];
+  const countdown = bindLifted(
+    liftHookCallback(panelPath, 'useEffect', 'hasExpiredRef.current = true'),
+    {
+      signalR: {
+        session: { status: 'Active', expiresAt: '2000-01-01T00:00:00Z' },
+        setTimeRemaining: () => undefined,
+        setIsLoggedIn: () => undefined,
+        setError: (value) => written.push(value)
+      },
+      hasExpiredRef: { current: false },
+      parseUtcDate: (value) => new Date(value),
+      setInterval: (tick) => {
+        tick();
+        return 0;
+      },
+      clearInterval: () => undefined,
+      t: (key) => key
+    }
+  );
+  countdown();
+  assert.deepEqual(written, []);
+});
+
+test('a session with no time left logs no "expires in" line, and one with time left still does', async () => {
+  const hookPath = 'src/components/features/prefill/hooks/usePrefillSignalR.ts';
+  const noop = () => undefined;
+  const session = (secondsLeft) => ({
+    id: 'session-a',
+    status: 'Active',
+    authState: 'Authenticated',
+    containerName: 'prefill-a',
+    isPrefilling: false,
+    expiresAt: new Date(Date.now() + secondsLeft * 1000).toISOString()
+  });
+  const connection = (current) => ({
+    state: 'Connected',
+    invoke: async (name) =>
+      name === 'GetMySessions' ? [current] : name === 'CreateSessionAsync' ? current : null
+  });
+  const shared = (logged) => ({
+    addLog: (_type, message) => logged.push(message),
+    t: (key) => key,
+    setHubConnectFailed: noop,
+    setSession: noop,
+    setTimeRemaining: noop,
+    setIsLoggedIn: noop,
+    formatTimeRemaining: (seconds) => `${seconds}s`,
+    serviceId: 'steam',
+    serviceNameKey: 'steam',
+    getErrorMessage: (error) => error.message
+  });
+  const adopt = (current, logged) =>
+    bindLifted(liftHookCallback(hookPath, 'useCallback', "'GetMySessions'"), {
+      ...shared(logged),
+      initializationAttempted: { current: false },
+      setIsInitializing: noop,
+      connectToHub: async () => connection(current),
+      sessionRef: { current: null },
+      supportsConcurrentPrefill: () => false,
+      updateRuns: noop,
+      rehydratePrefillProgress: async () => undefined,
+      setIsPrefillActive: noop,
+      setPrefillProgress: noop,
+      seedReconnectingProgressFromSession: noop,
+      sessionStore: { getItem: () => null, removeItem: noop },
+      STORAGE_KEYS: {},
+      COMPLETION_NOTIFICATION_WINDOW_MS: 0,
+      isCompletionDismissed: () => false,
+      formatDurationFromSeconds: String,
+      setBackgroundCompletion: noop,
+      clearAllPrefillStorage: noop
+    })();
+  const create = (current, logged) =>
+    bindLifted(liftHookCallback(hookPath, 'useCallback', "'CreateSessionAsync'"), {
+      ...shared(logged),
+      setIsCreating: noop,
+      setCreateSessionError: noop,
+      hubConnection: { current: connection(current) },
+      connectToHub: async () => null,
+      notifyError: noop
+    })(noop);
+
+  for (const start of [adopt, create]) {
+    for (const [secondsLeft, lines] of [
+      [-60, 0],
+      [0, 0],
+      [3600, 1]
+    ]) {
+      const logged = [];
+      await start(session(secondsLeft), logged);
+      assert.equal(
+        logged.filter((message) => message === 'prefill.log.sessionExpiresIn').length,
+        lines,
+        `${start.name} with ${secondsLeft}s left`
+      );
+    }
+  }
+});
+
+test('a Prefill wrapper whose content can be empty renders only with that content', () => {
+  // An empty wrapper still takes its container's 1rem gap, which pushed the controls column
+  // below the Activity Log and left a gap under the header title on phones.
+  const panel = parseSource(panelPath, typescript.ScriptKind.TSX);
+  const conditionOf = (className) => {
+    const opening = findSoleNode(
+      panel,
+      `${className} wrapper`,
+      (node) =>
+        typescript.isJsxOpeningElement(node) &&
+        node.attributes.properties.some(
+          (attribute) => attribute.getText(panel) === `className="${className}"`
+        )
+    );
+    let node = opening.parent.parent;
+    while (typescript.isParenthesizedExpression(node)) node = node.parent;
+    assert.ok(typescript.isBinaryExpression(node), `${className} is rendered unconditionally`);
+    return node.left.getText(panel);
+  };
+  assert.match(conditionOf('prefill-sec-network'), /networkDiagnostics/);
+  assert.match(conditionOf('flex items-center gap-3 w-full sm:w-auto'), /!isSessionExpired/);
+  assert.match(conditionOf('prefill-sec-progress space-y-3'), /shownRuns\.length/);
+});
+
+test('dismissed finished runs keep no run list, and the settings box carries its own spacing', () => {
+  const panel = parseSource(panelPath, typescript.ScriptKind.TSX);
+  const declaration = findSoleNode(
+    panel,
+    'shown run list',
+    (node) => typescript.isVariableDeclaration(node) && node.name.getText(panel) === 'shownRuns'
+  );
+  const run = (runId, state) => ({
+    runId,
+    sessionId: 'session-a',
+    snapshot: { startedAt: '', state }
+  });
+  const shownRuns = (runs, dismissed) =>
+    bindLifted(`() => ${declaration.initializer.getText(panel)}`, {
+      signalR: { runs, session: { id: 'session-a' } },
+      runCompletions: [],
+      isPrefillRunActive: (item) => item.snapshot.state === 'running',
+      isRunCompletionDismissed: (item) => dismissed.includes(item.runId)
+    })();
+  assert.equal(shownRuns([run('done', 'completed')], ['done']).length, 0);
+  assert.equal(shownRuns([run('done', 'completed')], []).length, 1);
+  assert.equal(shownRuns([run('live', 'running')], ['live']).length, 1);
+
+  // The box hides under the connection banner; a wrapper around it would stay behind, empty.
+  const settingsBox = findSoleNode(
+    panel,
+    'settings load box',
+    (node) =>
+      typescript.isJsxSelfClosingElement(node) &&
+      node.tagName.getText(panel) === 'ErrorBlock' &&
+      node.getText(panel).includes('failedLoadSettings')
+  );
+  assert.ok(
+    settingsBox.attributes.properties.some(
+      (attribute) => attribute.getText(panel) === 'className="prefill-sec-commands"'
+    ),
+    'the settings box does not carry the commands section class'
+  );
+});
+
+test('Start new session sits in the expired panel action slot, right and centered like Retry', () => {
+  const panel = parseSource(panelPath, typescript.ScriptKind.TSX);
+  const startNew = findSoleNode(
+    panel,
+    'Start new session button',
+    (node) =>
+      (typescript.isJsxOpeningElement(node) || typescript.isJsxSelfClosingElement(node)) &&
+      node.tagName.getText(panel) === 'Button' &&
+      node.getText(panel).includes('onClick={handleStartNewSession}')
+  );
+  let node = startNew.parent;
+  while (node && !typescript.isJsxAttribute(node)) node = node.parent;
+  assert.ok(node, 'the button is not passed as an attribute');
+  assert.equal(node.name.getText(panel), 'action');
+  assert.equal(node.parent.parent.tagName.getText(panel), 'Alert');
 });

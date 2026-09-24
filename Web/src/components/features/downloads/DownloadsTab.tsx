@@ -1912,8 +1912,9 @@ const DownloadsTab: React.FC = () => {
             </div>
           </Card>
 
-          {/* Help message for empty time ranges */}
-          {visibleTotalItems === 0 && timeRange !== 'live' && (
+          {/* Help message for empty time ranges. A failed load leaves only a placeholder count, so
+              its own box below speaks instead. */}
+          {visibleTotalItems === 0 && timeRange !== 'live' && !serverPage.error && (
             <Alert color="yellow" title={t('downloads.tab.emptyRange.title')}>
               {t('downloads.tab.emptyRange.description')}
             </Alert>

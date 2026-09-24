@@ -51,6 +51,7 @@ import {
 } from '@/components/features/management/sections/managementStorageKeys';
 import StatCard from '@components/common/StatCard';
 import { Button } from '@components/ui/Button';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpSection, HelpDefinition, HelpNote } from '@components/ui/HelpPopover';
@@ -192,7 +193,10 @@ const Dashboard: React.FC = () => {
     serviceStats,
     dashboardStats: fetchedDashboardStats,
     loading,
-    failedSections
+    failedSections,
+    batchFailed,
+    error,
+    refreshStats
   } = useStats();
   const { latestDownloads, downloadGroups } = useDownloads();
   const {
@@ -212,9 +216,11 @@ const Dashboard: React.FC = () => {
   const { mockMode } = useMockMode();
   const { isConnected } = useSignalR();
   // While the connection banner is up it is the one message, so a card still marked failed (a range
-  // the outage never let load) shows a blank subtitle, the way the widgets stay blank.
+  // the outage never let load) shows a blank subtitle, the way the widgets stay blank. A batch whose
+  // every section failed (the request itself failed) gets one box at the top of the page instead,
+  // and the cards and widgets stay blank under it.
   const connectionLost = useConnectionLost();
-  const failedToLoadSubtitle = connectionLost ? undefined : t('common.failedToLoad');
+  const failedToLoadSubtitle = connectionLost || batchFailed ? undefined : t('common.failedToLoad');
 
   // Eviction mode - determines whether evicted games are included in "Games on Disk". Null until a
   // read answers, so a failed read shows no "evicted included" badge.
@@ -674,9 +680,10 @@ const Dashboard: React.FC = () => {
         key: 'activeDownloads',
         title: t('dashboard.cards.activeDownloads'),
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.totalActiveDownloads,
-        subtitle: isHistoricalView
-          ? t('dashboard.cards.liveDataOnly')
-          : stats.periodDownloads != null
+        // In a past range the "Live" chip, the "Disabled" value and the overlay already say it is
+        // live only, so the subtitle adds nothing.
+        subtitle:
+          !isHistoricalView && stats.periodDownloads != null
             ? t('dashboard.cards.downloadsInRange', { count: stats.periodDownloads })
             : undefined,
         badge: liveBadge,
@@ -689,9 +696,8 @@ const Dashboard: React.FC = () => {
         key: 'activeClients',
         title: t('dashboard.cards.activeClients'),
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.activeClients,
-        subtitle: isHistoricalView
-          ? t('dashboard.cards.liveDataOnly')
-          : stats.uniqueClients != null
+        subtitle:
+          !isHistoricalView && stats.uniqueClients != null
             ? t('dashboard.cards.uniqueClientsInRange', { count: stats.uniqueClients })
             : undefined,
         badge: liveBadge,
@@ -1119,6 +1125,15 @@ const Dashboard: React.FC = () => {
             </Tooltip>
           </div>
         </div>
+      )}
+
+      {batchFailed && error !== null && (
+        <ErrorBlock
+          title={t('dashboard.errors.loadFailed')}
+          message={error}
+          retryLabel={t('common.retry')}
+          onRetry={() => void refreshStats(true)}
+        />
       )}
 
       {/* Stats Grid */}

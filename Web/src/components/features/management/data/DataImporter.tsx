@@ -6,34 +6,21 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { DatabaseImportForm } from './DatabaseImportForm';
-import type { ImportResult } from '@/types/migration';
 
 interface DataImporterProps {
   isAdmin: boolean;
   mockMode: boolean;
   onError?: (message: string) => void;
-  onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
 }
 
-const DataImporter: React.FC<DataImporterProps> = ({
-  isAdmin,
-  mockMode,
-  onSuccess,
-  onDataRefresh
-}) => {
+const DataImporter: React.FC<DataImporterProps> = ({ isAdmin, mockMode, onDataRefresh }) => {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   useAccordionGroupItem('data-importer', isExpanded, () => setIsExpanded((prev) => !prev));
 
-  const handleImportComplete = (result: ImportResult) => {
-    onSuccess?.(
-      t('management.dataImporter.messages.importCompleted', {
-        imported: result.imported,
-        skipped: result.skipped,
-        errors: result.errors
-      })
-    );
+  // The form's count grid and the import's run card already show the result.
+  const handleImportComplete = () => {
     onDataRefresh?.();
   };
 

@@ -67,6 +67,12 @@
   padding: 0.75rem;
 }
 
+/* The failed-load box renders nothing under the connection banner. Its empty wrapper is then the
+   picker's only child, so the whole frame goes, border and inset included. */
+.clientgroup-ip-picker:has(> .clientgroup-ip-picker__state:empty) {
+  display: none;
+}
+
 /* Select-all and Clear sit on one 32px line above the search box. */
 .clientgroup-picker-toolbar {
   display: flex;

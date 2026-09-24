@@ -33,7 +33,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     const { timeRange } = useTimeFilter();
     const { cacheSnapshot, loading, error, failed, refetch } = useCacheSnapshot();
     const loadError = failed ? error : null;
-    const { failedSections } = useStats();
+    // A batch whose every section failed (`batchFailed`) has one box at the top of the Dashboard.
+    const { failedSections, batchFailed } = useStats();
     const connectionLost = useConnectionLost();
     const nextSnapshotTime = useFormattedDateTime(cacheSnapshot?.nextSnapshotUtc ?? null);
 
@@ -81,11 +82,16 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
         </div>
 
-        {/* One failure, one message: the red box below speaks for the card when it shows, and the
-            connection banner does while the connection is lost. */}
-        {!hasCurrentCapacity && failedSections.cache && loadError === null && !connectionLost && (
-          <div className="text-sm text-themed-muted mb-3">{t('common.failedToLoad')}</div>
-        )}
+        {/* One failure, one message: the red box below speaks for the card when it shows, the
+            Dashboard's own box does when the whole batch failed, and the connection banner does
+            while the connection is lost. */}
+        {!hasCurrentCapacity &&
+          failedSections.cache &&
+          loadError === null &&
+          !connectionLost &&
+          !batchFailed && (
+            <div className="text-sm text-themed-muted mb-3">{t('common.failedToLoad')}</div>
+          )}
 
         {hasCurrentCapacity && (
           <>
@@ -110,15 +116,14 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </>
         )}
 
-        {loadError !== null && (
-          <div className="mb-3">
-            <ErrorBlock
-              title={t('widgets.cacheGrowthTrend.loadFailed')}
-              message={loadError}
-              retryLabel={t('common.retry')}
-              onRetry={() => void refetch()}
-            />
-          </div>
+        {loadError !== null && !batchFailed && (
+          <ErrorBlock
+            className="mb-3 last:mb-0"
+            title={t('widgets.cacheGrowthTrend.loadFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refetch()}
+          />
         )}
 
         {/* A failed refetch keeps the previous snapshot, so the growth figures stay under the box. */}

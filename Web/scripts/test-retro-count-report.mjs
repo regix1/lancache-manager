@@ -68,6 +68,39 @@ test('a table that is not showing reports nothing at all', () => {
   assert.deepEqual(runReportEffect(false, hookResult({ hasResponse: true, totalItems: 42 })), []);
 });
 
+test('a table whose last load failed reports no count, so the page adds no empty-range notice', () => {
+  // The rows on screen are the last good answer's; the failed load's own box says what happened.
+  assert.deepEqual(
+    runReportEffect(
+      true,
+      hookResult({ hasResponse: true, totalItems: 0, error: new Error('down') })
+    ),
+    [null]
+  );
+});
+
+test('the page shows no empty-range notice beside a failed load of its own rows', () => {
+  const notice = findSoleNode(
+    downloadsTab,
+    'the empty-range notice',
+    (node) =>
+      ts.isJsxExpression(node) &&
+      node.expression !== undefined &&
+      ts.isBinaryExpression(node.expression) &&
+      node.expression.left.getText(downloadsTab).startsWith('visibleTotalItems === 0') &&
+      node.expression.right.getText(downloadsTab).includes('downloads.tab.emptyRange.title')
+  );
+  const shows = (serverPageError) =>
+    bindLifted(`() => (${notice.expression.left.getText(downloadsTab)})`, {
+      visibleTotalItems: 0,
+      timeRange: '24h',
+      serverPage: { error: serverPageError }
+    })();
+
+  assert.ok(!shows(new Error('down')), 'nothing was loaded, so the range is not known to be empty');
+  assert.ok(shows(null));
+});
+
 // -- the page keeps the table on screen when the count is genuinely zero -------------------------
 
 const emptyStateGuard = findSoleNode(

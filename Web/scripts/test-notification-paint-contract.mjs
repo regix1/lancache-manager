@@ -2240,3 +2240,46 @@ test('a long failure reason wraps inside the card', () => {
   assert.equal(textOf(error), reason);
   assert.match(error.props.className, /\bbreak-words\b/);
 });
+
+test('a prefill card leaves the reconnecting line to the connection banner while it is up', () => {
+  const card = {
+    ...notice('prefill'),
+    type: 'scheduled_prefill',
+    details: { operationId: 'prefill', operationIds: ['prefill'], connectionRecovering: true }
+  };
+  for (const connectionLost of [true, false])
+    assert.equal(
+      slotsOf(renderItem(card, false, connectionLost)).some((item) => item.name === 'reconnecting'),
+      !connectionLost,
+      `lost=${connectionLost}`
+    );
+});
+
+test('a prefill card leaves the reconnecting announcement to the connection banner while it is up', () => {
+  const announce = bindLifted(
+    findSoleNode(
+      itemSource,
+      'announcement hook',
+      (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'useNotificationAnnouncement'
+    ).getText(itemSource),
+    {
+      useTranslation: () => ({ t: (key) => key }),
+      useState: (initial) => [initial, () => undefined],
+      useRef: (initial) => ({ current: initial }),
+      useEffect: () => undefined,
+      ANNOUNCEMENT_MIN_INTERVAL_MS: 5000,
+      isTerminalNotificationStatus
+    }
+  );
+  const card = {
+    ...notice('prefill'),
+    type: 'scheduled_prefill',
+    details: { connectionRecovering: true }
+  };
+  for (const connectionLost of [true, false])
+    assert.equal(
+      announce(card, connectionLost).includes('prefill.progress.reconnecting'),
+      !connectionLost,
+      `lost=${connectionLost}`
+    );
+});

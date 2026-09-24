@@ -80,7 +80,7 @@ import {
 } from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo, OrphanedDownloadGroup } from '../../../../types';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
-import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
+import { getNginxReopenGate, getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
@@ -186,7 +186,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     checkingPermissions,
     nginxReopenGate: allEvictedNginxReopenGate
   };
-  const directoryNotice = resolveCardNotice(directoryNoticeConditions, directoryNoticeLiveState);
   const diskActionBlocked = isCardDiskActionBlocked(
     directoryNoticeConditions,
     directoryNoticeLiveState
@@ -824,6 +823,27 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         </div>
       )}
 
+      {/* Each directory or nginx problem is told once here for every card on this tab; the cards
+          still disable the actions it blocks. */}
+      <CardDirectoryNotice
+        notice={resolveCardNotice(
+          { cacheWrite: true, cacheRead: false, logsWrite: false, nginx: false },
+          directoryNoticeLiveState
+        )}
+      />
+      <CardDirectoryNotice
+        notice={resolveCardNotice(
+          { cacheWrite: false, cacheRead: false, logsWrite: true, nginx: false },
+          directoryNoticeLiveState
+        )}
+      />
+      <CardDirectoryNotice
+        notice={resolveCardNotice(
+          { cacheWrite: false, cacheRead: false, logsWrite: false, nginx: true },
+          { ...directoryNoticeLiveState, nginxReopenGate: getNginxReopenGate(datasources) }
+        )}
+      />
+
       {/* ==================== LOG OPERATIONS ==================== */}
       <div className="mb-6 sm:mb-8">
         <GroupHeading
@@ -1048,8 +1068,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               }
             >
               <div className="space-y-4">
-                <CardDirectoryNotice notice={directoryNotice} />
-
                 {/* Sub-accordion 1: Eviction Scan & Settings */}
                 <AccordionSection
                   title={t('management.sections.data.evictionSettingsHeading')}
@@ -1133,13 +1151,18 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     evictedItemsError !== null && !evictedItemsExpanded && <SectionErrorChip />
                   }
                 >
-                  <div className="space-y-3">
+                  {/* No spacing wrapper: the section body hides itself only when nothing renders
+                      in it, and this box renders nothing under the connection banner. */}
+                  <>
                     {evictedItemsError !== null && (
                       <ErrorBlock
                         title={t('management.storage.errors.fetchEvictedItems')}
                         message={evictedItemsError}
                         retryLabel={t('common.retry')}
                         onRetry={() => void fetchEvictedItems()}
+                        className={
+                          evictedGames.length + evictedServices.length > 0 ? 'mb-3' : undefined
+                        }
                       />
                     )}
                     {(evictedItemsError === null ||
@@ -1157,7 +1180,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         loading={evictedItemsLoading}
                       />
                     )}
-                  </div>
+                  </>
                 </AccordionSection>
 
                 {/* Sub-accordion 3: records the scan cannot verify, removed by choice */}

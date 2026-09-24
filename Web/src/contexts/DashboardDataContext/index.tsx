@@ -922,7 +922,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       loading,
       isRefreshing,
       error,
-      dataStale,
+      // "Showing the last good values" holds only while a failed section still shows a confirmed
+      // value. A failure that kept nothing confirmed (a range the batch never loaded, or a first
+      // load) leaves the sections blank, and the Dashboard's own box reports it.
+      dataStale:
+        dataStale && failedSectionKeys.some((key) => !unconfirmedSectionKeys.includes(key)),
       // While the connection banner is up the batch keeps its last slices, so a section reports
       // its own failure only when it has no confirmed value on screen.
       failedSectionKeys: connectionLost

@@ -10,7 +10,13 @@ interface AlertProps {
   withCloseButton?: boolean;
   onClose?: () => void;
   closeButtonLabel?: string;
-  title?: string;
+  /** Usually a string; the crash card passes an `h2` so heading navigation still finds it. */
+  title?: React.ReactNode;
+  /**
+   * A control that belongs to this message, such as Retry. It is drawn inside the box at its right
+   * edge, centered top to bottom, at every width.
+   */
+  action?: React.ReactNode;
   className?: string;
 }
 
@@ -46,6 +52,7 @@ export const Alert: React.FC<AlertProps> = ({
   onClose,
   closeButtonLabel,
   title,
+  action,
   className
 }) => {
   const displayIcon = icon !== undefined ? icon : DEFAULT_ICONS[color];
@@ -57,6 +64,7 @@ export const Alert: React.FC<AlertProps> = ({
         {title && <div className="font-medium mb-1">{title}</div>}
         <div>{children}</div>
       </div>
+      {action && <div className="alert-action">{action}</div>}
       {withCloseButton && onClose && (
         <button
           type="button"

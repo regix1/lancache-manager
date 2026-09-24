@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
-import { useErrorHandler } from './useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
@@ -85,14 +84,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       integration.access?.canRecover === true ||
       (integration.access?.canCancel === true && integration.access.attemptId === attemptId));
   const { addNotification } = useNotifications();
-  const { notifyError } = useErrorHandler();
-
-  const notifyLoginFailure = (message: string): void => {
-    notifyError(
-      t('common.errors.signInFailed', { platform: t('prefill.persistent.services.steam') }),
-      message
-    );
-  };
 
   const [loading, setLoading] = useState(false);
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
@@ -147,6 +138,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     setWaitingForMobileConfirmation(false);
     setUseManualCode(false);
     setLoading(false);
+    // The attempt is over, so its countdown is too; a clock left running beside the reason would
+    // say the same thing twice.
+    setLoginDeadline(null);
   };
 
   const cancelLogin = () => {
@@ -301,10 +295,10 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         if (!current()) return false;
       } catch (_jsonError) {
         const invalidResponse = t('modals.steamAuth.errors.invalidServerResponse');
-        notifyLoginFailure(invalidResponse);
         setError(invalidResponse);
         setLoading(false);
         setWaitingForMobileConfirmation(false);
+        setLoginDeadline(null);
         return false;
       }
 
@@ -348,8 +342,8 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         }
 
         setWaitingForMobileConfirmation(false);
+        setLoginDeadline(null);
         const refused = t('modals.steamAuth.errors.authenticationFailed');
-        notifyLoginFailure(refused);
         setError(refused);
         return false;
       }
@@ -368,7 +362,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       const errorMsg = refusal?.body?.stageKey
         ? t(refusal.body.stageKey, refusal.body.context ?? {})
         : t('modals.steamAuth.errors.authenticationFailed');
-      notifyLoginFailure(errorMsg);
       resetAuthForm();
       // After the reset, which clears the previous attempt's error along with the typed
       // credentials. A wrong password lands here, and this is the line the modal shows.
@@ -384,7 +377,6 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
           err instanceof ApiError && err.body?.stageKey
             ? t(err.body.stageKey, err.body.context ?? {})
             : t('modals.steamAuth.errors.authenticationFailed');
-        notifyLoginFailure(errorMessage);
         resetAuthForm();
         // Set after the reset, same as the refused-credentials path above.
         setError(errorMessage);
@@ -393,9 +385,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         // Leave the phone-approval screen the same way a refusal does, or the panel keeps saying
         // it is waiting for an approval that can no longer arrive, with the reason underneath it.
         setWaitingForMobileConfirmation(false);
+        setLoginDeadline(null);
         const timedOutMessage = t('modals.steamAuth.errors.attemptTimedOut');
         setError(timedOutMessage);
-        notifyLoginFailure(timedOutMessage);
       }
       return false;
     } finally {

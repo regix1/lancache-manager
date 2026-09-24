@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './transpile-module.mjs';
 
@@ -404,4 +406,122 @@ test('a failed history expand raises one popup and closes the row so the next ex
   assert.deepEqual([...expanded], ['other']);
   assert.deepEqual([...loading], []);
   assert.deepEqual(history, {}, 'no empty history is recorded, so the next expand fetches again');
+});
+
+test('one failed sessions read shows one box: History shows it only while Live Sessions is closed', () => {
+  const historyBox = findSoleNode(
+    source,
+    'Session History error box',
+    (node) =>
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      node.right.getText(source).includes('<ErrorBlock') &&
+      node.right.getText(source).includes('errors.loadHistory')
+  );
+  const shows = (liveSessionsExpanded) =>
+    Boolean(
+      bindLifted(`() => (${historyBox.left.getText(source)})`, {
+        sessionsError: 'reason: server down',
+        liveSessionsExpanded
+      })()
+    );
+
+  assert.equal(shows(true), false, 'the open Live Sessions section already shows the box');
+  assert.equal(shows(false), true);
+});
+
+test('the ban warning box carries no icon of its own under the dialog title icon', () => {
+  const warning = findSoleNode(
+    source,
+    'ban warning box',
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(source) === 'Alert' &&
+      node.getText(source).includes('modals.ban.warning')
+  );
+  const icon = warning.openingElement.attributes.properties.find(
+    (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(source) === 'icon'
+  );
+  assert.equal(icon?.initializer.expression.kind, ts.SyntaxKind.NullKeyword);
+});
+
+// The markup a section body renders, from the children the component ships. The body hides only
+// when this is empty, so an empty wrapper div would leave a blank strip under the header.
+const sectionBody = (titleKey, bindings) => {
+  const section = findSoleNode(
+    source,
+    `${titleKey} section body`,
+    (node) =>
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(source) === 'AccordionSection' &&
+      node.openingElement.attributes.properties.some(
+        (attribute) =>
+          ts.isJsxAttribute(attribute) &&
+          attribute.name.getText(source) === 'title' &&
+          attribute.initializer.getText(source).includes(`'${titleKey}'`)
+      )
+  );
+  const children = section.children.map((child) => child.getText(source)).join('');
+  return renderToStaticMarkup(
+    bindLifted(`() => (<>${children}</>)`, { React, ...bindings }, { jsx: ts.JsxEmit.React })()
+  );
+};
+
+// Every list failed and nothing was ever read. `ErrorBlock` is whatever the box renders.
+const failedWithNoRows = (ErrorBlock) => ({
+  ErrorBlock,
+  t: (key) => key,
+  loadingSessions: false,
+  hasLoadedSessions: true,
+  sessionsError: 'reason: server down',
+  guestActiveSessions: [],
+  sessions: [],
+  liveSessionsExpanded: true,
+  loadingPersistent: false,
+  persistentError: 'reason: server down',
+  persistentContainers: [],
+  loadingBans: false,
+  bansError: 'reason: server down',
+  hasVisibleBans: false,
+  loadSessions: () => undefined,
+  loadPersistentContainers: () => undefined,
+  loadBans: () => undefined,
+  EnhancedDropdown: () => null,
+  statusFilter: '',
+  setStatusFilter: () => undefined,
+  platformFilter: 'all',
+  setPlatformFilter: () => undefined,
+  setPage: () => undefined
+});
+
+test('under the connection banner a failed list with no rows leaves its section body empty', () => {
+  // ErrorBlock renders nothing while the connection banner is up.
+  const bodies = failedWithNoRows(function ErrorBlock() {
+    return null;
+  });
+
+  assert.equal(sectionBody('management.prefillSessions.liveSessions', bodies), '');
+  assert.equal(sectionBody('management.prefillSessions.persistentSessions.title', bodies), '');
+  assert.equal(sectionBody('management.prefillSessions.bannedUsers.title', bodies), '');
+  assert.equal(
+    sectionBody('management.prefillSessions.sessionHistory', bodies),
+    '<div class="prefill-history-filters"></div>',
+    'History keeps its filters and adds no empty wrapper'
+  );
+});
+
+test('while Live Sessions shows the failure, History adds no empty wrapper under its filters', () => {
+  const bodies = failedWithNoRows(function ErrorBlock() {
+    return React.createElement('div', { role: 'alert' });
+  });
+
+  assert.equal(
+    sectionBody('management.prefillSessions.sessionHistory', bodies),
+    '<div class="prefill-history-filters"></div>'
+  );
+  assert.equal(
+    sectionBody('management.prefillSessions.liveSessions', bodies),
+    '<div role="alert"></div>',
+    'connected, the box is the whole body'
+  );
 });

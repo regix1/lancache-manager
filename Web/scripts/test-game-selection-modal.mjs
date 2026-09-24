@@ -733,3 +733,23 @@ test('a save completing after close and reopen cannot close the replacement pick
   await pending;
   assert.equal(closed, false);
 });
+
+test('the library load box carries its own spacing, so an outage leaves no blank band', () => {
+  // The box hides while the connection banner is up; a wrapper around it would keep its margin.
+  const box = findSoleNode(
+    modalFile,
+    'library load box',
+    (node) => ts.isJsxSelfClosingElement(node) && node.tagName.getText(modalFile) === 'ErrorBlock'
+  );
+  assert.ok(
+    box.attributes.properties.some(
+      (attribute) => attribute.getText(modalFile) === 'className="game-selection-modal__alert"'
+    ),
+    'the box does not carry the alert spacing class'
+  );
+  assert.ok(
+    !ts.isJsxElement(box.parent) ||
+      !box.parent.openingElement.getText(modalFile).includes('game-selection-modal__alert'),
+    'the box still sits in a spacing wrapper'
+  );
+});

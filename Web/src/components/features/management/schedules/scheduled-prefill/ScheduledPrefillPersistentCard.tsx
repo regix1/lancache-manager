@@ -171,17 +171,21 @@ export function ScheduledPrefillPersistentCard({
               {t(`${baseKey}.platforms.sections.persistentContainer`)}
             </h4>
           </div>
-          <span
-            className="scheduled-prefill-persistent-card__status"
-            role="status"
-            aria-live="polite"
-          >
-            <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
-            <span className="scheduled-prefill-persistent-card__status-text">
-              {(statusDisplay.busy || statusLoading) && <LoadingSpinner inline size="xs" />}
-              {statusDisplay.label}
+          {/* Until the first status arrives the label would be a guess ("Stopped") beside the
+              body's own loading line, so the header waits for it. */}
+          {!isContainerLoading && (
+            <span
+              className="scheduled-prefill-persistent-card__status"
+              role="status"
+              aria-live="polite"
+            >
+              <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
+              <span className="scheduled-prefill-persistent-card__status-text">
+                {(statusDisplay.busy || statusLoading) && <LoadingSpinner inline size="xs" />}
+                {statusDisplay.label}
+              </span>
             </span>
-          </span>
+          )}
         </header>
 
         {isContainerLoading ? (

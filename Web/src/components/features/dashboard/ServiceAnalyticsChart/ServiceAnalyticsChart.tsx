@@ -36,7 +36,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const [showList, setShowList] = useState<boolean>(true);
     const [gameService, setGameService] = useState<string>(ALL_GAME_SERVICES);
     const { gameDetectionData, failed: detectionFailed } = useGameDetection();
-    const { failedSections, error, refreshStats } = useStats();
+    // A batch whose every section failed (`batchFailed`) has one box at the top of the Dashboard.
+    const { failedSections, batchFailed, error, refreshStats } = useStats();
     // The Games tab draws the detection cache; every other tab draws the service stats.
     const loadError = (activeTab === 'games' ? detectionFailed : failedSections.services)
       ? error
@@ -333,15 +334,14 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           </div>
         </div>
 
-        {loadError !== null && (
-          <div className="mb-3">
-            <ErrorBlock
-              title={t('dashboard.serviceAnalytics.loadFailed')}
-              message={loadError}
-              retryLabel={t('common.retry')}
-              onRetry={() => void refreshStats(true)}
-            />
-          </div>
+        {loadError !== null && !batchFailed && (
+          <ErrorBlock
+            className="mb-3 last:mb-0"
+            title={t('dashboard.serviceAnalytics.loadFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refreshStats(true)}
+          />
         )}
 
         {loading ? (

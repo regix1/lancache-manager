@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import typescript from 'typescript';
 import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './transpile-module.mjs';
 
@@ -405,5 +407,60 @@ test('the panel asks again once the socket is back', () => {
     call.arguments[1].getText(sourceFile),
     'reloadExclusions',
     'a save made while the socket was down raises an event this panel never receives'
+  );
+});
+
+test('the address picker frame hides with its failure box under the connection banner', () => {
+  const modal = parseSource(
+    'src/components/modals/ClientGroupModal.tsx',
+    typescript.ScriptKind.TSX
+  );
+  const failure = findSoleNode(
+    modal,
+    'address picker failure state',
+    (node) => typescript.isIfStatement(node) && node.expression.getText(modal) === 'groupsError'
+  );
+  const failureBody = bindLifted(
+    `() => (${failure.thenStatement.statements[0].expression.getText(modal)})`,
+    {
+      React,
+      // ErrorBlock renders nothing while the connection banner is up.
+      ErrorBlock: function ErrorBlock() {
+        return null;
+      },
+      groupsError: 'reason: server down',
+      t: (key) => key,
+      refreshGroups: async () => undefined
+    },
+    { jsx: typescript.JsxEmit.React }
+  );
+  const frame = findSoleNode(
+    modal,
+    'address picker frame',
+    (node) =>
+      typescript.isJsxElement(node) &&
+      node.openingElement.getText(modal).includes('clientgroup-ip-picker"')
+  );
+  const markup = bindLifted(
+    `() => (${frame.getText(modal)})`,
+    { React, renderPickerBody: failureBody },
+    { jsx: typescript.JsxEmit.React }
+  )();
+
+  // Outage with no addresses: the frame holds only the empty failure wrapper.
+  assert.equal(
+    renderToStaticMarkup(markup),
+    '<div class="mgmt-list divided-list clientgroup-ip-picker">' +
+      '<div class="clientgroup-ip-picker__state"></div></div>',
+    'the wrapper has to be truly empty for :empty to match'
+  );
+  const css = readFileSync(
+    new URL('../src/components/modals/ClientGroupModal.css', import.meta.url),
+    'utf8'
+  );
+  // Without this the frame's border stays as a 2px line under the banner.
+  assert.match(
+    css,
+    /\.clientgroup-ip-picker:has\(>\s*\.clientgroup-ip-picker__state:empty\)\s*\{\s*display:\s*none;\s*\}/
   );
 });

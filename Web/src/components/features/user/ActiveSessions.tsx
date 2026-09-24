@@ -1238,7 +1238,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <span>
                 {t('activeSessions.labels.lastSeen')} {formatRelativeTime(session.lastSeenAt)}
               </span>
-              <span>{t(`activeSessions.status.${sessionStatus}`)}</span>
+              {!session.isRevoked && !session.isExpired && (
+                <span>{t(`activeSessions.status.${sessionStatus}`)}</span>
+              )}
               {canShowRemaining && <span>{formatTimeRemaining(session.expiresAt)}</span>}
               {session.isRevoked && (
                 <span className="is-error">{t('activeSessions.status.revoked')}</span>
@@ -2021,7 +2023,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </div>
         )}
 
-        <Alert color="red">
+        <Alert color="red" icon={null}>
           <p className="text-sm">{t('activeSessions.deleteModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
@@ -2058,7 +2060,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       >
         <p className="text-themed-secondary">{t('user.bulkActions.clearModal.message')}</p>
 
-        <Alert color="red">
+        <Alert color="red" icon={null}>
           <p className="text-sm">{t('user.bulkActions.clearModal.summary')}</p>
         </Alert>
       </ConfirmationModal>

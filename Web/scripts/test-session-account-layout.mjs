@@ -9,6 +9,7 @@ const activeSource = readWebSource('src/components/features/user/ActiveSessions.
 const rowActionsSource = readWebSource('src/components/ui/RowActionsMenu.tsx');
 const typeSource = readWebSource('src/components/features/user/types.ts');
 const userCss = readWebSource('src/styles/features/user.css');
+const signInSource = readWebSource('src/components/features/user/SignInMethodCard.tsx');
 
 test('the browser session contract exposes safe identity without an account key', () => {
   assert.match(
@@ -99,6 +100,32 @@ test('only the newest thread-limit read writes the limits or the box', () => {
     activeSource,
     /useReconnectRefetch\(isConnected, \(\) => \{\s*loadSessions\(false\);\s*void loadThreadConfig\(\);\s*\}\)/
   );
+});
+
+test('a revoked or expired row names its state once', () => {
+  assert.match(
+    activeSource,
+    /\{!session\.isRevoked && !session\.isExpired && \(\s*<span>\{t\(`activeSessions\.status\.\$\{sessionStatus\}`\)\}<\/span>\s*\)\}/,
+    'the generic Inactive word must not sit beside Revoked or Expired'
+  );
+});
+
+test('a box inside a confirmation dialog leaves the icon to the dialog title', () => {
+  // Every dialog here has a title icon (its own or the default triangle), so the box inside
+  // carries none.
+  for (const [file, source] of [
+    ['ActiveSessions.tsx', activeSource],
+    ['SignInMethodCard.tsx', signInSource]
+  ]) {
+    const dialogs = source.split('<ConfirmationModal').slice(1);
+    assert.ok(dialogs.length > 0, `${file} has no confirmation dialog`);
+    for (const dialog of dialogs) {
+      const body = dialog.slice(0, dialog.indexOf('</ConfirmationModal>'));
+      for (const alert of body.match(/<Alert\b[^>]*>/g) ?? []) {
+        assert.ok(alert.includes('icon={null}'), `${file}: ${alert} repeats the dialog icon`);
+      }
+    }
+  }
 });
 
 test('destructive row actions use visible menus and nested controls keep disclosure separate', () => {

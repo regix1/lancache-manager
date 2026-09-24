@@ -293,6 +293,46 @@ test('the rsync probe runs again when the connection returns', () => {
   );
 });
 
+/** Every self-closing `<tagName />` element in a component. */
+const elementsIn = (file, tagName) => {
+  const sourceFile = parseSource(file, typescript.ScriptKind.TSX);
+  return collectNodes(
+    sourceFile,
+    (node) =>
+      typescript.isJsxSelfClosingElement(node) && node.tagName.getText(sourceFile) === tagName
+  );
+};
+
+test('a directory or nginx problem is told once, above the Logs & Cache cards', () => {
+  const LOG_REMOVAL = 'src/components/features/management/log-processing/LogRemovalManager.tsx';
+  const STORAGE = FILES[3];
+  for (const card of [...FILES.slice(0, 3), LOG_REMOVAL]) {
+    assert.equal(elementsIn(card, 'CardDirectoryNotice').length, 0, `${card} repeats the notice`);
+  }
+  assert.equal(elementsIn(LOG_REMOVAL, 'ReadOnlyBadge').length, 0, 'no datasource row repeats it');
+
+  const notices = elementsIn(STORAGE, 'CardDirectoryNotice');
+  const [firstCard] = elementsIn(STORAGE, 'DatasourcesManager');
+  assert.ok(notices.length > 0, 'the tab still tells each problem');
+  assert.ok(
+    notices.every((notice) => notice.getStart() < firstCard.getStart()),
+    'every notice sits above the first card'
+  );
+});
+
+test('a checking client probe shows one spinner, in the status glyph', () => {
+  const PROBE = 'src/components/features/management/status-check/ClientProbeCard.tsx';
+  const sourceFile = parseSource(PROBE, typescript.ScriptKind.TSX);
+  const spinners = elementsIn(PROBE, 'LoadingSpinner');
+  assert.equal(spinners.length, 1);
+  let parent = spinners[0].parent;
+  while (parent && !typescript.isJsxElement(parent)) parent = parent.parent;
+  assert.ok(
+    parent.openingElement.getText(sourceFile).includes('status-check-glyph'),
+    'the spinner takes the glyph slot instead of sitting beside the title'
+  );
+});
+
 test('the checking sentences are translated in both shipped locales', () => {
   for (const locale of ['en', 'zh']) {
     const strings = JSON.parse(

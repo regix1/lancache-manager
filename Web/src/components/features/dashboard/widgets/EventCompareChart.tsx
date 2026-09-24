@@ -282,6 +282,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const loadErrorBlock =
     loadError === null ? null : (
       <ErrorBlock
+        className="mb-3 last:mb-0"
         title={t('widgets.eventCompare.errors.load')}
         message={loadError}
         retryLabel={t('common.retry')}
@@ -339,7 +340,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           </div>
         ) : hasSeries ? (
           <>
-            {loadError !== null && <div className="mb-3">{loadErrorBlock}</div>}
+            {loadErrorBlock}
             <LineChartLegend items={legendItems} onToggle={toggleSeries} />
             <div className="dash-line-chart">
               <Line key={seriesKey} data={chartData} options={chartOptions} />

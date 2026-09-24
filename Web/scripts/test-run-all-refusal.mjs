@@ -231,3 +231,34 @@ test('the four readers of the scan gate share one request', () => {
     'released in finally, so a failed read does not pin a rejected promise for every later caller'
   );
 });
+
+// A run this browser did not start already shows its running dot and label, so Run Now keeps its
+// Play icon (disabled) and spins only for this browser's own click.
+test('Run Now spins only for this browser own pending click', () => {
+  const page = parseSource(SCHEDULES, typescript.ScriptKind.TSX);
+  const runningElsewhere = { isRunningDot: true, isRunningOrPending: true, isPendingRun: false };
+  const ownClick = { isRunningDot: false, isRunningOrPending: true, isPendingRun: true };
+
+  const rowButton = findSoleNode(
+    page,
+    'schedule row Run Now content',
+    (node) =>
+      typescript.isConditionalExpression(node) &&
+      node.whenTrue.getText(page).includes('<LoadingSpinner') &&
+      node.whenFalse.getText(page).includes('schedule-run-icon')
+  );
+  const rowSpins = (state) =>
+    Boolean(bindLifted(`() => (${rowButton.condition.getText(page)})`, state)());
+  assert.equal(rowSpins(runningElsewhere), false, 'the dot and label already say Running');
+  assert.equal(rowSpins(ownClick), true);
+
+  const cardLoading = findSoleNode(
+    page,
+    'scheduled prefill card Run Now loading',
+    (node) => typescript.isJsxAttribute(node) && node.name.getText(page) === 'runNowLoading'
+  );
+  const cardSpins = (state) =>
+    Boolean(bindLifted(`() => (${cardLoading.initializer.expression.getText(page)})`, state)());
+  assert.equal(cardSpins(runningElsewhere), false, 'the card dot already says Running');
+  assert.equal(cardSpins(ownClick), true);
+});

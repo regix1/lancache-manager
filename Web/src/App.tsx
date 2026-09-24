@@ -504,8 +504,10 @@ const AppContent: React.FC = () => {
 
     return (
       <>
+        {/* The Docker box hides under the connection banner; its page container is then empty,
+            and empty:hidden takes the container's padding away with it. */}
         {activeTab === 'prefill' && dockerLoadError !== null ? (
-          <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
+          <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 empty:hidden">
             <ErrorBlock
               title={t('app.prefill.dockerCheckFailed')}
               message={dockerLoadError}

@@ -157,6 +157,24 @@ test('the screen defines an empty, a loading and an error state', () => {
   assert.ok(calls.includes('notifyError'), 'the screen never calls notifyError');
 });
 
+test('the error box sits straight in the section body, so a hidden box leaves the body empty', () => {
+  // The box hides itself under the outage banner; a wrapper element around it would still be a
+  // child and keep the section body open as an empty strip.
+  const [box] = collect(
+    accountsFile,
+    (node) =>
+      (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      jsxTagName(node) === 'ErrorBlock'
+  );
+  assert.ok(box, 'the screen renders no ErrorBlock');
+
+  let parent = box.parent;
+  while (parent && !ts.isJsxElement(parent)) {
+    parent = parent.parent;
+  }
+  assert.equal(jsxTagName(parent), 'AccordionSection', 'a wrapper element still holds the box');
+});
+
 test("the installation's own account keeps its row actions, disabled", () => {
   const render = columnRender(accountsFile, 'actions');
 

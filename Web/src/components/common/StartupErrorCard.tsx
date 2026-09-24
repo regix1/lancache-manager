@@ -25,10 +25,18 @@ const StartupErrorCard: React.FC<StartupErrorCardProps> = ({
   return (
     <div className="config-error-screen">
       <div className="config-error-card">
-        <Alert color="error" title={title} className="w-full text-left">
+        <Alert
+          color="error"
+          title={title}
+          className="w-full text-left"
+          action={
+            <Button size="sm" className="pointer-target-44" onClick={onRetry}>
+              {t('common.retry')}
+            </Button>
+          }
+        >
           <p className="text-sm">{message}</p>
         </Alert>
-        <Button onClick={onRetry}>{t('common.retry')}</Button>
         {children}
       </div>
     </div>

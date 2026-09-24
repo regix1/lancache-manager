@@ -397,8 +397,10 @@ public abstract partial class PrefillDaemonServiceBase
             cancelled: !authenticated && session.LastLoginFailureMessage is null);
 
         // A guest's browser has no notification bar and cannot reach the close route, so a kept ending
-        // would stay until restart with nobody able to see or close it.
-        if (session.IsTemporary) _operationTracker.CloseRun(operationId);
+        // would stay until restart with nobody able to see or close it. A persistent container's failed
+        // sign-in already shows as the red line on its container card, so a kept run card would repeat it.
+        if (session.IsTemporary || (session.IsPersistent && !authenticated && session.LastLoginFailureMessage is not null))
+            _operationTracker.CloseRun(operationId);
     }
 
     private async Task<CredentialChallenge?> StartLoginEntryAsync(

@@ -28,6 +28,7 @@ import {
 } from './constants';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import type {
   ScheduledPrefillEditTarget,
@@ -98,6 +99,9 @@ export function ScheduledPrefillConfigModal({
   onLoaded
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
+  // While the connection banner is up every read fails for that reason, so the banner speaks for
+  // the load alert.
+  const connectionLost = useConnectionLost();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const [config, setConfig] = useState<ScheduledPrefillSchedule | null>(null);
   const configRef = useRef(config);
@@ -505,7 +509,9 @@ export function ScheduledPrefillConfigModal({
               radius="none"
             >
               <div className="scheduled-prefill-config-modal__scroll-content">
-                {loadError?.key === loadKey && <Alert color="red">{loadError.message}</Alert>}
+                {!connectionLost && loadError?.key === loadKey && (
+                  <Alert color="red">{loadError.message}</Alert>
+                )}
                 {error && <Alert color="red">{error}</Alert>}
                 {missing ? (
                   <Alert color="red">{t(`${baseKey}.records.missing`)}</Alert>

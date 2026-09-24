@@ -39,14 +39,9 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
       setShowAuthModal(false);
       loadStatus();
       onSuccess?.(t('management.sections.integrations.epicDaemonStatus.authSuccess'));
-    },
-    onError: (message: string) => {
-      console.error('Epic mapping login error:', message);
-      onError?.(
-        t('common.errors.signInFailed', { platform: t('prefill.persistent.services.epic') }),
-        message
-      );
     }
+    // No onError: a failed sign-in happens with the sign-in dialog open (closing it cancels the
+    // attempt), and the dialog shows "Failed to sign in" with the reason.
   });
 
   const identityRef = useRef(identity);

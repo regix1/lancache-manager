@@ -85,11 +85,14 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3 min-w-0">
           <div className={`status-check-glyph ${GLYPH_CLASS_BY_STATUS[state.status]}`}>
-            <MonitorSmartphone className="w-5 h-5" />
+            {state.status === 'checking' ? (
+              <LoadingSpinner inline size="md" />
+            ) : (
+              <MonitorSmartphone className="w-5 h-5" />
+            )}
           </div>
           <div className="min-w-0">
             <p className="font-medium text-themed-primary flex items-center gap-2">
-              {state.status === 'checking' && <LoadingSpinner inline size="sm" />}
               {titleByStatus[state.status]}
             </p>
           </div>

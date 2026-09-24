@@ -183,6 +183,20 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
   const allSuccess = checks.every((c) => c.status === 'success');
   const isChecking = checkingPermissions;
 
+  // Once a check ends exactly one result message shows (error, summary or timeout), and Recheck
+  // belongs inside it rather than in the step's own action row.
+  const recheckAction = (
+    <Button
+      variant="filled"
+      color="secondary"
+      size="sm"
+      className="pointer-target-44"
+      onClick={reload}
+    >
+      {t('initialization.permissionsCheck.recheck')}
+    </Button>
+  );
+
   return (
     <div className="space-y-4">
       <StepHeader
@@ -253,11 +267,18 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
       </div>
 
       {/* Error message */}
-      {error && <Alert color="error">{error}</Alert>}
+      {error && !timedOut && (
+        <Alert color="error" action={recheckAction}>
+          {error}
+        </Alert>
+      )}
 
       {/* Summary Banner */}
       {!isChecking && !error && (
-        <Alert color={allSuccess ? 'success' : hasErrors ? 'error' : 'warning'}>
+        <Alert
+          color={allSuccess ? 'success' : hasErrors ? 'error' : 'warning'}
+          action={recheckAction}
+        >
           {allSuccess
             ? t('initialization.permissionsCheck.allGood')
             : hasErrors
@@ -266,14 +287,14 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
         </Alert>
       )}
 
+      {timedOut && (
+        <Alert color="warning" action={recheckAction}>
+          {t('initialization.permissionsCheck.timeoutMessage')}
+        </Alert>
+      )}
+
       {/* Action Buttons */}
       <div className="setup-actions">
-        {!isChecking && (
-          <Button variant="filled" color="secondary" onClick={reload} className="sm:w-auto">
-            {t('initialization.permissionsCheck.recheck')}
-          </Button>
-        )}
-
         <Button
           variant="filled"
           color="secondary"
@@ -286,10 +307,6 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
             : t('initialization.permissionsCheck.continue')}
         </Button>
       </div>
-
-      {timedOut && (
-        <Alert color="warning">{t('initialization.permissionsCheck.timeoutMessage')}</Alert>
-      )}
     </div>
   );
 };

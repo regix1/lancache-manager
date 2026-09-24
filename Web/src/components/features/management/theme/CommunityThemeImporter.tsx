@@ -518,14 +518,13 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       badge={headerActions}
     >
       {loadError !== null && (
-        <div className="mb-4">
-          <ErrorBlock
-            title={t('management.themes.errors.failedToLoadCommunity')}
-            message={loadError}
-            retryLabel={t('common.retry')}
-            onRetry={() => void loadCommunityThemes()}
-          />
-        </div>
+        <ErrorBlock
+          title={t('management.themes.errors.failedToLoadCommunity')}
+          message={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={() => void loadCommunityThemes()}
+          className="mb-4 last:mb-0"
+        />
       )}
 
       {/* Auto-Update Progress */}

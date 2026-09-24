@@ -40,6 +40,7 @@ export const useStats = (): {
   error: string | null;
   dataStale: boolean;
   failedSections: { cache: boolean; clients: boolean; services: boolean; dashboard: boolean };
+  batchFailed: boolean;
   refreshStats: (forceRefresh?: boolean) => Promise<void>;
   updateStats: (updater: StatsUpdater) => void;
 } => {
@@ -56,6 +57,10 @@ export const useStats = (): {
     }),
     [failedSectionKeys]
   );
+  // Every section failed at once (the batch request itself failed): the Dashboard shows one box
+  // at the top, each section leaves out its own, and the header's stale dot stays off because
+  // that box already reports the failure.
+  const batchFailed = Object.values(failedSections).every(Boolean);
   return {
     cacheInfo: context.cacheInfo,
     clientStats: context.clientStats,
@@ -64,8 +69,9 @@ export const useStats = (): {
     loading: context.loading,
     isRefreshing: context.isRefreshing,
     error: context.error,
-    dataStale: context.dataStale,
+    dataStale: context.dataStale && !batchFailed,
     failedSections,
+    batchFailed,
     refreshStats: context.refreshData,
     updateStats: (updater: StatsUpdater) => context.updateData(updater)
   };

@@ -141,6 +141,7 @@ function ServicePrefillPanel({
     clearLogs,
     backgroundCompletion,
     runCompletions,
+    isRunCompletionDismissed,
     setBackgroundCompletion,
     clearBackgroundCompletion,
     isCompletionDismissed,
@@ -417,7 +418,6 @@ function ServicePrefillPanel({
 
       if (remaining <= 0 && !hasExpiredRef.current) {
         hasExpiredRef.current = true;
-        signalR.setError(t('prefill.errors.sessionExpired'));
         signalR.setTimeRemaining(0);
         signalR.setIsLoggedIn(false);
         // Expiry is already signalled downstream by `timeRemaining <= 0`
@@ -430,14 +430,7 @@ function ServicePrefillPanel({
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    signalR.session,
-    signalR.setSession,
-    signalR.setIsLoggedIn,
-    signalR.setTimeRemaining,
-    signalR.setError,
-    t
-  ]);
+  }, [signalR.session, signalR.setSession, signalR.setIsLoggedIn, signalR.setTimeRemaining]);
 
   // Auto-create session when service was started from home page
   useEffect(() => {
@@ -863,7 +856,6 @@ function ServicePrefillPanel({
       )
         return;
       if (signalR.session.status !== 'Active' || signalR.timeRemaining <= 0) {
-        signalR.setError(t('prefill.errors.sessionExpired'));
         addLog('warning', t('prefill.errors.sessionExpired'));
         return;
       }
@@ -992,7 +984,6 @@ function ServicePrefillPanel({
       signalR.timeRemaining,
       signalR.isPrefillActive,
       signalR.canStart,
-      signalR.setError,
       callPrefillApi,
       selectedAppIds,
       addLog,
@@ -1009,11 +1000,11 @@ function ServicePrefillPanel({
     try {
       await signalR.hubConnection.current.invoke('EndSessionAsync', signalR.session.id);
     } catch (err) {
-      // The log line is the notice a guest reads; a guest has no notification bar.
-      addLog('error', getErrorMessage(err));
-      notifyError(t('prefill.errors.endSessionFailed'), err);
+      // One notice: the popup for an admin, the log line for a guest, who has no notification bar.
+      if (isAdmin) notifyError(t('prefill.errors.endSessionFailed'), err);
+      else addLog('error', getErrorMessage(err));
     }
-  }, [signalR.session, signalR.hubConnection, addLog, t, notifyError]);
+  }, [signalR.session, signalR.hubConnection, addLog, t, notifyError, isAdmin]);
 
   const handleCancelLogin = useCallback(async () => {
     if (!signalR.session || !signalR.hubConnection.current) return;
@@ -1024,11 +1015,12 @@ function ServicePrefillPanel({
       authActions.resetAuthForm();
       addLog('info', t('prefill.log.loginCancelled'));
     } catch (err) {
-      // The dialog has already closed, so the log line is the notice a guest reads.
-      addLog('error', getErrorMessage(err));
-      notifyError(t('prefill.errors.cancelLoginFailed'), err);
+      // The dialog has already closed. One notice: the popup for an admin, the log line for a
+      // guest, who has no notification bar.
+      if (isAdmin) notifyError(t('prefill.errors.cancelLoginFailed'), err);
+      else addLog('error', getErrorMessage(err));
     }
-  }, [signalR.session, signalR.hubConnection, authActions, addLog, t, notifyError]);
+  }, [signalR.session, signalR.hubConnection, authActions, addLog, t, notifyError, isAdmin]);
 
   const handleCancelPrefill = useCallback(() => {
     // Full cancel orchestration (hard-stop animations + reactive "Cancelling..." state + watchdog
@@ -1299,7 +1291,6 @@ function ServicePrefillPanel({
     setSelectedAppIds([]);
     setIsUsingGamesCache(false);
     gamesCacheRef.current = null;
-    signalR.setError(null);
     signalR.setSession(null);
     signalR.setIsLoggedIn(false);
     signalR.setTimeRemaining(0);
@@ -1451,6 +1442,25 @@ function ServicePrefillPanel({
   const confirmMessage = pendingConfirmCommand
     ? getConfirmationMessage(pendingConfirmCommand)
     : null;
+
+  // A finished run whose card was dismissed draws nothing (PrefillProgressCard), so it is left
+  // out here; a list holding only such runs would otherwise keep an empty wrapper and its gap.
+  const shownRuns = [
+    ...signalR.runs,
+    ...runCompletions.filter(
+      (run) =>
+        run.sessionId === signalR.session?.id &&
+        !signalR.runs.some(
+          (current) =>
+            current.runId === run.runId && current.daemonInstanceId === run.daemonInstanceId
+        )
+    )
+  ]
+    .filter((run) => isPrefillRunActive(run) || !isRunCompletionDismissed(run))
+    .sort(
+      (a, b) =>
+        a.snapshot.startedAt.localeCompare(b.snapshot.startedAt) || a.runId.localeCompare(b.runId)
+    );
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1605,23 +1615,16 @@ function ServicePrefillPanel({
 
       {/* Session Expired Notice */}
       {isSessionExpired && (
-        <Alert color="warning">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <p className="font-medium text-sm">{t('prefill.sessionExpired.title')}</p>
-              <p className="text-sm">
-                {t('prefill.sessionExpired.message', { service: serviceName })}
-              </p>
-            </div>
-            <Button
-              variant="filled"
-              color="run"
-              onClick={handleStartNewSession}
-              className="flex-shrink-0"
-            >
+        <Alert
+          color="warning"
+          action={
+            <Button variant="filled" color="run" onClick={handleStartNewSession}>
               {t('prefill.sessionExpired.startNew')}
             </Button>
-          </div>
+          }
+        >
+          <p className="font-medium text-sm">{t('prefill.sessionExpired.title')}</p>
+          <p className="text-sm">{t('prefill.sessionExpired.message', { service: serviceName })}</p>
         </Alert>
       )}
 
@@ -1656,35 +1659,37 @@ function ServicePrefillPanel({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          {/* Session Timer - non-interactive, but shares Button's md padding and the 44px control
-              minimum used by this action cluster. */}
-          <div
-            className={`prefill-session-timer inline-flex h-11 min-h-11 flex-none items-center justify-center gap-2 px-4 py-2 themed-button-radius border ${
-              signalR.timeRemaining < 600
-                ? 'bg-[var(--theme-warning-subtle)] border-[var(--theme-warning-strong)]'
-                : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
-            }`}
-          >
-            <Timer
-              className={`h-4 w-4 ${
+        {/* Timer and End Session. An expired session shows neither (the expired panel says it),
+            and the empty cluster would still take the header's gap on phones. */}
+        {!isSessionExpired && (
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* Session Timer - non-interactive, but shares Button's md padding and the 44px
+                control minimum used by this action cluster. */}
+            <div
+              className={`prefill-session-timer inline-flex h-11 min-h-11 flex-none items-center justify-center gap-2 px-4 py-2 themed-button-radius border ${
                 signalR.timeRemaining < 600
-                  ? 'text-[var(--theme-warning)]'
-                  : 'text-[var(--theme-text-muted)]'
-              }`}
-            />
-            <span
-              className={`font-mono font-semibold tabular-nums ${
-                signalR.timeRemaining < 600
-                  ? 'text-[var(--theme-warning-text)]'
-                  : 'text-[var(--theme-text-primary)]'
+                  ? 'bg-[var(--theme-warning-subtle)] border-[var(--theme-warning-strong)]'
+                  : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
               }`}
             >
-              {formatTimeRemaining(signalR.timeRemaining)}
-            </span>
-          </div>
+              <Timer
+                className={`h-4 w-4 ${
+                  signalR.timeRemaining < 600
+                    ? 'text-[var(--theme-warning)]'
+                    : 'text-[var(--theme-text-muted)]'
+                }`}
+              />
+              <span
+                className={`font-mono font-semibold tabular-nums ${
+                  signalR.timeRemaining < 600
+                    ? 'text-[var(--theme-warning-text)]'
+                    : 'text-[var(--theme-text-primary)]'
+                }`}
+              >
+                {formatTimeRemaining(signalR.timeRemaining)}
+              </span>
+            </div>
 
-          {!isSessionExpired && (
             <Button
               variant="filled"
               color="stop"
@@ -1694,8 +1699,8 @@ function ServicePrefillPanel({
             >
               {t('prefill.endSession')}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {signalR.hubConnectFailed && (
@@ -1707,7 +1712,6 @@ function ServicePrefillPanel({
         />
       )}
       {createSessionFailure}
-      {signalR.error && <Alert color="error">{signalR.error}</Alert>}
 
       {/* Main Content - Two Column Layout. While a job runs on stacked layouts the columns
           flatten so the activity log orders directly after the progress card (CSS in
@@ -1722,8 +1726,9 @@ function ServicePrefillPanel({
         {/* Left Column - Controls */}
         <div className="xl:col-span-2 space-y-4 prefill-col-controls">
           {/* Authentication Card - only while a login is still required. Battle.net and Riot are
-              anonymous (no login) and a completed login reports through the header status line. */}
-          {!isAnonymousService && !signalR.isLoggedIn && (
+              anonymous (no login) and a completed login reports through the header status line.
+              An expired session cannot sign in, so the expired panel stands alone. */}
+          {!isAnonymousService && !signalR.isLoggedIn && !isSessionExpired && (
             <div className="prefill-sec-auth">
               <Card padding="md">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1741,26 +1746,27 @@ function ServicePrefillPanel({
                     </div>
                   </div>
 
-                  {!isSessionExpired && (
-                    <Button
-                      variant="filled"
-                      color="primary"
-                      size="md"
-                      onClick={handleOpenAuthModal}
-                      className="flex-shrink-0 w-full sm:w-auto min-h-[44px] sm:min-h-10"
-                    >
-                      {t('prefill.auth.loginToService', { service: serviceName })}
-                    </Button>
-                  )}
+                  <Button
+                    variant="filled"
+                    color="primary"
+                    size="md"
+                    onClick={handleOpenAuthModal}
+                    className="flex-shrink-0 w-full sm:w-auto min-h-[44px] sm:min-h-10"
+                  >
+                    {t('prefill.auth.loginToService', { service: serviceName })}
+                  </Button>
                 </div>
               </Card>
             </div>
           )}
 
-          {/* Network Status Card */}
-          <div className="prefill-sec-network">
-            <NetworkStatusSection diagnostics={signalR.session.networkDiagnostics} />
-          </div>
+          {/* Network Status Card. A session without diagnostics gets no wrapper: an empty one
+              still takes the column's gap and pushes the cards below out of line. */}
+          {signalR.session.networkDiagnostics && (
+            <div className="prefill-sec-network">
+              <NetworkStatusSection diagnostics={signalR.session.networkDiagnostics} />
+            </div>
+          )}
 
           {/* Background Completion Notification Banner */}
           {backgroundCompletion && !signalR.prefillProgress && signalR.runs.length === 0 && (
@@ -1786,51 +1792,35 @@ function ServicePrefillPanel({
               </div>
             )}
 
-          {(signalR.runs.length > 0 ||
-            runCompletions.some((run) => run.sessionId === signalR.session?.id)) && (
+          {shownRuns.length > 0 && (
             <div className="prefill-sec-progress space-y-3">
-              {[
-                ...signalR.runs,
-                ...runCompletions.filter(
-                  (run) =>
-                    run.sessionId === signalR.session?.id &&
-                    !signalR.runs.some(
-                      (current) =>
-                        current.runId === run.runId &&
-                        current.daemonInstanceId === run.daemonInstanceId
-                    )
-                )
-              ]
-                .sort(
-                  (a, b) =>
-                    a.snapshot.startedAt.localeCompare(b.snapshot.startedAt) ||
-                    a.runId.localeCompare(b.runId)
-                )
-                .map((run) => (
-                  <PrefillProgressCard
-                    key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
-                    run={run}
-                    progress={getPrefillRunProgress(run)}
-                    onCancel={() => void signalR.cancelPrefill(run.runId)}
-                    isCancelling={run.cancelRequested}
-                    error={signalR.runErrors[run.runId]}
-                    disabled={!isSessionActive}
-                  />
-                ))}
+              {shownRuns.map((run) => (
+                <PrefillProgressCard
+                  key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
+                  run={run}
+                  progress={getPrefillRunProgress(run)}
+                  onCancel={() => void signalR.cancelPrefill(run.runId)}
+                  isCancelling={run.cancelRequested}
+                  error={signalR.runErrors[run.runId]}
+                  disabled={!isSessionActive}
+                />
+              ))}
             </div>
           )}
 
           {/* Command Buttons. A failed settings read replaces them, so no run starts with
-              platforms and connections nobody saved. */}
-          <div className="prefill-sec-commands">
-            {defaultsError ? (
-              <ErrorBlock
-                title={t('prefill.errors.failedLoadSettings')}
-                message={defaultsError}
-                retryLabel={t('common.retry')}
-                onRetry={() => void loadPrefillDefaults()}
-              />
-            ) : (
+              platforms and connections nobody saved. The box carries the section class itself:
+              it hides under the connection banner, and a wrapper would stay behind, empty. */}
+          {defaultsError ? (
+            <ErrorBlock
+              className="prefill-sec-commands"
+              title={t('prefill.errors.failedLoadSettings')}
+              message={defaultsError}
+              retryLabel={t('common.retry')}
+              onRetry={() => void loadPrefillDefaults()}
+            />
+          ) : (
+            <div className="prefill-sec-commands">
               <PrefillCommandButtons
                 isLoggedIn={isReadyForCommands}
                 isExecuting={isExecuting}
@@ -1856,8 +1846,8 @@ function ServicePrefillPanel({
                 onSelectedOSChange={handleOSChange}
                 onMaxConcurrencyChange={handleConcurrencyChange}
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column - Activity Log */}

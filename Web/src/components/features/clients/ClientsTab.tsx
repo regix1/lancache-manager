@@ -235,14 +235,13 @@ const ClientsTab: React.FC = () => {
         </div>
 
         {loadError !== null && (
-          <div className="mb-4">
-            <ErrorBlock
-              title={t('clients.loadFailed')}
-              message={loadError}
-              retryLabel={t('common.retry')}
-              onRetry={() => void refreshStats(true)}
-            />
-          </div>
+          <ErrorBlock
+            className="mb-4 last:mb-0"
+            title={t('clients.loadFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refreshStats(true)}
+          />
         )}
 
         {loading ? (

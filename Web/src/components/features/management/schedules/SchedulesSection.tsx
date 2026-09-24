@@ -987,7 +987,9 @@ const ScheduleRow = memo(function ScheduleRow({
                 disabled={isRunNowDisabled || isDimmed}
                 aria-label={t('management.schedules.runNow')}
               >
-                {isRunningOrPending ? (
+                {/* The dot and label already say a run is going; the spinner is for this
+                    browser's own click until the server confirms it. */}
+                {isPendingRun ? (
                   <LoadingSpinner size="xs" inline />
                 ) : (
                   <>
@@ -1335,7 +1337,7 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
           disabled={isDisabled}
           dimmed={isDimmed}
           onRunNow={handleRunNow}
-          runNowLoading={isRunningOrPending}
+          runNowLoading={isPendingRun}
           runNowDisabled={isRunNowDisabled || isDimmed}
           onRunService={handleRunService}
           isRunServicePending={isRunServicePending}

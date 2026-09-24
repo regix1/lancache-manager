@@ -126,7 +126,8 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
       iconColor={iconColor}
       isExpanded={expanded}
       onToggle={toggleExpanded}
-      badge={loadError !== null ? expanded ? undefined : <SectionErrorChip /> : statusBadge}
+      // The open card's headline says the same status, so the chip is for the closed card.
+      badge={expanded ? undefined : loadError !== null ? <SectionErrorChip /> : statusBadge}
     >
       {loading ? (
         <LoadingState message={loadingMessage} shape="cards" rows={1} />

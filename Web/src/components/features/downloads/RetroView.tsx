@@ -118,9 +118,10 @@ interface RetroViewProps {
   /**
    * How many rows the fetch below found. The page turns its own fetch off while this table is
    * showing, so its export button reads this count instead. Sent only once a request has answered:
-   * before that the count on hand is a placeholder zero, not an empty table.
+   * before that the count on hand is a placeholder zero, not an empty table. Null while the last
+   * load failed: the rows still showing are an earlier answer's, so the count is not known.
    */
-  onTotalItemsChange: (totalItems: number) => void;
+  onTotalItemsChange: (totalItems: number | null) => void;
 }
 
 // Empty State Component
@@ -345,8 +346,14 @@ const RetroView = memo(
       // sets them runs in a sibling effect whose update lands on the next commit.
       useEffect(() => {
         if (!serverMode || !serverRetro.hasResponse) return;
-        onTotalItemsChange(serverRetro.totalItems);
-      }, [serverMode, serverRetro.hasResponse, serverRetro.totalItems, onTotalItemsChange]);
+        onTotalItemsChange(serverRetro.error ? null : serverRetro.totalItems);
+      }, [
+        serverMode,
+        serverRetro.hasResponse,
+        serverRetro.totalItems,
+        serverRetro.error,
+        onTotalItemsChange
+      ]);
 
       // Only show datasource column when there are multiple datasources
       const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;

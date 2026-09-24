@@ -9,6 +9,7 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { PERSISTENT_PREFILL_VALIDITY_BOUNDS } from '@components/features/prefill/persistentPrefillConstants';
 import ApiService from '@services/api.service';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { SCHEDULED_PREFILL_SERVICE_RUN_ORDER } from './constants';
 import type { ScheduledPrefillPersistenceMode } from './types';
@@ -26,6 +27,9 @@ export function ScheduledPrefillSharedSettingsModal({
   onClose
 }: ScheduledPrefillSharedSettingsModalProps) {
   const { t } = useTranslation();
+  // While the connection banner is up every read fails for that reason, so the banner speaks for
+  // the read alerts.
+  const connectionLost = useConnectionLost();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const [days, setDays] = useState<number | null>(null);
   const [mode, setMode] = useState<ScheduledPrefillPersistenceMode | null>(null);
@@ -235,7 +239,7 @@ export function ScheduledPrefillSharedSettingsModal({
                       />
                     </div>
                   </div>
-                  {readErrors.days && (
+                  {readErrors.days && !connectionLost && (
                     <Alert color="red" className="scheduled-prefill-shared-settings__feedback">
                       {t(`${baseKey}.settings.loadError`, { error: readErrors.days })}
                     </Alert>
@@ -275,7 +279,7 @@ export function ScheduledPrefillSharedSettingsModal({
                       </div>
                     </div>
                   </div>
-                  {readErrors.mode && (
+                  {readErrors.mode && !connectionLost && (
                     <Alert color="red" className="scheduled-prefill-shared-settings__feedback">
                       {t(`${baseKey}.settings.loadError`, { error: readErrors.mode })}
                     </Alert>

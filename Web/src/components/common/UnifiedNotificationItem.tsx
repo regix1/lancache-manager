@@ -219,11 +219,16 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
 const ANNOUNCEMENT_MIN_INTERVAL_MS = 5000;
 
 /** Rate-limit screen-reader updates while keeping stage/terminal changes immediate. */
-function useNotificationAnnouncement(notification: UnifiedNotification): string {
+function useNotificationAnnouncement(
+  notification: UnifiedNotification,
+  connectionLost: boolean
+): string {
   const { t } = useTranslation();
+  // While the connection banner is up, it already announces that the app is reconnecting.
   const recovering =
-    notification.details?.recovering === true ||
-    notification.details?.connectionRecovering === true;
+    !connectionLost &&
+    (notification.details?.recovering === true ||
+      notification.details?.connectionRecovering === true);
   const cancelling =
     notification.status === 'cancelling' || notification.details?.cancelRequested === true;
   const terminalText =
@@ -329,7 +334,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
 
   const icon = getNotificationIcon(notification);
   const titleKey = NOTIFICATION_TITLE_KEYS[notification.type];
-  const announcement = useNotificationAnnouncement(notification);
+  const announcement = useNotificationAnnouncement(notification, connectionLost);
 
   if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
     const canForceStop =
@@ -445,7 +450,9 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
             {notification.message}
           </div>
 
-          {(notification.details?.recovering || notification.details?.connectionRecovering) &&
+          {/* While the connection banner is up, it already says the app is reconnecting. */}
+          {!connectionLost &&
+            (notification.details?.recovering || notification.details?.connectionRecovering) &&
             !isTerminalNotificationStatus(notification.status) && (
               <p className="text-xs text-themed-muted mt-0.5">
                 {t('prefill.progress.reconnectingMessage')}

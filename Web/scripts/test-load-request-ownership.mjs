@@ -175,3 +175,18 @@ test('an older theme list read that fails last shows no error box above the list
   assert.equal(state.errors.at(-1), null, 'the stale failure never reaches the section');
   assert.equal(state.loading.at(-1), false);
 });
+
+test('the community theme error box carries its own spacing, so a hidden box leaves none', () => {
+  const source = parseSource(
+    'src/components/features/management/theme/CommunityThemeImporter.tsx'
+  ).text;
+  const box = source.match(/<ErrorBlock\b[\s\S]*?\/>/);
+
+  assert.ok(box, 'the importer renders no error box');
+  // The gap is for content under the box; as the body's last child it adds none.
+  assert.ok(
+    box[0].includes('className="mb-4 last:mb-0"'),
+    'the box is missing its own gap, or keeps it with nothing below'
+  );
+  assert.doesNotMatch(source, /<div className="mb-4">\s*<ErrorBlock/);
+});

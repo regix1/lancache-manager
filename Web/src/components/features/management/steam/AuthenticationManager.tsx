@@ -355,16 +355,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
   return (
     <>
-      <Alert color={getAlertColor()} icon={getAlertIcon()}>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex-1 min-w-0 w-full sm:w-auto">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm sm:text-base">{getStatusText()}</span>
-            </div>
-            <p className="text-xs mt-1 opacity-75">{getDescriptionText()}</p>
-          </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+      <Alert
+        color={getAlertColor()}
+        icon={getAlertIcon()}
+        action={
+          <>
             {authMode === 'authenticated' && (
               <>
                 {/* Rotating signs everyone out and hands the new key to whoever asked, so only the
@@ -380,7 +375,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                       setShowRegenerateConfirm(true);
                     }}
                     disabled={authLoading}
-                    className="flex-1 sm:flex-none"
+                    className="pointer-target-44"
                   >
                     {t('management.auth.regenerate')}
                   </Button>
@@ -391,7 +386,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                   size="sm"
                   onClick={handleLogout}
                   loading={authLoading}
-                  className="flex-1 sm:flex-none"
+                  className="pointer-target-44"
                 >
                   <span className="hidden sm:inline">{t('management.auth.logout')}</span>
                   <span className="sm:hidden">{t('management.auth.logout')}</span>
@@ -408,7 +403,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                     onClick={handleStartGuestMode}
                     disabled={authLoading}
                     size="sm"
-                    className="flex-1 sm:flex-none"
+                    className="pointer-target-44"
                   >
                     <span className="hidden sm:inline">{t('management.auth.guestMode')}</span>
                     <span className="sm:hidden">{t('management.auth.guest')}</span>
@@ -419,7 +414,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                   color="primary"
                   onClick={() => setShowAuthModal(true)}
                   size="sm"
-                  className="flex-1 sm:flex-none"
+                  className="pointer-target-44"
                 >
                   <span className="hidden sm:inline">{t('management.auth.authenticate')}</span>
                   <span className="sm:hidden">{t('management.auth.auth')}</span>
@@ -433,14 +428,19 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 color="primary"
                 size="sm"
                 onClick={() => setShowAuthModal(true)}
-                className="w-full sm:w-auto"
+                className="pointer-target-44"
               >
                 <span className="hidden sm:inline">{t('management.auth.fullAccess')}</span>
                 <span className="sm:hidden">{t('management.auth.auth')}</span>
               </Button>
             )}
-          </div>
+          </>
+        }
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm sm:text-base">{getStatusText()}</span>
         </div>
+        <p className="text-xs mt-1 opacity-75">{getDescriptionText()}</p>
       </Alert>
 
       <Modal
@@ -475,10 +475,15 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
             apiKeyPlaceholder={t('auth.form.placeholder')}
           />
 
-          {authError && <Alert color="red">{authError}</Alert>}
+          {/* The dialog title already carries the Key icon; one icon per item. */}
+          {authError && (
+            <Alert color="red" icon={null}>
+              {authError}
+            </Alert>
+          )}
 
           {requiresApiKey(accountMode) && (
-            <Alert color="blue">
+            <Alert color="blue" icon={null}>
               <div>
                 <p className="font-medium mb-2">{t('management.auth.modal.findApiKey')}</p>
                 <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
@@ -561,7 +566,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
           {t('management.auth.regenerateModal.message')}
         </p>
 
-        {regenerateError && <Alert color="red">{regenerateError}</Alert>}
+        {/* The dialog title already carries the warning icon; one icon per item. */}
+        {regenerateError && (
+          <Alert color="red" icon={null}>
+            {regenerateError}
+          </Alert>
+        )}
       </ConfirmationModal>
 
       {rotatedKey !== null && (

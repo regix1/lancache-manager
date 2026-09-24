@@ -135,13 +135,9 @@ const HistoryRow: React.FC<HistoryRowProps> = ({
 
 interface HistoryEntrySummaryProps {
   entry: CorruptionScanHistoryEntry;
-  withViewOnlyBadge?: boolean;
 }
 
-const HistoryEntrySummary: React.FC<HistoryEntrySummaryProps> = ({
-  entry,
-  withViewOnlyBadge = false
-}) => {
+const HistoryEntrySummary: React.FC<HistoryEntrySummaryProps> = ({ entry }) => {
   const { t } = useTranslation();
   const formattedDate = useFormattedDateTime(entry.completedAtUtc, true);
   return (
@@ -157,9 +153,6 @@ const HistoryEntrySummary: React.FC<HistoryEntrySummaryProps> = ({
           formattedCount: formatCount(entry.totalCorruptedChunks)
         })}
       </p>
-      {withViewOnlyBadge && (
-        <Badge variant="neutral">{t('management.corruption.history.viewOnlyBadge')}</Badge>
-      )}
     </div>
   );
 };
@@ -385,13 +378,16 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         surface="well"
         badge={listError !== null && !expanded && <SectionErrorChip />}
       >
-        <div className="space-y-3">
+        {/* No spacing wrapper: the section body hides itself only when nothing renders in it, and
+            this box renders nothing under the connection banner. */}
+        <>
           {listError !== null && (
             <ErrorBlock
               title={t('management.corruption.history.loadError')}
               message={listError}
               retryLabel={t('common.retry')}
               onRetry={() => void loadHistory()}
+              className={entries !== null && entries.length > 0 ? 'mb-3' : undefined}
             />
           )}
           {listLoading && entries === null && !listError ? (
@@ -426,7 +422,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
           ) : entries !== null && listError === null ? (
             <EmptyState variant="text" title={t('management.corruption.history.empty')} />
           ) : null}
-        </div>
+        </>
       </AccordionSection>
 
       <Modal
@@ -437,7 +433,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
       >
         {viewEntry && (
           <div className="space-y-4">
-            <HistoryEntrySummary entry={viewEntry} withViewOnlyBadge />
+            <HistoryEntrySummary entry={viewEntry} />
             <Alert color="blue">
               <p className="text-sm">{t('management.corruption.history.viewOnlyNotice')}</p>
             </Alert>

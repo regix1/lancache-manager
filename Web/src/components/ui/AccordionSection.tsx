@@ -237,10 +237,12 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         </span>
       </div>
 
-      {/* Content with real height animation; children unmount once collapsed */}
+      {/* Content with real height animation; children unmount once collapsed. A body whose
+          children render nothing (a failure box hidden under the connection banner) is :empty,
+          so it draws no padding or border strip. */}
       <CollapsibleRegion
         open={isExpanded}
-        contentClassName="px-4 pb-4 pt-3 border-t border-themed-secondary"
+        contentClassName="px-4 pb-4 pt-3 border-t border-themed-secondary empty:hidden"
       >
         {children}
       </CollapsibleRegion>

@@ -270,7 +270,6 @@
     "on": "开",
     "off": "关",
     "moreActions": "更多操作",
-    "bytes": {},
     "dateRangePicker": {
       "daysSelected": "已选 {{count}} 天",
       "daysSelected_other": "已选 {{count}} 天",
@@ -621,8 +620,6 @@
     "connectedTooltip": "API 状态：已连接 - 所有后端服务正常运行",
     "disconnectedTooltip": "API 状态：已断开 - 无法连接到后端服务",
     "reconnectingTooltip": "API 状态：重新连接中 - 正在尝试恢复与后端服务的连接",
-    "disconnectedLabel": "已断开",
-    "reconnectingLabel": "重新连接中",
     "staleDataTooltip": "部分仪表盘数据无法刷新，正在显示最近的有效数据。"
   },
   "guest": {
@@ -702,7 +699,6 @@
       "cacheFilesSize": "缓存大小",
       "driveCapacityValue": "驱动器：{{size}}",
       "disabled": "已禁用",
-      "liveDataOnly": "仅实时数据",
       "startedAt": "开始于 {{size}}",
       "snapshots": "{{count}} 个快照",
       "snapshots_other": "{{count}} 个快照",
@@ -928,7 +924,8 @@
       }
     },
     "errors": {
-      "refreshSpeedsFailed": "刷新下载速度失败。"
+      "refreshSpeedsFailed": "刷新下载速度失败。",
+      "loadFailed": "加载仪表盘数据失败"
     },
     "sparkline": {
       "ariaLabel_one": "显示 {{count}} 个数据点的迷你图",
@@ -1758,7 +1755,6 @@
         "unknownOther": "未知/其他",
         "serviceDownloads": "{{service}} 下载"
       },
-      "warnings": {},
       "emptyRange": {
         "title": "所选时间范围内未找到下载",
         "description": "仪表板显示活跃下载（当前进行中），而此列表显示在所选时间段内开始的下载。尝试切换到实时以查看所有下载，或调整时间范围。"
@@ -2207,7 +2203,6 @@
           "evictedVsOthersTitle": "此扫描不涵盖的内容",
           "evictedVsOthers": "此扫描从一条下载记录出发，检查它的缓存文件是否仍在磁盘上。如果没有任何下载记录认领某个文件，此扫描就无从查起，那种情况由游戏缓存检测扫描的“未映射”部分列出。文件存在但已损坏，则由缓存完整性扫描负责。"
         },
-        "epicResolve": {},
         "dataImport": "数据导入",
         "evictedCacheData": "淘汰检测与移除",
         "evictedCacheDataShort": "淘汰检测与移除",
@@ -3023,7 +3018,6 @@
         "loadError": "加载扫描历史失败",
         "currentBadge": "当前",
         "historicalBadge": "历史",
-        "viewOnlyBadge": "仅查看",
         "view": "查看",
         "deleteSavedScan": "删除已保存的扫描",
         "thresholdMeta": "阈值 {{threshold}}",
@@ -3234,16 +3228,10 @@
     "dataImporter": {
       "title": "导入历史数据",
       "subtitle": "从另一个 LANCache Manager 数据库导入",
-      "progress": {},
       "buttons": {
         "importRecords": "导入 {{formattedCount}} 条记录",
         "import": "导入"
       },
-      "confirm": {},
-      "messages": {
-        "importCompleted": "导入完成！已导入 {{imported}}，跳过 {{skipped}}，错误 {{errors}}"
-      },
-      "errors": {},
       "help": {
         "aboutTitle": "关于"
       },
@@ -3251,8 +3239,7 @@
         "mockMode": "模拟模式已启用 - 导入功能已禁用",
         "skipInfo": "大多数用户可以跳过此功能。仅当您有现有数据库需要导入时才使用。",
         "authRequired": "导入数据需要身份验证"
-      },
-      "aria": {}
+      }
     },
     "logRemoval": {
       "title": "日志移除",
@@ -3327,7 +3314,6 @@
       "remove": "移除",
       "lastChecked": "上次检查",
       "bothUnavailable": {
-        "title": "V2 和 V1 均不可用",
         "description": "Steam Web API V2 和 V1 当前均不可用。可能是 Steam 服务的临时问题。请稍后再试。"
       },
       "removeModal": {
@@ -4396,7 +4382,6 @@
         "steamSignOutFailed": "已登出，但无法从服务器清除 Steam 登录信息和 Web API 密钥。"
       }
     },
-    "sessions": {},
     "prefillSessions": {
       "help": {
         "liveSessionsTitle": "关于",
@@ -4934,8 +4919,6 @@
       "notResolved": "未解析",
       "trySetting": "尝试设置",
       "inDockerCompose": "在您的 docker-compose.yml 中",
-      "internetCheckFailed": "预填充容器无法访问连通性测试端点。",
-      "dnsCheckFailed": "预填充容器无法解析此域名。",
       "lancacheDnsIpInstruction": "如果桥接模式仍无法解析 LANCache 域名，请将此项设置为能够从局域网访问、并将这些域名映射到缓存服务器的 DNS 服务器 IP：",
       "lancacheDnsIpExplanation": "通常是 lancache-dns、AdGuard Home 或 Pi-hole。更改后，请重新创建 LANCache Manager 并启动新的预填充会话。不要使用预填充容器的 IP。",
       "publicDnsExpected": "主机网络模式下应使用公共 DNS。Steam-prefill 将通过 localhost 自动检测 lancache。如果下载期间缓存大小增长，则一切正常运行。",
@@ -4964,10 +4947,7 @@
       "reconnecting": "重新连接中...",
       "reconnectingMessage": "预填充进行中。正在重新连接以获取当前状态...",
       "appId": "应用 {{id}}",
-      "complete": "已完成",
-      "upToDate": "已是最新",
       "elapsed": "已用时",
-      "gameUpToDate": "游戏在缓存中已是最新",
       "preparingOperation": "正在准备预填充操作...",
       "gameXofN": "第 {{current}} 个游戏，共 {{total}} 个",
       "etaCurrentGame": "本游戏剩余 {{time}}",
@@ -5476,7 +5456,6 @@
     "epicAuth": {
       "title": "Epic Games 账户登录",
       "containerAccountNotice": "这是此容器的 Epic Games 账户，不是您的 LANCache Manager 登录。",
-      "errors": {},
       "signInTitle": "使用 Epic Games 登录",
       "signInDescription": "您在 Epic 网站登录，然后将授权码粘贴到此处。",
       "connectingSubtitle": "正在获取您的登录链接",
@@ -6744,8 +6723,6 @@
     }
   },
   "initialization": {
-    "steamApiKey": {},
-    "importData": {},
     "apiKey": {
       "placeholder": "输入您的 API 密钥",
       "label": "API 密钥",
@@ -7242,9 +7219,6 @@
       "minimumSelections": "至少需要选择 {{count}} 项",
       "minimumSelections_other": "至少需要选择 {{count}} 项",
       "noMatches": "没有匹配项"
-    },
-    "managerCard": {
-      "readOnly": "只读"
     },
     "datasource": {
       "disabled": "已禁用"

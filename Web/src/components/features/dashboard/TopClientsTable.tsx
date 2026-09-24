@@ -90,7 +90,8 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
   ({ clientStats = [], badge, glassmorphism = false, loading = false }) => {
     const { t } = useTranslation();
     // The rows arrive as a prop; whether their section failed, and why, lives in the dashboard data.
-    const { failedSections, error, refreshStats } = useStats();
+    // A batch whose every section failed (`batchFailed`) has one box at the top of the Dashboard.
+    const { failedSections, batchFailed, error, refreshStats } = useStats();
     const loadError = failedSections.clients ? error : null;
     const [sortBy, setSortBy] = useState<SortOption>('total');
 
@@ -178,15 +179,14 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
           </div>
         </div>
 
-        {loadError !== null && (
-          <div className="mb-4">
-            <ErrorBlock
-              title={t('dashboard.topClients.loadFailed')}
-              message={loadError}
-              retryLabel={t('common.retry')}
-              onRetry={() => void refreshStats(true)}
-            />
-          </div>
+        {loadError !== null && !batchFailed && (
+          <ErrorBlock
+            className="mb-4 last:mb-0"
+            title={t('dashboard.topClients.loadFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void refreshStats(true)}
+          />
         )}
 
         {loading ? (

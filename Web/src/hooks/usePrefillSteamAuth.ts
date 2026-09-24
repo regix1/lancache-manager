@@ -7,7 +7,6 @@ import { getErrorMessage } from '@utils/error';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
 import { loginAttemptTimeoutMs, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
-import { prefillServiceConfig } from '@components/features/prefill/hooks/prefillServiceConfig';
 import { getAuthStage, type AuthStage, type AuthStep } from './authStage';
 
 export interface CredentialChallenge {
@@ -681,9 +680,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     const attemptEpoch = loginEpochRef.current;
-    const signInFailed = t('common.errors.signInFailed', {
-      platform: t(prefillServiceConfig(serviceId).serviceNameKey)
-    });
     if (!sessionId || !hubConnection) {
       addNotification({
         type: 'generic',
@@ -750,7 +746,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         finishAuthStep(step.actionId);
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
-        notifyError(signInFailed, err);
         onError?.(errorMessage);
         setLoading(false);
         return false;
@@ -812,7 +807,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         finishAuthStep(step.actionId);
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
-        notifyError(signInFailed, err);
         onError?.(errorMessage);
         setLoading(false);
         return false;
@@ -866,7 +860,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         finishAuthStep(step.actionId);
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
-        notifyError(signInFailed, err);
         onError?.(errorMessage);
         setLoading(false);
         return false;
@@ -930,7 +923,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         finishAuthStep(step.actionId);
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
-        notifyError(signInFailed, err);
         onError?.(errorMessage);
         setLoading(false);
         return false;
@@ -994,7 +986,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         finishAuthStep(step.actionId);
         const errorMessage = getErrorMessage(err);
         setError(errorMessage);
-        notifyError(signInFailed, err);
         onError?.(errorMessage);
         setLoading(false);
         return false;
@@ -1120,7 +1111,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       finishAuthStep(step.actionId);
       const errorMessage = getErrorMessage(err);
       setError(errorMessage);
-      notifyError(signInFailed, err);
       onError?.(errorMessage);
       setLoading(false);
       return false;
@@ -1139,13 +1129,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     needsAuthorizationCode,
     pendingChallenge,
     addNotification,
-    notifyError,
     notifySuccess,
     resetAuthForm,
     onSuccess,
     onError,
     serviceId,
-    t,
     handleChallengeType,
     beginAuthStep,
     finishAuthStep,

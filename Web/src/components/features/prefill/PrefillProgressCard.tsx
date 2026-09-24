@@ -98,9 +98,7 @@ export function PrefillProgressCard({
       : null;
 
   const currentAppLabel =
-    (progress.currentAppName || t('prefill.progress.appId', { id: progress.currentAppId })) +
-    (progress.state === 'app_completed' ? ` - ${t('prefill.progress.complete')}` : '') +
-    (progress.state === 'already_cached' ? ` - ${t('prefill.progress.upToDate')}` : '');
+    progress.currentAppName || t('prefill.progress.appId', { id: progress.currentAppId });
 
   if (run) {
     const active = isPrefillRunActive(run);
@@ -238,11 +236,6 @@ export function PrefillProgressCard({
                   <span>{formatSpeed(progress.bytesPerSecond)}</span>
                 </p>
               </>
-            )}
-            {run.recovering && active && (
-              <p className="text-sm text-themed-muted">
-                {t('prefill.progress.reconnectingMessage')}
-              </p>
             )}
             {active ? (
               <>
@@ -461,11 +454,9 @@ export function PrefillProgressCard({
                 )}
               </div>
 
-              {progress.state === 'reconnecting' ? (
-                <p className="text-sm text-themed-muted text-center">
-                  {t('prefill.progress.reconnectingMessage')}
-                </p>
-              ) : progress.state === 'downloading' ? (
+              {/* The heading already says reconnecting, cached or loading the next game, so those
+                  states add no sentence here. */}
+              {progress.state === 'reconnecting' ? null : progress.state === 'downloading' ? (
                 <div className="flex items-center justify-between text-xs text-themed-muted">
                   <span>
                     {formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.totalBytes)}
@@ -475,19 +466,12 @@ export function PrefillProgressCard({
                   </span>
                 </div>
               ) : progress.state === 'already_cached' ? (
-                <div className="flex items-center justify-between text-xs text-themed-muted">
-                  <span className="text-[var(--theme-info)]">
-                    {t('prefill.progress.gameUpToDate')}
-                  </span>
+                <div className="flex items-center justify-end text-xs text-themed-muted">
                   <span className="font-medium text-[var(--theme-info)]">
                     {formatPercent(appPercent, 0)}
                   </span>
                 </div>
-              ) : progress.state === 'app_completed' ? (
-                <p className="text-sm text-themed-muted text-center">
-                  {t('prefill.progress.loadingNextGame')}...
-                </p>
-              ) : (
+              ) : progress.state === 'app_completed' ? null : (
                 <p className="text-sm text-themed-muted text-center">
                   {progress.message || t('prefill.progress.preparingOperation')}
                 </p>

@@ -55,7 +55,6 @@ import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermission
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { formatBytes } from '@utils/formatters';
-import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
@@ -82,7 +81,7 @@ import {
   useScheduledRemovalRefresh
 } from './cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo, UnmappedService } from '../../../../types';
-import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
+import { isCardDiskActionBlocked } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { sessionStore } from '@utils/storage';
@@ -742,6 +741,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     isLoadingInitialCache || (filteredGames.length === 0 && filteredServices.length === 0);
   const showBlockingLoader =
     isDetectionFromNotification || isStartingDetection || (isLoadingData && !hasResults);
+  // True when the section body below the load box renders at least one child: the datasource
+  // filter, the blocking loader, kept results, the unmapped list or the empty state. The shared
+  // section body hides itself only when nothing renders in it.
+  const hasBodyContent =
+    showBlockingLoader ||
+    (cacheExist &&
+      (datasources.length > 1 ||
+        hasResults ||
+        unmappedServices !== null ||
+        (!loading && !loadError)));
   const allExpanded = servicesExpanded && gamesExpanded && unmappedExpanded;
 
   // Sequential per-item cache-removal queue. The app-root BulkRemovalProvider
@@ -801,7 +810,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     checkingPermissions,
     nginxReopenGate: allNginxReopenGate
   };
-  const directoryNotice = resolveCardNotice(directoryNoticeConditions, directoryNoticeLiveState);
   const diskActionBlocked = isCardDiskActionBlocked(
     directoryNoticeConditions,
     directoryNoticeLiveState
@@ -1126,216 +1134,222 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onToggle={() => setSectionExpanded((prev) => !prev)}
         badge={headerActions}
       >
-        <div className="space-y-3">
-          <CardDirectoryNotice notice={directoryNotice} />
+        {loadError && (
+          <ErrorBlock
+            title={t('management.gameDetection.errors.syncFailed')}
+            message={loadError}
+            retryLabel={t('common.retry')}
+            onRetry={() => setInitialLoadRetry((current) => current + 1)}
+            className={hasBodyContent ? 'mb-3' : undefined}
+          />
+        )}
 
-          {loadError && (
-            <ErrorBlock
-              title={t('management.gameDetection.errors.syncFailed')}
-              message={loadError}
-              retryLabel={t('common.retry')}
-              onRetry={() => setInitialLoadRetry((current) => current + 1)}
-            />
-          )}
+        {hasBodyContent && (
+          <div className="space-y-3">
+            {/* Datasource Filter */}
+            {cacheExist && datasources.length > 1 && (
+              <div className="flex justify-end">
+                <EnhancedDropdown
+                  variant="button"
+                  options={[
+                    {
+                      value: '',
+                      label: t('management.gameDetection.placeholders.allDatasources')
+                    },
+                    ...datasources.map(
+                      (ds): DropdownOption => ({
+                        value: ds.name,
+                        label: ds.name
+                      })
+                    )
+                  ]}
+                  value={selectedDatasource || ''}
+                  onChange={(value) => setSelectedDatasource(value || null)}
+                  placeholder={t('management.gameDetection.placeholders.allDatasources')}
+                  cleanStyle
+                  size="sm"
+                  prefix={t('management.gameDetection.filterPrefix')}
+                />
+              </div>
+            )}
 
-          {/* Datasource Filter */}
-          {cacheExist && datasources.length > 1 && (
-            <div className="flex justify-end">
-              <EnhancedDropdown
-                variant="button"
-                options={[
-                  {
-                    value: '',
-                    label: t('management.gameDetection.placeholders.allDatasources')
-                  },
-                  ...datasources.map(
-                    (ds): DropdownOption => ({
-                      value: ds.name,
-                      label: ds.name
-                    })
-                  )
-                ]}
-                value={selectedDatasource || ''}
-                onChange={(value) => setSelectedDatasource(value || null)}
-                placeholder={t('management.gameDetection.placeholders.allDatasources')}
-                cleanStyle
-                size="sm"
-                prefix={t('management.gameDetection.filterPrefix')}
+            {/* Loading State */}
+            {showBlockingLoader && (
+              <LoadingState
+                variant="spinner"
+                message={
+                  datasources.length > 1
+                    ? t('management.gameDetection.scanningMultipleDatasources', {
+                        count: datasources.length
+                      })
+                    : t('management.gameDetection.scanningSingle')
+                }
+                submessage={t('management.gameDetection.scanningNote')}
               />
-            </div>
-          )}
+            )}
 
-          {/* Loading State */}
-          {showBlockingLoader && (
-            <LoadingState
-              variant="spinner"
-              message={
-                datasources.length > 1
-                  ? t('management.gameDetection.scanningMultipleDatasources', {
-                      count: datasources.length
-                    })
-                  : t('management.gameDetection.scanningSingle')
-              }
-              submessage={t('management.gameDetection.scanningNote')}
-            />
-          )}
-
-          {cacheExist && (
-            <>
-              {/* Previous Results Summary */}
-              {lastDetectionTime && hasResults && (
-                <div className="space-y-2">
-                  <p className="mgmt-scanmeta">
-                    {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
-                  </p>
-                  <div className="mgmt-stat-grid">
-                    <div className="mgmt-stat">
-                      <p className="mgmt-stat__label caps-label caps-label--sm">
-                        {t('management.gameDetection.servicesSection')}
-                      </p>
-                      <p className="mgmt-stat__value">{filteredServices.length}</p>
-                      <p className="mgmt-stat__sub">
-                        {formatBytes(
-                          filteredServices.reduce((sum, s) => sum + s.total_size_bytes, 0)
-                        )}
-                      </p>
-                    </div>
-                    <div className="mgmt-stat">
-                      <p className="mgmt-stat__label caps-label caps-label--sm">
-                        {t('management.gameDetection.gamesSection')}
-                      </p>
-                      <p className="mgmt-stat__value">{filteredGames.length}</p>
-                      <p className="mgmt-stat__sub">
-                        {formatBytes(filteredGames.reduce((sum, g) => sum + g.total_size_bytes, 0))}
-                      </p>
-                    </div>
-                    {unmappedServices !== null && (
+            {cacheExist && (
+              <>
+                {/* Previous Results Summary */}
+                {lastDetectionTime && hasResults && (
+                  <div className="space-y-2">
+                    <p className="mgmt-scanmeta">
+                      {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
+                    </p>
+                    <div className="mgmt-stat-grid">
                       <div className="mgmt-stat">
                         <p className="mgmt-stat__label caps-label caps-label--sm">
-                          {t('management.gameDetection.unmappedSection')}
+                          {t('management.gameDetection.servicesSection')}
                         </p>
-                        <p className="mgmt-stat__value">{unmappedServices.length}</p>
+                        <p className="mgmt-stat__value">{filteredServices.length}</p>
                         <p className="mgmt-stat__sub">
-                          {formatBytes(unmappedServices.reduce((sum, u) => sum + u.total_bytes, 0))}
+                          {formatBytes(
+                            filteredServices.reduce((sum, s) => sum + s.total_size_bytes, 0)
+                          )}
                         </p>
                       </div>
-                    )}
+                      <div className="mgmt-stat">
+                        <p className="mgmt-stat__label caps-label caps-label--sm">
+                          {t('management.gameDetection.gamesSection')}
+                        </p>
+                        <p className="mgmt-stat__value">{filteredGames.length}</p>
+                        <p className="mgmt-stat__sub">
+                          {formatBytes(
+                            filteredGames.reduce((sum, g) => sum + g.total_size_bytes, 0)
+                          )}
+                        </p>
+                      </div>
+                      {unmappedServices !== null && (
+                        <div className="mgmt-stat">
+                          <p className="mgmt-stat__label caps-label caps-label--sm">
+                            {t('management.gameDetection.unmappedSection')}
+                          </p>
+                          <p className="mgmt-stat__value">{unmappedServices.length}</p>
+                          <p className="mgmt-stat__sub">
+                            {formatBytes(
+                              unmappedServices.reduce((sum, u) => sum + u.total_bytes, 0)
+                            )}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Filter indicator */}
-              {selectedDatasource && (filteredGames.length > 0 || filteredServices.length > 0) && (
-                <Alert color="blue">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">
-                      {t('management.gameDetection.filteredBy', {
-                        datasource: selectedDatasource,
-                        gameCount: filteredGames.length,
-                        serviceCount: filteredServices.length
-                      })}
-                    </span>
-                    <Button
-                      variant="filled"
-                      color="secondary"
-                      size="xs"
-                      onClick={() => setSelectedDatasource(null)}
-                    >
-                      {t('management.gameDetection.clearFilter')}
-                    </Button>
-                  </div>
-                </Alert>
-              )}
+                {/* Filter indicator */}
+                {selectedDatasource &&
+                  (filteredGames.length > 0 || filteredServices.length > 0) && (
+                    <Alert color="blue">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">
+                          {t('management.gameDetection.filteredBy', {
+                            datasource: selectedDatasource,
+                            gameCount: filteredGames.length,
+                            serviceCount: filteredServices.length
+                          })}
+                        </span>
+                        <Button
+                          variant="filled"
+                          color="secondary"
+                          size="xs"
+                          onClick={() => setSelectedDatasource(null)}
+                        >
+                          {t('management.gameDetection.clearFilter')}
+                        </Button>
+                      </div>
+                    </Alert>
+                  )}
 
-              {/* Services Section (Accordion) */}
-              {filteredServices.length > 0 && (
-                <AccordionSection
-                  title={t('management.gameDetection.servicesSection')}
-                  count={filteredServices.length}
-                  icon={Server}
-                  isExpanded={servicesExpanded}
-                  onToggle={() => setServicesExpanded(!servicesExpanded)}
-                  surface="well"
-                >
-                  <ServicesList
-                    services={filteredServices}
-                    isAdmin={isAdmin}
-                    datasourceConfigs={datasources}
-                    onRemoveService={handleServiceRemoveClick}
-                    diskActionBlocked={diskActionBlocked}
-                    selection={servicesSelectionProp}
+                {/* Services Section (Accordion) */}
+                {filteredServices.length > 0 && (
+                  <AccordionSection
+                    title={t('management.gameDetection.servicesSection')}
+                    count={filteredServices.length}
+                    icon={Server}
+                    isExpanded={servicesExpanded}
+                    onToggle={() => setServicesExpanded(!servicesExpanded)}
+                    surface="well"
+                  >
+                    <ServicesList
+                      services={filteredServices}
+                      isAdmin={isAdmin}
+                      datasourceConfigs={datasources}
+                      onRemoveService={handleServiceRemoveClick}
+                      diskActionBlocked={diskActionBlocked}
+                      selection={servicesSelectionProp}
+                    />
+                  </AccordionSection>
+                )}
+
+                {/* Games Section (Accordion) */}
+                {filteredGames.length > 0 && (
+                  <AccordionSection
+                    title={t('management.gameDetection.gamesSection')}
+                    count={filteredGames.length}
+                    icon={Database}
+                    isExpanded={gamesExpanded}
+                    onToggle={() => setGamesExpanded(!gamesExpanded)}
+                    surface="well"
+                  >
+                    <GamesList
+                      games={filteredGames}
+                      isAdmin={isAdmin}
+                      datasourceConfigs={datasources}
+                      onRemoveGame={handleRemoveClick}
+                      diskActionBlocked={diskActionBlocked}
+                      selection={gamesSelectionProp}
+                    />
+                  </AccordionSection>
+                )}
+
+                {/* Unmapped Section (Accordion) - read-only. Absent means the last scan was
+                    incremental and measured no unmapped set, so there is nothing to show. */}
+                {unmappedServices !== null && (
+                  <AccordionSection
+                    title={t('management.gameDetection.unmappedSection')}
+                    count={unmappedServices.length}
+                    icon={FileQuestion}
+                    isExpanded={unmappedExpanded}
+                    onToggle={() => setUnmappedExpanded(!unmappedExpanded)}
+                    surface="well"
+                  >
+                    <UnmappedServicesList services={unmappedServices} />
+                  </AccordionSection>
+                )}
+
+                {/* Empty State - shown only when the scan has no mapped or unmapped results */}
+                {!hasResults && !loading && !loadError && (
+                  <EmptyState
+                    title={
+                      selectedDatasource
+                        ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
+                            datasource: selectedDatasource
+                          })
+                        : t('management.gameDetection.emptyState.noGamesServices')
+                    }
+                    subtitle={
+                      noProcessedLogs
+                        ? t('management.gameDetection.emptyState.processLogsFirst')
+                        : t('management.gameDetection.emptyState.clickFullScan')
+                    }
+                    action={
+                      selectedDatasource ? (
+                        <Button
+                          variant="filled"
+                          color="secondary"
+                          size="sm"
+                          onClick={() => setSelectedDatasource(null)}
+                        >
+                          {t('management.gameDetection.clearFilter')}
+                        </Button>
+                      ) : undefined
+                    }
                   />
-                </AccordionSection>
-              )}
-
-              {/* Games Section (Accordion) */}
-              {filteredGames.length > 0 && (
-                <AccordionSection
-                  title={t('management.gameDetection.gamesSection')}
-                  count={filteredGames.length}
-                  icon={Database}
-                  isExpanded={gamesExpanded}
-                  onToggle={() => setGamesExpanded(!gamesExpanded)}
-                  surface="well"
-                >
-                  <GamesList
-                    games={filteredGames}
-                    isAdmin={isAdmin}
-                    datasourceConfigs={datasources}
-                    onRemoveGame={handleRemoveClick}
-                    diskActionBlocked={diskActionBlocked}
-                    selection={gamesSelectionProp}
-                  />
-                </AccordionSection>
-              )}
-
-              {/* Unmapped Section (Accordion) - read-only. Absent means the last scan was
-                  incremental and measured no unmapped set, so there is nothing to show. */}
-              {unmappedServices !== null && (
-                <AccordionSection
-                  title={t('management.gameDetection.unmappedSection')}
-                  count={unmappedServices.length}
-                  icon={FileQuestion}
-                  isExpanded={unmappedExpanded}
-                  onToggle={() => setUnmappedExpanded(!unmappedExpanded)}
-                  surface="well"
-                >
-                  <UnmappedServicesList services={unmappedServices} />
-                </AccordionSection>
-              )}
-
-              {/* Empty State - shown only when the scan has no mapped or unmapped results */}
-              {!hasResults && !loading && !loadError && (
-                <EmptyState
-                  title={
-                    selectedDatasource
-                      ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
-                          datasource: selectedDatasource
-                        })
-                      : t('management.gameDetection.emptyState.noGamesServices')
-                  }
-                  subtitle={
-                    noProcessedLogs
-                      ? t('management.gameDetection.emptyState.processLogsFirst')
-                      : t('management.gameDetection.emptyState.clickFullScan')
-                  }
-                  action={
-                    selectedDatasource ? (
-                      <Button
-                        variant="filled"
-                        color="secondary"
-                        size="sm"
-                        onClick={() => setSelectedDatasource(null)}
-                      >
-                        {t('management.gameDetection.clearFilter')}
-                      </Button>
-                    ) : undefined
-                  }
-                />
-              )}
-            </>
-          )}
-        </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </AccordionSection>
 
       {/* Game Removal Confirmation Modal */}

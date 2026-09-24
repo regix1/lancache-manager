@@ -1,5 +1,4 @@
 import React from 'react';
-import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
 
@@ -536,27 +535,6 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       <div className="mb-2">{title}</div>
       {subtitle && <div className="text-xs">{subtitle}</div>}
       {action && <div className="mt-4">{action}</div>}
-    </div>
-  );
-};
-
-// ============================================================================
-// READ ONLY BADGE
-// ============================================================================
-
-interface ReadOnlyBadgeProps {
-  message?: string;
-}
-
-/**
- * Standardized read-only badge for disabled states
- */
-export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({ message }) => {
-  const { t } = useTranslation();
-
-  return (
-    <div className="flex items-center justify-center py-4">
-      <Badge variant="warning">{message || t('ui.managerCard.readOnly')}</Badge>
     </div>
   );
 };

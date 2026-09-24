@@ -75,8 +75,6 @@ interface UsePrefillSignalRReturn {
   createSession: (clearLogs: () => void) => Promise<void>;
 
   // Error
-  error: string | null;
-  setError: React.Dispatch<React.SetStateAction<string | null>>;
   /** The last session-create or subscribe failure's reason; null once a new attempt starts. Drawn for guests only; admins get the popup. */
   createSessionError: string | null;
 
@@ -175,7 +173,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const [isConnected, setIsConnected] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [hubConnectFailed, setHubConnectFailed] = useState(false);
   const [createSessionError, setCreateSessionError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
@@ -284,7 +281,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               );
               if (sessionRef.current?.id !== sessionId) return;
               updateRuns(currentRuns);
-              setError(null);
             } while (runsAgainRef.current);
           } catch (error: unknown) {
             if (sessionRef.current?.id !== sessionId) return;
@@ -457,7 +453,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       }
 
       setIsConnecting(true);
-      setError(null);
 
       try {
         const connection = new HubConnectionBuilder()
@@ -627,14 +622,14 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           t('prefill.log.reconnectedExistingSession'),
           t('prefill.log.containerDetail', { name: activeSession.containerName })
         );
-        addLog(
-          'info',
-          t('prefill.log.sessionExpiresIn', {
-            time: formatTimeRemaining(
-              Math.max(0, Math.floor((Date.parse(activeSession.expiresAt) - Date.now()) / 1000))
-            )
-          })
-        );
+        // A session with no time left gets no "expires in" line; the expired panel says it.
+        const secondsLeft = Math.floor((Date.parse(activeSession.expiresAt) - Date.now()) / 1000);
+        if (secondsLeft > 0) {
+          addLog(
+            'info',
+            t('prefill.log.sessionExpiresIn', { time: formatTimeRemaining(secondsLeft) })
+          );
+        }
 
         if (activeSession.authState === 'Authenticated' && serviceId !== 'battlenet') {
           // Battle.net is anonymous - never logs a "logged in" message
@@ -751,7 +746,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const createSession = useCallback(
     async (clearLogs: () => void) => {
       setIsCreating(true);
-      setError(null);
       setHubConnectFailed(false);
       setCreateSessionError(null);
       clearLogs();
@@ -800,14 +794,14 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             addLog('info', t('prefill.log.loginBeforePrefill', { service: t(serviceNameKey) }));
           }
         }
-        addLog(
-          'info',
-          t('prefill.log.sessionExpiresIn', {
-            time: formatTimeRemaining(
-              Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000))
-            )
-          })
-        );
+        // An existing session handed back after its expiry gets no "expires in" line.
+        const secondsLeft = Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000);
+        if (secondsLeft > 0) {
+          addLog(
+            'info',
+            t('prefill.log.sessionExpiresIn', { time: formatTimeRemaining(secondsLeft) })
+          );
+        }
 
         await connection.invoke('SubscribeToSessionAsync', session.id);
         setIsCreating(false);
@@ -968,8 +962,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     createSession,
 
     // Error
-    error,
-    setError,
     createSessionError,
 
     // Refs

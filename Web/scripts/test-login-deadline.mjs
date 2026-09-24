@@ -53,9 +53,6 @@ const aliases = {
   './authStage': authStageUrl,
   '@components/features/prefill/hooks/prefillConstants': moduleUrl(
     'export const getEventName=name=>name;'
-  ),
-  '@components/features/prefill/hooks/prefillServiceConfig': moduleUrl(
-    'export const prefillServiceConfig=id=>({serviceNameKey:`prefill.persistent.services.${id}`});'
   )
 };
 const compileGuest = async (source) => {
@@ -650,20 +647,18 @@ test('guest Steam credentials stay pending through same-stage and empty challeng
   }
 });
 
-test('a failed guest sign-in raises one popup titled for its platform with the reason below', async () => {
+test('a failed sign-in shows its reason in the open dialog and raises no popup behind it', async () => {
   const flow = guest(useGuest, 'steam');
   globalThis.loginTest.notified = [];
   try {
-    const failure = new Error('Hub down');
     flow.reply = challenge('username', 'username');
     flow.provide = async () => {
-      throw failure;
+      throw new Error('Hub down');
     };
-    await flow.start();
+    const auth = await flow.start();
 
-    assert.equal(globalThis.loginTest.notified.length, 1);
-    assert.equal(globalThis.loginTest.notified[0][0], 'common.errors.signInFailed');
-    assert.equal(globalThis.loginTest.notified[0][1], failure);
+    assert.deepEqual(globalThis.loginTest.notified, []);
+    assert.equal(auth.state.error, 'Hub down');
     assert.deepEqual(flow.outcomes.errors, ['Hub down']);
   } finally {
     flow.unmount();
