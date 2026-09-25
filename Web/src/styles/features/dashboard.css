@@ -1069,6 +1069,18 @@
   }
 }
 
+/* The Cache Size footer can take more lines than other cards. Give every row in a
+   multi-column layout the same height so the cards remain aligned across rows. */
+@media (min-width: 768px) {
+  .stat-cards-2col,
+  .stat-cards-3col,
+  .stat-cards-4col,
+  .stat-cards-5col,
+  .stat-cards-flow {
+    grid-auto-rows: 1fr;
+  }
+}
+
 /* Top Clients table — lives inside a .dash-well: in-well header row with a
    hairline under it, hairline dividers between body rows, flush hover fill.
    Same divided-list language as the Recent Downloads panel and mgmt-list. */
