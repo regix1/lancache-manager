@@ -467,14 +467,75 @@
   min-height: 0;
 }
 
+/* The ordinary modal body scrolls inside the shared rail while retaining Modal's original
+   horizontal and vertical content insets. The dialog header stays outside this scroll owner. */
+.modal-body--scroll {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.modal-body--scroll > .csb-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 640px) {
+  .modal-body--scroll.csb--inline.csb--default {
+    --csb-content-gap: 1.5rem;
+  }
+}
+
 /* The one scroll owner above a fixed footer. A footer that scrolled with the content spent the
    whole overflow range half cut off against the modal's bottom edge: the buttons were reachable,
    but only after scrolling to the very last pixel. */
 .modal-body-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-body-scroll > .csb-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+/* Login dialogs keep their existing content width and put the rail in the modal body's padding. */
+.modal-body-scroll.csb.csb--rail.csb--outer {
+  --csb-content-gap: 0rem;
+}
+
+.setup-gate-scroll.csb--inline.csb--default {
+  --csb-content-gap: 1.25rem;
+}
+
+.setup-gate-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.setup-gate-scroll > .csb-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-block: 1.25rem;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 640px) {
+  .setup-gate-scroll.csb--inline.csb--default {
+    --csb-content-gap: 2rem;
+  }
+
+  .setup-gate-scroll > .csb-viewport {
+    padding-block: 2rem;
+  }
 }
 
 @media (max-width: 639.98px) {

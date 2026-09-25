@@ -576,7 +576,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
         </div>
       ) : (
         <>
-          <CustomScrollbar maxHeight="24rem" radius="none" paddingMode="compact">
+          <CustomScrollbar maxHeight="24rem" radius="none" paddingMode="none">
             <div className="mgmt-evidence-list divided-list">{visibleChunks.map(renderChunk)}</div>
           </CustomScrollbar>
           {filteredChunks.length > CHUNKS_PER_PAGE && (

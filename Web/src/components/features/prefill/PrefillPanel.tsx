@@ -13,6 +13,7 @@ import { Tooltip } from '../../ui/Tooltip';
 import { Alert } from '../../ui/Alert';
 import { ErrorBlock } from '../../ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
@@ -1557,7 +1558,12 @@ function ServicePrefillPanel({
                     <div className="text-xs text-themed-muted mb-1">
                       {t('prefill.confirm.breakdown', { count: estimatedSize.apps.length })}:
                     </div>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                    <CustomScrollbar
+                      maxHeight="8rem"
+                      paddingMode="compact"
+                      radius="none"
+                      contentClassName="space-y-1"
+                    >
                       {estimatedSize.apps.map((app) => {
                         const sizeSpan = (
                           <span
@@ -1604,7 +1610,7 @@ function ServicePrefillPanel({
                           </div>
                         );
                       })}
-                    </div>
+                    </CustomScrollbar>
                   </div>
                 )}
               </div>

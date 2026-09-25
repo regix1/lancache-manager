@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal } from '@components/ui/Modal';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { LoginSteps } from './LoginSteps';
@@ -160,7 +161,13 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
       size="md"
     >
       <div className="modal-body-layout">
-        <div className="modal-body-scroll space-y-4 sm:space-y-6">
+        <CustomScrollbar
+          maxHeight="none"
+          className="modal-body-scroll"
+          contentClassName="space-y-4 sm:space-y-6"
+          railPlacement="outer"
+          radius="none"
+        >
           {state.canAuthenticate === false && (
             <p className="text-sm text-themed-muted" role="status">
               {state.accessUnavailable
@@ -266,7 +273,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
               </>
             )}
           </div>
-        </div>
+        </CustomScrollbar>
 
         <div className="confirmation-modal__actions">
           <Button

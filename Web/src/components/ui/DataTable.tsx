@@ -436,7 +436,7 @@ function DataTableInner<T>(
     return (
       <div ref={containerRef} className={containerClasses} role="table">
         {renderHeader()}
-        <CustomScrollbar maxHeight={maxHeight} paddingMode="compact">
+        <CustomScrollbar maxHeight={maxHeight} paddingMode="none">
           <div className="data-table-scroll-wrapper">{renderBody()}</div>
         </CustomScrollbar>
       </div>

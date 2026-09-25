@@ -914,7 +914,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       <CustomScrollbar
         variant="rail"
         radius="none"
-        paddingMode="compact"
+        paddingMode="none"
         maxHeight={PICKER_MAX_HEIGHT}
       >
         <div

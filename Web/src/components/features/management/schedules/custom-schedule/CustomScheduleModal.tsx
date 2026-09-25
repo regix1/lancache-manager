@@ -684,7 +684,12 @@ function CustomScheduleModal({
           </Alert>
         )}
 
-        <CustomScrollbar maxHeight="none" className="custom-schedule-viewport" radius="none">
+        <CustomScrollbar
+          maxHeight="none"
+          className="custom-schedule-viewport"
+          railPlacement="outer"
+          radius="none"
+        >
           <div className="custom-schedule-body">
             {/* First, because every time below is read in this zone and on this face: choosing them
               afterwards means re-reading fields already filled in. Only one of the two belongs to

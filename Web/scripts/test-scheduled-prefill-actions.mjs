@@ -2505,6 +2505,7 @@ function createModalHarness(document, onClose = () => undefined) {
     useTranslation: () => ({ t: (key) => key }),
     createPortal: (node) => node,
     X: 'X',
+    CustomScrollbar: 'CustomScrollbar',
     getFocusable: (node) => node.focusables,
     document,
     Node: ModalNode,

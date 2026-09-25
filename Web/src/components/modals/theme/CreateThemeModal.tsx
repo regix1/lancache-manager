@@ -135,6 +135,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
           <div ref={setScrollArea} className="theme-editor-modal__scroll-area">
             <CustomScrollbar
               maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
+              railPlacement="outer"
               radius="none"
             >
               <div className="theme-editor-modal__pane">

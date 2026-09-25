@@ -4,6 +4,12 @@
   overflow: hidden;
 }
 
+.scheduled-prefill-activity-filter {
+  width: 12rem;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
 .scheduled-prefill-activity-runs__list > .caps-label {
   padding: 0.5rem 1rem;
   background: var(--theme-bg-tertiary);

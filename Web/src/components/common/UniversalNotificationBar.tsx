@@ -360,7 +360,7 @@ const UniversalNotificationBar: React.FC = () => {
                   against the viewport and a rounded clip would shave their corners. */}
               <CustomScrollbar
                 maxHeight={isMobile ? '12rem' : '70vh'}
-                paddingMode="compact"
+                paddingMode="none"
                 radius="none"
               >
                 {condensedPanel}

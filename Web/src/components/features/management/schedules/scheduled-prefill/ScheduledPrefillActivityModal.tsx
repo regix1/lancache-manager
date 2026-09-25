@@ -322,6 +322,7 @@ export function ScheduledPrefillActivityModal({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-themed-muted">{t(`${baseKey}.activityDescription`)}</p>
           <EnhancedDropdown
+            className="scheduled-prefill-activity-filter"
             options={filterOptions}
             value={serviceFilter}
             onChange={(value) =>
@@ -337,6 +338,7 @@ export function ScheduledPrefillActivityModal({
           <CustomScrollbar
             maxHeight="none"
             className="scheduled-prefill-config-modal__viewport"
+            railPlacement="outer"
             radius="none"
           >
             <div className="flex flex-col gap-6">

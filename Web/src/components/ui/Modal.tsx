@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { getFocusable } from '@utils/focus';
+import { CustomScrollbar } from './CustomScrollbar';
 
 // Global modal tracking for nested modal support
 type ModalStackPriority = 'normal' | 'elevated';
@@ -51,15 +52,9 @@ interface ModalProps {
    */
   stackPriority?: ModalStackPriority;
   /**
-   * When true, the body wrapper becomes a flex column itself and never scrolls on its own -
-   * instead of the default (every other modal) where the wrapper's own `overflow-y-auto` scrolls
-   * whatever `children` renders as one block. Use this when `children` manages its own internal
-   * scroll region (e.g. a fixed header/footer around a `CustomScrollbar` middle): a plain block
-   * child's `height: 100%` does not reliably resolve against this wrapper's flex-computed height
-   * (measured: it fell back to its content height instead), so the wrapper's own overflow-y-auto
-   * kicked in and showed a second, native scrollbar alongside the child's own. Making the wrapper
-   * a flex column lets the child fill it via `flex: 1 1 auto` (flex-grow, not a percentage), which
-   * resolves reliably.
+   * When true, children own the scroll region inside a flex body, usually between a fixed header
+   * and footer. Otherwise the shared scrollbar owns the whole body. The flex chain prevents a
+   * second scrollbar when a child has its own bounded scroll area.
    */
   bodyFlexLayout?: boolean;
   /**
@@ -275,7 +270,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-2 sm:py-4 transition duration-[250ms] ease-out ${
+      className={`modal-backdrop fixed inset-0 overflow-hidden py-2 sm:py-4 transition duration-[250ms] ease-out ${
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
@@ -292,7 +287,7 @@ export const Modal: React.FC<ModalProps> = ({
           aria-modal="true"
           aria-labelledby={title ? titleId : undefined}
           tabIndex={-1}
-          className={`themed-card border themed-border-radius ${sizes[size]} ${className} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition duration-[250ms] ease-out ${
+          className={`themed-card border themed-border-radius ${sizes[size]} ${className} w-full max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col transform transition duration-[250ms] ease-out ${
             isAnimating
               ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]'
               : 'opacity-0 scale-90 translate-y-8 delay-0'
@@ -316,13 +311,19 @@ export const Modal: React.FC<ModalProps> = ({
               </button>
             </div>
           )}
-          <div
-            className={`modal-body p-4 sm:p-6 flex-1 min-h-0 ${
-              bodyFlexLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
-            }`}
-          >
-            {children}
-          </div>
+          {bodyFlexLayout ? (
+            <div className="modal-body p-4 sm:p-6 flex-1 min-h-0 flex flex-col overflow-hidden">
+              {children}
+            </div>
+          ) : (
+            <CustomScrollbar
+              maxHeight="none"
+              className="modal-body modal-body--scroll flex-1 min-h-0"
+              radius="none"
+            >
+              <div className="modal-body__content py-4 sm:py-6">{children}</div>
+            </CustomScrollbar>
+          )}
         </div>
       </div>
     </div>

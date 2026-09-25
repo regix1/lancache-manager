@@ -4,8 +4,17 @@ interface CustomScrollbarProps {
   children: React.ReactNode;
   maxHeight?: string;
   className?: string;
-  /** Right padding for scrollbar space. Use 'compact' for smaller dropdowns. Default is 12px. */
+  contentClassName?: string;
+  /** Equal content insets for an inline rail. 'none' keeps full-width rows aligned with siblings. */
   paddingMode?: 'default' | 'compact' | 'none';
+  /**
+   * 'outer' uses a padded modal body's right side for the rail. The viewport extends into that
+   * padding, but its content stays 12px from both sides of the body's content box. The right
+   * gutter is body padding + 12px; the 8px rail's offset is (gutter - 8px) / 2. Use 'inline' when
+   * there is no outer padding to borrow; full-width lists can set paddingMode='none' so row widths
+   * match their siblings.
+   */
+  railPlacement?: 'inline' | 'outer';
   /**
    * Corner radius of the scroll viewport. Defaults to 'xl' (rounded). Set 'none' when the scrolled
    * content has bordered boxes sitting flush against the edges: the viewport clips overflow at this
@@ -17,8 +26,7 @@ interface CustomScrollbarProps {
   radius?: 'xl' | 'none';
   /**
    * Visual treatment of the scrollbar.
-   * 'rail' (default): a full-height tinted track at the edge, with content inset by
-   * paddingMode so it stops at the track.
+   * 'rail' (default): a full-height tinted track in the right content or outer gutter.
    * 'float': for menus whose rows highlight edge-to-edge - no gutter is reserved
    * (paddingMode is ignored), the track is invisible, and a slim pill thumb floats
    * above the content, inset from the edge and the panel's rounded corners. A
@@ -31,16 +39,22 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   children,
   maxHeight = '32rem',
   className = '',
+  contentClassName = '',
   paddingMode = 'default',
+  railPlacement = 'inline',
   radius = 'xl',
   variant = 'rail'
 }) => {
-  const basePaddingRight =
-    variant === 'float' || paddingMode === 'none'
-      ? '0px'
-      : paddingMode === 'compact'
-        ? '6px'
-        : '12px';
+  const railClass =
+    variant === 'float'
+      ? ''
+      : railPlacement === 'outer'
+        ? 'csb--rail csb--outer'
+        : paddingMode === 'none'
+          ? 'csb--rail csb--edge'
+          : paddingMode === 'compact'
+            ? 'csb--rail csb--inline csb--compact'
+            : 'csb--rail csb--inline csb--default';
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
   const scrollThumbRef = useRef<HTMLDivElement>(null);
@@ -191,28 +205,16 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
   return (
     <div
-      className={`relative isolate ${radius === 'none' ? 'rounded-none' : 'rounded-xl'} ${className}`}
+      className={`csb relative isolate ${railClass} ${radius === 'none' ? 'rounded-none' : 'rounded-xl'} ${className}`}
       style={{ maxHeight }}
     >
       {/* Content area */}
       <div
         ref={contentRef}
         onScroll={handleScroll}
-        className="overflow-y-auto overflow-x-hidden rounded-[inherit]"
-        style={{
-          maxHeight,
-          paddingRight: showScrollbar ? basePaddingRight : '0px',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          WebkitOverflowScrolling: 'touch',
-          willChange: 'scroll-position'
-        }}
+        className={`csb-viewport overflow-y-auto overflow-x-hidden rounded-[inherit] ${contentClassName}`}
+        style={{ maxHeight }}
       >
-        <style>{`
-          .overflow-y-auto::-webkit-scrollbar {
-            display: none;
-          }
-        `}</style>
         {children}
       </div>
 

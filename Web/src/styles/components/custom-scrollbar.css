@@ -1,4 +1,15 @@
 @layer components {
+  .csb-viewport {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+    will-change: scroll-position;
+  }
+
+  .csb-viewport::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ==============================================
    * CUSTOM SCROLLBAR - CustomScrollbar component
    * Static colors for the hand-drawn scrollbar; the thumb's measured
@@ -8,6 +19,46 @@
   /* Rail variant: full-height tinted track sitting in a reserved gutter. */
   .csb-track--rail {
     background: var(--theme-scrollbar-track);
+  }
+
+  /* Keep the content's left and right insets equal. The rail sits halfway across the right inset. */
+  .csb--inline.csb--default {
+    --csb-content-gap: 1rem;
+  }
+
+  .csb--inline.csb--compact {
+    --csb-content-gap: 0.75rem;
+  }
+
+  .csb--inline > .csb-viewport {
+    padding-inline: var(--csb-content-gap);
+  }
+
+  .csb.csb--inline > .csb-track--rail {
+    right: calc((var(--csb-content-gap) - 0.5rem) / 2);
+  }
+
+  /* A modal body supplies right padding beyond its content box. Extending the viewport into that
+     space keeps the content centered while the rail occupies the combined right gutter. */
+  .csb.csb--rail.csb--outer {
+    --csb-content-gap: 0.75rem;
+    --csb-outer-space: 1rem;
+    width: calc(100% + var(--csb-outer-space));
+  }
+
+  .csb--outer > .csb-viewport {
+    padding-left: var(--csb-content-gap);
+    padding-right: calc(var(--csb-content-gap) + var(--csb-outer-space));
+  }
+
+  .csb.csb--outer > .csb-track--rail {
+    right: calc((var(--csb-content-gap) + var(--csb-outer-space) - 0.5rem) / 2);
+  }
+
+  @media (min-width: 640px) {
+    .csb.csb--rail.csb--outer {
+      --csb-outer-space: 1.5rem;
+    }
   }
 
   /* Float variant: no track fill - the thumb alone floats over the content. */

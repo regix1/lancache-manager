@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@components/ui/Badge';
 import { ProgressBar } from '@components/ui/ProgressBar';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getFocusable } from '@utils/focus';
 
 interface SetupGateProps {
@@ -130,7 +131,9 @@ export const SetupGate: React.FC<SetupGateProps> = ({
           />
         )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-8">{children}</div>
+        <CustomScrollbar maxHeight="none" className="setup-gate-scroll" radius="none">
+          {children}
+        </CustomScrollbar>
         {footer && <div className="shrink-0 px-5 sm:px-8 pb-5">{footer}</div>}
       </div>
     </div>,

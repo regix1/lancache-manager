@@ -1,6 +1,7 @@
 import { noAutofill } from '@utils/autofill';
 import React from 'react';
 import { Modal } from '@components/ui/Modal';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import FormField from '@components/ui/FormField';
@@ -128,7 +129,13 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
       size="md"
     >
       <div className="modal-body-layout">
-        <div className="modal-body-scroll space-y-4 sm:space-y-6">
+        <CustomScrollbar
+          maxHeight="none"
+          className="modal-body-scroll"
+          contentClassName="space-y-4 sm:space-y-6"
+          railPlacement="outer"
+          radius="none"
+        >
           {state.recovering && (
             <p className="text-sm text-themed-secondary">{t('errors.integration.recovery')}</p>
           )}
@@ -232,7 +239,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               </>
             )}
           </div>
-        </div>
+        </CustomScrollbar>
 
         <div className="confirmation-modal__actions">
           <Button

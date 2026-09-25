@@ -44,6 +44,7 @@ export function ScheduledPrefillContainerModal({
           <CustomScrollbar
             maxHeight="none"
             className="scheduled-prefill-config-modal__viewport"
+            railPlacement="outer"
             radius="none"
           >
             <div className="scheduled-prefill-config-modal__scroll-content">

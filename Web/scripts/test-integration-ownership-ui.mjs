@@ -227,6 +227,7 @@ const renderBindings = {
     React.createElement('button', { disabled, onClick }, children),
   Modal: ({ opened, children }) =>
     opened ? React.createElement('div', { role: 'dialog' }, children) : null,
+  CustomScrollbar: passthrough,
   FormField: () => null,
   LoginSteps: () => null,
   LoginAttemptStatus: () => null,

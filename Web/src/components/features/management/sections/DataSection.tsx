@@ -6,6 +6,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
@@ -549,7 +550,12 @@ const DataSection: React.FC<DataSectionProps> = ({
       >
         <p className="text-themed-secondary">{t('management.sections.data.confirmClearMessage')}</p>
 
-        <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
+        <CustomScrollbar
+          maxHeight="40vh"
+          paddingMode="compact"
+          radius="none"
+          contentClassName="space-y-2"
+        >
           {getSelectedTableInfo().map((table) => (
             <div
               key={table.name}
@@ -571,7 +577,7 @@ const DataSection: React.FC<DataSectionProps> = ({
               ) : null}
             </div>
           ))}
-        </div>
+        </CustomScrollbar>
 
         {/* The generic cautions are one lead sentence; what follows is only the consequences the
             selected tables actually carry, run together as prose rather than a bullet per table. */}
