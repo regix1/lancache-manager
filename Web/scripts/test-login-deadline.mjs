@@ -69,7 +69,10 @@ const messages = {
   timedOut: 'prefill.persistent.loginTimedOut'
 };
 const storePath =
+  process.env.PERSISTENT_LOGIN_STORE_SOURCE ??
   '../src/components/features/management/schedules/scheduled-prefill/persistentLoginStore.ts';
+const hookPath =
+  process.env.PERSISTENT_LOGIN_HOOK_SOURCE ?? '../src/hooks/usePersistentPrefillAuth.ts';
 let sequence = 0;
 async function persistent(storage, service = 'Steam', rearm = false) {
   const id = ++sequence;
@@ -156,12 +159,13 @@ async function persistent(storage, service = 'Steam', rearm = false) {
   }
   const store = await import(storeUrl);
   const hooks = await import(
-    await compileToUrl('../src/hooks/usePersistentPrefillAuth.ts', {
+    await compileToUrl(hookPath, {
       react: reactUrl,
       'react-i18next': aliases['react-i18next'],
       '@services/api.service': apiUrl,
       '@services/apiError': moduleUrl('export class ApiError extends Error {}'),
       '@utils/error': aliases['@utils/error'],
+      '@utils/uuid': await compileToUrl('../src/utils/uuid.ts'),
       './loginAttemptTimeout': timeoutUrl,
       './authStage': authStageUrl,
       '@components/features/management/schedules/scheduled-prefill/persistentLoginStore': storeUrl
@@ -346,7 +350,8 @@ function challenge(id, type = 'device-confirmation', expiry = Date.now() + 86400
     serverPublicKey: 'key',
     createdAt: new Date().toISOString(),
     expiresAt: new Date(expiry).toISOString(),
-    operationId: 'operation'
+    operationId: 'operation',
+    loginAttempt: 7
   };
 }
 
@@ -1467,6 +1472,253 @@ test('slow persistent cancellation cannot reset or delete a successor', async ()
     await ending;
     assert.equal(storage.getItem('persistent-login-deadline:Steam'), saved);
     assert.equal(flow.store.getPersistentLoginState('Steam').pendingChallenge.challengeId, 'retry');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+// X, Escape and Cancel on a container login prompt run cancel() and then close the prompt in the
+// same tick, the way the service dialog's dismiss handler writes `dismissed`.
+const cancelThenDismiss = async (flow) => {
+  let reject;
+  flow.cancel = () =>
+    new Promise((_done, fail) => {
+      reject = fail;
+    });
+  const ending = flow.render().actions.cancel();
+  flow.store.updatePersistentLoginState('Steam', (current) => ({ ...current, dismissed: true }));
+  return { ending, reject: () => reject(new Error('cancel request failed')) };
+};
+
+test('a failed server cancel after the prompt closes leaves the not-canceled error', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    const { ending, reject } = await cancelThenDismiss(flow);
+    reject();
+    await ending;
+    assert.equal(
+      flow.store.getPersistentLoginState('Steam').error,
+      'prefill.persistent.loginNotCanceled'
+    );
+    // The red text shows, but the account does not read "Login failed".
+    assert.equal(flow.store.getPersistentLoginState('Steam').endReason, 'cancelFailed');
+    assert.equal(
+      flow.store.getPersistentLoginFailure(flow.store.getPersistentLoginState('Steam')),
+      null
+    );
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a cancel names the login attempt of the challenge it ends', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    flow.reply = { ...flow.reply, loginAttempt: 7 };
+    await flow.start();
+    flow.cancel = async () => undefined;
+    await flow.render().actions.cancel();
+    const startCall = flow.calls.find(([name]) => name === 'start');
+    const loginId = startCall.at(-1);
+    assert.match(loginId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.deepEqual(
+      flow.calls.filter(([name]) => name === 'cancel'),
+      [['cancel', 'Steam', 'session', { loginId, loginAttempt: 7 }]]
+    );
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('closing before the first response cancels the exact login on every platform', async () => {
+  for (const service of ['Steam', 'Epic', 'Xbox']) {
+    const time = clock();
+    let flow;
+    try {
+      flow = await persistent(new MemoryStorage(), service);
+      let resolveStart;
+      flow.startReply = () =>
+        new Promise((resolve) => {
+          resolveStart = resolve;
+        });
+      flow.store.setPersistentLoginStartSessionId(service, 'session');
+      const starting = flow.render().actions.start();
+      const startCall = flow.calls.find(([name]) => name === 'start');
+      const loginId = startCall.at(-1);
+      await flow.render().actions.cancel();
+      assert.deepEqual(
+        flow.calls.filter(([name]) => name === 'cancel'),
+        [['cancel', service, 'session', { loginId, loginAttempt: null }]]
+      );
+      assert.match(
+        loginId,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      );
+      resolveStart({ authenticated: true, sessionId: 'session' });
+      await starting;
+      assert.equal(flow.store.getPersistentLoginState(service).loginId, null);
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  }
+});
+
+for (const outcome of ['challenge', 'authenticated', 'failure']) {
+  test(`a stale ${outcome} start cleans up its original session without changing a successor`, async () => {
+    const time = clock();
+    let flow;
+    try {
+      flow = await persistent(new MemoryStorage());
+      const old = deferred();
+      flow.startReply = () => old.promise;
+      flow.store.setPersistentLoginStartSessionId(
+        'Steam',
+        'session-A',
+        undefined,
+        undefined,
+        outcome !== 'challenge'
+      );
+      const starting = flow.render().actions.start();
+      const oldId = flow.calls.find(([name]) => name === 'start').at(-1);
+
+      flow.store.resetPersistentLoginState('Steam');
+      flow.reply = {
+        ...flow.reply,
+        sessionId: 'session-B',
+        challengeId: 'new',
+        operationId: 'new'
+      };
+      flow.startReply = async () => flow.reply;
+      flow.store.setPersistentLoginStartSessionId('Steam', 'session-B');
+      await flow.render().actions.start();
+      const successor = flow.store.getPersistentLoginState('Steam');
+
+      if (outcome === 'failure') old.reject(new Error('old request failed'));
+      else if (outcome === 'authenticated')
+        old.resolve({ authenticated: true, sessionId: 'session-A' });
+      else old.resolve({ ...challenge('old', 'password'), sessionId: 'session-A' });
+      await starting;
+
+      assert.equal(flow.store.getPersistentLoginState('Steam'), successor);
+      assert.deepEqual(
+        flow.calls.filter(([name]) => name === 'cancel'),
+        [
+          [
+            'cancel',
+            'Steam',
+            'session-A',
+            { loginId: oldId, loginAttempt: outcome === 'challenge' ? 7 : null }
+          ]
+        ]
+      );
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+test('an adopted challenge cancels by numeric attempt and an unidentified session sends no request', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    flow.store.updatePersistentLoginState('Steam', (current) => ({
+      ...current,
+      sessionId: 'session',
+      pendingChallenge: { ...flow.reply, loginAttempt: 9 }
+    }));
+    assert.equal(await flow.store.endPersistentLogin('Steam'), true);
+    assert.deepEqual(
+      flow.calls.filter(([name]) => name === 'cancel'),
+      [['cancel', 'Steam', 'session', { loginAttempt: 9 }]]
+    );
+
+    flow.store.updatePersistentLoginState('Steam', (current) => ({
+      ...current,
+      sessionId: 'session',
+      loading: true
+    }));
+    assert.equal(await flow.store.endPersistentLogin('Steam'), false);
+    assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a failed server cancel leaves a newer login attempt without an error', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    const { ending, reject } = await cancelThenDismiss(flow);
+    flow.cancel = async () => true;
+    flow.reply = { ...flow.reply, operationId: 'retry', challengeId: 'retry' };
+    await flow.start();
+    reject();
+    await ending;
+    const current = flow.store.getPersistentLoginState('Steam');
+    assert.equal(current.pendingChallenge.challengeId, 'retry');
+    assert.equal(current.error, null);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('login stays blocked until the server cancel answers, whether it succeeds or fails', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    const { ending, reject } = await cancelThenDismiss(flow);
+    // The store is at rest at once, but a login started now would race the server's cancel.
+    assert.equal(flow.store.getPersistentLoginState('Steam').loading, false);
+    assert.equal(flow.store.usePersistentLoginCanceling('Steam'), true);
+    reject();
+    await ending;
+    assert.equal(flow.store.usePersistentLoginCanceling('Steam'), false);
+
+    await flow.start();
+    let release;
+    flow.cancel = () =>
+      new Promise((done) => {
+        release = done;
+      });
+    const succeeding = flow.render().actions.cancel();
+    assert.equal(flow.store.usePersistentLoginCanceling('Steam'), true);
+    release();
+    await succeeding;
+    assert.equal(flow.store.usePersistentLoginCanceling('Steam'), false);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a canceled login with a deadline leaves no timer to send a second cancel', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    const deadline = flow.store.getPersistentLoginState('Steam').loginDeadline;
+    assert.ok(deadline > time.now);
+    await flow.render().actions.cancel();
+    await time.advance(deadline - time.now + 1000);
+    assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 1);
   } finally {
     flow?.close();
     time.restore();

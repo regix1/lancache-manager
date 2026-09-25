@@ -20,9 +20,12 @@ const { formatTimestamp } = await import(
     '@/i18n': moduleUrl('export default { t: key => key };')
   })
 );
-const { getPrefillRunProgress, isPrefillRunActive } = await import(
-  await compileTree('../src/components/features/prefill/hooks/prefillTypes.ts')
-);
+const {
+  getPrefillProgressStateKey,
+  getPrefillRunProgress,
+  getPrefillRunReasonKey,
+  isPrefillRunActive
+} = await import(await compileTree('../src/components/features/prefill/hooks/prefillTypes.ts'));
 const { clockFromTimeSetting } = await import(
   await compileTree('../src/utils/pendingPreferences.ts')
 );
@@ -78,6 +81,8 @@ const PrefillProgressCard = bindLifted(
     Download: () => null,
     LoadingSpinner: () => null,
     isPrefillRunActive,
+    getPrefillProgressStateKey,
+    getPrefillRunReasonKey,
     formatBytes: String,
     formatSpeed: String,
     formatPercent: String,

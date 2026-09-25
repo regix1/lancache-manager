@@ -4,6 +4,7 @@ import test from 'node:test';
 import typescript from 'typescript';
 import {
   bindLifted,
+  liftConstArrow,
   liftHookCallback,
   parseSource,
   compileToUrl,
@@ -68,7 +69,24 @@ export const useLayoutEffect = () => undefined;
 const { useCountdownTimer } = await import(
   await compileToUrl('../src/hooks/useCountdownTimer.ts', { react: reactUrl })
 );
+const platformUiPath =
+  'src/components/features/management/schedules/scheduled-prefill/scheduledPrefillPlatformUi.ts';
+const isScheduledPrefillAnonymousService = (key) => key === 'battleNet';
+const loginStore = { state: { error: null, sessionUnavailableState: null }, canceling: false };
 const bindings = {
+  getScheduledPrefillServiceStatus: bindLifted(
+    liftConstArrow(platformUiPath, 'getScheduledPrefillServiceStatus'),
+    { isScheduledPrefillAnonymousService }
+  ),
+  getScheduledPrefillStatusFact: bindLifted(
+    liftConstArrow(platformUiPath, 'getScheduledPrefillStatusFact'),
+    {}
+  ),
+  SCHEDULED_PREFILL_PLATFORM_UI: {
+    steam: { icon: 'SteamIcon' },
+    battleNet: { icon: 'BlizzardIcon' }
+  },
+  isPersistentLoginIntegrationReuse: () => false,
   integrationReasonKeys,
   getIntegrationReasonKey: reasons.getIntegrationReasonKey,
   useCountdownTimer,
@@ -85,9 +103,11 @@ const bindings = {
   useMediaQuery: () => false,
   useTranslation: () => ({ t: translate }),
   useFormattedDateTime: () => '',
-  usePersistentLoginStoreState: () => ({ sessionUnavailableState: null }),
+  usePersistentLoginStoreState: () => loginStore.state,
+  getPersistentLoginFailure: (state) => state.error,
+  usePersistentLoginCanceling: () => loginStore.canceling,
   useActivityStatus: () => ({ isActive: () => true }),
-  isScheduledPrefillAnonymousService: (key) => key === 'battleNet',
+  isScheduledPrefillAnonymousService,
   getPersistentServiceId: (key) => key,
   SCHEDULED_PREFILL_BUTTON_SIZE: 'sm',
   formatTimeRemaining: () => '',
@@ -107,9 +127,13 @@ const card = (props = {}) =>
   flatten(
     render({
       serviceKey: 'steam',
-      selectedGamesCount: 1,
-      scheduleEnabled: true,
       container: { isRunning: true, isAuthenticated: false, isPrefilling: false },
+      listLoaded: true,
+      listFailed: false,
+      onStart: () => undefined,
+      onStop: () => undefined,
+      onLogout: () => undefined,
+      onLogin: () => undefined,
       ...props
     })
   );
@@ -119,20 +143,20 @@ const text = (nodes) =>
       typeof node === 'string' ? [node] : node?.type === 'Tooltip' ? [node.props.content] : []
     )
     .join(' ');
-test('a container whose first status is still loading shows one loading line and no guessed status', () => {
-  const nodes = card({ container: undefined, statusLoading: true });
+test('a container whose first status is still loading reads Checking and guesses no status', () => {
+  const nodes = card({ container: undefined, listLoaded: false });
+  const checking = en.management.schedules.services.scheduledPrefill.config.serviceStatus.checking;
 
-  assert.equal(
-    nodes.filter((node) => node.type === 'LoadingSpinner').length,
-    1,
-    'the body loading line is the one indicator'
-  );
   assert.equal(nodes.filter((node) => node.type === 'StatusDot').length, 0);
-  assert.ok(
-    text(nodes).includes(
-      en.management.schedules.services.scheduledPrefill.config.persistentContainers.loadingStatus
-    )
+  assert.equal(nodes.filter((node) => node.type === 'LoadingSpinner').length, 0);
+  assert.equal(nodes.filter((node) => node === checking).length, 2);
+  assert.equal(text(nodes).includes(en.prefill.persistent.states.stopped), false);
+  const start = nodes.find(
+    (node) =>
+      node.type === 'Button' &&
+      node.children.includes(translate('prefill.persistent.actions.start'))
   );
+  assert.equal(start.props.disabled, true);
 });
 
 for (const [reason, sentence] of [
@@ -201,7 +225,7 @@ test('REST false flags override stale activity and remove download state', () =>
   const stopped = card({
     container: { isRunning: false, isAuthenticated: false, isPrefilling: false }
   });
-  assert.ok(text(stopped).includes(translate('prefill.persistent.status.stopped')));
+  assert.ok(text(stopped).includes(translate('prefill.persistent.states.stopped')));
   assert.ok(
     stopped.some(
       (node) =>
@@ -210,7 +234,13 @@ test('REST false flags override stale activity and remove download state', () =>
     )
   );
   const loggedOut = card();
-  assert.ok(text(loggedOut).includes(translate('prefill.persistent.status.notLoggedIn')));
+  assert.ok(
+    text(loggedOut).includes(
+      translate(
+        'management.schedules.services.scheduledPrefill.config.platforms.status.loginRequired'
+      )
+    )
+  );
   assert.equal(
     loggedOut.some((node) => node.props?.role === 'progressbar'),
     false
@@ -435,4 +465,35 @@ test('sign in opens the existing modal and successful login refreshes server sta
   assert.equal(states[0].value, false);
   assert.equal(refreshes, 1);
   assert.deepEqual(modes, []);
+});
+
+test('while a cancel is ending the old login, the status line says so and Log in waits', () => {
+  loginStore.canceling = true;
+  try {
+    const nodes = card();
+    const serviceStatus = en.management.schedules.services.scheduledPrefill.config.serviceStatus;
+    assert.ok(text(nodes).includes(serviceStatus.cancelingLogin));
+    assert.equal(text(nodes).includes(serviceStatus.loginFailed), false);
+    const buttons = nodes.filter((node) => node.type === 'Button');
+    const login = buttons.find((node) =>
+      node.children.includes(
+        translate('management.schedules.services.scheduledPrefill.config.loginToSteam')
+      )
+    );
+    assert.ok(login);
+    assert.equal(login.props.disabled, true);
+    assert.equal(
+      buttons.some((button) =>
+        flatten(button.children).some((node) => node.type === 'LoadingSpinner')
+      ),
+      false
+    );
+  } finally {
+    loginStore.canceling = false;
+  }
+});
+
+test('the Log out restart notice is translated when it shows', () => {
+  const nodes = card({ actionNotice: true, actionError: undefined });
+  assert.ok(text(nodes).includes(en.prefill.persistent.messages.logoutFallbackNotice));
 });

@@ -5,6 +5,7 @@ import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 import {
   ScheduledPrefillDownloadFields,
+  ScheduledPrefillGameFields,
   ScheduledPrefillNotificationFields,
   ScheduledPrefillScheduleFields
 } from './ScheduledPrefillPlatformFields';
@@ -15,7 +16,7 @@ interface ScheduledPrefillPlatformSectionProps {
   config: ScheduledPrefillSchedule;
   disabled: boolean;
   gameSelectionLoading: boolean;
-  gameSelectionNeedsLogin: boolean;
+  gameSelectionBlocked: 'login' | 'container' | null;
   onChange: (schedule: ScheduledPrefillSchedule) => void;
   onSelectGames: () => void;
   onClearGames: () => void;
@@ -24,7 +25,7 @@ export function ScheduledPrefillPlatformSection({
   onSelectGames,
   onClearGames,
   gameSelectionLoading,
-  gameSelectionNeedsLogin,
+  gameSelectionBlocked,
   ...props
 }: ScheduledPrefillPlatformSectionProps) {
   const { t } = useTranslation();
@@ -33,13 +34,16 @@ export function ScheduledPrefillPlatformSection({
   const fields = { ...props, disabled: fieldsDisabled };
   const selectGamesRef = useRef<HTMLSpanElement>(null);
   const selectGamesReasonId = `scheduled-prefill-select-games-reason-${props.serviceKey}`;
-  const loginReasonActive = gameSelectionNeedsLogin && !fieldsDisabled && !gameSelectionLoading;
-  const selectGamesReason = t(`${baseKey}.selectedGames.signInToSelectGames`, {
-    actions: t('management.actions.menuLabel'),
-    manageContainer: t(`${baseKey}.records.manageContainer`)
-  });
+  const blockedReasonActive =
+    gameSelectionBlocked !== null && !fieldsDisabled && !gameSelectionLoading;
+  const selectGamesReason = t(
+    gameSelectionBlocked === 'container'
+      ? `${baseKey}.selectedGames.startContainerFirst`
+      : `${baseKey}.selectedGames.signInToSelectGames`,
+    { service: t(`prefill.persistent.services.${props.serviceKey}`) }
+  );
   const openGameSelection = () => {
-    if (fieldsDisabled || gameSelectionLoading || gameSelectionNeedsLogin) return;
+    if (fieldsDisabled || gameSelectionLoading || gameSelectionBlocked) return;
     selectGamesRef.current?.focus({ preventScroll: true });
     onSelectGames();
   };
@@ -55,36 +59,37 @@ export function ScheduledPrefillPlatformSection({
           <ScheduledPrefillScheduleFields {...fields} />
         </div>
       </section>
-      <section className="scheduled-prefill-platform-block scheduled-prefill-platform-block--download">
+      <section className="scheduled-prefill-platform-block scheduled-prefill-platform-block--games">
         <h3 className="scheduled-prefill-platform-block__title">
-          {t(`${baseKey}.platforms.sections.download`)}
+          {t(`${baseKey}.platforms.sections.games`)}
         </h3>
         <div className="scheduled-prefill-record-games">
           <Tooltip
-            content={loginReasonActive ? selectGamesReason : null}
+            content={blockedReasonActive ? selectGamesReason : null}
             className="scheduled-prefill-record-games__select-help"
           >
             <span
               ref={selectGamesRef}
-              className={`scheduled-prefill-record-games__select-trigger${loginReasonActive ? ' scheduled-prefill-record-games__select-trigger--disabled' : ''}`}
-              tabIndex={loginReasonActive ? 0 : -1}
+              className={`scheduled-prefill-record-games__select-trigger${blockedReasonActive ? ' scheduled-prefill-record-games__select-trigger--disabled' : ''}`}
+              tabIndex={blockedReasonActive ? 0 : -1}
               aria-label={t(`${baseKey}.actions.selectGames`)}
-              aria-describedby={loginReasonActive ? selectGamesReasonId : undefined}
+              aria-describedby={blockedReasonActive ? selectGamesReasonId : undefined}
             >
               <Button
                 className="scheduled-prefill-record-games__select"
                 onClick={openGameSelection}
-                disabled={fieldsDisabled || gameSelectionLoading || gameSelectionNeedsLogin}
-                loading={gameSelectionLoading}
+                disabled={fieldsDisabled || gameSelectionLoading || gameSelectionBlocked !== null}
               >
                 {t(`${baseKey}.actions.selectGames`)}
                 <Badge variant="neutral" className="badge-count">
                   {props.config.selectedAppIds.length}
                 </Badge>
               </Button>
-              <span id={selectGamesReasonId} className="sr-only">
-                {selectGamesReason}
-              </span>
+              {blockedReasonActive && (
+                <span id={selectGamesReasonId} className="sr-only">
+                  {selectGamesReason}
+                </span>
+              )}
             </span>
           </Tooltip>
           <Button
@@ -94,6 +99,14 @@ export function ScheduledPrefillPlatformSection({
             {t(`${baseKey}.actions.clearGames`)}
           </Button>
         </div>
+        <div className="scheduled-prefill-config-modal__settings-list">
+          <ScheduledPrefillGameFields {...fields} />
+        </div>
+      </section>
+      <section className="scheduled-prefill-platform-block scheduled-prefill-platform-block--download">
+        <h3 className="scheduled-prefill-platform-block__title">
+          {t(`${baseKey}.platforms.sections.download`)}
+        </h3>
         <div className="scheduled-prefill-config-modal__settings-list">
           <ScheduledPrefillDownloadFields {...fields} />
         </div>

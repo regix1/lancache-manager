@@ -549,7 +549,7 @@ test('an aborted caller cannot issue requests or disturb a newer availability re
   await current;
 });
 
-test('the shared API sends only availability fields and the reuse mode with session ownership', async () => {
+test('the shared API sends availability, reuse mode, and qualified login identity', async () => {
   const api = await loadApi('transport');
   const requests = [];
   const originalFetch = globalThis.fetch;
@@ -570,7 +570,16 @@ test('the shared API sends only availability fields and the reuse mode with sess
 
   try {
     const availability = await api.getPersistentIntegrationLoginAvailability('Xbox');
-    const login = await api.startPersistentLogin('Xbox', 'session-1', 'edit-1', 'action-1', true);
+    const loginId = '9df9a98a-7d81-42b5-bec8-b031323450e2';
+    const login = await api.startPersistentLogin(
+      'Xbox',
+      'session-1',
+      'edit-1',
+      'action-1',
+      true,
+      loginId
+    );
+    await api.cancelPersistentLogin('Xbox', 'session-1', { loginId });
 
     assert.deepEqual(availability, { available: true, account: 'masked-account', reason: null });
     assert.deepEqual(login, { authenticated: true, sessionId: 'session-1' });
@@ -581,7 +590,13 @@ test('the shared API sends only availability fields and the reuse mode with sess
       sessionId: 'session-1',
       editSessionId: 'edit-1',
       editActionId: 'action-1',
-      reuseIntegration: true
+      reuseIntegration: true,
+      loginId
+    });
+    assert.deepEqual(JSON.parse(requests[2].init.body), {
+      service: 'Xbox',
+      sessionId: 'session-1',
+      loginId
     });
     assert.equal('accountId' in JSON.parse(requests[1].init.body), false);
     assert.equal('ownerId' in JSON.parse(requests[1].init.body), false);

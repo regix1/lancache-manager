@@ -75,6 +75,9 @@ const DEFAULT_ANCHOR_GAP_PX = 4;
 /** Position deltas at or below this are rounding noise, not movement. */
 const POSITION_EPSILON_PX = 0.5;
 
+/** The close handler of every panel open right now, app-wide, so opening one can close the others. */
+const openPanels = new Set<() => void>();
+
 function isSamePlacement(a: PanelPlacement, b: PanelPlacement): boolean {
   return (
     a.openUpward === b.openUpward &&
@@ -242,6 +245,28 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
     sizeObserver.observe(panel);
     return () => sizeObserver.disconnect();
   }, [present, panelRef, anchorRef, handleAnchorMove]);
+
+  // Held in a ref so a new `onClose` identity each render does not re-register the panel.
+  // Callers pass inline arrows, and re-registering would run the close-others loop again,
+  // letting a panel that was already open close the one the reader just opened.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
+  // Only one panel is open at a time. A click-outside handler cannot promise that on its
+  // own: a trigger opened from the keyboard sends no pointer event to the open panel.
+  // No panel renders inside another today; one that does must be kept out of this close.
+  useEffect(() => {
+    if (!open) return;
+
+    const closeSelf = (): void => closeRef.current();
+    for (const closeOther of openPanels) closeOther();
+    openPanels.add(closeSelf);
+    return () => {
+      openPanels.delete(closeSelf);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

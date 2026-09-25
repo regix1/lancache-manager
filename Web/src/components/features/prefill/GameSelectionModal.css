@@ -28,6 +28,7 @@
 
 .game-selection-modal__actions {
   flex-shrink: 0;
+  margin-top: 1rem;
 }
 
 .game-selection-modal__list {
@@ -180,6 +181,23 @@
   .game-selection-modal {
     max-height: 40rem;
   }
+
+  /* The three panes share one header row and one list row, so the Selected pane's second
+     summary line grows all three headers and the lists stay one height however many items
+     each holds. Subgrid needs each pane to keep exactly two children: header and list. */
+  .game-selection-modal__panes {
+    grid-template-rows: auto minmax(0, 1fr);
+    row-gap: 0;
+  }
+
+  /* The column is capped at the pane width, or the summary line's unwrapped width would widen
+     the pane's implicit column past its border and clip the list. */
+  .game-selection-modal__pane {
+    display: grid;
+    grid-row: span 2;
+    grid-template-rows: subgrid;
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 639.98px) {
@@ -190,6 +208,13 @@
 
   .game-selection-modal__toolbar > button:last-child:nth-child(odd) {
     grid-column: 1 / -1;
+  }
+
+  /* A footer button never wraps its label. When the pair cannot hold both labels with their
+     padding side by side, each takes its own full-width row instead of squeezing. */
+  .game-selection-modal__actions.confirmation-modal__actions > button {
+    min-width: max-content;
+    white-space: nowrap;
   }
 
   .game-selection-modal__panes-scroll > .overflow-y-auto {
@@ -219,5 +244,13 @@
 
   .game-selection-modal__pane--cached {
     order: 3;
+  }
+}
+
+/* Below 360px two toolbar columns leave "Import App IDs" 10px from its edges, so the toolbar
+   stacks to one full-width column. */
+@media (max-width: 359.98px) {
+  .game-selection-modal__toolbar {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

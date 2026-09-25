@@ -1,8 +1,8 @@
 import { noAutofill } from '@utils/autofill';
 import React, { useEffect } from 'react';
-import { Key } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
+import { SteamIcon } from '@components/ui/SteamIcon';
 import FormField from '@components/ui/FormField';
 import { cancelAuthModalLogin } from './authModalCancel';
 import { LoginSteps } from './LoginSteps';
@@ -24,8 +24,7 @@ interface SteamAuthModalProps {
   /**
    * 'cancel' (default, the manager's own mapping-login flow): any close - X, backdrop, Escape, or
    * the footer button - cancels the in-flight login. 'keep-pending' (the persistent-container
-   * flow): a plain close only hides the modal and leaves the daemon login resumable; only the
-   * footer button actually cancels.
+   * flow): X, Escape and the footer button cancel the daemon login; a backdrop click does nothing.
    */
   dismissBehavior?: 'cancel' | 'keep-pending';
   /** Persistent-container flow only: the manager's own SteamAutoLogout event must not force-close
@@ -147,8 +146,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     });
   };
 
-  const handleSoftClose = onClose;
-
   const handleSubmit = async () => {
     // Prevent multiple clicks - check immediately before any async work
     if (isSubmitting || loading || state.canAuthenticate === false) return;
@@ -191,232 +188,266 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
   const currentStep = getCurrentStep();
 
-  // The manual-code escape hatch. It shares the footer with Cancel, and hitting Cancel by mistake
-  // throws away the pending session and the typed credentials, so Cancel shrinks to its own text
-  // and this one takes the rest of the row.
+  const secondStepName = {
+    credentials: t('modals.steamAuth.steps.verify'),
+    email: t('modals.steamAuth.steps.email'),
+    '2fa': t('modals.steamAuth.steps.guard'),
+    mobile: t('modals.steamAuth.steps.phone')
+  }[currentStep];
+
+  // The manual-code escape hatch sits in the phone-approval step's own body rather than the
+  // footer, so the footer keeps Cancel as its only button in that step and a mistaken press on
+  // one never lands on the other.
   const showManualCodeButton = waitingForMobileConfirmation && !isPrefillMode;
+  const isPhoneStage = !awaitingChallenge && waitingForMobileConfirmation;
 
   return (
     <Modal
       opened={opened}
-      onClose={isKeepPending ? handleSoftClose : handleCloseModal}
+      onClose={isKeepPending ? handleExplicitCancel : handleCloseModal}
+      dismissOnBackdrop={!isKeepPending}
+      bodyFlexLayout
       // The persistent-container login (keep-pending) is a prompt that must always stay clickable
       // above the Configure modal, even if Configure is reopened after it - open it in the elevated
       // stacking band. The mapping/guest flow (dismissBehavior 'cancel') stacks normally.
       stackPriority={isKeepPending ? 'elevated' : 'normal'}
       title={
-        <div className="flex items-center gap-3">
-          <Key className="w-5 h-5 text-steam" />
-          <span>{t('modals.steamAuth.title')}</span>
+        <div className="login-modal-header">
+          <span className="icon-box login-modal-icon login-modal-icon--steam">
+            <SteamIcon size={20} />
+          </span>
+          <div className="min-w-0">
+            <div>{t('modals.steamAuth.title')}</div>
+            {isKeepPending && (
+              <p className="login-modal-notice">{t('modals.steamAuth.containerAccountNotice')}</p>
+            )}
+          </div>
         </div>
       }
       size="md"
     >
-      <div className="space-y-6">
-        {state.recovering && (
-          <p className="text-sm text-themed-secondary">{t('errors.integration.recovery')}</p>
-        )}
-        {state.canAuthenticate === false && (
-          <p className="text-sm text-themed-secondary" role="status">
-            {state.accessUnavailable
-              ? t('errors.integration.statusUnavailable')
-              : t(getIntegrationReasonKey(state.ownershipReason))}
-          </p>
-        )}
-        <LoginSteps
-          notice={isKeepPending ? t('modals.steamAuth.containerAccountNotice') : null}
-          deadline={loginDeadline}
-          pastFirstStep={currentStep !== 'credentials'}
-        />
+      <div className="modal-body-layout">
+        <div className="modal-body-scroll space-y-4 sm:space-y-6">
+          {state.recovering && (
+            <p className="text-sm text-themed-secondary">{t('errors.integration.recovery')}</p>
+          )}
+          {state.canAuthenticate === false && (
+            <p className="text-sm text-themed-secondary" role="status">
+              {state.accessUnavailable
+                ? t('errors.integration.statusUnavailable')
+                : t(getIntegrationReasonKey(state.ownershipReason))}
+            </p>
+          )}
+          <LoginSteps
+            steps={[t('modals.steamAuth.steps.signIn'), secondStepName]}
+            pastFirstStep={currentStep !== 'credentials'}
+          />
 
-        <div className="login-states">
-          <h3 className="text-base font-semibold text-themed-primary text-center">
-            {needsEmailCode
-              ? t('modals.steamAuth.emailVerification.title')
-              : needsTwoFactor
-                ? t('modals.steamAuth.twoFactor.title')
-                : !awaitingChallenge && waitingForMobileConfirmation
-                  ? t('modals.steamAuth.mobileConfirmation.title')
-                  : t('modals.steamAuth.signInTitle')}
-          </h3>
+          <div className="login-states">
+            {/* Rendered in every state, so the live region is already in the page when the login
+              moves on and its label changes. The error rides under it: it is the same title and
+              reason the notification bar gets, drawn where the person is actually looking,
+              because the modal sits over the bar and a wrong password used to change nothing on
+              screen at all. */}
+            <LoginAttemptStatus
+              label={
+                isPhoneStage
+                  ? t('modals.steamAuth.mobileConfirmation.waiting')
+                  : awaitingChallenge || loading || isSubmitting
+                    ? t('modals.steamAuth.connectingSubtitle')
+                    : needsTwoFactor || needsEmailCode
+                      ? t('common.waitingForCode')
+                      : t('modals.steamAuth.status.credentials')
+              }
+              busy={isPhoneStage || awaitingChallenge || loading || isSubmitting}
+              deadline={loginDeadline}
+              error={error}
+              errorTitle={t('common.errors.signInFailed', {
+                platform: t('prefill.persistent.services.steam')
+              })}
+            />
 
-          <div className="login-task">
-            {/* The credentials form stays on screen through the connect and the phone wait,
-                disabled and holding what was typed, so neither move costs the panel a pixel. */}
-            {!needsTwoFactor && !needsEmailCode && (
-              <>
+            <div>
+              <h3 className="text-base font-semibold text-themed-primary">
+                {needsEmailCode
+                  ? t('modals.steamAuth.emailVerification.title')
+                  : needsTwoFactor
+                    ? t('modals.steamAuth.twoFactor.title')
+                    : isPhoneStage
+                      ? t('modals.steamAuth.mobileConfirmation.title')
+                      : t('modals.steamAuth.signInTitle')}
+              </h3>
+              {needsEmailCode ? (
+                <p className="mt-1 text-sm text-themed-muted">
+                  {t('modals.steamAuth.emailVerification.help')}
+                </p>
+              ) : needsTwoFactor ? (
+                <p className="mt-1 text-sm text-themed-muted">
+                  {t('modals.steamAuth.twoFactor.help')}
+                  {!useManualCode && <> {t('modals.steamAuth.twoFactor.leaveEmptyHint')}</>}
+                </p>
+              ) : isPhoneStage ? (
+                <p className="mt-1 text-sm text-themed-muted">
+                  {showManualCodeButton
+                    ? t('modals.steamAuth.mobileConfirmation.phoneOrCode')
+                    : t('modals.steamAuth.mobileConfirmation.phoneOnly')}
+                </p>
+              ) : awaitingChallenge ? (
+                <p className="mt-1 text-sm text-themed-muted">
+                  {t('modals.steamAuth.connectingHelp')}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="login-task">
+              {!needsTwoFactor &&
+                !needsEmailCode &&
+                !waitingForMobileConfirmation &&
+                !awaitingChallenge && (
+                  <>
+                    <div>
+                      <FormField label={t('modals.steamAuth.labels.username')}>
+                        {(field) => (
+                          <input
+                            {...field}
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            placeholder={t('modals.steamAuth.placeholders.username')}
+                            className="w-full px-3 py-2.5 themed-input"
+                            disabled={
+                              state.canAuthenticate === false ||
+                              loading ||
+                              awaitingChallenge ||
+                              waitingForMobileConfirmation
+                            }
+                            autoComplete="username"
+                          />
+                        )}
+                      </FormField>
+                    </div>
+
+                    <div>
+                      <FormField label={t('modals.steamAuth.labels.password')}>
+                        {(field) => (
+                          <input
+                            {...field}
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                            placeholder={t('modals.steamAuth.placeholders.password')}
+                            className="w-full px-3 py-2.5 themed-input"
+                            disabled={
+                              state.canAuthenticate === false ||
+                              loading ||
+                              awaitingChallenge ||
+                              waitingForMobileConfirmation
+                            }
+                            autoComplete="current-password"
+                          />
+                        )}
+                      </FormField>
+                    </div>
+
+                    <p className="text-sm text-themed-muted">
+                      {t('modals.steamAuth.security.description')}
+                    </p>
+                  </>
+                )}
+
+              {needsEmailCode && (
                 <div>
-                  <FormField label={t('modals.steamAuth.labels.username')}>
+                  <FormField label={t('modals.steamAuth.labels.emailCode')}>
                     {(field) => (
                       <input
+                        {...noAutofill}
                         {...field}
                         type="text"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        placeholder={t('modals.steamAuth.placeholders.username')}
-                        className="w-full px-3 py-2.5 themed-input"
-                        disabled={
-                          state.canAuthenticate === false ||
-                          loading ||
-                          awaitingChallenge ||
-                          waitingForMobileConfirmation
-                        }
-                        autoComplete="username"
+                        value={emailCode}
+                        onChange={(e) => setEmailCode(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                        placeholder={t('modals.steamAuth.placeholders.guardCode')}
+                        className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
+                        disabled={state.canAuthenticate === false || loading}
+                        autoFocus
+                        maxLength={5}
                       />
                     )}
                   </FormField>
                 </div>
+              )}
 
+              {needsTwoFactor && (
                 <div>
-                  <FormField label={t('modals.steamAuth.labels.password')}>
+                  <FormField label={t('modals.steamAuth.labels.guardCode')}>
                     {(field) => (
                       <input
+                        {...noAutofill}
                         {...field}
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        type="text"
+                        value={twoFactorCode}
+                        onChange={(e) => setTwoFactorCode(e.target.value.toUpperCase())}
                         onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                        placeholder={t('modals.steamAuth.placeholders.password')}
-                        className="w-full px-3 py-2.5 themed-input"
-                        disabled={
-                          state.canAuthenticate === false ||
-                          loading ||
-                          awaitingChallenge ||
-                          waitingForMobileConfirmation
-                        }
-                        autoComplete="current-password"
+                        placeholder={t('modals.steamAuth.placeholders.guardCode')}
+                        className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
+                        disabled={state.canAuthenticate === false || loading}
+                        autoFocus
+                        maxLength={5}
                       />
                     )}
                   </FormField>
                 </div>
-              </>
-            )}
+              )}
 
-            {needsEmailCode && (
-              <div>
-                <FormField label={t('modals.steamAuth.labels.emailCode')}>
-                  {(field) => (
-                    <input
-                      {...noAutofill}
-                      {...field}
-                      type="text"
-                      value={emailCode}
-                      onChange={(e) => setEmailCode(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                      placeholder={t('modals.steamAuth.placeholders.guardCode')}
-                      className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                      disabled={state.canAuthenticate === false || loading}
-                      autoFocus
-                      maxLength={5}
-                    />
-                  )}
-                </FormField>
-              </div>
-            )}
-
-            {needsTwoFactor && (
-              <div>
-                <FormField label={t('modals.steamAuth.labels.guardCode')}>
-                  {(field) => (
-                    <input
-                      {...noAutofill}
-                      {...field}
-                      type="text"
-                      value={twoFactorCode}
-                      onChange={(e) => setTwoFactorCode(e.target.value.toUpperCase())}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                      placeholder={t('modals.steamAuth.placeholders.guardCode')}
-                      className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                      disabled={state.canAuthenticate === false || loading}
-                      autoFocus
-                      maxLength={5}
-                    />
-                  )}
-                </FormField>
-              </div>
-            )}
-
-            {/* A container login answers the challenge the daemon raised and cannot volunteer a
-                different one, so once Steam has picked phone approval there is no code box to
-                offer and the wait is the whole step. The in-process login re-sends the whole
-                credential set with allowMobileConfirmation off instead, which is why it can put a
-                manual-code button here and this one cannot. Say so, rather than leaving the user
-                hunting the panel for an input that is never coming. */}
-            {isPrefillMode && waitingForMobileConfirmation && (
-              <p className="text-sm text-themed-muted text-center">
-                {t('modals.steamAuth.mobileConfirmation.phoneOnly')}
-              </p>
-            )}
+              {/* A container login answers the challenge the daemon raised and cannot volunteer a
+                different one, so once Steam has picked phone approval the wait is the whole step.
+                The in-process login re-sends the whole credential set with
+                allowMobileConfirmation off instead, which is why it can offer a manual code here
+                and a container login cannot. */}
+              {showManualCodeButton && (
+                <Button
+                  variant="default"
+                  onClick={handleSwitchToManualCode}
+                  disabled={state.canAuthenticate === false}
+                  className="w-full sm:w-56 min-h-[44px] sm:min-h-10"
+                >
+                  {t('modals.steamAuth.actions.enterCodeManually')}
+                </Button>
+              )}
+            </div>
           </div>
-
-          {/* Rendered in every state, including the ones with nothing to say, so the live region
-              is already in the page when the login moves on and its label changes. The error rides
-              in the same reserved row: it is the same title and reason the notification bar gets, drawn
-              where the person is actually looking, because the modal sits over the bar and a wrong
-              password used to change nothing on screen at all. */}
-          <LoginAttemptStatus
-            label={
-              !awaitingChallenge && waitingForMobileConfirmation
-                ? t('modals.steamAuth.mobileConfirmation.waiting')
-                : awaitingChallenge || loading || isSubmitting
-                  ? t('modals.steamAuth.connectingSubtitle')
-                  : ''
-            }
-            note={
-              !needsTwoFactor && !needsEmailCode
-                ? t('modals.steamAuth.security.description')
-                : needsTwoFactor && !useManualCode
-                  ? t('modals.steamAuth.twoFactor.leaveEmptyHint')
-                  : undefined
-            }
-            error={error}
-            errorTitle={t('common.errors.signInFailed', {
-              platform: t('prefill.persistent.services.steam')
-            })}
-          />
         </div>
 
-        <div className="flex gap-3 pt-2 border-t border-themed-secondary">
+        <div className="confirmation-modal__actions">
           <Button
             variant="default"
             onClick={isKeepPending ? handleExplicitCancel : handleCloseModal}
             disabled={!isKeepPending && (loading || isSubmitting) && !waitingForMobileConfirmation}
-            className={showManualCodeButton ? '' : 'flex-1'}
+            className="min-h-[44px] sm:min-h-10"
           >
             {t('common.cancel')}
           </Button>
-          {showManualCodeButton && (
-            <Button
-              variant="default"
-              onClick={handleSwitchToManualCode}
-              disabled={state.canAuthenticate === false}
-              className="flex-1"
-            >
-              {t('modals.steamAuth.actions.enterCodeManually')}
-            </Button>
-          )}
-          {!waitingForMobileConfirmation && !awaitingChallenge && (
+          {!waitingForMobileConfirmation && (
             <Button
               variant="filled"
               color="primary"
               onClick={handleSubmit}
               disabled={
+                awaitingChallenge ||
                 state.canAuthenticate === false ||
                 loading ||
                 isSubmitting ||
                 (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||
                 (useManualCode && !twoFactorCode.trim())
               }
-              className="flex-1"
+              className="min-h-[44px] sm:min-h-10"
             >
-              {/* No spinner here: the "Waiting for Steam" status row above already carries one. */}
-              {loading || isSubmitting
-                ? t('modals.steamAuth.actions.authenticating')
-                : needsEmailCode
-                  ? t('modals.steamAuth.actions.verify')
-                  : needsTwoFactor
-                    ? t('modals.steamAuth.actions.confirm')
-                    : t('modals.steamAuth.actions.login')}
+              {needsEmailCode
+                ? t('modals.steamAuth.actions.verify')
+                : needsTwoFactor
+                  ? t('modals.steamAuth.actions.confirm')
+                  : t('modals.steamAuth.actions.login')}
             </Button>
           )}
         </div>

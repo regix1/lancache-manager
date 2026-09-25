@@ -599,7 +599,9 @@
       "hoursAgo": "{{count}} 小时前",
       "daysAgo": "{{count}} 天前",
       "invalidDate": "无效日期"
-    }
+    },
+    "keepEditing": "继续编辑",
+    "waitingForCode": "等待输入代码"
   },
   "tooltips": {
     "dragToReorder": "拖拽以重新排列",
@@ -3941,20 +3943,14 @@
               "customSchedule": "自定义计划"
             },
             "configure": "配置",
-            "modalTitle": "{{service}} · {{name}}",
-            "modalDescription": "编辑并保存此计划，然后从对应行运行已保存的计划。",
             "servicesTitle": "服务",
             "records": {
-              "label": "已保存的计划",
               "name": "计划名称",
               "new": "新增",
               "newName": "新建计划",
               "open": "打开",
               "edit": "编辑计划",
               "run": "运行计划",
-              "manageContainer": "管理容器",
-              "menuAdd": "添加 {{service}} 计划",
-              "addForService": "为 {{service}} 添加计划",
               "duplicate": "复制",
               "enable": "启用",
               "disable": "禁用",
@@ -3965,15 +3961,16 @@
               "deleteBody": "删除此已保存的计划，不会停止或删除该服务的容器。",
               "lastRecord": "此服务必须保留至少一个计划。",
               "missing": "此计划已不存在。请关闭此窗口并刷新计划列表。",
-              "empty": "{{service}} 尚无已保存的计划。",
               "saveAs": "复制",
               "copySuffix": "副本",
               "nameRequired": "请先输入计划名称再保存。",
               "nameTaken": "{{service}} 已存在名为“{{name}}”的计划。请改用其他名称。",
               "enabled": "{{service}} 计划“{{name}}”已启用。",
               "disabled": "{{service}} 计划“{{name}}”已禁用。",
-              "confirmEnabledSaveTitle": "保存对此已启用计划的更改？",
-              "confirmEnabledSaveBody": "保存对 {{service}} 计划“{{name}}”的更改吗？下次到期运行将使用这些设置。"
+              "addSchedule": "添加计划",
+              "runNeedsEnable": "启用此计划后才能运行。",
+              "runAlreadyRunning": "此计划已在运行。",
+              "deleting": "正在删除..."
             },
             "enabled": "启用",
             "service": "服务",
@@ -3993,7 +3990,7 @@
             "anonymousReady": "无需登录",
             "logIn": "登录",
             "loginToSteam": "登录 Steam",
-            "loginToEpic": "登录 Epic",
+            "loginToEpic": "登录 Epic Games",
             "loginToXbox": "登录 Xbox",
             "save": "保存计划",
             "saving": "正在保存计划...",
@@ -4020,22 +4017,22 @@
             "actions": {
               "configure": "配置",
               "viewActivity": "查看活动",
-              "sharedSettings": "共享容器设置",
-              "save": "保存计划",
+              "sharedSettings": "容器设置",
+              "save": "保存",
               "saving": "正在保存计划...",
               "forceDownload": "即使已缓存也下载",
               "selectGames": "选择游戏",
-              "clearGames": "清除所选"
+              "clearGames": "清除所选",
+              "allServicesGroup": "所有服务"
             },
             "discardChanges": {
               "confirmTitle": "放弃更改？",
               "confirmBody": "仅放弃此窗口内尚未保存的更改。",
-              "confirmButton": "放弃更改"
+              "confirmButton": "放弃"
             },
-            "containerModalTitle": "{{service}} 容器",
             "containerModalDescription": "此容器由 {{service}} 的所有计划共享。",
-            "activityTitle": "计划预填充活动",
-            "activityDescription": "查看所有服务的当前下载和运行历史。",
+            "activityTitle": "活动",
+            "activityDescription": "当前正在下载的内容，以及最近运行的结果。",
             "persistentContainer": {
               "help": "用于游戏库、登录和下载的长期容器。当前 Steam 容器一次只能运行一个预填充任务，并依次下载游戏。“连接数”控制当前游戏的请求数量。",
               "error": "持久预填充容器操作失败：{{error}}",
@@ -4087,16 +4084,17 @@
             "selectedGames": {
               "count": "已选择 {{count}} 个游戏",
               "overridePreset": "选择特定游戏会覆盖此服务的预设。",
-              "requiresPersistentContainer": "保存或关闭此计划，再通过“管理此服务的容器”启动容器。",
-              "signInToSelectGames": "请先登录再选择游戏。前往“{{actions}}”→“{{manageContainer}}”登录。",
-              "error": "加载游戏选择失败：{{error}}"
+              "requiresPersistentContainer": "请先启动容器。在“服务”下该服务所在行点击“启动”。",
+              "signInToSelectGames": "请先登录 {{service}}。在“服务”下该服务所在行点击“登录”。",
+              "error": "加载游戏选择失败：{{error}}",
+              "startContainerFirst": "请先启动 {{service}} 容器。在“服务”下该服务所在行点击“启动”。"
             },
             "settings": {
-              "title": "共享容器设置",
+              "title": "容器设置",
               "loadError": "加载设置失败：{{error}}",
               "saveError": "保存设置失败：{{error}}",
               "description": "适用于所有服务容器。",
-              "save": "保存设置",
+              "save": "保存",
               "overrideNote": "以下服务使用单独保存的重启设置：{{services}}。",
               "partialSave": "部分设置已保存。请重试仍显示错误的项目。",
               "loading": "正在加载设置...",
@@ -4124,7 +4122,11 @@
                 "confirmButton": "清除登录",
                 "success": "已保存的登录已清除。",
                 "partialFailure": "已清除 {{total}} 个服务的登录，但有 {{failedCount}} 个失败：{{services}}。"
-              }
+              },
+              "sections": {
+                "login": "登录"
+              },
+              "saving": "正在保存..."
             },
             "platforms": {
               "description": "选择一个平台，在同一视图中配置该服务的全部设置。",
@@ -4133,10 +4135,11 @@
                 "loginRequired": "需要登录"
               },
               "sections": {
-                "download": "下载设置",
+                "download": "下载",
                 "notifications": "通知",
                 "persistentContainer": "持久容器",
-                "schedule": "计划设置"
+                "schedule": "计划",
+                "games": "游戏"
               },
               "status": {
                 "enabled": "已启用",
@@ -4215,6 +4218,85 @@
               "cleanupPending": "无法清理之前的容器更改。请重试此操作。",
               "recordAction": "无法更新此计划。",
               "sharedSettings": "无法保存共享容器设置。"
+            },
+            "runAll": "全部运行",
+            "schedulesTitle": "计划",
+            "scheduleColumn": "计划",
+            "statusColumn": "状态",
+            "serviceStatus": {
+              "checking": "正在检查",
+              "starting": "正在启动",
+              "stopping": "正在停止",
+              "runCount_one": "{{count}} 个运行",
+              "runCount_other": "{{count}} 个运行",
+              "checkedAfterStart": "启动后检查",
+              "loginExpired": "登录已过期",
+              "loggingIn": "正在登录",
+              "loggingOut": "正在退出登录",
+              "cancelingLogin": "正在取消登录",
+              "loginFailed": "登录失败",
+              "reloginBy": "需在 {{date}} 前重新登录",
+              "loadFailed": "无法读取容器状态",
+              "unknownUntilLoaded": "加载完成前，以下服务状态未知。",
+              "hiddenUntilLoaded": "状态加载完成前，“启动”和“登录”按钮会保持隐藏。"
+            },
+            "serviceActions": {
+              "start": "启动",
+              "manage": "管理"
+            },
+            "scheduleMeta": {
+              "waitsForLogin": "等待 {{service}} 登录",
+              "runs": "{{when}}运行",
+              "ran": "{{when}}已运行",
+              "neverRan": "从未运行"
+            },
+            "account": {
+              "loginHelp": "使用此容器下载所用的 {{service}} 账户登录。",
+              "logoutWhileDownloading": "下载完成后才能退出登录。",
+              "savedLoginInProgress": "正在使用已保存的登录信息登录",
+              "savedLoginWait": "此过程完成前，两个登录按钮都需等待。",
+              "anonymous": "{{service}} 无需账户即可下载。",
+              "loggedInNote": {
+                "title": "已登录 {{service}}",
+                "body": "{{service}} 计划现在可以下载了。"
+              }
+            },
+            "editTitle": "编辑 {{service}} 计划",
+            "newTitle": "新建 {{service}} 计划",
+            "activity": {
+              "allServices": "所有服务",
+              "runningNow": "正在运行",
+              "recentRuns": "最近运行",
+              "started": "{{time}} 开始",
+              "slot": "第 {{slot}}/{{limit}} 个位置",
+              "gameOf": "第 {{current}}/{{total}} 个游戏",
+              "sizeOf": "{{done}} / {{total}}",
+              "timeLeft": "此游戏约剩 {{time}}",
+              "canceling": "正在取消",
+              "canceled": "已取消",
+              "finishedWithFailures_one": "已完成，{{count}} 个失败",
+              "finishedWithFailures_other": "已完成，{{count}} 个失败",
+              "downloaded_one": "已下载 {{count}} 个",
+              "downloaded_other": "已下载 {{count}} 个",
+              "cached_one": "已缓存 {{count}} 个",
+              "cached_other": "已缓存 {{count}} 个",
+              "failed_one": "{{count}} 个失败",
+              "failed_other": "{{count}} 个失败",
+              "ranFor": "运行了 {{duration}}",
+              "finishedLabel": "完成时间",
+              "columns": {
+                "run": "运行",
+                "result": "结果",
+                "games": "游戏",
+                "size": "大小",
+                "when": "时间"
+              },
+              "noRunning": "当前没有下载。计划开始后运行会显示在这里。",
+              "noRecent": "已完成、已取消和失败的运行会显示在这里。",
+              "failedGames": "失败的游戏",
+              "loadingFailedGames": "正在加载失败的游戏",
+              "failedGamesLoadFailed": "无法加载失败的游戏。",
+              "noFailedGames": "此运行没有记录失败的游戏。"
             }
           },
           "events": {
@@ -4763,10 +4845,8 @@
       "history": "运行历史",
       "configuration": "配置",
       "downloads": "下载",
-      "scope": "此持久容器上的所有 {{service}} 计划。",
       "active": "正在下载",
       "noActive": "当前没有下载任务",
-      "noActiveHelp": "请从配置中启动下载，或等待已保存的计划运行。",
       "noHistory": "已完成、已取消和失败的运行将显示在此处。",
       "capacity_one": "当前有 {{count}} 个同时下载任务（上限 {{limit}} 个）",
       "capacity_other": "当前有 {{count}} 个同时下载任务（上限 {{limit}} 个）",
@@ -4793,6 +4873,9 @@
       "sessionReplaced": "此登录会话已被新的会话替换。请重新登录。",
       "credentialRejected": "守护进程拒绝了此凭据。请重新登录。",
       "loginTimedOut": "登录超时，请重试。",
+      "loginTimedOutTitle": "登录超时",
+      "loginTimedOutBody_one": "未在 {{count}} 分钟内输入验证码。请重新登录。",
+      "loginTimedOutBody_other": "未在 {{count}} 分钟内输入验证码。请重新登录。",
       "loginBusy": "该服务已有一个登录正在进行中。请等待其完成，或稍后重试。",
       "cancelLoginFailed": "无法取消正在进行的登录。容器可能仍在等待验证码，请重新退出登录。",
       "services": {
@@ -4815,7 +4898,7 @@
       "reloginRequiredBy": "需要重新登录的截止时间",
       "timeRemaining": "剩余 {{time}}",
       "signInExpired": "登录已过期",
-      "loginTimeRemaining": "登录尝试将在 {{time}} 后过期",
+      "loginTimeRemaining": "{{time}} 后过期",
       "loginAttemptExpired": "登录尝试已过期",
       "needsRelogin": "登录已过期，请重新登录。",
       "actions": {
@@ -4828,7 +4911,8 @@
       "errors": {
         "noPendingChallenge": "没有待处理的凭据验证请求",
         "noResult": "持久登录未返回验证请求或认证结果。请重试。"
-      }
+      },
+      "loginNotCanceled": "无法取消登录。容器可能仍在等待验证码；请重新开始登录或停止容器。"
     },
     "home": {
       "title": "游戏预填充",
@@ -5221,7 +5305,7 @@
         "deadlineReached": "缓存检查未能在截止时间前完成。",
         "authenticationRequired": "请登录以验证此游戏的缓存状态。"
       },
-      "title": "选择要预填充的游戏",
+      "title": "选择游戏",
       "importAppIds": "导入应用 ID",
       "showCached": "显示已缓存",
       "clearAllCached": "清除缓存记录",
@@ -5260,10 +5344,11 @@
       "cachedBadge": "已缓存",
       "removeFromCache": "从缓存中移除 {{name}}",
       "saveSelection": "保存选择",
+      "saving": "正在保存...",
       "discardChanges": {
-        "confirmTitle": "放弃游戏选择更改？",
+        "confirmTitle": "放弃更改？",
         "confirmBody": "尚未保存的游戏选择更改将被放弃。",
-        "confirmButton": "放弃更改"
+        "confirmButton": "放弃"
       }
     },
     "placeholders": {
@@ -5401,7 +5486,7 @@
       }
     },
     "steamAuth": {
-      "title": "Steam 账户登录",
+      "title": "登录 Steam",
       "signInTitle": "登录",
       "connectingSubtitle": "正在等待 Steam",
       "containerAccountNotice": "这是此容器的 Steam 账户，不是您的 LANCache Manager 登录。",
@@ -5419,14 +5504,17 @@
       "mobileConfirmation": {
         "title": "请在您的手机上批准此次登录",
         "waiting": "正在等待您的批准",
-        "phoneOnly": "Steam 为此次登录选择了手机批准，因此这里没有验证码可以输入。如果您暂时无法使用手机，请取消后重新开始。"
+        "phoneOnly": "Steam 为此次登录选择了手机批准，因此这里没有验证码可以输入。如果您暂时无法使用手机，请取消后重新开始。",
+        "phoneOrCode": "在手机上的 Steam 应用中批准此次登录，或改为输入验证码。"
       },
       "emailVerification": {
-        "title": "请查看您的邮箱"
+        "title": "请查看您的邮箱",
+        "help": "Steam 已向该账户的邮箱发送验证码。"
       },
       "twoFactor": {
         "title": "输入您的 Steam Guard 验证码",
-        "leaveEmptyHint": "留空即可改为在手机上批准。"
+        "leaveEmptyHint": "留空即可改为在手机上批准。",
+        "help": "打开 Steam 应用并复制验证码。"
       },
       "security": {
         "description": "您的密码将发送给 Steam，绝不会被存储。"
@@ -5451,16 +5539,27 @@
       },
       "success": {
         "authenticatedAs": "已成功以 {{username}} 身份登录"
-      }
+      },
+      "steps": {
+        "signIn": "登录",
+        "verify": "验证",
+        "guard": "Steam 令牌",
+        "email": "邮箱验证码",
+        "phone": "手机确认"
+      },
+      "status": {
+        "credentials": "等待您登录"
+      },
+      "connectingHelp": "Steam 容器响应后会显示登录表单。"
     },
     "epicAuth": {
-      "title": "Epic Games 账户登录",
+      "title": "登录 Epic Games",
       "containerAccountNotice": "这是此容器的 Epic Games 账户，不是您的 LANCache Manager 登录。",
       "signInTitle": "使用 Epic Games 登录",
       "signInDescription": "您在 Epic 网站登录，然后将授权码粘贴到此处。",
       "connectingSubtitle": "正在获取您的登录链接",
       "enterCodeTitle": "从 Epic 获取您的授权码",
-      "openEpicLogin": "打开登录页面",
+      "openEpicLogin": "打开 Epic 登录页面",
       "authorizationCodeLabel": "授权码",
       "authorizationCodePlaceholder": "在此粘贴您的授权码",
       "authenticatingMessage": "正在验证您的授权码",
@@ -5469,10 +5568,19 @@
         "submitCode": "提交代码",
         "connecting": "连接中...",
         "continue": "继续"
+      },
+      "steps": {
+        "link": "获取登录链接",
+        "code": "输入代码"
+      },
+      "instructions": {
+        "open": "打开 Epic 登录页面并登录。",
+        "copy": "复制 Epic 显示的授权码。",
+        "paste": "将其粘贴到下方并提交。"
       }
     },
     "xboxAuth": {
-      "title": "Xbox 账户登录",
+      "title": "登录 Xbox",
       "containerAccountNotice": "这是此容器的 Xbox 账户，不是您的 LANCache Manager 登录。",
       "signInTitle": "使用 Microsoft 登录",
       "signInDescription": "您在 Microsoft 网站上输入代码和密码。",
@@ -5480,7 +5588,7 @@
       "enterCodeTitle": "在 Microsoft 页面上输入此代码",
       "codeCopied": "已复制",
       "copyFailed": "复制失败",
-      "openVerification": "打开验证页面",
+      "openVerification": "打开 Microsoft 页面",
       "waitingMessage": "正在等待您批准",
       "errors": {
         "loginFailed": "Xbox 登录未通过。"
@@ -5488,6 +5596,17 @@
       "actions": {
         "connecting": "连接中...",
         "continue": "继续"
+      },
+      "steps": {
+        "code": "获取代码",
+        "approve": "在 Microsoft 页面批准"
+      },
+      "copyCode": "复制代码",
+      "yourCode": "你的代码",
+      "instructions": {
+        "open": "打开 Microsoft 页面并输入代码。",
+        "approve": "使用 Xbox 账户登录并批准。",
+        "closes": "Microsoft 确认后此窗口会自动关闭。"
       }
     },
     "cacheRemoval": {
@@ -7928,7 +8047,11 @@
       "instanceChanged": "预填充守护进程已重启，之前的运行已中断。",
       "ambiguousOperation": "请选择要取消的预填充运行。",
       "outcomeUnknown": "无法恢复此预填充的运行结果。",
-      "startUnavailable": "容器无法启动预填充。请重试。"
+      "startUnavailable": "容器无法启动预填充。请重试。",
+      "gameDownloadFailed": "此游戏未完成下载。",
+      "signInLost": "服务账户在完成前已退出登录。请重新登录后再次运行。",
+      "gameDetailsUnavailable": "服务未返回此游戏的详细信息。",
+      "runNotFound": "此运行记录已不再保存，无法显示失败的游戏。"
     },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"

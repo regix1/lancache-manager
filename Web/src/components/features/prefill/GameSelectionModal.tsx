@@ -10,7 +10,7 @@ import { ErrorBlock } from '../../ui/ErrorBlock';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { SearchInput } from '../../ui/SearchInput';
-import { Check, Gamepad2, Import, Database } from 'lucide-react';
+import { Check, Gamepad2, Database } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -406,13 +406,15 @@ export function GameSelectionModal({
     const cacheReasonId = cacheReason
       ? `game-cache-reason-${encodeURIComponent(game.appId)}`
       : undefined;
-    const cacheBadge =
-      cacheState === 'cached'
-        ? { variant: 'success' as const, label: t('prefill.gameSelection.cachedBadge') }
+    // The Cached pane already says a game is cached, so the word only appears once the game has
+    // moved into Selected. States that still need a download show in every pane.
+    const cacheStatus =
+      cacheState === 'cached' && selected
+        ? { className: 'cache-hit', label: t('prefill.gameSelection.cachedBadge') }
         : cacheState === 'outdated'
-          ? { variant: 'warning' as const, label: t('prefill.gameSelection.updateAvailable') }
+          ? { className: 'cache-miss', label: t('prefill.gameSelection.updateAvailable') }
           : cacheState === 'unknown'
-            ? { variant: 'warning' as const, label: t('prefill.gameSelection.statusUnknown') }
+            ? { className: 'cache-miss', label: t('prefill.gameSelection.statusUnknown') }
             : null;
 
     return (
@@ -452,7 +454,7 @@ export function GameSelectionModal({
               <span className="min-w-0 truncate">
                 {t('prefill.gameSelection.appId', { id: game.appId })}
               </span>
-              {cacheBadge && <Badge variant={cacheBadge.variant}>{cacheBadge.label}</Badge>}
+              {cacheStatus && <span className={cacheStatus.className}>{cacheStatus.label}</span>}
               {cacheReason && (
                 <span id={cacheReasonId} className="sr-only">
                   {t(CACHE_REASON_KEYS[cacheReason])}
@@ -518,7 +520,6 @@ export function GameSelectionModal({
                   onClick={() => setShowImport(!showImport)}
                   className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
                 >
-                  <Import className="h-4 w-4" />
                   {t('prefill.gameSelection.importAppIds')}
                 </Button>
               )}
@@ -540,7 +541,6 @@ export function GameSelectionModal({
                   color="secondary"
                   size="sm"
                   onClick={() => setClearCacheConfirmOpen(true)}
-                  loading={isClearingAllCache}
                   disabled={isClearingAllCache}
                   className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
                 >
@@ -604,7 +604,6 @@ export function GameSelectionModal({
                   onClick={handleImport}
                   disabled={!importText.trim()}
                 >
-                  <Import className="h-3.5 w-3.5" />
                   {t('prefill.gameSelection.import')}
                 </Button>
                 <Button
@@ -824,24 +823,23 @@ export function GameSelectionModal({
         </CustomScrollbar>
 
         {/* Actions */}
-        <div className="game-selection-modal__actions flex flex-row justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
-          <Button
-            variant="filled"
-            color="secondary"
-            onClick={handleDismiss}
-            disabled={confirmDiscard && isSaving}
-            className="flex-1 sm:flex-none sm:w-auto min-h-[44px] sm:min-h-10"
-          >
+        <div className="game-selection-modal__actions confirmation-modal__actions">
+          {isClearingAllCache && (
+            <span className="confirmation-modal__status" role="status">
+              <LoadingSpinner inline size="xs" />
+              {t('common.clearing')}
+            </span>
+          )}
+          {isSaving && !isClearingAllCache && (
+            <span className="confirmation-modal__status" role="status">
+              <LoadingSpinner inline size="xs" />
+              {t('prefill.gameSelection.saving')}
+            </span>
+          )}
+          <Button variant="default" onClick={handleDismiss} disabled={confirmDiscard && isSaving}>
             {t('common.cancel')}
           </Button>
-          <Button
-            variant="filled"
-            color="primary"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex-1 sm:flex-none sm:w-auto min-h-[44px] sm:min-h-10"
-          >
-            {isSaving ? <LoadingSpinner inline size="sm" /> : <Check className="h-4 w-4" />}
+          <Button variant="filled" color="primary" onClick={handleSave} disabled={isSaving}>
             {t('prefill.gameSelection.saveSelection')}
           </Button>
         </div>
@@ -857,6 +855,7 @@ export function GameSelectionModal({
           }}
           title={t('prefill.gameSelection.discardChanges.confirmTitle')}
           confirmLabel={t('prefill.gameSelection.discardChanges.confirmButton')}
+          cancelLabel={t('common.keepEditing')}
           confirmColor="red"
         >
           <p>{t('prefill.gameSelection.discardChanges.confirmBody')}</p>

@@ -690,6 +690,50 @@ public class PrefillSessionService
         return [.. active, .. recent];
     }
 
+    internal async Task<List<PrefillRunFailedGame>?> GetFailedGamesAsync(Guid runId, PrefillPlatform platform,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var run = await context.PrefillRuns.AsNoTracking().SingleOrDefaultAsync(r => r.Id == runId && r.Session != null
+            && r.Session.IsPersistent && r.Session.Platform == platform, cancellationToken);
+        if (run is null) return null;
+        // When a run fails, the daemon leaves every game without a result Cancelled (the server cancelled a
+        // stalled, signed-out or over-time run) or Skipped (the daemon failed the run itself). Only the games that
+        // were downloading failed with the run, and they carry the run's reason; queued games never started [90].
+        var runFailed = run.State == "failed";
+        var currentAppId = runFailed
+            ? (JsonSerializer.Deserialize<DaemonRunSnapshot>(run.SnapshotJson)
+                ?? throw new JsonException("Persisted run snapshot is null.")).CurrentItem?.AppId
+            : null;
+        // No cap: the read covers one run and is bounded by that run's game count.
+        var failed = await context.PrefillHistoryEntries.AsNoTracking()
+            .Where(e => e.RunId == runId && (e.Status == PrefillHistoryEntryStatus.Failed || (runFailed
+                && (e.Status == PrefillHistoryEntryStatus.Cancelled || e.Status == PrefillHistoryEntryStatus.Skipped)
+                && (e.AppId == currentAppId || e.BytesDownloaded > 0))))
+            .OrderBy(e => e.Sequence).ToListAsync(cancellationToken);
+        return [.. failed.Select(e =>
+        {
+            var reason = e.Status == PrefillHistoryEntryStatus.Failed ? e.Reason : run.Reason;
+            return new PrefillRunFailedGame
+            {
+                AppId = e.AppId,
+                Name = e.AppName,
+                ReasonKey = reason switch
+                {
+                    "auth-lost" => "errors.prefill.signInLost",
+                    "game-details-unavailable" => "errors.prefill.gameDetailsUnavailable",
+                    "stalled" => "signalr.scheduledPrefill.failedStalled",
+                    "runtime-exceeded" => "signalr.scheduledPrefill.failedMaxRuntime",
+                    _ => DaemonCommandException.StageKeyForCode(reason) switch
+                    {
+                        { } key => key,
+                        null => "errors.prefill.gameDownloadFailed"
+                    }
+                }
+            };
+        })];
+    }
+
     internal async Task SetRunCancellationAsync(Guid runId, CancellationToken cancellationToken, string? reason = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);

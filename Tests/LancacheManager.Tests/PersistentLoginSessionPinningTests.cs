@@ -261,7 +261,12 @@ public class PersistentLoginSessionPinningTests
     {
         var (controller, _, activeClient) = CreateControllerWithActiveSession(activeSessionId: "session-B");
 
-        var request = new PersistentCancelLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-A" };
+        var request = new PersistentCancelLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-A",
+            LoginId = Guid.NewGuid()
+        };
 
         var result = await controller.CancelLoginAsync(request, CancellationToken.None);
 
@@ -307,6 +312,104 @@ public class PersistentLoginSessionPinningTests
         var result = await controller.CancelLoginAsync(request, CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task CancelLogin_RequiresAValidAttemptIdentity()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        foreach (var request in new[]
+        {
+            new PersistentCancelLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-B" },
+            new PersistentCancelLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-B", LoginId = Guid.Empty }
+        })
+        {
+            var result = await controller.CancelLoginAsync(request, CancellationToken.None);
+            Assert.IsType<BadRequestObjectResult>(result.Result);
+        }
+        Assert.DoesNotContain(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task CancelLogin_UuidBeforeStartPreventsThatRequestWithoutTouchingDaemon()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-B");
+        var loginId = Guid.NewGuid();
+        var cancel = await controller.CancelLoginAsync(new PersistentCancelLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(cancel.Result);
+        Assert.DoesNotContain(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), client.InvokedMethods);
+
+        await Assert.ThrowsAsync<ConflictException>(() => controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None));
+        Assert.DoesNotContain(nameof(IDaemonClient.StartLoginWithDispatchAsync), client.InvokedMethods);
+        Assert.Equal(0, daemon.GetSession("session-B")!.LoginAttempt);
+    }
+
+    [Fact]
+    public async Task StartLogin_RejectsEmptyUuidBeforeDaemonWork()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = Guid.Empty
+        }, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.DoesNotContain(nameof(IDaemonClient.StartLoginWithDispatchAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task CancelLogin_OldUuidAndMismatchedNumberCannotCancelNewAttempt()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-B");
+        var oldId = Guid.NewGuid();
+        var newId = Guid.NewGuid();
+        await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = oldId
+        }, CancellationToken.None);
+        var firstAttempt = daemon.GetSession("session-B")!.LoginAttempt;
+        await controller.CancelLoginAsync(new PersistentCancelLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = oldId
+        }, CancellationToken.None);
+        await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = newId
+        }, CancellationToken.None);
+        var currentAttempt = daemon.GetSession("session-B")!.LoginAttempt;
+        Assert.Equal(firstAttempt + 1, currentAttempt);
+        var cancelsBefore = client.InvokedMethods.Count(method => method == nameof(IDaemonClient.CancelLoginWithOutcomeAsync));
+
+        foreach (var request in new[]
+        {
+            new PersistentCancelLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-B", LoginId = oldId },
+            new PersistentCancelLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-B", LoginId = newId, LoginAttempt = firstAttempt }
+        })
+        {
+            var result = await controller.CancelLoginAsync(request, CancellationToken.None);
+            Assert.IsType<OkObjectResult>(result.Result);
+        }
+
+        Assert.Equal(cancelsBefore,
+            client.InvokedMethods.Count(method => method == nameof(IDaemonClient.CancelLoginWithOutcomeAsync)));
+        Assert.Equal(currentAttempt, daemon.GetSession("session-B")!.LoginAttempt);
     }
 
     // ---- RC4: manager leg surfaces a dropped credential -----------------------------------------
@@ -389,13 +492,68 @@ public class PersistentLoginSessionPinningTests
         Assert.Equal(
             1,
             activeClient.InvokedMethods.Count(
-                method => method == nameof(IDaemonClient.CancelLoginAsync)));
+                method => method == nameof(IDaemonClient.CancelLoginWithOutcomeAsync)));
         Assert.Equal(
             DaemonAuthState.NotAuthenticated,
             daemon.GetSession(sessionId)!.AuthState);
         Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources(
             editSessionId,
             PersistentPrefillEditResourceKind.Login));
+    }
+
+    [Fact]
+    public async Task CancelLogin_BeforeDispatchWaitsForReceiptWithoutSendingDaemonCancel()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        client.HoldLoginDispatch = true;
+        client.FailLoginDispatch = true;
+        var loginId = Guid.NewGuid();
+        var start = controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None);
+        await client.LoginDispatchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var cancel = controller.CancelLoginAsync(new PersistentCancelLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None);
+        Assert.False(cancel.IsCompleted);
+        client.ReleaseLoginDispatch.SetResult();
+        await Assert.ThrowsAsync<IOException>(() => start);
+        Assert.IsType<OkObjectResult>((await cancel.WaitAsync(TimeSpan.FromSeconds(5))).Result);
+        Assert.DoesNotContain(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task CancelLogin_AfterDispatchReturnsBeforeHeldLoginResult()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        client.HoldLoginResult = true;
+        var loginId = Guid.NewGuid();
+        var start = controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None);
+        await client.LoginResultEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var cancel = await controller.CancelLoginAsync(new PersistentCancelLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<OkObjectResult>(cancel.Result);
+        Assert.False(start.IsCompleted);
+        Assert.Contains(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), client.InvokedMethods);
+        client.ReleaseLoginResult.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => start.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -878,6 +1036,40 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
+    public async Task ReuseSavedLogin_UuidCancelReturnsBeforeAuthenticationAndFencesLateStatus()
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, recorder) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+        daemon.CompleteLogin = false;
+        var loginId = Guid.NewGuid();
+        var start = controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            ReuseIntegration = true,
+            LoginId = loginId
+        }, CancellationToken.None);
+        Assert.False(start.IsCompleted);
+        var cancelsBefore = recorder.InvokedMethods.Count(method => method == nameof(IDaemonClient.CancelLoginWithOutcomeAsync));
+
+        var cancel = await controller.CancelLoginAsync(new PersistentCancelLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            LoginId = loginId
+        }, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<OkObjectResult>(cancel.Result);
+        Assert.False(start.IsCompleted);
+        Assert.Equal(cancelsBefore + 1,
+            recorder.InvokedMethods.Count(method => method == nameof(IDaemonClient.CancelLoginWithOutcomeAsync)));
+
+        await recorder.EmitStatusAsync(new DaemonStatus { Status = "logged-in" });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => start.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(DaemonAuthState.NotAuthenticated, daemon.GetSession("session-B")!.AuthState);
+    }
+
+    [Fact]
     public async Task ReuseSavedLogin_CancellationStopsPendingDaemonLoginAsync()
     {
         var accountId = Guid.NewGuid();
@@ -1184,6 +1376,12 @@ public class PersistentLoginSessionPinningTests
         public List<string> InvokedMethods { get; } = new();
         public bool RejectCredential { get; set; }
         public bool FailLoginDispatch { get; set; }
+        public bool HoldLoginDispatch { get; set; }
+        public bool HoldLoginResult { get; set; }
+        public TaskCompletionSource LoginDispatchEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseLoginDispatch { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource LoginResultEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseLoginResult { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool AcknowledgeLoginCancel { get; set; } = true;
         public string LiveStatus { get; set; } = "awaiting-login";
         public Func<Task<List<OwnedGame>>>? Games { get; set; }
@@ -1221,14 +1419,7 @@ public class PersistentLoginSessionPinningTests
 
             if (targetMethod?.Name == nameof(IDaemonClient.StartLoginWithDispatchAsync))
             {
-                if (FailLoginDispatch)
-                {
-                    return Task.FromException<CredentialChallenge?>(
-                        new IOException("Login command failed before dispatch"));
-                }
-
-                ((Action)args![1]!)();
-                return Task.FromResult<CredentialChallenge?>(null);
+                return RunLoginAsync((Action)args![1]!);
             }
 
             if (targetMethod?.Name == nameof(IDaemonClient.GetStatusAsync))
@@ -1250,6 +1441,17 @@ public class PersistentLoginSessionPinningTests
             }
 
             return DefaultReturnValue(targetMethod);
+        }
+
+        private async Task<CredentialChallenge?> RunLoginAsync(Action onCommandDispatched)
+        {
+            LoginDispatchEntered.TrySetResult();
+            if (HoldLoginDispatch) await ReleaseLoginDispatch.Task;
+            if (FailLoginDispatch) throw new IOException("Login command failed before dispatch");
+            onCommandDispatched();
+            LoginResultEntered.TrySetResult();
+            if (HoldLoginResult) await ReleaseLoginResult.Task;
+            return null;
         }
     }
 

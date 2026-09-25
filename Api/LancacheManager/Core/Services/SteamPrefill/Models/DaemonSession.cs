@@ -100,6 +100,20 @@ public class DaemonSession
     public string? LastConsumedLoginChallengeId { get; set; }
 
     /// <summary>
+    /// Counts the fresh daemon logins started on this session; a resumed challenge keeps the current value.
+    /// Stamped onto every challenge handed to the browser as <see cref="CredentialChallenge.LoginAttempt"/>, so a
+    /// cancel names the attempt it belongs to and a late cancel never ends a newer attempt. Incremented under
+    /// <see cref="PrefillLock"/>. Transient - not persisted, not part of <see cref="DaemonSessionDto"/>.
+    /// </summary>
+    public long LoginAttempt { get; set; }
+
+    /// <summary>Blocks a new daemon login until the current cancel command has settled.</summary>
+    public bool LoginCanceling { get; set; }
+    public Task<bool>? LoginCancelTask { get; set; }
+    public TaskCompletionSource<bool>? LoginDispatch { get; set; }
+    public Dictionary<Guid, LoginRequest> LoginRequests { get; } = new();
+
+    /// <summary>
     /// True while a headless (manager-initiated) login attempt owns this session's login flow.
     /// While set, an incoming daemon credential challenge is NOT published: the event handler in
     /// <c>PrefillDaemonServiceBase.OnCredentialChallengeAsync</c> neither rewrites <see cref="AuthState"/>,
@@ -297,6 +311,12 @@ public class DaemonSession
     public string? SocketPath { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
     public CancellationTokenSource CancellationTokenSource { get; } = new();
+
+    public sealed class LoginRequest
+    {
+        public long? Attempt { get; set; }
+        public bool Canceled { get; set; }
+    }
 }
 
 /// <summary>

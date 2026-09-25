@@ -5,6 +5,7 @@ import { ChevronRight } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Modal } from '@components/ui/Modal';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
@@ -62,7 +63,6 @@ interface CustomScheduleModalProps {
   /** The saved schedule to edit, or null to build a new one. */
   schedule: CustomSchedule | null;
   isDisabled?: boolean;
-  isSaving?: boolean;
   /** A rejection sentence from the server, shown at the top of the body. */
   errorMessage?: string | null;
   onClose: () => void;
@@ -169,7 +169,6 @@ function CustomScheduleModal({
   opened,
   schedule,
   isDisabled = false,
-  isSaving = false,
   errorMessage = null,
   onClose,
   onApply
@@ -224,24 +223,18 @@ function CustomScheduleModal({
     setPreviewFrom(Date.now());
   }, [opened]);
 
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const advancedRef = useRef<HTMLDivElement | null>(null);
 
   // The drawer opens below the fold of the scroll area, so without this it appears to do nothing
   // until something else scrolls. The distance is only final once the region has finished growing,
   // which is why it is measured after the expand rather than on the state flip. The wait covers the
-  // region's 0.35s grid-template-rows growth (collapsible.css) with headroom.
+  // region's 0.35s grid-template-rows growth (collapsible.css) with headroom. `nearest` scrolls
+  // only the dialog's own scroll area, and only when the drawer's bottom is out of view.
   useEffect(() => {
     if (!advancedOpen) return;
     const timer = setTimeout(() => {
-      const scroller = scrollRef.current;
-      const advanced = advancedRef.current;
-      if (!scroller || !advanced) return;
-      const delta =
-        advanced.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom;
-      if (delta <= 0) return;
-      scroller.scrollTo({
-        top: scroller.scrollTop + delta,
+      advancedRef.current?.scrollIntoView({
+        block: 'nearest',
         behavior: prefersReducedMotion() ? 'auto' : 'smooth'
       });
     }, 400);
@@ -314,8 +307,7 @@ function CustomScheduleModal({
     draft.windowStart.hour === draft.windowEnd.hour &&
     draft.windowStart.minute === draft.windowEnd.minute;
   const hasChanges = !isSameSchedule(candidate, schedule);
-  const canSave =
-    !isDisabled && !isSaving && !needsDay && parseError === null && !neverRuns && hasChanges;
+  const canSave = !isDisabled && !needsDay && parseError === null && !neverRuns && hasChanges;
 
   const stampSettings: TimestampSettings = {
     ...readerClock,
@@ -685,67 +677,121 @@ function CustomScheduleModal({
       size="lg"
       bodyFlexLayout
     >
-      <div className="custom-schedule">
+      <div className="modal-body-layout custom-schedule">
         {errorMessage && (
           <Alert color="red" className="custom-schedule-alert">
             {errorMessage}
           </Alert>
         )}
 
-        <div className="custom-schedule-scroll" ref={scrollRef}>
+        <CustomScrollbar maxHeight="none" className="custom-schedule-viewport" radius="none">
           <div className="custom-schedule-body">
             {/* First, because every time below is read in this zone and on this face: choosing them
               afterwards means re-reading fields already filled in. Only one of the two belongs to
               the schedule - the zone is stored with it and decides when it fires, the face is a
               view setting for this modal alone. */}
-            <section className="custom-schedule-section">
-              <div className="custom-schedule-clock-row">
-                <div className="custom-schedule-field custom-schedule-zone">
-                  <span className="caps-label custom-schedule-field-label">
-                    {t(`${BASE_KEY}.timezone.label`)}
-                  </span>
-                  <EnhancedDropdown
-                    options={zoneOptions}
-                    value={selectedZoneValue}
-                    onChange={handleZoneChange}
-                    customTriggerLabel={zoneTriggerLabel}
-                    triggerAriaLabel={t(`${BASE_KEY}.timezone.label`)}
-                    searchable
-                    disabled={isDisabled}
-                    variant="button"
-                    dropdownWidth="w-72"
-                    maxHeight="320px"
-                  />
-                </div>
-                <div className="custom-schedule-field custom-schedule-clock-field">
-                  <span className="caps-label custom-schedule-field-label">
-                    {t(`${BASE_KEY}.repeat.clockLabel`)}
-                  </span>
-                  <div role="group" aria-label={t(`${BASE_KEY}.repeat.clockLabel`)}>
-                    <SegmentedControl
-                      options={clockOptions}
-                      value={use24Hour ? '24' : '12'}
-                      onChange={(value) => setUse24Hour(value === '24')}
-                      size="md"
-                      showLabels
-                      fullWidth
-                      className="custom-schedule-clock"
-                    />
-                  </div>
-                </div>
-              </div>
+            <section className="custom-schedule-field">
+              <span className="caps-label custom-schedule-field-label">
+                {t(`${BASE_KEY}.timezone.label`)}
+              </span>
+              <EnhancedDropdown
+                options={zoneOptions}
+                value={selectedZoneValue}
+                onChange={handleZoneChange}
+                customTriggerLabel={zoneTriggerLabel}
+                triggerAriaLabel={t(`${BASE_KEY}.timezone.label`)}
+                searchable
+                disabled={isDisabled}
+                variant="button"
+                dropdownWidth="w-72"
+                maxHeight="320px"
+              />
               <p className="custom-schedule-zone-note">{zoneNote}</p>
             </section>
 
+            {/* Two short controls that both qualify every time below share one row. */}
+            <div className="custom-schedule-pair">
+              <div className="custom-schedule-field">
+                <span className="caps-label custom-schedule-field-label">
+                  {t(`${BASE_KEY}.repeat.clockLabel`)}
+                </span>
+                <div role="group" aria-label={t(`${BASE_KEY}.repeat.clockLabel`)}>
+                  <SegmentedControl
+                    options={clockOptions}
+                    value={use24Hour ? '24' : '12'}
+                    onChange={(value) => setUse24Hour(value === '24')}
+                    size="md"
+                    showLabels
+                    fullWidth
+                    className="custom-schedule-clock"
+                  />
+                </div>
+              </div>
+              <div
+                className="custom-schedule-field custom-schedule-window-toggle"
+                role="group"
+                aria-labelledby={windowLabelId}
+              >
+                <span id={windowLabelId} className="caps-label custom-schedule-field-label">
+                  {t(`${BASE_KEY}.window.toggle`)}
+                </span>
+                <ToggleSwitch
+                  size="md"
+                  options={[
+                    { value: 'false', label: t('common.off'), activeColor: 'default' },
+                    { value: 'true', label: t('common.on'), activeColor: 'info' }
+                  ]}
+                  value={draft.windowEnabled ? 'true' : 'false'}
+                  onChange={(value) => updateDraft({ windowEnabled: value === 'true' })}
+                  disabled={isDisabled}
+                />
+              </div>
+            </div>
+
+            {/* The help sentence explains what happens to a run already going when the window
+              shuts, which only matters once there is a window. Off by default, it is two
+              sentences of rules about a feature the reader has not asked for yet. */}
+            {draft.windowEnabled && (
+              <section className="custom-schedule-section" aria-labelledby={windowLabelId}>
+                <p className="custom-schedule-zone-note">{t(`${BASE_KEY}.window.help`)}</p>
+                <div className="custom-schedule-fields">
+                  <div className="custom-schedule-field">
+                    <span className="caps-label custom-schedule-field-label">
+                      {t(`${BASE_KEY}.window.from`)}
+                    </span>
+                    <TimeFields
+                      label={t(`${BASE_KEY}.window.from`)}
+                      time={draft.windowStart}
+                      disabled={isDisabled}
+                      use24Hour={use24Hour}
+                      onChange={(windowStart) => updateDraft({ windowStart })}
+                    />
+                  </div>
+                  <div className="custom-schedule-field">
+                    <span className="caps-label custom-schedule-field-label">
+                      {t(`${BASE_KEY}.window.to`)}
+                    </span>
+                    <TimeFields
+                      label={t(`${BASE_KEY}.window.to`)}
+                      time={draft.windowEnd}
+                      disabled={isDisabled}
+                      use24Hour={use24Hour}
+                      onChange={(windowEnd) => updateDraft({ windowEnd })}
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
+
             <section className="custom-schedule-section" aria-labelledby={repeatLabelId}>
-              <span id={repeatLabelId} className="caps-label custom-schedule-legend">
+              <span id={repeatLabelId} className="caps-label custom-schedule-field-label">
                 {t(`${BASE_KEY}.repeat.legend`)}
               </span>
               <SegmentedControl
                 options={repeatOptions}
                 value={draft.repeat}
                 onChange={handleRepeatChange}
-                size="sm"
+                size="md"
                 showLabels
                 fullWidth
                 className="custom-schedule-repeat"
@@ -815,57 +861,9 @@ function CustomScheduleModal({
               </div>
             </section>
 
-            <section className="custom-schedule-section" aria-labelledby={windowLabelId}>
-              <span id={windowLabelId} className="caps-label custom-schedule-legend">
-                {t(`${BASE_KEY}.window.toggle`)}
-              </span>
-              <ToggleSwitch
-                options={[
-                  { value: 'false', label: t('common.off'), activeColor: 'default' },
-                  { value: 'true', label: t('common.on'), activeColor: 'info' }
-                ]}
-                value={draft.windowEnabled ? 'true' : 'false'}
-                onChange={(value) => updateDraft({ windowEnabled: value === 'true' })}
-                disabled={isDisabled}
-              />
-              {/* The help sentence explains what happens to a run already going when the window
-                shuts, which only matters once there is a window. Off by default, it is two
-                sentences of rules about a feature the reader has not asked for yet. */}
-              {draft.windowEnabled && (
-                <>
-                  <p className="custom-schedule-zone-note">{t(`${BASE_KEY}.window.help`)}</p>
-                  <div className="custom-schedule-fields">
-                    <div className="custom-schedule-field">
-                      <span className="caps-label custom-schedule-field-label">
-                        {t(`${BASE_KEY}.window.from`)}
-                      </span>
-                      <TimeFields
-                        label={t(`${BASE_KEY}.window.from`)}
-                        time={draft.windowStart}
-                        disabled={isDisabled}
-                        use24Hour={use24Hour}
-                        onChange={(windowStart) => updateDraft({ windowStart })}
-                      />
-                    </div>
-                    <div className="custom-schedule-field">
-                      <span className="caps-label custom-schedule-field-label">
-                        {t(`${BASE_KEY}.window.to`)}
-                      </span>
-                      <TimeFields
-                        label={t(`${BASE_KEY}.window.to`)}
-                        time={draft.windowEnd}
-                        disabled={isDisabled}
-                        use24Hour={use24Hour}
-                        onChange={(windowEnd) => updateDraft({ windowEnd })}
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
-
             <section className="custom-schedule-section" aria-labelledby={previewLabelId}>
-              <span id={previewLabelId} className="caps-label custom-schedule-legend">
+              {/* The filled panel is its own heading on screen; the name stays for screen readers. */}
+              <span id={previewLabelId} className="sr-only">
                 {t(`${BASE_KEY}.preview.title`)}
               </span>
               {/* The panel rewrites itself on every control change, which a sighted user sees and a
@@ -952,7 +950,7 @@ function CustomScheduleModal({
               <Button
                 type="button"
                 variant="transparent"
-                size="sm"
+                size="md"
                 className="custom-schedule-advanced-toggle"
                 aria-expanded={advancedOpen}
                 onClick={() => setAdvancedOpen((open) => !open)}
@@ -1032,18 +1030,17 @@ function CustomScheduleModal({
               </CollapsibleRegion>
             </section>
           </div>
-        </div>
+        </CustomScrollbar>
 
-        <div className="custom-schedule-footer">
-          <Button variant="default" size="sm" onClick={onClose} disabled={isSaving}>
+        <div className="confirmation-modal__actions">
+          <Button variant="default" size="md" onClick={onClose}>
             {t(`${BASE_KEY}.cancel`)}
           </Button>
           <Button
             variant="filled"
             color="primary"
-            size="sm"
+            size="md"
             onClick={handleApply}
-            loading={isSaving}
             disabled={!canSave}
           >
             {t(`${BASE_KEY}.save`)}

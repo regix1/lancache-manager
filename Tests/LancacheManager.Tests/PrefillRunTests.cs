@@ -226,6 +226,26 @@ public sealed class PrefillRunTests
         Assert.False(fixture.Session.IsPrefilling);
     }
 
+    [Fact]
+    public async Task UserCancelStaysCancelledWhenSignOutLandsDuringCancelAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var run = await fixture.StartAsync("10");
+        fixture.Client.CompleteCancellation = false;
+        await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId);
+        await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "OnStatusChangeAsync", fixture.Session,
+            new DaemonStatus { Status = "awaiting-login" });
+        Assert.Null(run.CancelReason);
+        fixture.Client.Set(run, "cancelled", 5, "cancelled");
+        await fixture.RefreshAsync();
+        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(TimeSpan.FromSeconds(5))).Snapshot.State);
+        Assert.Null(run.Snapshot.Reason);
+        await using var context = new AppDbContext(fixture.Options);
+        var saved = await context.PrefillRuns.SingleAsync(row => row.Id == run.PrefillRunId);
+        Assert.Equal("cancelled", saved.State);
+        Assert.Null(saved.Reason);
+    }
+
     [Theory]
     [InlineData("operationProgress")]
     [InlineData("inlineSelection")]

@@ -151,11 +151,37 @@ export interface ScheduledPrefillConfigDto {
   riot: ScheduledPrefillServiceConfigDto;
 }
 
+/** What a Services row and the service dialog say about a persistent container. */
+export type ScheduledPrefillContainerStatus =
+  | 'checking'
+  | 'unknown'
+  | 'stopped'
+  | 'starting'
+  | 'stopping'
+  | 'running'
+  | 'downloading';
+
 /**
- * Per-row account readiness for the schedule table. `null` for anonymous services
- * (Battle.net/Riot), where a running container is all the readiness there is.
+ * What a Services row and the service dialog say about a container's account. Anonymous services
+ * (Battle.net/Riot) are always `notNeeded`; a stopped container's login is only known after a start.
  */
-export type ScheduledPrefillRowLoginState = 'loggedIn' | 'loginRequired';
+export type ScheduledPrefillAccountStatus =
+  | 'checking'
+  | 'unknown'
+  | 'notNeeded'
+  | 'checkedAfterStart'
+  | 'loggedIn'
+  | 'loginRequired'
+  | 'loginExpired'
+  | 'loggingIn'
+  | 'loggingOut'
+  | 'loginFailed';
+
+export interface ScheduledPrefillServiceStatus {
+  container: ScheduledPrefillContainerStatus;
+  account: ScheduledPrefillAccountStatus;
+  next: 'start' | 'logIn' | 'manage';
+}
 
 export interface ScheduledPrefillEditTarget {
   opening: number;

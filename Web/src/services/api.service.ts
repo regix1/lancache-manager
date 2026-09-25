@@ -89,7 +89,10 @@ import type {
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
-import type { PrefillRun } from '../components/features/prefill/hooks/prefillTypes';
+import type {
+  PrefillRun,
+  PrefillRunFailedGame
+} from '../components/features/prefill/hooks/prefillTypes';
 import type { CacheAppResponse } from '../components/features/prefill/cacheStatus';
 import type {
   PersistentIntegrationLoginAvailability,
@@ -129,6 +132,10 @@ type PersistentChallengeResponse =
   | 'authenticated'
   | { authenticated: true; sessionId?: string }
   | { status: 'authenticated' | 'logged-in'; message?: string; sessionId?: string };
+
+type PersistentLoginCancelIdentity =
+  | { loginId: string; loginAttempt?: number | null }
+  | { loginId?: null; loginAttempt: number };
 
 /**
  * Structural info attached as `.cause` on the Error thrown by `getPersistentChallenge` for a 404
@@ -3651,6 +3658,27 @@ class ApiService {
     }
   }
 
+  static async getPersistentPrefillRunFailedGames(
+    service: PersistentPrefillServiceId,
+    runId: string,
+    signal?: AbortSignal
+  ): Promise<PrefillRunFailedGame[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/runs/${encodeURIComponent(runId)}/failed-games?service=${encodeURIComponent(service)}`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<PrefillRunFailedGame[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getPersistentPrefillRunFailedGames error:', error);
+      }
+      throw error;
+    }
+  }
+
   static async getPersistentIntegrationLoginAvailability(
     service: PersistentPrefillServiceId,
     signal?: AbortSignal
@@ -3719,13 +3747,14 @@ class ApiService {
     sessionId?: string,
     editSessionId?: string,
     editActionId?: string,
-    reuseIntegration = false
+    reuseIntegration = false,
+    loginId?: string
   ): Promise<PersistentChallengeResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/login`,
         this.getJsonFetchOptions(
-          { service, sessionId, editSessionId, editActionId, reuseIntegration },
+          { service, sessionId, editSessionId, editActionId, reuseIntegration, loginId },
           { method: 'POST' }
         )
       );
@@ -3848,16 +3877,17 @@ class ApiService {
 
   static async cancelPersistentLogin(
     service: PersistentPrefillServiceId,
-    sessionId: string
+    sessionId: string,
+    identity: PersistentLoginCancelIdentity
   ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-login`,
-        this.getJsonFetchOptions({ service, sessionId }, { method: 'POST' })
+        this.getJsonFetchOptions({ service, sessionId, ...identity }, { method: 'POST' })
       );
-      // A sessionId mismatch here is an idempotent 200 no-op (it must NOT cancel a replacement
-      // session's login), so there is no 409 branch to special-case - unlike challenge/
-      // provide-credential above.
+      // A sessionId or loginAttempt mismatch here is an idempotent 200 no-op (it must NOT cancel a
+      // replacement session's or a newer attempt's login). A 409 means the daemon did not confirm
+      // the cancel, and the caller reports that.
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('cancelPersistentLogin error:', error);

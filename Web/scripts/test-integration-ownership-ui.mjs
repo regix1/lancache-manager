@@ -9,6 +9,7 @@ import {
   bindLifted,
   compileToUrl,
   liftConstArrow,
+  liftHookCallback,
   moduleUrl,
   parseSource,
   collectNodes,
@@ -237,6 +238,7 @@ const renderBindings = {
   Shield: () => null,
   CheckCircle: () => null,
   ExternalLink: () => null,
+  SteamIcon: () => null,
   EpicIcon: () => null,
   XboxIcon: () => null,
   noAutofill: {},
@@ -859,7 +861,8 @@ const savedLoginAction = ({
     targets: [],
     attempts: [],
     actions: [],
-    errors: []
+    errors: [],
+    errorActions: []
   };
   const privateAvailabilityIdentityRef = { current: liveIdentity };
   const attempts = { current: new Map() };
@@ -876,6 +879,11 @@ const savedLoginAction = ({
     Object.assign(errorState, update(errorState));
     counters.errors.push(errorState.steam);
   };
+  const errorActionState = {};
+  const setErrorActions = (update) => {
+    Object.assign(errorActionState, update(errorActionState));
+    counters.errorActions.push(errorActionState.steam);
+  };
   const act = bindLifted(actSource, {
     privateAvailabilityIdentity: identity,
     privateAvailabilityIdentityRef,
@@ -885,6 +893,7 @@ const savedLoginAction = ({
     getPersistentServiceId: () => 'Steam',
     setActions,
     setErrors,
+    setErrorActions,
     recover: async () => {
       counters.recovery += 1;
       await recover();
@@ -935,6 +944,8 @@ test('saved-login refusal preserves exact action ownership without login mutatio
     assert.deepEqual(fixture.counters.attempts, []);
     assert.deepEqual(fixture.counters.actions, ['login', undefined]);
     assert.deepEqual(fixture.counters.errors, [undefined, integrationReasonKeys[reason]]);
+    // The refusal is a Log in error, so the Services row does not show it beside Start.
+    assert.deepEqual(fixture.counters.errorActions, [undefined, 'login']);
     assert.equal(fixture.counters.recovery, 1);
     assert.equal(fixture.counters.loads, 0);
   }
@@ -958,7 +969,8 @@ test('saved-login loading and retained stale handlers cannot mutate the current 
     targets: [],
     attempts: [],
     actions: [],
-    errors: []
+    errors: [],
+    errorActions: []
   });
 });
 
@@ -988,6 +1000,38 @@ test('identity change during deferred cleanup leaves the replacement action and 
   assert.equal(fixture.counters.loads, 0);
 });
 
+test('a Start failure stays cleared after another tab starts and then stops the container', () => {
+  const clearStaleStart = liftHookCallback(containersHook, 'useEffect', "=== 'start'");
+  let errors = { steam: 'Start failed', epic: 'Stop failed' };
+  let errorActions = { steam: 'start', epic: 'stop' };
+  const runWith = (steamRunning) =>
+    bindLifted(clearStaleStart, {
+      SCHEDULED_PREFILL_SERVICE_RUN_ORDER: ['steam', 'epic'],
+      errorActions,
+      containersByServiceKey: new Map([
+        ['steam', { isRunning: steamRunning }],
+        ['epic', { isRunning: true }]
+      ]),
+      setErrors: (update) => {
+        errors = update(errors);
+      },
+      setErrorActions: (update) => {
+        errorActions = update(errorActions);
+      }
+    })();
+
+  runWith(false);
+  assert.equal(errors.steam, 'Start failed');
+  assert.equal(errorActions.steam, 'start');
+
+  runWith(true);
+  runWith(false);
+  assert.equal(errors.steam, undefined);
+  assert.equal(errorActions.steam, undefined);
+  assert.equal(errors.epic, 'Stop failed');
+  assert.equal(errorActions.epic, 'stop');
+});
+
 test('persistent card renders checking, unavailable and optional available-account states', () => {
   const Card = make(
     'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx',
@@ -1001,12 +1045,20 @@ test('persistent card renders checking, unavailable and optional available-accou
       useFormattedDateTime: () => 'expires',
       useCountdownTimer: () => 30,
       SCHEDULED_PREFILL_BUTTON_SIZE: 'sm',
+      SCHEDULED_PREFILL_PLATFORM_UI: { steam: { icon: () => null } },
       getPersistentServiceId: () => 'Steam',
       isScheduledPrefillAnonymousService: () => false,
+      getScheduledPrefillServiceStatus: () => ({
+        container: 'running',
+        account: 'loginRequired',
+        next: 'logIn'
+      }),
+      getScheduledPrefillStatusFact: (status) => ({ busy: false, tone: null, label: status }),
+      isPersistentLoginIntegrationReuse: () => false,
+      formatTimeRemaining: (seconds) => `${seconds}s`,
       usePersistentLoginStoreState: () => ({ error: null, sessionUnavailableState: null }),
-      useActivityStatus: () => ({ isActive: () => false }),
-      supportsConcurrentPrefill: () => false,
-      canStartPrefill: () => true
+      getPersistentLoginFailure: (state) => state.error,
+      usePersistentLoginCanceling: () => false
     }
   );
   for (const [availability, loading, expected] of [
@@ -1019,11 +1071,15 @@ test('persistent card renders checking, unavailable and optional available-accou
     const markup = renderToStaticMarkup(
       React.createElement(Card, {
         serviceKey: 'steam',
-        scheduleEnabled: true,
         integrationLoginAvailability: availability,
         integrationLoginAvailabilityLoading: loading,
         container: { isRunning: true, isAuthenticated: false },
-        selectedGamesCount: 0
+        listLoaded: true,
+        listFailed: false,
+        onStart: noop,
+        onStop: noop,
+        onLogout: noop,
+        onLogin: noop
       })
     );
     assert.ok(markup.includes(expected), expected);
@@ -1100,8 +1156,9 @@ test('all integration modal submissions and provider links refuse disabled actio
     assert.equal(mutations, 0);
     const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
     assert.match(source, /disabled=\{[^}]*state\.canAuthenticate === false/);
-    assert.match(source, /const handleSoftClose = onClose/);
-    assert.match(source, /onClose=\{isKeepPending \? handleSoftClose : handleCloseModal\}/);
+    assert.doesNotMatch(source, /handleSoftClose/);
+    assert.match(source, /onClose=\{isKeepPending \? handleExplicitCancel : handleCloseModal\}/);
+    assert.match(source, /dismissOnBackdrop=\{!isKeepPending\}/);
     assert.match(source, /getIntegrationReasonKey\(state\.ownershipReason\)/);
   }
   let opens = 0;

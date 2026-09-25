@@ -81,3 +81,10 @@ public sealed record DaemonRunStatus
     public bool HistoryIncomplete { get; init; }
     public DateTime? CompletedAtUtc { get; init; }
 }
+
+public sealed record PrefillRunFailedGame
+{
+    public required string AppId { get; init; }
+    public string? Name { get; init; }
+    public required string ReasonKey { get; init; }
+}

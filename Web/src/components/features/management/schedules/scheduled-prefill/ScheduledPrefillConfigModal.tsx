@@ -112,7 +112,6 @@ export function ScheduledPrefillConfigModal({
   const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
   const [missing, setMissing] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
-  const [overwriteEnabledConfirmOpen, setOverwriteEnabledConfirmOpen] = useState(false);
   const baseline = useRef<string | null>(null);
   const dirty = useRef(false);
   const current = useRef(target);
@@ -140,10 +139,16 @@ export function ScheduledPrefillConfigModal({
     again: boolean;
     promise: Promise<void>;
   } | null>(null);
-  const gameSelectionNeedsLogin =
-    target !== null &&
-    !isScheduledPrefillAnonymousService(target.serviceKey) &&
-    (!container?.isRunning || !container.isAuthenticated || container.needsRelogin);
+  // A stopped container is the first thing to fix for every service, because its row offers Start
+  // before Log in. An expired Login duration still lets a logged-in account read its games.
+  const gameSelectionBlocked: 'login' | 'container' | null =
+    target === null
+      ? null
+      : !container?.isRunning
+        ? 'container'
+        : !isScheduledPrefillAnonymousService(target.serviceKey) && !container.isAuthenticated
+          ? 'login'
+          : null;
   const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
   const loadKey = target
     ? `${identity}:${target.serviceKey}:${target.scheduleId ?? 'create'}`
@@ -158,7 +163,6 @@ export function ScheduledPrefillConfigModal({
     setError(null);
     setMissing(false);
     setDiscardConfirmOpen(false);
-    setOverwriteEnabledConfirmOpen(false);
     setGameSelection(null);
     gameSelectionRef.current = null;
     gameRequestRef.current?.controller.abort();
@@ -266,8 +270,7 @@ export function ScheduledPrefillConfigModal({
       setError(validation);
       return;
     }
-    if (!target.create && target.schedule?.enabled) setOverwriteEnabledConfirmOpen(true);
-    else void commitSave();
+    void commitSave();
   };
   const loadGameSelection = useCallback(
     async (serviceKey: ScheduledPrefillServiceKey, sessionId: string) => {
@@ -279,8 +282,7 @@ export function ScheduledPrefillConfigModal({
         !activeContainer ||
         activeContainer.sessionId !== sessionId ||
         !activeContainer.isRunning ||
-        (!isScheduledPrefillAnonymousService(serviceKey) &&
-          (!activeContainer.isAuthenticated || activeContainer.needsRelogin))
+        (!isScheduledPrefillAnonymousService(serviceKey) && !activeContainer.isAuthenticated)
       )
         return;
       if (gameAuthRef.current?.key === key && !gameAuthRef.current.authenticated) return;
@@ -407,8 +409,7 @@ export function ScheduledPrefillConfigModal({
     const key = `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
     const authenticated =
       container.isRunning &&
-      (isScheduledPrefillAnonymousService(gameSelection.serviceKey) ||
-        (container.isAuthenticated && !container.needsRelogin));
+      (isScheduledPrefillAnonymousService(gameSelection.serviceKey) || container.isAuthenticated);
     const previous = gameAuthRef.current;
     gameAuthRef.current = { key, authenticated };
     if (!authenticated && (previous?.key !== key || previous.authenticated)) {
@@ -458,11 +459,7 @@ export function ScheduledPrefillConfigModal({
   });
   const handleOpenGameSelection = () => {
     if (!target || !config || saving || !config.enabled) return;
-    if (gameSelectionNeedsLogin) return;
-    if (!container?.isRunning) {
-      setError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
-      return;
-    }
+    if (gameSelectionBlocked || !container) return;
     const selection: ScheduledPrefillGameSelectionState = {
       serviceKey: target.serviceKey,
       scheduleId: target.scheduleId,
@@ -493,15 +490,13 @@ export function ScheduledPrefillConfigModal({
         className="scheduled-prefill-content-dialog scheduled-prefill-focused-dialog"
         title={
           target
-            ? t(`${baseKey}.modalTitle`, {
-                service: t(`${baseKey}.services.${target.serviceKey}`),
-                name: config ? config.name : target.name
+            ? t(target.create ? `${baseKey}.newTitle` : `${baseKey}.editTitle`, {
+                service: t(`prefill.persistent.services.${target.serviceKey}`)
               })
             : ''
         }
       >
         <div className="scheduled-prefill-config-modal">
-          <p className="text-sm text-themed-muted">{t(`${baseKey}.modalDescription`)}</p>
           <div className="scheduled-prefill-config-modal__scroll-area">
             <CustomScrollbar
               maxHeight="none"
@@ -521,7 +516,7 @@ export function ScheduledPrefillConfigModal({
                     config={config}
                     disabled={saving}
                     gameSelectionLoading={loadingGameSelectionService !== null && !gameLoaded}
-                    gameSelectionNeedsLogin={gameSelectionNeedsLogin}
+                    gameSelectionBlocked={gameSelectionBlocked}
                     onChange={change}
                     onSelectGames={handleOpenGameSelection}
                     onClearGames={() => change({ ...config, selectedAppIds: [] })}
@@ -533,6 +528,12 @@ export function ScheduledPrefillConfigModal({
             </CustomScrollbar>
           </div>
           <div className="scheduled-prefill-config-modal__actions">
+            {saving && (
+              <span className="confirmation-modal__status" role="status">
+                <LoadingSpinner inline size="xs" />
+                {t(`${baseKey}.actions.saving`)}
+              </span>
+            )}
             <Button onClick={handleCancel} disabled={saving}>
               {t('common.cancel')}
             </Button>
@@ -540,7 +541,6 @@ export function ScheduledPrefillConfigModal({
               variant="filled"
               color="primary"
               onClick={handleSave}
-              loading={saving}
               disabled={!config || missing || saving}
             >
               {t(`${baseKey}.actions.save`)}
@@ -595,27 +595,10 @@ export function ScheduledPrefillConfigModal({
         }}
         title={t(`${baseKey}.discardChanges.confirmTitle`)}
         confirmLabel={t(`${baseKey}.discardChanges.confirmButton`)}
+        cancelLabel={t('common.keepEditing')}
         confirmColor="red"
       >
         <p>{t(`${baseKey}.discardChanges.confirmBody`)}</p>
-      </ConfirmationModal>
-      <ConfirmationModal
-        opened={overwriteEnabledConfirmOpen}
-        onClose={() => setOverwriteEnabledConfirmOpen(false)}
-        onConfirm={() => {
-          setOverwriteEnabledConfirmOpen(false);
-          void commitSave();
-        }}
-        title={t(`${baseKey}.records.confirmEnabledSaveTitle`)}
-        confirmLabel={t(`${baseKey}.actions.save`)}
-        loading={saving}
-      >
-        <p>
-          {t(`${baseKey}.records.confirmEnabledSaveBody`, {
-            service: target && t(`${baseKey}.services.${target.serviceKey}`),
-            name: config?.name
-          })}
-        </p>
       </ConfirmationModal>
     </>
   );

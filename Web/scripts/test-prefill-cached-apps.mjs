@@ -167,8 +167,9 @@ const pickerRow = ({ cached = [], outdated = [], unknown = [], selected = false 
   );
   const tree = draw({ appId: '251570', name: 'Shared Depot Fixture' }, selected);
   return {
+    // Cache status is a plain word in a cache-hit or cache-miss span, not a badge.
     badges: rowChildren(tree)
-      .filter((node) => node.type === 'Badge')
+      .filter((node) => ['cache-hit', 'cache-miss'].includes(node.props?.className))
       .map(rowText),
     button: rowChildren(tree).find((node) => node.type === 'Button'),
     toggled
@@ -313,10 +314,12 @@ test('a current shared-depot result stays cached without an update badge', async
     ['251570']
   );
   await picker.load();
+  // The cached word shows once the game is in the Selected pane.
   const row = pickerRow({
     cached: picker.badges(),
     outdated: picker.outdated(),
-    unknown: picker.unknown()
+    unknown: picker.unknown(),
+    selected: true
   });
   assert.deepEqual(picker.badges(), ['251570']);
   assert.deepEqual(row.badges, ['prefill.gameSelection.cachedBadge']);
@@ -898,8 +901,7 @@ test('scheduled picker request checks the current container before auth effects 
       needsRelogin: false
     },
     { sessionId: 's1', isRunning: false, isAuthenticated: true, needsRelogin: false },
-    { sessionId: 's1', isRunning: true, isAuthenticated: false, needsRelogin: false },
-    { sessionId: 's1', isRunning: true, isAuthenticated: true, needsRelogin: true }
+    { sessionId: 's1', isRunning: true, isAuthenticated: false, needsRelogin: false }
   ]) {
     let calls = 0;
     const picker = scheduled(async () => {
@@ -911,13 +913,20 @@ test('scheduled picker request checks the current container before auth effects 
     assert.equal(calls, 0);
   }
 
-  let calls = 0;
-  const picker = scheduled(async () => {
-    calls += 1;
-    return { games: [], cachedAppIds: [], outdatedAppIds: [], unknownAppIds: [] };
-  });
-  await picker.load('steam', 's1');
-  assert.equal(calls, 1);
+  // A daemon past its Login duration is still logged in, so it can still read its games.
+  for (const container of [
+    undefined,
+    { sessionId: 's1', isRunning: true, isAuthenticated: true, needsRelogin: true }
+  ]) {
+    let calls = 0;
+    const picker = scheduled(async () => {
+      calls += 1;
+      return { games: [], cachedAppIds: [], outdatedAppIds: [], unknownAppIds: [] };
+    });
+    if (container) picker.bindings.containerRef.current = container;
+    await picker.load('steam', 's1');
+    assert.equal(calls, 1);
+  }
 });
 
 test('scheduled picker accepts only the current session cache result', async () => {

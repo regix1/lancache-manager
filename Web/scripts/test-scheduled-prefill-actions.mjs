@@ -36,10 +36,6 @@ const persistentCardSource = parseSource(
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx',
   ts.ScriptKind.TSX
 );
-const containerSettingsSource = parseSource(
-  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillContainerSettings.tsx',
-  ts.ScriptKind.TSX
-);
 const progressCardSource = parseSource(
   'src/components/features/prefill/PrefillProgressCard.tsx',
   ts.ScriptKind.TSX
@@ -51,14 +47,14 @@ const schedulesCss = readFileSync(
   'utf8'
 );
 
-test('phone download actions use equal columns until the labels need equal stacked widths', () => {
+test('phone download actions stack at one shared full width instead of wrapping their labels', () => {
   assert.match(
     schedulesCss,
-    /@media \(max-width: 639px\)[\s\S]*?\.scheduled-prefill-record-games\s*{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?gap: 0\.5rem;/
+    /@media \(max-width: 639px\)[\s\S]*?\.scheduled-prefill-record-games\s*{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?gap: 0\.5rem;[\s\S]*?width: 100%;/
   );
   assert.match(
     schedulesCss,
-    /@media \(max-width: 339px\)[\s\S]*?\.scheduled-prefill-record-games\s*{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/
+    /@media \(min-width: 640px\)\s*{\s*\.scheduled-prefill-record-games button\s*{\s*width: 12rem;/
   );
 });
 
@@ -670,6 +666,9 @@ const containerModalSource = parseSource(
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillContainerModal.tsx',
   ts.ScriptKind.TSX
 );
+const persistentPlatformUiSource = parseSource(
+  'src/components/features/management/schedules/scheduled-prefill/scheduledPrefillPlatformUi.ts'
+);
 const baseKey = 'management.schedules.services.scheduledPrefill.config';
 const order = ['steam', 'epic', 'xbox', 'battleNet', 'riot'];
 const record = (id = '00000000-0000-4000-8000-000000000001', patch = {}) => ({
@@ -873,7 +872,6 @@ test('all selected source modules parse nonempty production code', () => {
     configModalSource,
     gameSelectionSource,
     persistentCardSource,
-    containerSettingsSource,
     progressCardSource,
     actionMenuSource,
     containerSource,
@@ -898,78 +896,48 @@ test('selection login and discard copy stays aligned across English and Chinese'
   assert.deepEqual(
     {
       run: config(en).records.run,
-      manageContainer: config(en).records.manageContainer,
-      menuAdd: config(en).records.menuAdd,
-      addForService: config(en).records.addForService
+      addSchedule: config(en).records.addSchedule,
+      runAll: config(en).runAll
     },
-    {
-      run: 'Run schedule',
-      manageContainer: 'Manage container',
-      menuAdd: 'Add {{service}} schedule',
-      addForService: 'Add schedule for {{service}}'
-    }
+    { run: 'Run schedule', addSchedule: 'Add schedule', runAll: 'Run all' }
   );
   assert.deepEqual(
     {
       run: config(zh).records.run,
-      manageContainer: config(zh).records.manageContainer,
-      menuAdd: config(zh).records.menuAdd,
-      addForService: config(zh).records.addForService
+      addSchedule: config(zh).records.addSchedule,
+      runAll: config(zh).runAll
     },
-    {
-      run: '运行计划',
-      manageContainer: '管理容器',
-      menuAdd: '添加 {{service}} 计划',
-      addForService: '为 {{service}} 添加计划'
+    { run: '运行计划', addSchedule: '添加计划', runAll: '全部运行' }
+  );
+  // Add and Manage container left the row menu, so their per-service labels have no use.
+  for (const locale of [en, zh]) {
+    for (const removed of ['manageContainer', 'menuAdd', 'addForService']) {
+      assert.equal(removed in config(locale).records, false, removed);
     }
-  );
-  assert.deepEqual(
-    serviceKeys.map((serviceKey) =>
-      config(en).records.menuAdd.replace('{{service}}', config(en).services[serviceKey])
-    ),
-    [
-      'Add Steam schedule',
-      'Add Epic schedule',
-      'Add Xbox schedule',
-      'Add Battle.net schedule',
-      'Add Riot schedule'
-    ]
-  );
-  assert.deepEqual(
-    serviceKeys.map((serviceKey) =>
-      config(zh).records.menuAdd.replace('{{service}}', config(zh).services[serviceKey])
-    ),
-    [
-      '添加 Steam 计划',
-      '添加 Epic 计划',
-      '添加 Xbox 计划',
-      '添加 Battle.net 计划',
-      '添加 Riot 计划'
-    ]
-  );
+    assert.equal('modalDescription' in config(locale), false);
+  }
   assert.equal(
     scheduled(en).signInToSelectGames,
-    'Sign in to select games. Use {{actions}} → {{manageContainer}}.'
+    'Log in to {{service}} first. Use Log in on its row under Services.'
   );
   assert.equal(
     scheduled(zh).signInToSelectGames,
-    '请先登录再选择游戏。前往“{{actions}}”→“{{manageContainer}}”登录。'
+    '请先登录 {{service}}。在“服务”下该服务所在行点击“登录”。'
   );
-  assert.equal(
-    scheduled(en)
-      .signInToSelectGames.replace('{{actions}}', en.management.actions.menuLabel)
-      .replace('{{manageContainer}}', config(en).records.manageContainer),
-    'Sign in to select games. Use Actions → Manage container.'
-  );
-  assert.equal(
-    scheduled(zh)
-      .signInToSelectGames.replace('{{actions}}', zh.management.actions.menuLabel)
-      .replace('{{manageContainer}}', config(zh).records.manageContainer),
-    '请先登录再选择游戏。前往“操作”→“管理容器”登录。'
+  assert.deepEqual(
+    serviceKeys.map((serviceKey) =>
+      scheduled(en).signInToSelectGames.replace('{{service}}', config(en).services[serviceKey])
+    ),
+    [
+      'Log in to Steam first. Use Log in on its row under Services.',
+      'Log in to Epic first. Use Log in on its row under Services.',
+      'Log in to Xbox first. Use Log in on its row under Services.',
+      'Log in to Battle.net first. Use Log in on its row under Services.',
+      'Log in to Riot first. Use Log in on its row under Services.'
+    ]
   );
   assert.deepEqual(
     {
-      modalDescription: config(en).modalDescription,
       containerModalDescription: config(en).containerModalDescription,
       activityDescription: config(en).activityDescription,
       deleteBody: config(en).records.deleteBody,
@@ -979,13 +947,12 @@ test('selection login and discard copy stays aligned across English and Chinese'
       runNow: en.management.schedules.runNow
     },
     {
-      modalDescription: 'Edit this schedule, then save it. Run the saved schedule from its row.',
       containerModalDescription: 'This container is shared by all {{service}} schedules.',
-      activityDescription: 'Active downloads and run history for every service.',
+      activityDescription: 'What is downloading now, and how recent runs ended.',
       deleteBody: 'Deletes this saved schedule. It does not stop or delete the service container.',
       downloadNow: 'Run this schedule',
       requiresPersistentContainer:
-        'Save or close this schedule, then start its container from Manage the service container.',
+        'Start the container first. Use Start on its row under Services.',
       workflow: {
         stopped:
           'Start the shared service container, then sign in to choose games for this schedule.',
@@ -999,7 +966,6 @@ test('selection login and discard copy stays aligned across English and Chinese'
   );
   assert.deepEqual(
     {
-      modalDescription: config(zh).modalDescription,
       containerModalDescription: config(zh).containerModalDescription,
       activityDescription: config(zh).activityDescription,
       deleteBody: config(zh).records.deleteBody,
@@ -1009,12 +975,11 @@ test('selection login and discard copy stays aligned across English and Chinese'
       runNow: zh.management.schedules.runNow
     },
     {
-      modalDescription: '编辑并保存此计划，然后从对应行运行已保存的计划。',
       containerModalDescription: '此容器由 {{service}} 的所有计划共享。',
-      activityDescription: '查看所有服务的当前下载和运行历史。',
+      activityDescription: '当前正在下载的内容，以及最近运行的结果。',
       deleteBody: '删除此已保存的计划，不会停止或删除该服务的容器。',
       downloadNow: '运行此计划',
-      requiresPersistentContainer: '保存或关闭此计划，再通过“管理此服务的容器”启动容器。',
+      requiresPersistentContainer: '请先启动容器。在“服务”下该服务所在行点击“启动”。',
       workflow: {
         stopped: '启动共享服务容器并登录，再为此计划选择游戏。',
         stoppedAnonymous: '启动共享服务容器，再为此计划选择游戏。',
@@ -1030,7 +995,7 @@ test('selection login and discard copy stays aligned across English and Chinese'
       [...scheduled(locale).signInToSelectGames.matchAll(/\{\{([^}]+)\}\}/g)].map(
         (match) => match[1]
       ),
-      ['actions', 'manageContainer']
+      ['service']
     );
     assert.equal('requiresLogin' in scheduled(locale), false);
     assert.deepEqual(Object.keys(locale.prefill.gameSelection.discardChanges), [
@@ -1040,8 +1005,8 @@ test('selection login and discard copy stays aligned across English and Chinese'
     ]);
   }
   assert.equal(configModalSource.text.includes('selectedGames.requiresLogin'), false);
-  assert.equal([...detailSource.text.matchAll(/records\.menuAdd/g)].length, 1);
-  assert.equal([...detailSource.text.matchAll(/records\.addForService/g)].length, 1);
+  assert.equal([...detailSource.text.matchAll(/records\.menuAdd/g)].length, 0);
+  assert.equal([...detailSource.text.matchAll(/records\.addForService/g)].length, 0);
 });
 
 function createGamePicker(overrides = {}) {
@@ -1291,7 +1256,39 @@ test('ordinary picker policy keeps direct dismissal and its independent cache co
   assert.deepEqual(clearCalls, [true]);
 });
 
-test('row menu exposes grouped labels and semantics without changing command callbacks', () => {
+const rowContainers = (patch = {}) => ({
+  containersByServiceKey: new Map(),
+  persistentContainers: [],
+  persistentError: null,
+  actions: {},
+  errors: {},
+  errorActions: {},
+  authenticatingServiceKeys: [],
+  handleStartPersistent: async () => undefined,
+  ...patch
+});
+const rowBindings = {
+  ...primitives,
+  RowActionsMenu: ({ children, ...props }) => ({
+    type: 'RowActionsMenu',
+    props,
+    children: [children[0]()].flat(Infinity).filter((child) => child != null && child !== false)
+  }),
+  usePersistentLoginStoreState: () => ({ error: null }),
+  getPersistentLoginFailure: (state) => state.error,
+  getPersistentServiceId: (serviceKey) => serviceKey,
+  getScheduledPrefillServiceStatus: () => ({
+    container: 'running',
+    account: 'loggedIn',
+    next: 'manage'
+  }),
+  getScheduledPrefillStatusFact: (status) => ({ busy: false, tone: null, label: status }),
+  getScheduleIntervalOptions: () => [],
+  formatIntervalLabel: (hours) => `${hours}h`,
+  SCHEDULED_PREFILL_BUTTON_SIZE: 'md'
+};
+
+test('row menu runs first, then edits, toggles, duplicates and deletes with no service items', () => {
   for (const enabled of [true, false]) {
     for (const disabled of [true, false]) {
       const calls = [];
@@ -1299,12 +1296,11 @@ test('row menu exposes grouped labels and semantics without changing command cal
         serviceKey: 'steam',
         serviceId: 'Steam',
         scheduleId: record().id,
-        label: 'Steam · Evening',
+        label: 'Evening',
         enabled,
+        containers: rowContainers(),
         disabled,
         enablePending: false,
-        containerRunning: false,
-        loginState: 'loginRequired',
         intervalHours: 24,
         customSchedule: null,
         nextTiming: '',
@@ -1315,62 +1311,50 @@ test('row menu exposes grouped labels and semantics without changing command cal
         runPending: false,
         triggerRef: () => undefined,
         ...Object.fromEntries(
-          [
-            'onRun',
-            'onOpen',
-            'onContainer',
-            'onAdd',
-            'onDuplicate',
-            'onDelete',
-            'onToggleEnabled'
-          ].map((name) => [name, (...args) => calls.push([name, ...args])])
+          ['onRun', 'onOpen', 'onDuplicate', 'onDelete', 'onToggleEnabled'].map((name) => [
+            name,
+            (...args) => calls.push([name, ...args])
+          ])
         ),
         onIntervalChange: () => undefined,
         onCustomScheduleChange: () => undefined
       };
-      const render = component(detailSource, 'ScheduledPrefillServiceScheduleRow', primitives);
-      const tree = render(props);
-      const menu = walk(tree, 'ActionMenu')[0];
-      const trigger = menu.props.trigger;
-      const groups = menu.children.filter((node) => node.props.role === 'group');
-      const dividers = menu.children.filter((node) => node.props.role === 'separator');
-      const savedLabel = groups[0].children[0];
-      const serviceLabel = groups[1].children[0];
-      const savedItems = groups[0].children.slice(1);
-      const serviceItems = groups[1].children.slice(1);
-      const danger = menu.children.at(-1);
+      const render = component(detailSource, 'ScheduledPrefillServiceScheduleRow', rowBindings);
+      const menu = walk(render(props), 'RowActionsMenu')[0];
+      const fragment = menu.children[0];
+      const items = fragment.children.filter((node) => node.type === 'ActionMenuItem');
+      const danger = fragment.children.at(-1);
 
-      assert.equal(menu.props.id, trigger.props['aria-controls']);
       assert.equal(menu.props['aria-label'], 'management.actions.menuLabel');
-      assert.equal(trigger.props['aria-expanded'], false);
-      assert.equal(trigger.props['aria-haspopup'], undefined);
-      assert.equal(groups.length, 2);
-      assert.equal(dividers.length, 2);
-      assert.ok(dividers.every((divider) => divider.props['aria-orientation'] === 'horizontal'));
-      assert.equal(savedLabel.props.id, groups[0].props['aria-labelledby']);
-      assert.equal(serviceLabel.props.id, groups[1].props['aria-labelledby']);
-      assert.equal(textOf(savedLabel), `${baseKey}.records.label`);
-      assert.equal(textOf(serviceLabel), `${baseKey}.services.steam`);
+      assert.equal(menu.props.disabled, disabled);
+      assert.equal(walk(fragment, 'div').filter((node) => node.props.role === 'group').length, 0);
       assert.deepEqual(
-        savedItems.map(textOf),
+        fragment.children.map((node) => node.type),
         [
-          'records.edit',
-          'records.run',
-          'records.' + (enabled ? 'disable' : 'enable'),
-          'records.duplicate'
-        ].map((key) => baseKey + '.' + key)
+          'ActionMenuItem',
+          'ActionMenuItem',
+          'ActionMenuItem',
+          'ActionMenuItem',
+          'div',
+          'ActionMenuDangerItem'
+        ]
       );
-      assert.deepEqual(serviceItems.map(textOf), [
-        `${baseKey}.records.menuAdd`,
-        `${baseKey}.records.manageContainer`
-      ]);
+      assert.equal(fragment.children[4].props.role, 'separator');
+      // A disabled Run carries its reason under the label, so only the label is compared.
+      assert.ok(textOf(items[0]).startsWith(`${baseKey}.records.run`));
+      assert.deepEqual(
+        items.slice(1).map(textOf),
+        ['records.edit', 'records.' + (enabled ? 'disable' : 'enable'), 'records.duplicate'].map(
+          (key) => baseKey + '.' + key
+        )
+      );
       assert.equal(textOf(danger), `${baseKey}.records.delete`);
-      assert.ok(
-        [...savedItems, ...serviceItems, danger].every((item) => item.props.role === undefined)
-      );
+      const labels = fragment.children.map(textOf).join('|');
+      for (const removed of ['menuAdd', 'manageContainer', 'addForService'])
+        assert.equal(labels.includes(removed), false, removed);
 
-      trigger.props.ref({ focus: () => calls.push(['focus']) });
-      const commands = [...savedItems, ...serviceItems, danger];
+      menu.props.triggerRef({ focus: () => calls.push(['focus']) });
+      const commands = [...items, danger];
       if (disabled) {
         assert.ok(commands.every((item) => item.props.disabled));
         commands.forEach((item) => item.props.onClick());
@@ -1378,20 +1362,129 @@ test('row menu exposes grouped labels and semantics without changing command cal
         continue;
       }
 
-      assert.equal(savedItems[1].props.disabled, !enabled);
+      assert.equal(items[0].props.disabled, !enabled);
       commands.filter((item) => !item.props.disabled).forEach((item) => item.props.onClick());
       const expected = [
-        ['onOpen', 'steam', record().id],
         ...(enabled ? [['onRun', 'Steam', record().id]] : []),
+        ['onOpen', 'steam', record().id],
         ['onToggleEnabled', 'steam', record().id],
         ['onDuplicate', 'steam', record().id],
-        ['onAdd', 'steam'],
-        ['onContainer', 'steam'],
         ['onDelete', 'steam', record().id]
       ].flatMap((call) => [['focus'], call]);
       assert.deepEqual(calls, expected);
     }
   }
+});
+
+test('a service row shows its error only when the failed action was Start', () => {
+  const render = component(detailSource, 'ScheduledPrefillServiceRow', {
+    ...rowBindings,
+    getScheduledPrefillServiceStatus: () => ({
+      container: 'stopped',
+      account: 'checkedAfterStart',
+      next: 'start'
+    })
+  });
+  const alertFor = (errorActions) =>
+    walk(
+      render({
+        serviceKey: 'steam',
+        containers: rowContainers({ errors: { steam: 'Start failed' }, errorActions }),
+        disabled: false,
+        onOpen: () => undefined
+      }),
+      'p'
+    ).filter((node) => node.props.role === 'alert');
+  assert.deepEqual(alertFor({ steam: 'start' }).map(textOf), ['Start failed']);
+  for (const action of ['stop', 'login', 'logout', undefined])
+    assert.deepEqual(alertFor(action === undefined ? {} : { steam: action }), [], String(action));
+});
+
+test('service status reads container, account and next step for every container state', () => {
+  const status = arrow(persistentPlatformUiSource, 'getScheduledPrefillServiceStatus', {
+    isScheduledPrefillAnonymousService: (serviceKey) =>
+      serviceKey === 'battleNet' || serviceKey === 'riot'
+  });
+  const running = (patch = {}) => ({
+    isRunning: true,
+    isAuthenticated: false,
+    needsRelogin: false,
+    isPrefilling: false,
+    activeRunCount: 0,
+    ...patch
+  });
+  const input = (patch = {}) => ({
+    container: undefined,
+    listLoaded: true,
+    listFailed: false,
+    action: null,
+    authenticating: false,
+    loginError: null,
+    ...patch
+  });
+  const rows = [
+    [
+      'stopped account service',
+      'steam',
+      { container: { isRunning: false } },
+      'stopped',
+      'checkedAfterStart',
+      'start'
+    ],
+    [
+      'running not authenticated',
+      'steam',
+      { container: running() },
+      'running',
+      'loginRequired',
+      'logIn'
+    ],
+    [
+      'needs relogin, not authenticated',
+      'steam',
+      { container: running({ needsRelogin: true }) },
+      'running',
+      'loginExpired',
+      'logIn'
+    ],
+    [
+      'needs relogin, still authenticated',
+      'steam',
+      { container: running({ isAuthenticated: true, needsRelogin: true }) },
+      'running',
+      'loggedIn',
+      'manage'
+    ],
+    [
+      'login error',
+      'steam',
+      { container: running(), loginError: 'Bad code' },
+      'running',
+      'loginFailed',
+      'logIn'
+    ],
+    ['anonymous running', 'riot', { container: running() }, 'running', 'notNeeded', 'manage'],
+    [
+      'list failed before any read',
+      'steam',
+      { listLoaded: false, listFailed: true },
+      'unknown',
+      'unknown',
+      'manage'
+    ],
+    ['list not read yet', 'steam', { listLoaded: false }, 'checking', 'checking', 'manage'],
+    [
+      'start pending',
+      'steam',
+      { container: { isRunning: false }, action: 'start' },
+      'starting',
+      'checkedAfterStart',
+      'start'
+    ],
+    ['list read, no container', 'steam', {}, 'stopped', 'checkedAfterStart', 'start']
+  ];
+  for (const [label, serviceKey, patch, container, account, next] of rows)
+    assert.deepEqual(status(serviceKey, input(patch)), { container, account, next }, label);
 });
 
 test('focused composition contains only record controls and disables leaves for an off record', () => {
@@ -1401,6 +1494,7 @@ test('focused composition contains only record controls and disables leaves for 
     Button: 'Button',
     Badge: 'Badge',
     Tooltip: 'Tooltip',
+    ScheduledPrefillGameFields: 'GameFields',
     ScheduledPrefillDownloadFields: 'DownloadFields',
     ScheduledPrefillNotificationFields: 'NotificationFields',
     ScheduledPrefillScheduleFields: 'ScheduleFields'
@@ -1419,13 +1513,14 @@ test('focused composition contains only record controls and disables leaves for 
     config: record(undefined, { enabled: false }),
     disabled: false,
     gameSelectionLoading: false,
+    gameSelectionBlocked: null,
     onChange: (value) => changes.push(value),
     onSelectGames: () => undefined,
     onClearGames: () => undefined
   });
   assert.equal(walk(tree, 'TextInput')[0].props.disabled, false);
   assert.equal(walk(tree, 'ToggleSwitch')[0].props.disabled, false);
-  for (const tag of ['DownloadFields', 'NotificationFields', 'ScheduleFields'])
+  for (const tag of ['GameFields', 'DownloadFields', 'NotificationFields', 'ScheduleFields'])
     assert.equal(walk(tree, tag)[0].props.disabled, true);
   assert.equal(walk(tree, 'ActionMenu').length, 0);
   assert.equal(walk(tree, 'PersistentCard').length, 0);
@@ -1716,6 +1811,8 @@ test('partial settings save retains only the failed dirty field for retry', asyn
   let errors = {};
   const bindings = {
     saving: false,
+    clearing: false,
+    clearPending: false,
     session: { current: { opened: true, id: 1 } },
     days: 60,
     mode: 'fullPersistence',
@@ -1751,10 +1848,87 @@ test('partial settings save retains only the failed dirty field for retry', asyn
   assert.equal(modeWrites, 2);
   assert.equal(closes, 1);
 });
+test('clearing stored logins waits for Save and runs before the other settings', async () => {
+  const calls = [];
+  let clearAnswer = [{ service: 'Steam', outcome: 'cleared' }];
+  const state = { clearPending: true };
+  const bindings = {
+    saving: false,
+    clearing: false,
+    clearPending: true,
+    session: { current: { opened: true, id: 1 } },
+    days: 60,
+    mode: null,
+    dirty: { current: { days: true, mode: false } },
+    saved: { current: { days: 30, mode: null } },
+    revisions: { current: { days: 0, mode: 0 } },
+    t: (key) => key,
+    baseKey,
+    setSaving: () => undefined,
+    setMode: () => undefined,
+    setReadErrors: () => undefined,
+    setSaveErrors: () => undefined,
+    setClearing: (value) => calls.push(['clearing', value]),
+    setClearOpen: (value) => calls.push(['confirm', value]),
+    setClearPending: (value) => {
+      state.clearPending = value;
+    },
+    setClearOutcome: (value) => {
+      state.outcome = value;
+    },
+    setDiscardOpen: (value) => calls.push(['discard', value]),
+    onClose: () => calls.push(['close']),
+    getErrorMessage: (error) => error.message,
+    containers: {
+      clearLogins: async () => {
+        calls.push(['clear']);
+        return clearAnswer;
+      },
+      loadPersistentContainers: () => undefined
+    },
+    ApiService: {
+      updatePersistentPrefillValidity: async () => calls.push(['days'])
+    }
+  };
+
+  // Cancel or X with the choice on asks before discarding, and clears nothing.
+  arrow(sharedSource, 'close', bindings)();
+  assert.deepEqual(calls, [['discard', true]]);
+
+  calls.length = 0;
+  await arrow(sharedSource, 'save', bindings)();
+  assert.deepEqual(calls, [
+    ['clearing', true],
+    ['clear'],
+    ['clearing', false],
+    ['confirm', false],
+    ['days'],
+    ['close']
+  ]);
+  assert.equal(state.clearPending, false);
+
+  // A partial failure keeps the choice on and the dialog open so Save can retry it.
+  calls.length = 0;
+  state.clearPending = true;
+  clearAnswer = [
+    { service: 'Steam', outcome: 'cleared' },
+    { service: 'Epic', outcome: 'failed' }
+  ];
+  bindings.dirty.current.days = false;
+  await arrow(sharedSource, 'save', bindings)();
+  assert.equal(state.clearPending, true);
+  assert.equal(state.outcome.failed, true);
+  assert.equal(
+    calls.some(([name]) => name === 'close'),
+    false
+  );
+});
 test('unread shared settings never write the other field', async () => {
   let writes = 0;
   await arrow(sharedSource, 'save', {
     saving: false,
+    clearing: false,
+    clearPending: false,
     session: { current: { opened: true, id: 1 } },
     days: 60,
     mode: null,
@@ -1776,39 +1950,155 @@ test('unread shared settings never write the other field', async () => {
   })();
   assert.equal(writes, 0);
 });
-test('Activity renders five stable service sections and sends cancel to the exact service', () => {
+const activityRun = (runId, state, patch = {}) => ({
+  runId,
+  scheduleName: 'Evening',
+  recovering: false,
+  cancelRequested: false,
+  completedAtUtc: null,
+  historyIncomplete: false,
+  options: { selection: 'All', operatingSystems: [] },
+  ...patch,
+  snapshot: {
+    state,
+    reason: null,
+    startedAt: '2026-09-24T10:00:00Z',
+    totalApps: 3,
+    completedApps: 1,
+    cachedApps: 0,
+    failedApps: 0,
+    bytesTransferred: 0,
+    ...patch.snapshot
+  }
+});
+const activityBindings = {
+  baseKey,
+  useTranslation: primitives.useTranslation,
+  useConnectionLost: () => false,
+  useReaderClock: () => ({}),
+  Modal: 'Modal',
+  Button: 'Button',
+  Alert: 'Alert',
+  Badge: 'Badge',
+  ErrorBlock: 'ErrorBlock',
+  EnhancedDropdown: 'EnhancedDropdown',
+  ProgressBar: 'ProgressBar',
+  LoadingSpinner: 'LoadingSpinner',
+  StatusDot: 'StatusDot',
+  FormattedTimestamp: 'FormattedTimestamp',
+  CollapsibleRegion: 'CollapsibleRegion',
+  ChevronDown: 'ChevronDown',
+  CustomScrollbar: 'Scrollbar',
+  SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
+  SCHEDULED_PREFILL_PLATFORM_UI: Object.fromEntries(
+    order.map((key) => [key, { icon: 'ServiceIcon', rowClassName: key }])
+  ),
+  supportsConcurrentPrefill: (container) => container.maxConcurrentRuns > 1,
+  isPrefillRunActive: (run) => run.snapshot.state === 'running',
+  getPrefillRunProgress: () => ({
+    state: 'downloading',
+    percentComplete: 10,
+    bytesPerSecond: 0,
+    totalBytes: 0,
+    bytesDownloaded: 0,
+    currentAppId: null
+  }),
+  getPrefillProgressStateKey: (state) => `state.${state}`,
+  getPrefillRunReasonKey: (reason) => (reason ? `reason.${reason}` : null),
+  prefillRunKey: (run) => `key:${run.runId}`,
+  formatTimestamp: (value) => value,
+  formatDurationFromSeconds: (seconds) => `${seconds}s`,
+  formatEtaShort: (seconds) => `${seconds}s`,
+  formatBytes: (bytes) => `${bytes} B`,
+  formatCount: (count) => String(count),
+  formatSpeed: (speed) => `${speed} B/s`,
+  getPersistentServiceId: (serviceKey) => serviceKey,
+  ScheduledPrefillRecentRun: 'RecentRun'
+};
+
+test('Activity lists running and recent runs across services and cancels the exact run', () => {
   const calls = [];
   const render = component(activitySource, 'ScheduledPrefillActivityModal', {
-    useTranslation: primitives.useTranslation,
-    useConnectionLost: () => false,
-    Modal: 'Modal',
-    Button: 'Button',
-    Alert: 'Alert',
-    CustomScrollbar: 'Scrollbar',
-    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
-    supportsConcurrentPrefill: (container) => container.maxConcurrentRuns > 1,
-    ScheduledPrefillDownloads: 'Downloads'
+    ...activityBindings,
+    useState: (initial) => [initial, () => undefined]
+  });
+  const containers = (patch) => ({
+    persistentContainers: [],
+    persistentError: null,
+    containersByServiceKey: new Map([
+      [
+        'steam',
+        {
+          maxConcurrentRuns: 2,
+          runs: [
+            activityRun('steam-done', 'completed', {
+              snapshot: { startedAt: '2026-09-24T08:00:00Z' }
+            }),
+            activityRun('steam-live', 'running')
+          ]
+        }
+      ],
+      // A daemon without concurrent runs reports one download on the container and no run list.
+      [
+        'epic',
+        {
+          maxConcurrentRuns: 1,
+          isPrefilling: true,
+          currentAppName: 'Example game',
+          totalBytesTransferred: 100
+        }
+      ],
+      [
+        'xbox',
+        {
+          maxConcurrentRuns: 2,
+          runs: [
+            activityRun('xbox-live', 'running'),
+            activityRun('xbox-failed', 'failed', {
+              snapshot: { startedAt: '2026-09-24T09:00:00Z', failedApps: 1 }
+            })
+          ]
+        }
+      ]
+    ]),
+    cancellingRunIds: [],
+    runErrors: {},
+    loadPersistentContainers: async () => undefined,
+    handleCancelPersistentDownload: (...args) => calls.push(args),
+    ...patch
   });
   const tree = render({
     opened: true,
     disabled: false,
     onClose: () => undefined,
-    containers: {
-      persistentError: 'refresh failed',
-      containersByServiceKey: new Map(),
-      cancellingRunIds: [],
-      runErrors: {},
-      handleCancelPersistentDownload: (...args) => calls.push(args)
-    }
+    containers: containers({ persistentError: 'refresh failed' })
   });
-  const downloads = walk(tree, 'Downloads');
   assert.equal(walk(tree, 'Alert').length, 1);
+  assert.equal(walk(tree, 'ErrorBlock').length, 0);
+  // Recent runs come newest first across services, one line each, keyed by run.
   assert.deepEqual(
-    downloads.map((node) => node.props.serviceKey),
-    order
+    walk(tree, 'RecentRun').map((node) => [node.props.key, node.props.serviceKey]),
+    [
+      ['key:xbox-failed', 'xbox'],
+      ['key:steam-done', 'steam']
+    ]
   );
-  downloads[2].props.onCancelDownload('run-xbox');
-  assert.deepEqual(calls, [['xbox', 'run-xbox']]);
+  const cancel = walk(tree, 'Button').filter((node) => textOf(node) === 'common.cancel');
+  assert.equal(cancel.length, 3);
+  assert.ok(textOf(tree).includes('Example game'));
+  cancel[0].props.onClick();
+  cancel[2].props.onClick();
+  assert.deepEqual(calls, [['epic'], ['xbox', 'xbox-live']]);
+  assert.equal(walk(tree, 'section').length, 2);
+
+  const unread = render({
+    opened: true,
+    disabled: false,
+    onClose: () => undefined,
+    containers: containers({ persistentContainers: null, persistentError: 'refresh failed' })
+  });
+  assert.equal(walk(unread, 'ErrorBlock').length, 1);
+  assert.equal(walk(unread, 'RecentRun').length, 0);
 });
 
 test('game selection stays local and retains IDs absent from the current library', async () => {
@@ -1845,7 +2135,7 @@ test('game selection stays local and retains IDs absent from the current library
 });
 
 test('selection opening refuses account login gaps without side effects and keeps anonymous services ready', () => {
-  const openSelection = (serviceKey, gameSelectionNeedsLogin) => {
+  const openSelection = (serviceKey, gameSelectionBlocked) => {
     const changes = [];
     const gameSelectionRef = { current: null };
     arrow(configModalSource, 'handleOpenGameSelection', {
@@ -1858,11 +2148,11 @@ test('selection opening refuses account login gaps without side effects and keep
       },
       config: record(),
       saving: false,
-      gameSelectionNeedsLogin,
+      gameSelectionBlocked,
       container: {
         sessionId: 'session',
-        isRunning: true,
-        isAuthenticated: !gameSelectionNeedsLogin,
+        isRunning: gameSelectionBlocked !== 'container',
+        isAuthenticated: gameSelectionBlocked === null,
         needsRelogin: false
       },
       baseKey,
@@ -1880,12 +2170,17 @@ test('selection opening refuses account login gaps without side effects and keep
   };
 
   for (const serviceKey of ['steam', 'epic', 'xbox']) {
-    const blocked = openSelection(serviceKey, true);
+    const blocked = openSelection(serviceKey, 'login');
     assert.deepEqual(blocked.changes, []);
     assert.equal(blocked.gameSelectionRef.current, null);
   }
+  for (const serviceKey of order) {
+    const stopped = openSelection(serviceKey, 'container');
+    assert.deepEqual(stopped.changes, [], serviceKey);
+    assert.equal(stopped.gameSelectionRef.current, null);
+  }
   for (const serviceKey of ['battleNet', 'riot']) {
-    const ready = openSelection(serviceKey, false);
+    const ready = openSelection(serviceKey, null);
     assert.equal(ready.gameSelectionRef.current.serviceKey, serviceKey);
     assert.deepEqual(ready.changes.at(-1), ['load', serviceKey, 'session']);
   }
@@ -1901,6 +2196,7 @@ test('shared reads succeed independently and cannot overwrite a dirty field', as
       'SaveErrors',
       'Saving',
       'Clearing',
+      'ClearPending',
       'ClearOpen',
       'DiscardOpen',
       'ClearOutcome',
@@ -1962,6 +2258,7 @@ test('shared successful writes cannot be replaced by their delayed opening reads
     setSaveErrors: set('SaveErrors'),
     setSaving: set('Saving'),
     setClearing: set('Clearing'),
+    setClearPending: set('ClearPending'),
     setClearOpen: set('ClearOpen'),
     setDiscardOpen: set('DiscardOpen'),
     setClearOutcome: set('ClearOutcome'),
@@ -1990,6 +2287,8 @@ test('shared successful writes cannot be replaced by their delayed opening reads
   await arrow(sharedSource, 'save', {
     ...common,
     saving: false,
+    clearing: false,
+    clearPending: false,
     days: 60,
     mode: 'fullPersistence'
   })();
@@ -2435,6 +2734,7 @@ test('stable Select Games wrapper restores focus across picker and confirmation 
     Button: 'Button',
     Badge: 'Badge',
     Tooltip: 'Tooltip',
+    ScheduledPrefillGameFields: 'GameFields',
     ScheduledPrefillDownloadFields: 'DownloadFields',
     ScheduledPrefillNotificationFields: 'NotificationFields',
     ScheduledPrefillScheduleFields: 'ScheduleFields'
@@ -2444,7 +2744,7 @@ test('stable Select Games wrapper restores focus across picker and confirmation 
     config: record(),
     disabled: false,
     gameSelectionLoading: false,
-    gameSelectionNeedsLogin: false,
+    gameSelectionBlocked: null,
     onChange: () => undefined,
     onSelectGames: () => opened.push(true),
     onClearGames: () => undefined
@@ -2606,6 +2906,8 @@ test('editor and shared persistence commits never write the full configuration',
   })();
   await arrow(sharedSource, 'save', {
     saving: false,
+    clearing: false,
+    clearPending: false,
     session: { current: { opened: true, id: 1 } },
     days: null,
     mode: 'fullPersistence',
@@ -2644,6 +2946,7 @@ test('outer editor composes record controls and selection save and clear remain 
     Button: 'Button',
     Badge: 'Badge',
     Tooltip: 'Tooltip',
+    ScheduledPrefillGameFields: 'GameFields',
     ScheduledPrefillDownloadFields: 'DownloadFields',
     ScheduledPrefillNotificationFields: 'NotificationFields',
     ScheduledPrefillScheduleFields: 'ScheduleFields'
@@ -2723,6 +3026,7 @@ test('outer editor composes record controls and selection save and clear remain 
   };
   runtime.render(render, props);
   let tree = runtime.render(render, props);
+  assert.equal(walk(tree, 'GameFields').length, 1);
   assert.equal(walk(tree, 'DownloadFields').length, 1);
   assert.equal(walk(tree, 'ScheduleFields').length, 1);
   assert.equal(walk(tree, 'NotificationFields').length, 1);
@@ -3254,44 +3558,134 @@ test('each persistent platform routes real modal close and footer cancellation t
   }
 });
 
-test('Activity shows localized capacity only for concurrent service containers', () => {
-  const messages = [];
-  const render = component(activitySource, 'ScheduledPrefillActivityModal', {
-    useTranslation: () => ({
-      t: (key, values) => {
-        messages.push([key, values]);
-        return key;
-      }
-    }),
-    useScrollAreaHeight: () => [() => undefined, 400],
-    useConnectionLost: () => false,
-    Modal: 'Modal',
-    Button: 'Button',
-    CustomScrollbar: 'Scrollbar',
-    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
-    supportsConcurrentPrefill: (container) => container.maxConcurrentRuns > 1,
-    ScheduledPrefillDownloads: 'Downloads'
-  });
-  const tree = render({
-    opened: true,
-    disabled: false,
-    onClose: () => undefined,
-    containers: {
-      containersByServiceKey: new Map([
-        ['steam', { activeRunCount: 2, maxConcurrentRuns: 4 }],
-        ['epic', { activeRunCount: 1, maxConcurrentRuns: 1 }]
-      ]),
-      cancellingRunIds: [],
-      runErrors: {},
-      handleCancelPersistentDownload: () => undefined
+test('container login prompts cancel on X and Escape and ignore backdrop clicks', () => {
+  for (const name of ['SteamAuthModal', 'EpicAuthModal', 'XboxAuthModal']) {
+    const source = parseSource(`src/components/modals/auth/${name}.tsx`, ts.ScriptKind.TSX);
+    const modal = findSoleNode(
+      source,
+      `${name} Modal`,
+      (node) =>
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        node.tagName.getText(source) === 'Modal'
+    );
+    const attribute = (attributeName) =>
+      modal.attributes.properties
+        .find((property) => property.name?.getText(source) === attributeName)
+        .initializer.expression.getText(source);
+    for (const isKeepPending of [true, false]) {
+      const bindings = {
+        isKeepPending,
+        handleExplicitCancel: 'explicit cancel',
+        handleCloseModal: 'close'
+      };
+      const onClose = bindLifted(`() => ${attribute('onClose')}`, bindings)();
+      const backdrop = bindLifted(`() => ${attribute('dismissOnBackdrop')}`, bindings)();
+      assert.equal(onClose, isKeepPending ? 'explicit cancel' : 'close', name);
+      assert.equal(backdrop, !isKeepPending, name);
     }
+    assert.equal(source.text.includes('handleSoftClose'), false, name);
+  }
+});
+
+class TestApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** Renders one finished run's line and opens its details against one failed-games answer. */
+async function openRecentRun(run, answer) {
+  const runtime = hooks();
+  const requests = [];
+  const render = component(activitySource, 'ScheduledPrefillRecentRun', {
+    ...activityBindings,
+    ...runtime,
+    useTranslation: () => ({
+      t: (key, values) => (values?.id ? `${key}:${values.id}` : key)
+    }),
+    ApiService: {
+      getPersistentPrefillRunFailedGames: async (service, runId, signal) => {
+        requests.push([service, runId, signal instanceof AbortSignal]);
+        if (answer instanceof Error) throw answer;
+        return answer;
+      }
+    },
+    ApiError: TestApiError,
+    // Distinct from error.message, so the line proves which of the two it shows.
+    getErrorMessage: (error) => `shown:${error.status}`
   });
-  assert.equal(walk(tree, 'section').length, 5);
-  assert.deepEqual(
-    messages.filter(([key]) => key === 'prefill.runs.capacity'),
-    [['prefill.runs.capacity', { count: 2, limit: 4 }]]
+  const props = { run, serviceKey: 'steam' };
+  let tree = runtime.render(render, props);
+  walk(tree, 'Button')
+    .find((node) => node.props['aria-label'] === 'prefill.runs.details')
+    .props.onClick();
+  runtime.render(render, props);
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = runtime.render(render, props);
+  const failed = walk(tree, 'section')[0];
+  return { requests, tree, failed, runtime };
+}
+
+test('recent run details request failed games only for a run that can have them', async () => {
+  const quiet = await openRecentRun(activityRun('run-ok', 'completed'), []);
+  assert.deepEqual(quiet.requests, []);
+  assert.equal(quiet.failed, undefined);
+  for (const run of [
+    activityRun('run-failed', 'failed'),
+    activityRun('run-partial', 'completed', { snapshot: { failedApps: 2 } })
+  ]) {
+    const opened = await openRecentRun(run, []);
+    assert.deepEqual(opened.requests, [['steam', run.runId, true]], run.runId);
+    assert.ok(textOf(opened.failed).includes(`${baseKey}.activity.noFailedGames`));
+  }
+});
+
+test('recent run details list each failed game by name or app id with its reason', async () => {
+  const { failed } = await openRecentRun(
+    activityRun('run-failed', 'failed', { snapshot: { failedApps: 2 } }),
+    [
+      { appId: '10', name: 'Known Game', reasonKey: 'errors.prefill.gameFailed' },
+      { appId: '20', reasonKey: 'errors.prefill.depotMissing' }
+    ]
   );
-  assert.equal(messages.filter(([key]) => key === 'prefill.runs.capacityHelp').length, 1);
+  assert.deepEqual(
+    walk(failed, 'li').map((item) => item.children.map(textOf)),
+    [
+      ['Known Game', 'errors.prefill.gameFailed'],
+      ['prefill.progress.appId:20', 'errors.prefill.depotMissing']
+    ]
+  );
+  assert.equal(walk(failed, 'ErrorBlock').length, 0);
+});
+
+test('a missing run record ends without Retry while other failed-games errors can retry', async () => {
+  const run = activityRun('run-failed', 'failed');
+  const gone = await openRecentRun(run, new TestApiError(404, 'raw not found'));
+  assert.equal(walk(gone.failed, 'ErrorBlock').length, 0);
+  assert.equal(textOf(gone.failed.children.at(-1)), 'shown:404');
+  assert.equal(textOf(gone.failed).includes('raw not found'), false);
+
+  const broken = await openRecentRun(run, new TestApiError(500, 'raw server error'));
+  const block = walk(broken.failed, 'ErrorBlock')[0];
+  assert.equal(block.props.message, 'shown:500');
+  block.props.onRetry();
+  assert.equal(broken.requests.length, 2);
+});
+
+test('recent runs are keyed by run and write no fallback text beside a reason key', () => {
+  const recent = findSoleNode(
+    activitySource,
+    'ScheduledPrefillRecentRun element',
+    (node) =>
+      ts.isJsxSelfClosingElement(node) &&
+      node.tagName.getText(activitySource) === 'ScheduledPrefillRecentRun'
+  );
+  assert.match(recent.attributes.getText(activitySource), /key=\{prefillRunKey\(run\)\}/);
+  const body = getComponent(activitySource, 'ScheduledPrefillRecentRun').getText(activitySource);
+  for (const line of body.split('\n').filter((text) => text.includes('reasonKey')))
+    assert.doesNotMatch(line, /\?\?|\|\|/, line.trim());
+  assert.doesNotMatch(body, /error\.message|Error\.message/);
 });
 
 test('feature owner keeps actual container and challenge subscriptions balanced across dialogs', async () => {
@@ -3407,6 +3801,9 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
     ),
     isScheduledPrefillAccountService: (key) => ['steam', 'epic', 'xbox'].includes(key),
     Tooltip: 'Tooltip',
+    SCHEDULED_PREFILL_PLATFORM_UI: activityBindings.SCHEDULED_PREFILL_PLATFORM_UI,
+    SCHEDULED_PREFILL_BUTTON_SIZE: 'md',
+    ScheduledPrefillServiceRow: 'ServiceRow',
     ScheduledPrefillServiceScheduleRow: 'Row',
     ScheduledPrefillConfigModal: 'Editor',
     ScheduledPrefillContainerModal: 'Container',
@@ -3440,7 +3837,12 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
   assert.ok(baseline.every(([, count]) => count === 1));
   const registrations = changes.length;
 
-  let globalMenu = walk(tree, 'ActionMenu')[0];
+  // The Add schedule menu renders before Actions in the toolbar, so find Actions by its name.
+  const findActionsMenu = (node) =>
+    walk(node, 'ActionMenu').find(
+      (menu) => menu.props['aria-label'] === 'management.actions.menuLabel'
+    );
+  let globalMenu = findActionsMenu(tree);
   const globalGroups = globalMenu.children.filter((node) => node.props.role === 'group');
   const globalDividers = globalMenu.children.filter((node) => node.props.role === 'separator');
   assert.equal(globalMenu.props.id, globalMenu.props.trigger.props['aria-controls']);
@@ -3448,23 +3850,32 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
   assert.equal(globalMenu.props.trigger.props['aria-expanded'], false);
   assert.equal(globalMenu.props.trigger.props['aria-haspopup'], undefined);
   assert.equal(globalGroups.length, 2);
-  assert.equal(globalGroups[0].props['aria-labelledby'], undefined);
-  assert.equal(globalGroups[1].children[0].props.id, globalGroups[1].props['aria-labelledby']);
-  assert.equal(textOf(globalGroups[1].children[0]), `${baseKey}.bulkToggle.label`);
+  for (const group of globalGroups)
+    assert.equal(group.children[0].props.id, group.props['aria-labelledby']);
+  assert.deepEqual(
+    globalGroups.map((group) => textOf(group.children[0])),
+    [`${baseKey}.actions.allServicesGroup`, `${baseKey}.bulkToggle.label`]
+  );
+  // View activity sits alone above the "All services" and "All schedules" groups.
+  assert.equal(globalMenu.children[0].type, 'ActionMenuItem');
   assert.deepEqual(walk(globalMenu, 'ActionMenuItem').map(textOf), [
     `${baseKey}.actions.viewActivity`,
     `${baseKey}.actions.sharedSettings`,
     `${baseKey}.bulkToggle.enableAll`,
     `${baseKey}.bulkToggle.disableAll`
   ]);
-  assert.equal(globalDividers.length, 1);
-  assert.equal(globalDividers[0].props['aria-orientation'], 'horizontal');
+  assert.equal(globalDividers.length, 2);
+  assert.ok(globalDividers.every((divider) => divider.props['aria-orientation'] === 'horizontal'));
+  assert.equal(
+    textOf(walk(tree, 'Button').find((node) => node.props.color === 'run')),
+    `${baseKey}.runAll`
+  );
 
   const globalFocus = [];
   globalMenu.props.trigger.props.ref.current = { focus: () => globalFocus.push(true) };
   globalMenu.props.trigger.props.onClick();
   tree = draw();
-  globalMenu = walk(tree, 'ActionMenu')[0];
+  globalMenu = findActionsMenu(tree);
   assert.equal(globalMenu.props.trigger.props['aria-expanded'], true);
   let globalItems = walk(globalMenu, 'ActionMenuItem');
   globalItems[0].props.onClick();
@@ -3473,7 +3884,7 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
   walk(tree, 'Activity')[0].props.onClose();
   tree = draw();
 
-  globalMenu = walk(tree, 'ActionMenu')[0];
+  globalMenu = findActionsMenu(tree);
   globalItems = walk(globalMenu, 'ActionMenuItem');
   globalItems[1].props.onClick();
   tree = draw();
@@ -3481,7 +3892,7 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
   walk(tree, 'Settings')[0].props.onClose();
   tree = draw();
 
-  globalMenu = walk(tree, 'ActionMenu')[0];
+  globalMenu = findActionsMenu(tree);
   globalItems = walk(globalMenu, 'ActionMenuItem');
   globalItems[2].props.onClick();
   await flush();
@@ -3496,12 +3907,12 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
     assert.ok(walk(tree, 'Editor')[0].props.target);
     walk(tree, 'Editor')[0].props.onClose();
     tree = draw();
-    walk(tree, 'ActionMenuItem')[0].props.onClick();
+    walk(findActionsMenu(tree), 'ActionMenuItem')[0].props.onClick();
     tree = draw();
     assert.equal(walk(tree, 'Activity')[0].props.opened, true);
     walk(tree, 'Activity')[0].props.onClose();
     tree = draw();
-    walk(tree, 'Row')[0].props.onContainer('steam');
+    walk(tree, 'ServiceRow')[0].props.onOpen('steam');
     tree = draw();
     assert.equal(walk(tree, 'Container')[0].props.serviceKey, 'steam');
     walk(tree, 'Container')[0].props.onClose();

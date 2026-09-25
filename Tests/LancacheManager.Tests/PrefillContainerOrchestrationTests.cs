@@ -857,6 +857,52 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
     }
 
     [Fact]
+    public async Task RunFailedGames_ReadsStoredRunOfStoppedSessionAndHidesOtherService()
+    {
+        var (dbOptions, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var deps = MakeDeps(contexts, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true));
+        var runId = Guid.NewGuid();
+        await using (var context = new AppDbContext(dbOptions))
+        {
+            context.PrefillSessions.Add(new PrefillSession
+            {
+                SessionId = "stopped-persistent", CreatedBySessionId = Guid.NewGuid(), IsPersistent = true,
+                Platform = PrefillPlatform.Steam, Status = PrefillSessionStatus.Terminated,
+                CreatedAtUtc = DateTime.UtcNow, ExpiresAtUtc = DateTime.UtcNow, EndedAtUtc = DateTime.UtcNow
+            });
+            context.PrefillRuns.Add(new PrefillRun
+            {
+                Id = runId, SessionId = "stopped-persistent", DaemonInstanceId = "instance",
+                OptionsJson = "{}", State = "failed", CompletedAtUtc = DateTime.UtcNow,
+                SnapshotJson = System.Text.Json.JsonSerializer.Serialize(new DaemonRunSnapshot
+                    { OperationId = runId.ToString(), DaemonInstanceId = "instance", State = "failed" })
+            });
+            context.PrefillHistoryEntries.Add(new PrefillHistoryEntry
+            {
+                RunId = runId, SessionId = "stopped-persistent", AppId = "10", AppName = "Failed game",
+                Status = PrefillHistoryEntryStatus.Failed, Reason = "auth-lost", StartedAtUtc = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+        }
+        var services = new ServiceCollection();
+        services.AddSingleton(sessionService);
+        using var container = services.BuildServiceProvider();
+        var controller = new PersistentPrefillController(container, deps.StateService, deps.CacheService,
+            NullLogger<PersistentPrefillController>.Instance);
+
+        var found = await controller.GetRunFailedGamesAsync(runId, PrefillPlatform.Steam, CancellationToken.None);
+        var missing = await controller.GetRunFailedGamesAsync(runId, PrefillPlatform.Epic, CancellationToken.None);
+
+        var games = Assert.IsType<List<PrefillRunFailedGame>>(Assert.IsType<OkObjectResult>(found.Result).Value);
+        var game = Assert.Single(games);
+        Assert.Equal("Failed game", game.Name);
+        Assert.Equal("errors.prefill.signInLost", game.ReasonKey);
+        var notFound = Assert.IsType<NotFoundResponse>(Assert.IsType<NotFoundObjectResult>(missing.Result).Value);
+        Assert.Equal("errors.prefill.runNotFound", notFound.StageKey);
+    }
+
+    [Fact]
     public async Task EditOwnedStart_RequestAbortAfterDockerStart_CleanupWaitsAndRemovesContainerAsync()
     {
         var (dbOptions, dbFactory) = NewDatabase();

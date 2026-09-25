@@ -94,14 +94,9 @@ await translator.init({
 
 globalThis.testTranslator = translator;
 
-test('both capacity surfaces render active downloads separately from saved schedules in both locales', async () => {
-  const paths = [
-    ['src/components/features/prefill/PrefillCommandButtons.tsx', 'space-y-1'],
-    [
-      'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillActivityModal.tsx',
-      'scheduled-prefill-activity__capacity'
-    ]
-  ];
+test('the prefill capacity line renders active downloads separately from saved schedules in both locales', async () => {
+  // Scheduled Activity dropped its capacity paragraph; each running run shows its own slot instead.
+  const paths = [['src/components/features/prefill/PrefillCommandButtons.tsx', 'space-y-1']];
   for (const [path, capacityClass] of paths) {
     const source = parseSource(path, ts.ScriptKind.TSX);
     const call = findSoleNode(
@@ -162,58 +157,24 @@ test('both capacity surfaces render active downloads separately from saved sched
   }
 });
 
-test('scheduled Activity binds each service capacity and downloads to the same container', () => {
+test('scheduled Activity reads each running run slot limit from that run own container', () => {
   const activity = parseSource(
     'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillActivityModal.tsx',
     ts.ScriptKind.TSX
   );
-  const renderService = findSoleNode(
+  assert.doesNotMatch(activity.text, /prefill\.runs\.capacity/);
+  const runRenderer = findSoleNode(
     activity,
-    'Activity service renderer',
+    'Activity running run renderer',
     (node) =>
       ts.isArrowFunction(node) &&
-      node.getText(activity).includes('<ScheduledPrefillDownloads') &&
-      node.getText(activity).includes('container.activeRunCount')
+      node.parameters[0]?.getText(activity) === '{ run, serviceKey }' &&
+      node.getText(activity).includes('activity.slot')
   );
-  const containers = new Map([
-    ['steam', { service: 'Steam', activeRunCount: 1, maxConcurrentRuns: 4 }],
-    ['epic', { service: 'Epic', activeRunCount: 3, maxConcurrentRuns: 6 }]
-  ]);
-  const React = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children })
-  };
-  const render = bindLifted(
-    renderService.getText(activity),
-    {
-      React,
-      baseKey: 'management.schedules.services.scheduledPrefill.config',
-      containers: {
-        containersByServiceKey: containers,
-        cancellingRunIds: [],
-        runErrors: {},
-        handleCancelPersistentDownload: () => undefined
-      },
-      disabled: false,
-      supportsConcurrentPrefill: () => true,
-      ScheduledPrefillDownloads: 'downloads',
-      t: (key, values) =>
-        key === 'prefill.runs.capacity' ? `${values.count}/${values.limit}` : key
-    },
-    { jsx: ts.JsxEmit.React }
-  );
-
-  for (const [serviceKey, expected] of [
-    ['steam', '1/4'],
-    ['epic', '3/6']
-  ]) {
-    const tree = render(serviceKey);
-    const capacity = tree.children[1].children[0].children[0];
-    const downloads = tree.children[2];
-    assert.equal(capacity, expected);
-    assert.equal(downloads.type, 'downloads');
-    assert.equal(downloads.props.serviceKey, serviceKey);
-    assert.equal(downloads.props.container, containers.get(serviceKey));
-  }
+  const body = runRenderer.getText(activity);
+  assert.match(body, /const container = containers\.containersByServiceKey\.get\(serviceKey\);/);
+  assert.match(body, /limit: container\?\.maxConcurrentRuns/);
+  assert.match(body, /handleCancelPersistentDownload\(\s*serviceKey,\s*run\.runId\s*\)/);
 });
 
 const i18nStub = moduleUrl('export default globalThis.testTranslator;');

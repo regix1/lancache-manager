@@ -24,7 +24,17 @@ export interface ScheduledPrefillPersistentCardProps {
   serviceKey: ScheduledPrefillServiceKey;
   container?: PersistentPrefillContainerDto;
   disabled?: boolean;
-  statusLoading?: boolean;
+  /** True once the container list has answered at least once. */
+  listLoaded: boolean;
+  /** True while the latest container list read failed. */
+  listFailed: boolean;
+  /** Set until the dialog closes after a login succeeded, to show the logged-in note. */
+  justLoggedIn: boolean;
+  /** The last Start, Stop, Log in or Log out error for this service. */
+  actionError?: string;
+  /** True when `actionError` holds the Log out restart notice rather than a failure. */
+  actionNotice: boolean;
+  integrationLoginError?: string;
   authenticating?: boolean;
   integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
   integrationLoginAvailabilityLoading?: boolean;

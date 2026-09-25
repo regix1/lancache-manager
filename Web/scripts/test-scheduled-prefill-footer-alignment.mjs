@@ -20,11 +20,18 @@ test('scheduled prefill editor actions use the shared trailing footer alignment'
   );
 });
 
-test('phone editor actions retain their balanced flexible button layout', () => {
-  const phoneButtons = schedulesCss.match(
-    /\.scheduled-prefill-config-modal__actions\s*>\s*button\s*\{([\s\S]*?)\}/g
+test('phone editor actions share one width and give the busy line its own row', () => {
+  // Footer buttons may sit inside a tooltip wrapper, so the flex share goes on each footer child.
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-config-modal__actions > :not\(\.confirmation-modal__status\)\s*\{\s*flex: 1 1 7rem;\s*min-width: 0;/
   );
-
-  assert.ok(phoneButtons && phoneButtons.length >= 2);
-  assert.match(phoneButtons.at(-1), /flex:\s*1 1 8\.5rem/);
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-config-modal__actions button\s*\{\s*width: 100%;\s*min-width: 0;/
+  );
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-config-modal__actions \.confirmation-modal__status\s*\{\s*flex-basis: 100%;/
+  );
 });

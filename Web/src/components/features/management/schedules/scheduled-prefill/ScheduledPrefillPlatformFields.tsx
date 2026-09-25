@@ -23,9 +23,9 @@ import type {
 } from './types';
 
 /**
- * The three field groups below split one platform's settings by the question they answer -
- * when it runs, what it downloads, and how it reports itself - so each renders into its own
- * card in the platform section. They share this prop shape because each one patches the same
+ * The four field groups below split one platform's settings by the question they answer -
+ * when it runs, which games it downloads, how it downloads them, and how it reports itself -
+ * so each renders into its own section of the editor. They share this prop shape because each one patches the same
  * per-service config object.
  */
 interface ScheduledPrefillPlatformFieldsProps {
@@ -98,23 +98,17 @@ export function ScheduledPrefillScheduleFields({
 }
 
 /**
- * What a run actually downloads and how hard it pulls. Rows are ordered by control shape -
- * dropdown, then segmented controls, then the toggle pill - so the control column reads as
- * calm runs instead of alternating shapes. The one deliberate exception: a conditional count
- * input (Top count, Fixed connection count) stays immediately under the segmented control that
- * reveals it, since separating a child input from its parent control would confuse more.
+ * Which games a run downloads: the platform builds, then the preset list. Top count stays
+ * immediately under the preset control that reveals it, since separating a child input from its
+ * parent control would confuse more.
  */
-export function ScheduledPrefillDownloadFields({
+export function ScheduledPrefillGameFields({
   serviceKey,
   config,
   disabled = false,
   onChange
 }: ScheduledPrefillPlatformFieldsProps) {
   const { t } = useTranslation();
-  const fixedConcurrency =
-    config.maxConcurrency.mode === 'Fixed'
-      ? config.maxConcurrency.value
-      : SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min;
 
   const presetOptions = useMemo(
     () =>
@@ -157,8 +151,7 @@ export function ScheduledPrefillDownloadFields({
 
   const presetLabelId = `scheduled-prefill-preset-label-${serviceKey}`;
   const osLabelId = `scheduled-prefill-os-label-${serviceKey}`;
-  const forceLabelId = `scheduled-prefill-force-label-${serviceKey}`;
-  const concurrencyModeLabelId = `scheduled-prefill-concurrency-mode-label-${serviceKey}`;
+  const presetOverrideId = `scheduled-prefill-preset-override-${serviceKey}`;
 
   return (
     <>
@@ -193,6 +186,7 @@ export function ScheduledPrefillDownloadFields({
         className="scheduled-prefill-config-modal__setting-row"
         role="group"
         aria-labelledby={presetLabelId}
+        aria-describedby={presetOverridden ? presetOverrideId : undefined}
       >
         <div className="scheduled-prefill-config-modal__setting-copy">
           <div className="scheduled-prefill-field-label-with-help flex items-center gap-1.5">
@@ -206,11 +200,6 @@ export function ScheduledPrefillDownloadFields({
               </HelpSection>
             </HelpPopover>
           </div>
-          {presetOverridden && (
-            <p className="scheduled-prefill-schedule-fields__override">
-              {t(`${baseKey}.selectedGames.overridePreset`)}
-            </p>
-          )}
         </div>
         <div className="scheduled-prefill-config-modal__setting-actions">
           <SegmentedControl
@@ -232,6 +221,17 @@ export function ScheduledPrefillDownloadFields({
           />
         </div>
       </div>
+
+      {/* Below the platform and preset pair, spanning both columns, so the note never pushes the
+          preset control out of line with the dropdown beside it. */}
+      {presetOverridden && (
+        <p
+          id={presetOverrideId}
+          className="scheduled-prefill-schedule-fields__override col-span-full"
+        >
+          {t(`${baseKey}.selectedGames.overridePreset`)}
+        </p>
+      )}
 
       {config.preset === 'Top' &&
         SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes('Top') && (
@@ -259,7 +259,36 @@ export function ScheduledPrefillDownloadFields({
             </div>
           </div>
         )}
+    </>
+  );
+}
 
+/**
+ * How hard a run pulls, and whether it downloads again what the cache already holds. Rows are
+ * ordered by control shape - segmented control, then the toggle pill - and the Fixed connection
+ * count stays immediately under the segmented control that reveals it.
+ */
+export function ScheduledPrefillDownloadFields({
+  serviceKey,
+  config,
+  disabled = false,
+  onChange
+}: ScheduledPrefillPlatformFieldsProps) {
+  const { t } = useTranslation();
+  const fixedConcurrency =
+    config.maxConcurrency.mode === 'Fixed'
+      ? config.maxConcurrency.value
+      : SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min;
+
+  const updateConfig = (patch: Partial<ScheduledPrefillSchedule>) => {
+    onChange({ ...config, ...patch });
+  };
+
+  const forceLabelId = `scheduled-prefill-force-label-${serviceKey}`;
+  const concurrencyModeLabelId = `scheduled-prefill-concurrency-mode-label-${serviceKey}`;
+
+  return (
+    <>
       <div
         className="scheduled-prefill-config-modal__setting-row"
         role="group"

@@ -41,72 +41,38 @@ public abstract partial class PrefillDaemonServiceBase
 
             lock (session.PrefillLock)
             {
-                if (!IsSessionLive(session) || session.AdmissionClosed)
+                if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active ||
+                    session.AdmissionClosed || session.LoginCanceling ||
+                    session.LoginCancelTask is not null ||
+                    session.SuppressLoginChallengePublication ||
+                    (challenge.LoginAttempt is { } attempt && attempt != session.LoginAttempt) ||
+                    (!string.IsNullOrEmpty(session.LastConsumedLoginChallengeId) &&
+                     string.Equals(challenge.ChallengeId, session.LastConsumedLoginChallengeId, StringComparison.Ordinal)))
                 {
                     return;
                 }
                 session.LoginSettled = false;
+
+                session.AuthState = challenge.CredentialType switch
+                {
+                    "username" => DaemonAuthState.UsernameRequired,
+                    "password" => DaemonAuthState.PasswordRequired,
+                    "2fa" => DaemonAuthState.TwoFactorRequired,
+                    "steamguard" => DaemonAuthState.SteamGuardRequired,
+                    "device-confirmation" => DaemonAuthState.DeviceConfirmationRequired,
+                    "authorization-url" => DaemonAuthState.AuthorizationUrlRequired,
+                    _ => session.AuthState
+                };
+
+                if (challenge.ExpiresAt != default)
+                {
+                    session.LoginExpiresAtUtc = challenge.ExpiresAt;
+                }
+
+                session.PendingLoginChallenge = challenge;
+                challenge.OperationId = session.LoginOperationId?.ToString();
+                challenge.LoginAttempt = session.LoginAttempt;
             }
-
-            // A headless manager-initiated login currently owns this session's login flow (it holds
-            // LoginLock and set this flag for the duration of its attempt). Its challenge is consumed
-            // from the command return channel and silently cancelled, so publishing it here - the
-            // auth-state rewrite, the resume-cache write, and the SignalR broadcasts below - would
-            // hand the UI a challenge that is about to be revoked. Drop it entirely; interactive
-            // logins never set the flag, so their challenge delivery is unchanged.
-            if (session.SuppressLoginChallengePublication)
-            {
-                _logger.LogDebug(
-                    "Suppressing credential challenge {ChallengeId} ({CredentialType}) for session {SessionId}: a headless login attempt owns this login flow",
-                    challenge.ChallengeId, challenge.CredentialType, session.Id);
-                return;
-            }
-
-            // Stale re-delivery guard (Bug #3): the daemon delivers each credential challenge over TWO
-            // channels - the WaitForChallengeAsync return value AND this OnCredentialChallenge event. Once
-            // the caller has answered a challenge, ProvideCredentialAsync clears the cache and records its
-            // ChallengeId in LastConsumedLoginChallengeId. If the OTHER channel then delivers that SAME
-            // already-consumed challenge here (a late duplicate, NOT a new step), re-caching it would replay
-            // the answered challenge to the next WaitForChallengeAsync/GET poll - the "challenge:password
-            // twice" race that stalls the login before device-confirmation - and would regress AuthState
-            // back to the consumed step. Drop it before any state write. A genuine follow-on challenge (e.g.
-            // device-confirmation after password) always carries a NEW ChallengeId and falls through to be
-            // cached and broadcast below. Mirrors the frontend isRedelivery guard (persistentLoginStore.ts).
-            if (!string.IsNullOrEmpty(session.LastConsumedLoginChallengeId)
-                && string.Equals(challenge.ChallengeId, session.LastConsumedLoginChallengeId, StringComparison.Ordinal))
-            {
-                _logger.LogDebug(
-                    "Ignoring stale re-delivery of already-consumed credential challenge {ChallengeId} " +
-                    "({CredentialType}) for session {SessionId}",
-                    challenge.ChallengeId, challenge.CredentialType, session.Id);
-                return;
-            }
-
-            // Update auth state based on credential type
-            session.AuthState = challenge.CredentialType switch
-            {
-                "username" => DaemonAuthState.UsernameRequired,
-                "password" => DaemonAuthState.PasswordRequired,
-                "2fa" => DaemonAuthState.TwoFactorRequired,
-                "steamguard" => DaemonAuthState.SteamGuardRequired,
-                "device-confirmation" => DaemonAuthState.DeviceConfirmationRequired,
-                "authorization-url" => DaemonAuthState.AuthorizationUrlRequired,
-                _ => session.AuthState
-            };
-
-            if (challenge.ExpiresAt != default)
-            {
-                session.LoginExpiresAtUtc = challenge.ExpiresAt;
-            }
-
-            // Cache this as the session's current resumable challenge BEFORE the hub push below.
-            // This is the ONLY place a follow-on challenge (password after username, 2FA after
-            // password, etc.) reaches the cache - StartLoginCoreAsync only sets it for the FIRST
-            // challenge of a fresh attempt. Without this, ProvideCredentialAsync consuming the
-            // prior challenge plus this event delivering the next one would leave a stale earlier
-            // challenge (or nothing) in the cache for any REST resume/poll (GET /challenge, the
-            // reopen reconcile, or a SignalR-down poll fallback) to serve.
-            session.PendingLoginChallenge = challenge;
 
             await NotifyCredentialChallengeAsync(session, challenge);
         }
@@ -531,18 +497,31 @@ public abstract partial class PrefillDaemonServiceBase
 
     private async Task NotifyCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
     {
-        // Stamped once here so both broadcasts below carry the login's operation id, matching what the
-        // login call's own return value carries.
-        challenge.OperationId = session.LoginOperationId?.ToString();
+        lock (session.PrefillLock)
+        {
+            if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active ||
+                session.AdmissionClosed || session.LoginCanceling ||
+                session.LoginCancelTask is not null ||
+                session.SuppressLoginChallengePublication ||
+                challenge.LoginAttempt != session.LoginAttempt ||
+                !ReferenceEquals(session.PendingLoginChallenge, challenge))
+                return;
+        }
 
         await BroadcastToSubscribersAsync(session, EventCredentialChallenge,
             new { sessionId = session.Id, challenge });
 
         // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;
         // don't mirror the challenge to the account holders for a session that is no longer the live instance.
-        if (!IsSessionLive(session))
+        lock (session.PrefillLock)
         {
-            return;
+            if (!IsSessionLive(session) || session.Status != DaemonSessionStatus.Active ||
+                session.AdmissionClosed || session.LoginCanceling ||
+                session.LoginCancelTask is not null ||
+                session.SuppressLoginChallengePublication ||
+                challenge.LoginAttempt != session.LoginAttempt ||
+                !ReferenceEquals(session.PendingLoginChallenge, challenge))
+                return;
         }
 
         // Mirror to the account holders (matches NotifyAuthStateChangeAsync's AuthStateChanged mirror

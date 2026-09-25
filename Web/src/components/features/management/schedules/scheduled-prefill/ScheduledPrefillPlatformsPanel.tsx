@@ -11,7 +11,7 @@ interface ScheduledPrefillPlatformsPanelProps {
   config: ScheduledPrefillSchedule;
   disabled: boolean;
   gameSelectionLoading: boolean;
-  gameSelectionNeedsLogin: boolean;
+  gameSelectionBlocked: 'login' | 'container' | null;
   onChange: (schedule: ScheduledPrefillSchedule) => void;
   onSelectGames: () => void;
   onClearGames: () => void;

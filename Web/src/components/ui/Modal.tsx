@@ -62,6 +62,12 @@ interface ModalProps {
    * resolves reliably.
    */
   bodyFlexLayout?: boolean;
+  /**
+   * When false, a click on the backdrop leaves the modal open. Escape and the X button still call
+   * `onClose`. The persistent-container login prompts pass false: their `onClose` cancels the login,
+   * and a stray click outside the dialog must not throw that attempt away.
+   */
+  dismissOnBackdrop?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -72,7 +78,8 @@ export const Modal: React.FC<ModalProps> = ({
   size = 'md',
   className = '',
   stackPriority = 'normal',
-  bodyFlexLayout = false
+  bodyFlexLayout = false,
+  dismissOnBackdrop = true
 }) => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = React.useState(false);
@@ -272,12 +279,12 @@ export const Modal: React.FC<ModalProps> = ({
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => dismissOnBackdrop && e.target === e.currentTarget && onClose()}
       onKeyDown={handleKeyDown}
     >
       <div
         className="min-h-full flex items-center justify-center px-4"
-        onClick={(e) => e.target === e.currentTarget && onClose()}
+        onClick={(e) => dismissOnBackdrop && e.target === e.currentTarget && onClose()}
       >
         <div
           ref={contentRef}

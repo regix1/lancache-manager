@@ -562,6 +562,28 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
   });
 
   const [errors, setErrors] = useState<Partial<Record<ScheduledPrefillServiceKey, string>>>({});
+  // Which action wrote each entry in `errors`, so a Services row shows only its own Start failure.
+  // 'logoutRestarted' marks the Log out restart notice, which is not a failure.
+  const [errorActions, setErrorActions] = useState<
+    Partial<
+      Record<
+        ScheduledPrefillServiceKey,
+        ScheduledPrefillPersistentActionState['action'] | 'logoutRestarted'
+      >
+    >
+  >({});
+  // A running container means someone started it after this tab's Start failed, so that failure
+  // no longer describes the row and must not return when the container later stops [88]
+  useEffect(() => {
+    const stale = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter(
+      (serviceKey) =>
+        errorActions[serviceKey] === 'start' && containersByServiceKey.get(serviceKey)?.isRunning
+    );
+    if (stale.length === 0) return;
+    const cleared = Object.fromEntries(stale.map((serviceKey) => [serviceKey, undefined]));
+    setErrors((previous) => ({ ...previous, ...cleared }));
+    setErrorActions((previous) => ({ ...previous, ...cleared }));
+  }, [containersByServiceKey, errorActions]);
   const attempts = useRef(new Map<ScheduledPrefillServiceKey, object>());
   const activeRef = useRef(activeService);
   activeRef.current = activeService;
@@ -613,14 +635,17 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
             ?.sessionId);
     setActions((value) => ({ ...value, [serviceKey]: action }));
     setErrors((previous) => ({ ...previous, [serviceKey]: undefined }));
+    setErrorActions((previous) => ({ ...previous, [serviceKey]: undefined }));
     try {
       await recover();
       if (!current()) return;
       await run(current);
       await loadPersistentContainers();
     } catch (error: unknown) {
-      if (current() && view.current === opening)
+      if (current()) {
         setErrors((previous) => ({ ...previous, [serviceKey]: getErrorMessage(error) }));
+        setErrorActions((previous) => ({ ...previous, [serviceKey]: action }));
+      }
     } finally {
       if (attempts.current.get(serviceKey) === attempt) {
         attempts.current.delete(serviceKey);
@@ -666,11 +691,10 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
         if (!forgotten) {
           await ApiService.stopPersistentPrefillContainer(container.sessionId);
           await ApiService.startPersistentPrefillContainer(serviceId);
-          if (current())
-            setErrors((previous) => ({
-              ...previous,
-              [serviceKey]: t('prefill.persistent.messages.logoutFallbackNotice')
-            }));
+          // Stored as a flag and translated where it shows, so it follows a language switch [94].
+          if (current()) {
+            setErrorActions((previous) => ({ ...previous, [serviceKey]: 'logoutRestarted' }));
+          }
         }
       }
       if (current()) {
@@ -847,6 +871,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     loadingPersistentContainers,
     persistentError,
     errors,
+    errorActions,
     actions,
     authenticatingServiceKeys,
     visibleIntegrationLoginAvailabilityByService,

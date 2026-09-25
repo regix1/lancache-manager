@@ -7,51 +7,84 @@
    module graph, so a single-class override ties with the shared class and bundle order,
    which is not stable, would decide the winner. */
 
-.custom-schedule {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-/* Cancel and Save stay put and the form scrolls under them. With the advanced drawer open
-   the form runs only a little past the modal at most window heights, so a footer that
-   scrolled with it spent nearly that whole range half cut off against the modal's bottom
-   edge - the buttons were reachable, but only after scrolling to the very last pixel. */
-.custom-schedule-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
 .custom-schedule-alert {
   margin: 0;
 }
 
-/* The sections are told apart by rhythm, not by rules. The space between two sections is
-   about three times the space inside one, which is enough to read them as separate groups;
-   a hairline between them instead cuts a short form into slabs and adds a line for every
-   boundary the spacing already carries. */
+/* The one scroll owner between the fixed title and footer, using the app's own scrollbar. Each
+   level fills its parent by flex-grow; a percentage height would resolve to the content height
+   and bring back a second, native scrollbar. */
+.custom-schedule-viewport,
+.custom-schedule-viewport > .overflow-y-auto {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.custom-schedule-viewport {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.custom-schedule-viewport > .overflow-y-auto {
+  overscroll-behavior: contain;
+}
+
+/* The fields are told apart by rhythm, not by rules: 16px between fields, 8px from a label to
+   its control. A hairline between them would cut a short form into slabs. */
 .custom-schedule-body {
   display: flex;
   flex-direction: column;
-  gap: 1.75rem;
+  gap: 1rem;
 }
 
 .custom-schedule-section {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.5rem;
 }
 
-.caps-label.custom-schedule-legend {
-  color: var(--theme-text-secondary);
+/* Clock and the hours window sit side by side; below 768px each gets the full row. */
+.custom-schedule-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .custom-schedule-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .custom-schedule-repeat {
   width: 100%;
+}
+
+/* Four options in one row squeeze each label below its own width on tablets and phones, so
+   they wrap to two equal rows of two instead. The section class lifts this above the shared
+   phone rule that pins every 40px segmented control to 44px, which would clip the second row. */
+@media (max-width: 1023.98px) {
+  .custom-schedule-section > .segmented-control-container.custom-schedule-repeat {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
+  }
+}
+
+/* Touch targets: the Repeat options, the window toggle and the Advanced disclosure reach 44px
+   on phones. The toggle has no class of its own, so it is reached as its field's direct button
+   child. */
+@media (max-width: 639.98px) {
+  .segmented-control-container.custom-schedule-repeat .segmented-control-button {
+    min-height: 2.75rem;
+  }
+
+  .custom-schedule-window-toggle > button,
+  .custom-schedule-section > .custom-schedule-advanced-toggle {
+    height: 2.75rem;
+  }
 }
 
 /* One column system for every repeat shape. Each field owns an equal track and its control
@@ -76,7 +109,7 @@
 .custom-schedule-field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
@@ -131,6 +164,13 @@
   padding-bottom: 0;
 }
 
+/* Phones: the same 44px touch height as the dropdowns and segmented controls there. */
+@media (max-width: 639.98px) {
+  .custom-schedule .number-input-wrapper .themed-input {
+    min-height: 2.75rem;
+  }
+}
+
 .custom-schedule-zone-note {
   margin: 0;
   font-size: var(--font-size-xs);
@@ -144,7 +184,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.75rem 0.9rem;
+  padding: 0.75rem;
 }
 
 .custom-schedule-sentence {
@@ -293,28 +333,6 @@
   border-color: var(--theme-error);
 }
 
-/* The zone picker and the clock face read as one statement about how to read the times above,
-   so they share a row and split to two lines only when the row runs out of width. Aligned along
-   the bottom, because the two controls carry labels of their own and only the controls
-   themselves have to line up with each other. */
-.custom-schedule-clock-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-}
-
-/* The zone takes the slack in the row: a zone id is far longer than "24h / 12h" and is the one
-   of the two that has to stay readable. */
-.custom-schedule-zone {
-  flex: 1 1 15rem;
-}
-
-.custom-schedule-clock-field {
-  flex: 0 0 auto;
-}
-
 /* Both halves of the clock face take the same width. Unlike the AM/PM control below, this one
    sits at its natural width instead of spanning a track, so fullWidth on its own cannot even
    them out: with nothing but its own content to size against, each segment's text width becomes
@@ -327,28 +345,10 @@
   grid-auto-columns: minmax(0, 1fr);
 }
 
-/* Below 640px dropdowns.css releases the trigger's explicit height so its padding can drive a
-   44px touch target, which leaves it four pixels taller than the 40px control beside it. The
-   clock face takes the same height there rather than the row rendering as two mismatched
-   halves, and keeps the touch minimum with it. */
+/* Phones: the clock face keeps the 44px touch height of the dropdowns and toggle around it. */
 @media (max-width: 639.98px) {
   .segmented-control-container.custom-schedule-clock {
     height: 44px;
-  }
-}
-
-.custom-schedule-footer {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 0.6rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--theme-border-secondary);
-}
-
-@media (min-width: 640px) {
-  .custom-schedule-footer {
-    flex-direction: row;
-    justify-content: flex-end;
   }
 }
 

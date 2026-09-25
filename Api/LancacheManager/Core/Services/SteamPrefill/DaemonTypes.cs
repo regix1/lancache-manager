@@ -343,6 +343,14 @@ public class CredentialChallenge
     public string? OperationId { get; set; }
 
     /// <summary>
+    /// Manager-side correlation only: the <see cref="DaemonSession.LoginAttempt"/> this challenge belongs to,
+    /// stamped wherever <see cref="OperationId"/> is. The browser sends it back with a cancel so the server can
+    /// ignore a cancel meant for an older attempt. Null on any challenge parsed straight off the wire.
+    /// </summary>
+    [JsonPropertyName("loginAttempt")]
+    public long? LoginAttempt { get; set; }
+
+    /// <summary>
     /// Parses a credential challenge returned inline in a command response (e.g. get-auto-login-challenge).
     /// </summary>
     public static CredentialChallenge? TryParseFromResponse(

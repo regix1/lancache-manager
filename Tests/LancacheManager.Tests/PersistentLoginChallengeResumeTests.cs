@@ -8,6 +8,7 @@ using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Tests;
@@ -31,6 +32,146 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class PersistentLoginChallengeResumeTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartLoginAsync_CancelAfterChallengeLog_DoesNotRestoreChallenge(bool queued)
+    {
+        using var logger = new HeldChallengeLogger(queued);
+        var client = queued ? (IDaemonClient)new QueuedChallengeDaemonClient() : new SingleChallengeDaemonClient();
+        var (daemon, session) = CreateSessionWithClient(client, logger);
+
+        var login = Task.Run(() => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+        try
+        {
+            await logger.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, session.LoginAttempt));
+        }
+        finally
+        {
+            logger.Release.Set();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await login.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Null(session.PendingLoginChallenge);
+    }
+
+    [Fact]
+    public async Task OnCredentialChallenge_AfterConfirmedCancel_DoesNotChangeLoginState()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge());
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, HeldNotificationProxy>();
+        var (daemon, session) = CreateSessionWithClient(client, notifications: notifications);
+        await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        Assert.True(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, session.LoginAttempt));
+        var authState = session.AuthState;
+        var settled = session.LoginSettled;
+        var expires = session.LoginExpiresAtUtc;
+
+        await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session,
+            new CredentialChallenge
+            {
+                ChallengeId = "late-challenge",
+                CredentialType = "password",
+                ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+            });
+
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Equal(authState, session.AuthState);
+        Assert.Equal(settled, session.LoginSettled);
+        Assert.Equal(expires, session.LoginExpiresAtUtc);
+        Assert.Equal(0, ((HeldNotificationProxy)notifications).ChallengeAdminCalls);
+    }
+
+    [Fact]
+    public async Task OnCredentialChallenge_DuringFailedCancel_ResumesFollowOnChallenge()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            HoldCancelLogin = true,
+            CancelAcknowledged = false
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+        await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(session.Id, CancellationToken.None, session.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var authState = session.AuthState;
+        var settled = session.LoginSettled;
+
+        await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session,
+            new CredentialChallenge { ChallengeId = "during-cancel", CredentialType = "password" });
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Equal(authState, session.AuthState);
+        Assert.Equal(settled, session.LoginSettled);
+
+        client.ReleaseCancelLogin.TrySetResult();
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            async () => await cancel.WaitAsync(TimeSpan.FromSeconds(5)));
+        var followOn = new CredentialChallenge { ChallengeId = "after-failed-cancel", CredentialType = "password" };
+        await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session, followOn);
+        Assert.Same(followOn, session.PendingLoginChallenge);
+        Assert.Equal(session.LoginAttempt, followOn.LoginAttempt);
+    }
+
+    [Fact]
+    public async Task OnCredentialChallenge_NewAttemptRejectsStampedOldChallenge()
+    {
+        var (daemon, session) = CreateSessionWithClient(new MultiCallChallengeDaemonClient());
+        await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var oldAttempt = session.LoginAttempt;
+        Assert.True(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, oldAttempt));
+        await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        var current = new CredentialChallenge { ChallengeId = "current", CredentialType = "password" };
+        await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session, current);
+        Assert.Same(current, session.PendingLoginChallenge);
+        Assert.Equal(session.LoginAttempt, current.LoginAttempt);
+
+        await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session,
+            new CredentialChallenge { ChallengeId = "old", CredentialType = "username", LoginAttempt = oldAttempt });
+        Assert.Same(current, session.PendingLoginChallenge);
+        Assert.Equal(DaemonAuthState.PasswordRequired, session.AuthState);
+    }
+
+    [Fact]
+    public async Task OnCredentialChallenge_CancelDuringSubscriberSend_SkipsAdminMirror()
+    {
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, HeldNotificationProxy>();
+        var proxy = (HeldNotificationProxy)notifications;
+        var (daemon, session) = CreateSessionWithClient(new SingleChallengeDaemonClient(), notifications: notifications);
+        await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        session.SubscribedConnections.Add("test-connection");
+
+        var challenge = new CredentialChallenge { ChallengeId = "fanout", CredentialType = "password" };
+        var delivery = ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session, challenge);
+        await proxy.SendEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, session.LoginAttempt));
+        proxy.ReleaseSend.TrySetResult();
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, proxy.ChallengeAdminCalls);
+        Assert.Null(session.PendingLoginChallenge);
+    }
+
+    [Fact]
+    public async Task OnCredentialChallenge_CurrentChallenge_ReachesSubscriberAndAdmin()
+    {
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, HeldNotificationProxy>();
+        var proxy = (HeldNotificationProxy)notifications;
+        var (daemon, session) = CreateSessionWithClient(new SingleChallengeDaemonClient(), notifications: notifications);
+        await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        session.SubscribedConnections.Add("test-connection");
+        proxy.ReleaseSend.TrySetResult();
+
+        var challenge = new CredentialChallenge { ChallengeId = "current", CredentialType = "password" };
+        await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session, challenge);
+
+        Assert.Equal(1, proxy.ChallengeSubscriberCalls);
+        Assert.Equal(1, proxy.ChallengeAdminCalls);
+        Assert.Same(challenge, session.PendingLoginChallenge);
+    }
+
     [Fact]
     public async Task StartLoginAsync_SecondCallWhilePending_ResumesSameChallengeWithoutDaemonCall()
     {
@@ -105,6 +246,228 @@ public class PersistentLoginChallengeResumeTests
         Assert.Equal("chal-1", second!.ChallengeId);
         Assert.Equal(1, client.StartLoginCallCount);
     }
+
+    /// <summary>
+    /// The production client answers false both when the daemon refuses cancel-login and when the command
+    /// times out or never reaches it (<c>DaemonClientBase.CancelLoginWithOutcomeAsync</c>).
+    /// </summary>
+    [Fact]
+    public async Task CancelLoginAsync_DaemonDoesNotAcknowledgeCancel_ThrowsTypedConflictAndKeepsChallengeResumable()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge()) { CancelAcknowledged = false };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var authStateBeforeCancel = session.AuthState;
+
+        var error = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt));
+
+        Assert.Equal("prefill.persistent.loginNotCanceled", error.StageKey);
+        Assert.Equal("chal-1", session.PendingLoginChallenge?.ChallengeId);
+        Assert.Equal(authStateBeforeCancel, session.AuthState);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_UnacknowledgedCancelKeepsSettledSessionReady()
+    {
+        var client = new ScriptedLoginDaemonClient { CancelAcknowledged = false };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        Assert.True(session.LoginSettled);
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.CancelLoginAsync(session.Id, CancellationToken.None));
+
+        Assert.True(session.LoginSettled);
+        Assert.False(session.LoginCanceling);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_ForOlderAttempt_ChangesNothing()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge());
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        Assert.Equal(1, first!.LoginAttempt);
+        var authStateBeforeCancel = session.AuthState;
+
+        Assert.False(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, first.LoginAttempt - 1));
+
+        Assert.Equal(0, client.CancelLoginCallCount);
+        Assert.Equal("chal-1", session.PendingLoginChallenge?.ChallengeId);
+        Assert.Equal(authStateBeforeCancel, session.AuthState);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_BlocksNewLoginUntilCancelSettles()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge()) { HoldCancelLogin = true };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var error = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+        Assert.Equal("errors.prefill.loginInProgress", error.StageKey);
+        Assert.Equal(1, client.StartLoginCallCount);
+
+        client.ReleaseCancelLogin.SetResult();
+        Assert.True(await cancel.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        var second = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        Assert.Equal(2, client.StartLoginCallCount);
+        Assert.Equal(2, second!.LoginAttempt);
+        Assert.NotNull(session.PendingLoginChallenge);
+        Assert.NotEqual(DaemonAuthState.NotAuthenticated, session.AuthState);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_ConcurrentCallSharesDaemonRefusal()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            HoldCancelLogin = true,
+            CancelAcknowledged = false
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+        var challenge = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        var first = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge.LoginAttempt);
+        Assert.False(second.IsCompleted);
+
+        client.ReleaseCancelLogin.SetResult();
+        var firstError = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => first);
+        var secondError = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => second);
+        Assert.Same(firstError, secondError);
+        Assert.Equal(1, client.CancelLoginCallCount);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_ConcurrentCallSharesDaemonSuccess()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            HoldCancelLogin = true
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+        var challenge = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        var first = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge.LoginAttempt);
+        Assert.False(second.IsCompleted);
+        client.ReleaseCancelLogin.SetResult();
+
+        Assert.True(await first.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(await second.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.True(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge.LoginAttempt));
+        Assert.Equal(1, client.CancelLoginCallCount);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_JoinerCancellationDoesNotCancelOwner()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            HoldCancelLogin = true
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+        var challenge = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var first = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        using var waiting = new CancellationTokenSource();
+        var second = daemon.CancelLoginAsync(session.Id, waiting.Token, challenge.LoginAttempt);
+        await waiting.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        Assert.False(first.IsCompleted);
+        client.ReleaseCancelLogin.SetResult();
+        Assert.True(await first.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, client.CancelLoginCallCount);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_ConcurrentCallSharesDaemonException()
+    {
+        var client = new ThrowingCancelDaemonClient { HoldCancelLogin = true };
+        var (daemon, session) = CreateSessionWithClient(client);
+        var challenge = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var first = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge!.LoginAttempt);
+        await client.CancelEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = daemon.CancelLoginAsync(session.Id, CancellationToken.None, challenge.LoginAttempt);
+        client.ReleaseCancel.SetResult();
+        var firstError = await Assert.ThrowsAsync<InvalidOperationException>(() => first);
+        var secondError = await Assert.ThrowsAsync<InvalidOperationException>(() => second);
+        Assert.Same(firstError, secondError);
+        Assert.Equal(1, client.CancelLoginCallCount);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_UnacknowledgedOlderCancelDoesNotRestoreChallenge()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            HoldCancelLogin = true,
+            CancelAcknowledged = false
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+        Assert.Null(session.PendingLoginChallenge);
+
+        client.ReleaseCancelLogin.SetResult();
+        var error = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => cancel.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal("prefill.persistent.loginNotCanceled", error.StageKey);
+        Assert.Equal(first.ChallengeId, session.PendingLoginChallenge?.ChallengeId);
+
+        var resumed = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        Assert.Equal(first.ChallengeId, resumed?.ChallengeId);
+        Assert.Equal(1, client.StartLoginCallCount);
+    }
+
+    [Fact]
+    public async Task CancelLoginAsync_UnacknowledgedCancelKeepsFollowOnChallenge()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            HoldCancelLogin = true,
+            CancelAcknowledged = false
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var followOn = LoginChallenge();
+        followOn.ChallengeId = "chal-2";
+        session.PendingLoginChallenge = followOn;
+        client.ReleaseCancelLogin.SetResult();
+
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => cancel.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Same(followOn, session.PendingLoginChallenge);
+    }
+
+    private static CredentialChallenge LoginChallenge() => new()
+    {
+        ChallengeId = "chal-1",
+        CredentialType = "username",
+        CreatedAt = DateTime.UtcNow,
+        ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+    };
 
     [Fact]
     public async Task NotifyAuthStateChangeAsync_TransitionToAuthenticated_ClearsPendingChallenge()
@@ -276,7 +639,9 @@ public class PersistentLoginChallengeResumeTests
         Assert.Null(session.PendingLoginChallenge);
     }
 
-    private static (PrefillDaemonServiceBase Daemon, DaemonSession Session) CreateSessionWithClient(IDaemonClient client)
+    private static (PrefillDaemonServiceBase Daemon, DaemonSession Session) CreateSessionWithClient(
+        IDaemonClient client, ILogger<SteamDaemonService>? logger = null,
+        ISignalRNotificationService? notifications = null)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"login_challenge_resume_{Guid.NewGuid():N}")
@@ -284,14 +649,14 @@ public class PersistentLoginChallengeResumeTests
         var dbFactory = new InMemoryDbContextFactory(dbOptions);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
+        notifications ??= DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var configuration = new ConfigurationBuilder().Build();
         var pathResolver = (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>();
         var stateService = (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>();
         var networkOptions = new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions());
 
         var daemon = new TestableSteamDaemonService(
-            NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
+            logger ?? NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
             stateService, sessionService, cacheService, networkOptions);
 
         var session = new DaemonSession
@@ -474,6 +839,75 @@ public class PersistentLoginChallengeResumeTests
     /// <see cref="NextStartLoginReturnsNull"/> lets a later call simulate the daemon confirming
     /// already-authenticated (returns null) instead of throwing, for the stale-challenge edge case.
     /// </summary>
+    private sealed class HeldChallengeLogger(bool queued) : ILogger<SteamDaemonService>, IDisposable
+    {
+        private readonly string _prefix = queued ? "Received queued challenge" : "Received challenge";
+        private int _held;
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Information &&
+                formatter(state, exception).StartsWith(_prefix, StringComparison.Ordinal) &&
+                Interlocked.Exchange(ref _held, 1) == 0)
+            {
+                Entered.TrySetResult();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+        }
+
+        public void Dispose() => Release.Dispose();
+
+        private sealed class NullScope : IDisposable
+        {
+            public static NullScope Instance { get; } = new();
+            public void Dispose() { }
+        }
+    }
+
+    private class HeldNotificationProxy : DispatchProxy
+    {
+        public TaskCompletionSource SendEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseSend { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int ChallengeSubscriberCalls { get; private set; }
+        public int ChallengeAdminCalls { get; private set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.SendToPrefillClientRawAsync) &&
+                args?[1] is string eventName && eventName == "CredentialChallenge")
+            {
+                ChallengeSubscriberCalls++;
+                SendEntered.TrySetResult();
+                return ReleaseSend.Task;
+            }
+
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAdminAsync) &&
+                args?[0] is string adminEvent && adminEvent == "CredentialChallenge")
+            {
+                ChallengeAdminCalls++;
+            }
+
+            return targetMethod?.ReturnType == typeof(Task) ? Task.CompletedTask : null;
+        }
+    }
+
+    private sealed class QueuedChallengeDaemonClient : TestDaemonClientBase
+    {
+        public override Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default) => Task.FromResult<CredentialChallenge?>(null);
+
+        public override Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default) => Task.FromResult<CredentialChallenge?>(
+                new CredentialChallenge { ChallengeId = "queued-challenge", CredentialType = "username" });
+    }
+
     private sealed class SingleChallengeDaemonClient : TestDaemonClientBase
     {
         public static readonly CredentialChallenge Challenge = new()
@@ -532,6 +966,10 @@ public class PersistentLoginChallengeResumeTests
     private sealed class ThrowingCancelDaemonClient : TestDaemonClientBase
     {
         public int StartLoginCallCount { get; private set; }
+        public int CancelLoginCallCount { get; private set; }
+        public bool HoldCancelLogin { get; set; }
+        public TaskCompletionSource CancelEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseCancel { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
         {
@@ -543,8 +981,13 @@ public class PersistentLoginChallengeResumeTests
             });
         }
 
-        public override Task CancelLoginAsync(CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Simulated daemon cancel-login round-trip failure.");
+        public override async Task CancelLoginAsync(CancellationToken cancellationToken = default)
+        {
+            CancelLoginCallCount++;
+            CancelEntered.TrySetResult();
+            if (HoldCancelLogin) await ReleaseCancel.Task.WaitAsync(cancellationToken);
+            throw new InvalidOperationException("Simulated daemon cancel-login round-trip failure.");
+        }
     }
 
     /// <summary>

@@ -24,6 +24,8 @@ export interface CredentialChallenge {
   expiresAt: string;
   /** Tracker id of the daemon sign-in this challenge belongs to. */
   operationId?: string;
+  /** Persistent logins: the server's attempt number, sent back with a cancel so it cannot end a newer attempt. */
+  loginAttempt?: number | null;
 }
 
 interface UsePrefillSteamAuthOptions {

@@ -9,17 +9,20 @@ import {
   ActionMenuGroup,
   ActionMenuItem
 } from '@components/ui/ActionMenu';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ChevronDown } from 'lucide-react';
 import StatusDot from '@components/common/StatusDot';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
 import {
+  SCHEDULED_PREFILL_BUTTON_SIZE,
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
-import { formatLastRun } from '../scheduleFormatting';
+import { getScheduleIntervalOptions } from '../constants';
+import { formatIntervalLabel, formatLastRun } from '../scheduleFormatting';
 import type { CustomSchedule } from '../custom-schedule/types';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
@@ -28,12 +31,17 @@ import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
 import {
   getPersistentServiceId,
-  isScheduledPrefillAccountService,
+  getScheduledPrefillServiceStatus,
+  getScheduledPrefillStatusFact,
   SCHEDULED_PREFILL_PLATFORM_UI
 } from './scheduledPrefillPlatformUi';
+import {
+  getPersistentLoginFailure,
+  getPersistentLoginState,
+  usePersistentLoginStoreState
+} from './persistentLoginStore';
 import type {
   ScheduledPrefillConfigDto,
-  ScheduledPrefillRowLoginState,
   ScheduledPrefillServiceId,
   ScheduledPrefillServiceKey,
   ScheduledPrefillServiceScheduleDto,
@@ -65,6 +73,137 @@ interface ScheduledPrefillScheduleDetailProps {
   runServiceDisabled: boolean;
 }
 
+interface ScheduledPrefillServiceRowProps {
+  serviceKey: ScheduledPrefillServiceKey;
+  containers: ReturnType<typeof useScheduledPrefillContainers>;
+  disabled: boolean;
+  onOpen: (serviceKey: ScheduledPrefillServiceKey) => void;
+}
+
+function ScheduledPrefillServiceRow({
+  serviceKey,
+  containers,
+  disabled,
+  onOpen
+}: ScheduledPrefillServiceRowProps) {
+  const { t } = useTranslation();
+  const baseKey = 'management.schedules.services.scheduledPrefill.config';
+  const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
+  const ServiceIcon = platformUi.icon;
+  const container = containers.containersByServiceKey.get(serviceKey);
+  const loginError = getPersistentLoginFailure(
+    usePersistentLoginStoreState(getPersistentServiceId(serviceKey))
+  );
+  const reloginDate = useFormattedDateTime(container?.authExpiresAtUtc);
+  const action = containers.actions[serviceKey] ?? null;
+  const status = getScheduledPrefillServiceStatus(serviceKey, {
+    container,
+    listLoaded: containers.persistentContainers !== null,
+    listFailed: containers.persistentError !== null,
+    action,
+    authenticating: containers.authenticatingServiceKeys.some(
+      (accountKey) => accountKey === serviceKey
+    ),
+    loginError
+  });
+  const containerFact = getScheduledPrefillStatusFact(status.container, container, t);
+  const accountFact = getScheduledPrefillStatusFact(status.account, container, t);
+  // Start is the only action a row runs; Stop, Log out and Log in errors stay in the dialog.
+  const startError =
+    status.next === 'start' && containers.errorActions[serviceKey] === 'start'
+      ? containers.errors[serviceKey]
+      : undefined;
+
+  return (
+    <div role="row" className={`scheduled-prefill-schedule-table__row ${platformUi.rowClassName}`}>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--service"
+      >
+        <span
+          className="icon-box scheduled-prefill-schedule-table__service-icon"
+          aria-hidden="true"
+        >
+          <ServiceIcon size={18} />
+        </span>
+        <span className="scheduled-prefill-schedule-table__service-name">
+          {t(`prefill.persistent.services.${serviceKey}`)}
+        </span>
+      </div>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--container"
+      >
+        <span className="scheduled-prefill-schedule-table__fact">
+          {containerFact.busy && <LoadingSpinner inline size="xs" />}
+          {containerFact.tone !== null && (
+            <StatusDot tone={containerFact.tone} label={containerFact.label} />
+          )}
+          {containerFact.label}
+        </span>
+        {startError && (
+          <p role="alert" className="scheduled-prefill-services__error">
+            {startError}
+          </p>
+        )}
+      </div>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--account"
+      >
+        <span className="scheduled-prefill-schedule-table__fact">
+          {accountFact.busy && <LoadingSpinner inline size="xs" />}
+          {accountFact.tone !== null && (
+            <StatusDot tone={accountFact.tone} label={accountFact.label} />
+          )}
+          {accountFact.label}
+          {status.account === 'loggedIn' && container && (
+            <span className="scheduled-prefill-schedule-table__relogin text-themed-muted tabular-nums">
+              {t(`${baseKey}.serviceStatus.reloginBy`, { date: reloginDate })}
+            </span>
+          )}
+        </span>
+      </div>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--next"
+      >
+        {status.next === 'start' ? (
+          <Button
+            type="button"
+            variant="filled"
+            color="run"
+            size={SCHEDULED_PREFILL_BUTTON_SIZE}
+            onClick={() => void containers.handleStartPersistent(serviceKey)}
+            disabled={disabled || action !== null}
+          >
+            {t(`${baseKey}.serviceActions.start`)}
+          </Button>
+        ) : status.next === 'logIn' ? (
+          <Button
+            type="button"
+            variant="filled"
+            color="primary"
+            size={SCHEDULED_PREFILL_BUTTON_SIZE}
+            onClick={() => onOpen(serviceKey)}
+          >
+            {t(`${baseKey}.logIn`)}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size={SCHEDULED_PREFILL_BUTTON_SIZE}
+            onClick={() => onOpen(serviceKey)}
+            disabled={status.container === 'checking' || status.container === 'unknown'}
+          >
+            {t(`${baseKey}.serviceActions.manage`)}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface ScheduledPrefillServiceScheduleRowProps {
   serviceKey: ScheduledPrefillServiceKey;
 
@@ -72,9 +211,7 @@ interface ScheduledPrefillServiceScheduleRowProps {
   scheduleId: string;
   label: string;
   enabled: boolean;
-  containerRunning: boolean;
-
-  loginState: ScheduledPrefillRowLoginState | null;
+  containers: ReturnType<typeof useScheduledPrefillContainers>;
   intervalHours: number;
 
   customSchedule: CustomSchedule | null;
@@ -91,8 +228,6 @@ interface ScheduledPrefillServiceScheduleRowProps {
 
   enablePending: boolean;
   onRun: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
-  onContainer: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onAdd: (serviceKey: ScheduledPrefillServiceKey) => void;
   onDuplicate: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   onDelete: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   triggerRef: (node: HTMLButtonElement | null) => void;
@@ -117,8 +252,7 @@ function ScheduledPrefillServiceScheduleRow({
   scheduleId,
   label,
   enabled,
-  containerRunning,
-  loginState,
+  containers,
   intervalHours,
   customSchedule,
   nextTiming,
@@ -131,8 +265,6 @@ function ScheduledPrefillServiceScheduleRow({
   enablePending,
   onRun,
   onOpen,
-  onContainer,
-  onAdd,
   onDuplicate,
   onDelete,
   triggerRef,
@@ -145,9 +277,28 @@ function ScheduledPrefillServiceScheduleRow({
   const nextRunDate = useFormattedDateTime(nextRunUtc);
   const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const ServiceIcon = platformUi.icon;
+  const serviceName = t(`prefill.persistent.services.${serviceKey}`);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsId = useId();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const loginError = getPersistentLoginFailure(
+    usePersistentLoginStoreState(getPersistentServiceId(serviceKey))
+  );
+  const container = containers.containersByServiceKey.get(serviceKey);
+  const status = getScheduledPrefillServiceStatus(serviceKey, {
+    container,
+    listLoaded: containers.persistentContainers !== null,
+    listFailed: containers.persistentError !== null,
+    action: containers.actions[serviceKey] ?? null,
+    authenticating: containers.authenticatingServiceKeys.some(
+      (accountKey) => accountKey === serviceKey
+    ),
+    loginError
+  });
+  const waitsForLogin =
+    status.account === 'loginRequired' ||
+    status.account === 'loginExpired' ||
+    status.account === 'loginFailed';
   const invoke = (action: () => void) => {
     if (actionsDisabled) return;
     setActionsOpen(false);
@@ -156,6 +307,28 @@ function ScheduledPrefillServiceScheduleRow({
   };
 
   const actionsDisabled = disabled || enablePending;
+  const runReason = !enabled
+    ? t(`${baseKey}.records.runNeedsEnable`)
+    : isRunning
+      ? t(`${baseKey}.records.runAlreadyRunning`)
+      : null;
+  const intervalLabel = (() => {
+    if (customSchedule) return t('management.schedules.customSchedule.savedLabel');
+    const option = getScheduleIntervalOptions(t).find(
+      (item) => item.value === String(intervalHours)
+    );
+    if (option) return option.label;
+    return formatIntervalLabel(intervalHours, t);
+  })();
+  const timeLine = [
+    intervalLabel,
+    nextTiming === '' ? null : t(`${baseKey}.scheduleMeta.runs`, { when: nextTiming }),
+    lastRunUtc
+      ? t(`${baseKey}.scheduleMeta.ran`, { when: formatLastRun(lastRunUtc, t) })
+      : t(`${baseKey}.scheduleMeta.neverRan`)
+  ]
+    .filter((part): part is string => part !== null && part !== '')
+    .join(' · ');
 
   return (
     <div role="row" className={`scheduled-prefill-schedule-table__row ${platformUi.rowClassName}`}>
@@ -170,10 +343,18 @@ function ScheduledPrefillServiceScheduleRow({
           <ServiceIcon size={18} />
         </span>
         <span className="scheduled-prefill-schedule-table__service-name">{label}</span>
-        <span className="scheduled-prefill-schedule-table__service-status">
-          <span className="scheduled-prefill-schedule-table__status-item">
+        <span className="scheduled-prefill-schedule-table__meta">{serviceName}</span>
+      </div>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--status"
+      >
+        <span className="scheduled-prefill-schedule-table__meta">
+          {/* Phones show the service name here, on the status line, instead of under the name. */}
+          <span className="hidden max-md:inline">{serviceName}</span>
+          <span className="scheduled-prefill-schedule-table__fact">
             <StatusDot
-              tone={enabled ? 'running' : 'error'}
+              tone={enabled ? 'running' : 'idle'}
               label={
                 enabled
                   ? t(`${baseKey}.platforms.status.enabled`)
@@ -184,56 +365,30 @@ function ScheduledPrefillServiceScheduleRow({
               ? t(`${baseKey}.platforms.status.enabled`)
               : t(`${baseKey}.platforms.status.disabled`)}
           </span>
-          <span className="scheduled-prefill-schedule-table__status-item">
-            <StatusDot
-              tone={containerRunning ? 'running' : 'error'}
-              label={
-                containerRunning
-                  ? t('prefill.persistent.states.running')
-                  : t('prefill.persistent.states.stopped')
-              }
-            />
-            {t(`${baseKey}.platforms.status.containerShort`)}:{' '}
-            {containerRunning
-              ? t('prefill.persistent.states.running')
-              : t('prefill.persistent.states.stopped')}
-          </span>
-          {loginState !== null && (
-            <span className="scheduled-prefill-schedule-table__status-item">
-              <StatusDot
-                tone={loginState === 'loggedIn' ? 'running' : 'warning'}
-                label={
-                  loginState === 'loggedIn'
-                    ? t(`${baseKey}.platforms.status.loggedIn`)
-                    : t(`${baseKey}.platforms.status.loginRequired`)
-                }
-              />
-              {loginState === 'loggedIn'
-                ? t(`${baseKey}.platforms.status.loggedIn`)
-                : t(`${baseKey}.platforms.status.loginRequired`)}
+          {status.container === 'stopped' && (
+            <span className="text-themed-warning">{t('prefill.persistent.status.stopped')}</span>
+          )}
+          {waitsForLogin && (
+            <span className="text-themed-warning">
+              {t(`${baseKey}.scheduleMeta.waitsForLogin`, { service: serviceName })}
             </span>
           )}
         </span>
+        <span className="scheduled-prefill-schedule-table__time-line tabular-nums">{timeLine}</span>
       </div>
-      <div role="cell" className="scheduled-prefill-schedule-table__cell">
-        <span
-          className="caps-label schedule-timing-label scheduled-prefill-schedule-table__cell-label"
-          aria-hidden="true"
-        >
-          {t('management.schedules.nextRun')}
-        </span>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--timing"
+      >
         <span className="scheduled-prefill-schedule-table__value tabular-nums">{nextTiming}</span>
         {nextRunUtc && (
           <span className="scheduled-prefill-schedule-table__date tabular-nums">{nextRunDate}</span>
         )}
       </div>
-      <div role="cell" className="scheduled-prefill-schedule-table__cell">
-        <span
-          className="caps-label schedule-timing-label scheduled-prefill-schedule-table__cell-label"
-          aria-hidden="true"
-        >
-          {t('management.schedules.lastRun')}
-        </span>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--timing"
+      >
         <span className="scheduled-prefill-schedule-table__value tabular-nums">
           {formatLastRun(lastRunUtc, t)}
         </span>
@@ -242,12 +397,6 @@ function ScheduledPrefillServiceScheduleRow({
         role="cell"
         className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--interval"
       >
-        <span
-          className="caps-label schedule-timing-label scheduled-prefill-schedule-table__cell-label"
-          aria-hidden="true"
-        >
-          {t('management.schedules.runEvery')}
-        </span>
         <ScheduleIntervalPicker
           intervalHours={intervalHours}
           isDisabled={disabled || enablePending || !enabled}
@@ -262,87 +411,62 @@ function ScheduledPrefillServiceScheduleRow({
         role="cell"
         className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--action"
       >
-        <ActionMenu
-          isOpen={actionsOpen}
-          onClose={() => setActionsOpen(false)}
-          align="right"
-          width="w-72"
-          className="scheduled-prefill-action-menu"
+        <RowActionsMenu
+          open={actionsOpen}
+          onOpenChange={setActionsOpen}
+          width="w-56"
           id={actionsId}
+          className="scheduled-prefill-action-menu"
+          disabled={actionsDisabled}
+          triggerRef={(node: HTMLButtonElement | null) => {
+            buttonRef.current = node;
+            triggerRef(node);
+          }}
           aria-label={t('management.actions.menuLabel')}
-          trigger={
-            <Button
-              ref={(node) => {
-                buttonRef.current = node;
-                triggerRef(node);
-              }}
-              type="button"
-              variant="menu"
-              size="md"
-              open={actionsOpen}
-              className="w-full"
-              disabled={actionsDisabled}
-              onClick={() => setActionsOpen((open) => !open)}
-              aria-expanded={actionsOpen}
-              aria-controls={actionsId}
-              rightSection={<ChevronDown size={16} aria-hidden="true" />}
-            >
-              {t('management.actions.menuLabel')}
-            </Button>
-          }
         >
-          <ActionMenuGroup label={t(`${baseKey}.records.label`)}>
-            <ActionMenuItem
-              onClick={() => invoke(() => onOpen(serviceKey, scheduleId))}
-              disabled={actionsDisabled}
-            >
-              {t(`${baseKey}.records.edit`)}
-            </ActionMenuItem>
-            <ActionMenuItem
-              onClick={() => invoke(() => onRun(serviceId, scheduleId))}
-              disabled={actionsDisabled || runDisabled || runPending || isRunning || !enabled}
-            >
-              {runPending && <LoadingSpinner inline size="xs" />}
-              {t(`${baseKey}.records.run`)}
-            </ActionMenuItem>
-            <ActionMenuItem
-              onClick={() => invoke(() => onToggleEnabled(serviceKey, scheduleId))}
-              disabled={actionsDisabled}
-            >
-              {t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}
-            </ActionMenuItem>
-            <ActionMenuItem
-              onClick={() => invoke(() => onDuplicate(serviceKey, scheduleId))}
-              disabled={actionsDisabled}
-            >
-              {t(`${baseKey}.records.duplicate`)}
-            </ActionMenuItem>
-          </ActionMenuGroup>
-          <ActionMenuDivider semantic />
-          <ActionMenuGroup label={t(`${baseKey}.services.${serviceKey}`)}>
-            <ActionMenuItem
-              onClick={() => invoke(() => onAdd(serviceKey))}
-              disabled={actionsDisabled}
-            >
-              {t(`${baseKey}.records.menuAdd`, {
-                service: t(`${baseKey}.services.${serviceKey}`)
-              })}
-            </ActionMenuItem>
-            <ActionMenuItem
-              onClick={() => invoke(() => onContainer(serviceKey))}
-              disabled={actionsDisabled}
-            >
-              {t(`${baseKey}.records.manageContainer`)}
-            </ActionMenuItem>
-          </ActionMenuGroup>
-          <ActionMenuDivider semantic />
-          <ActionMenuDangerItem
-            onClick={() => invoke(() => onDelete(serviceKey, scheduleId))}
-            disabled={actionsDisabled}
-          >
-            {t(`${baseKey}.records.delete`)}
-          </ActionMenuDangerItem>
-        </ActionMenu>
+          {() => (
+            <>
+              <ActionMenuItem
+                onClick={() => invoke(() => onRun(serviceId, scheduleId))}
+                disabled={actionsDisabled || runDisabled || runPending || isRunning || !enabled}
+              >
+                {runReason === null ? (
+                  t(`${baseKey}.records.run`)
+                ) : (
+                  <span className="flex flex-col items-start min-w-0 whitespace-normal">
+                    {t(`${baseKey}.records.run`)}
+                    <span className="text-themed-muted">{runReason}</span>
+                  </span>
+                )}
+              </ActionMenuItem>
+              <ActionMenuItem
+                onClick={() => invoke(() => onOpen(serviceKey, scheduleId))}
+                disabled={actionsDisabled}
+              >
+                {t(`${baseKey}.records.edit`)}
+              </ActionMenuItem>
+              <ActionMenuItem
+                onClick={() => invoke(() => onToggleEnabled(serviceKey, scheduleId))}
+                disabled={actionsDisabled}
+              >
+                {t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}
+              </ActionMenuItem>
+              <ActionMenuItem
+                onClick={() => invoke(() => onDuplicate(serviceKey, scheduleId))}
+                disabled={actionsDisabled}
+              >
+                {t(`${baseKey}.records.duplicate`)}
+              </ActionMenuItem>
+              <ActionMenuDivider semantic />
+              <ActionMenuDangerItem
+                onClick={() => invoke(() => onDelete(serviceKey, scheduleId))}
+                disabled={actionsDisabled}
+              >
+                {t(`${baseKey}.records.delete`)}
+              </ActionMenuDangerItem>
+            </>
+          )}
+        </RowActionsMenu>
       </div>
     </div>
   );
@@ -372,10 +496,13 @@ export function ScheduledPrefillScheduleDetail({
   const [pendingKeys, setPendingKeys] = useState<string[]>([]);
   const [modalRecord, setModalRecord] = useState<ScheduledPrefillEditTarget | null>(null);
   const [containerService, setContainerService] = useState<ScheduledPrefillServiceKey | null>(null);
+  const [loggedInService, setLoggedInService] = useState<ScheduledPrefillServiceKey | null>(null);
   const [activityOpen, setActivityOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsId = useId();
+  const [addOpen, setAddOpen] = useState(false);
+  const addId = useId();
   const [deleteTarget, setDeleteTarget] = useState<{
     serviceKey: ScheduledPrefillServiceKey;
     scheduleId: string;
@@ -384,7 +511,7 @@ export function ScheduledPrefillScheduleDetail({
   const opening = useRef(0);
   const actionsRef = useRef<HTMLButtonElement | null>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
-  const emptyRefs = useRef(new Map<ScheduledPrefillServiceKey, HTMLButtonElement>());
+  const addTriggerRef = useRef<HTMLButtonElement | null>(null);
   const containers = useScheduledPrefillContainers(containerService);
   const revision = useRef(0);
   const request = useRef<{
@@ -605,7 +732,8 @@ export function ScheduledPrefillScheduleDetail({
       const result = await ApiService.getScheduledPrefillConfig();
       if (opening.current !== attempt) return;
       const records = result[serviceKey].schedules;
-      const source = scheduleId ? records.find((item) => item.id === scheduleId) : records[0];
+      // A new schedule starts from the defaults below; only Duplicate copies a source.
+      const source = scheduleId ? records.find((item) => item.id === scheduleId) : undefined;
       if (scheduleId && !source) {
         notifyError(t(`${baseKey}.records.missing`));
         return;
@@ -732,12 +860,13 @@ export function ScheduledPrefillScheduleDetail({
       void refreshSchedule();
       const keys = [...rowRefs.current.keys()];
       const index = keys.indexOf(key);
-      const next = keys[index + 1] ?? keys[index - 1];
+      // The last row hands focus to Add schedule, not to the row above it.
+      const next = keys[index + 1];
       setTimeout(
         () =>
           (
-            rowRefs.current.get(next) ??
-            emptyRefs.current.get(target.serviceKey) ??
+            (next === undefined ? undefined : rowRefs.current.get(next)) ??
+            addTriggerRef.current ??
             actionsRef.current
           )?.focus(),
         250
@@ -839,13 +968,56 @@ export function ScheduledPrefillScheduleDetail({
                   color="run"
                   size="md"
                   onClick={onRunNow}
-                  disabled={runNowDisabled || backendUpdateRequired}
-                  loading={runNowLoading}
+                  disabled={runNowDisabled || backendUpdateRequired || runNowLoading}
                 >
-                  {t('management.schedules.runNow')}
+                  {t(`${baseKey}.runAll`)}
                 </Button>
               </span>
             </Tooltip>
+            <div className="scheduled-prefill-card-summary__add">
+              <ActionMenu
+                isOpen={addOpen}
+                onClose={() => setAddOpen(false)}
+                align="right"
+                width="w-40"
+                className="scheduled-prefill-action-menu"
+                id={addId}
+                aria-label={t(`${baseKey}.records.addSchedule`)}
+                trigger={
+                  <Button
+                    ref={addTriggerRef}
+                    variant="menu"
+                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                    open={addOpen}
+                    disabled={tableDisabled || loading}
+                    onClick={() => setAddOpen((value) => !value)}
+                    rightSection={<ChevronDown size={16} aria-hidden="true" />}
+                    aria-expanded={addOpen}
+                    aria-controls={addId}
+                  >
+                    {t(`${baseKey}.records.addSchedule`)}
+                  </Button>
+                }
+              >
+                {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => {
+                  const ServiceIcon = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey].icon;
+                  return (
+                    <ActionMenuItem
+                      key={serviceKey}
+                      icon={<ServiceIcon size={16} />}
+                      disabled={tableDisabled}
+                      onClick={() => {
+                        setAddOpen(false);
+                        addTriggerRef.current?.focus();
+                        void createDraft(serviceKey);
+                      }}
+                    >
+                      {t(`prefill.persistent.services.${serviceKey}`)}
+                    </ActionMenuItem>
+                  );
+                })}
+              </ActionMenu>
+            </div>
             <ActionMenu
               isOpen={actionsOpen}
               onClose={() => setActionsOpen(false)}
@@ -869,13 +1041,14 @@ export function ScheduledPrefillScheduleDetail({
                 </Button>
               }
             >
-              <ActionMenuGroup>
-                <ActionMenuItem
-                  disabled={tableDisabled}
-                  onClick={() => globalAction(() => setActivityOpen(true))}
-                >
-                  {t(`${baseKey}.actions.viewActivity`)}
-                </ActionMenuItem>
+              <ActionMenuItem
+                disabled={tableDisabled}
+                onClick={() => globalAction(() => setActivityOpen(true))}
+              >
+                {t(`${baseKey}.actions.viewActivity`)}
+              </ActionMenuItem>
+              <ActionMenuDivider semantic />
+              <ActionMenuGroup label={t(`${baseKey}.actions.allServicesGroup`)}>
                 <ActionMenuItem
                   disabled={tableDisabled}
                   onClick={() => globalAction(() => setSettingsOpen(true))}
@@ -914,113 +1087,123 @@ export function ScheduledPrefillScheduleDetail({
             {t(`${baseKey}.backendUpdateRequired`)}
           </p>
         )}
+        {containers.persistentError && (
+          <ErrorBlock
+            title={t(`${baseKey}.serviceStatus.loadFailed`)}
+            message={containers.persistentError}
+            retryLabel={t('common.retry')}
+            onRetry={() => void containers.loadPersistentContainers()}
+          />
+        )}
+        {/* After an earlier good read the rows keep their last known state, so the line applies
+            only before the first read answers. */}
+        {containers.persistentContainers === null && containers.persistentError !== null && (
+          <p className="scheduled-prefill-persistent-card__hint">
+            {t(`${baseKey}.serviceStatus.unknownUntilLoaded`)}
+          </p>
+        )}
+        <div
+          role="table"
+          aria-label={t(`${baseKey}.servicesTitle`)}
+          className="scheduled-prefill-schedule-table scheduled-prefill-schedule-table--services"
+        >
+          <p className="caps-label scheduled-prefill-schedule-table__legend" aria-hidden="true">
+            {[
+              t(`${baseKey}.service`),
+              t(`${baseKey}.persistentContainers.steps.container`),
+              t(`${baseKey}.persistentContainers.steps.account`)
+            ].join(' · ')}
+          </p>
+          <div role="row" className="scheduled-prefill-schedule-table__head caps-label">
+            <span role="columnheader">{t(`${baseKey}.service`)}</span>
+            <span role="columnheader">{t(`${baseKey}.persistentContainers.steps.container`)}</span>
+            <span role="columnheader">{t(`${baseKey}.persistentContainers.steps.account`)}</span>
+            <span role="columnheader" />
+          </div>
+          {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => (
+            <ScheduledPrefillServiceRow
+              key={serviceKey}
+              serviceKey={serviceKey}
+              containers={containers}
+              disabled={tableDisabled}
+              onOpen={(key) => {
+                opening.current += 1;
+                setContainerService(key);
+              }}
+            />
+          ))}
+        </div>
         {!loading && (
           <div
             role="table"
-            aria-label={t(`${baseKey}.servicesTitle`)}
+            aria-label={t(`${baseKey}.schedulesTitle`)}
             className="scheduled-prefill-schedule-table"
           >
+            <p className="caps-label scheduled-prefill-schedule-table__legend" aria-hidden="true">
+              {t(`${baseKey}.schedulesTitle`)}
+            </p>
             <div role="row" className="scheduled-prefill-schedule-table__head caps-label">
-              <span role="columnheader">{t(`${baseKey}.service`)}</span>
+              <span role="columnheader">{t(`${baseKey}.scheduleColumn`)}</span>
+              <span role="columnheader">{t(`${baseKey}.statusColumn`)}</span>
               <span role="columnheader">{t('management.schedules.nextRun')}</span>
               <span role="columnheader">{t('management.schedules.lastRun')}</span>
               <span role="columnheader">{t('management.schedules.runEvery')}</span>
-              <span role="columnheader">{t('management.actions.menuLabel')}</span>
+              <span role="columnheader" />
             </div>
-            {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => {
-              const serviceRows = rows.filter((row) => row.key === serviceKey);
-              const container = containers.containersByServiceKey.get(serviceKey);
-              if (serviceRows.length === 0)
-                return (
-                  <div
-                    role="row"
-                    className="scheduled-prefill-schedule-table__empty"
-                    key={serviceKey}
-                  >
-                    <span role="cell">
-                      {t(`${baseKey}.records.empty`, {
-                        service: t(`${baseKey}.services.${serviceKey}`)
-                      })}
-                    </span>
-                    <Button
-                      ref={(node) => {
-                        if (node) emptyRefs.current.set(serviceKey, node);
-                        else emptyRefs.current.delete(serviceKey);
-                      }}
+            {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.flatMap((serviceKey) =>
+              rows
+                .filter((row) => row.key === serviceKey)
+                .map((row) => {
+                  const rowId = `${serviceKey}:${row.scheduleId}`;
+                  return (
+                    <ScheduledPrefillServiceScheduleRow
+                      key={rowId}
+                      serviceKey={serviceKey}
+                      serviceId={row.serviceId}
+                      scheduleId={row.scheduleId}
+                      label={row.name}
+                      enabled={row.enabled}
+                      containers={containers}
+                      intervalHours={row.intervalHours}
+                      customSchedule={row.customSchedule ?? null}
+                      nextTiming={row.enabled ? formatTiming(row) : ''}
+                      nextRunUtc={
+                        row.enabled && row.nextRunUtc && new Date(row.nextRunUtc).getTime() > now
+                          ? row.nextRunUtc
+                          : null
+                      }
+                      lastRunUtc={row.lastRunUtc}
                       disabled={tableDisabled}
-                      onClick={() => void createDraft(serviceKey)}
-                    >
-                      {t(`${baseKey}.records.addForService`, {
-                        service: t(`${baseKey}.services.${serviceKey}`)
-                      })}
-                    </Button>
-                  </div>
-                );
-              return serviceRows.map((row) => {
-                const rowId = `${serviceKey}:${row.scheduleId}`;
-                return (
-                  <ScheduledPrefillServiceScheduleRow
-                    key={rowId}
-                    serviceKey={serviceKey}
-                    serviceId={row.serviceId}
-                    scheduleId={row.scheduleId}
-                    label={`${t(`${baseKey}.services.${serviceKey}`)} · ${row.name}`}
-                    enabled={row.enabled}
-                    containerRunning={container?.isRunning === true}
-                    loginState={
-                      isScheduledPrefillAccountService(serviceKey)
-                        ? container?.isRunning &&
-                          container.isAuthenticated &&
-                          !container.needsRelogin
-                          ? 'loggedIn'
-                          : 'loginRequired'
-                        : null
-                    }
-                    intervalHours={row.intervalHours}
-                    customSchedule={row.customSchedule ?? null}
-                    nextTiming={row.enabled ? formatTiming(row) : ''}
-                    nextRunUtc={
-                      row.enabled && row.nextRunUtc && new Date(row.nextRunUtc).getTime() > now
-                        ? row.nextRunUtc
-                        : null
-                    }
-                    lastRunUtc={row.lastRunUtc}
-                    disabled={tableDisabled}
-                    runPending={isRunServicePending(row.serviceId, row.scheduleId)}
-                    runDisabled={runServiceDisabled || row.isRunning}
-                    isRunning={row.isRunning}
-                    enablePending={pendingKeys.includes(rowId)}
-                    onRun={onRunService}
-                    onOpen={handleOpenSchedule}
-                    onContainer={(key) => {
-                      opening.current += 1;
-                      setContainerService(key);
-                    }}
-                    onAdd={(key) => void createDraft(key)}
-                    onDuplicate={(key, id) => void createDraft(key, id)}
-                    onDelete={(key, id) =>
-                      setDeleteTarget({ serviceKey: key, scheduleId: id, name: row.name })
-                    }
-                    triggerRef={(node) => {
-                      if (node) rowRefs.current.set(rowId, node);
-                      else rowRefs.current.delete(rowId);
-                    }}
-                    onToggleEnabled={(key, id) =>
-                      void saveServiceConfig(key, id, { enabled: !row.enabled })
-                    }
-                    onIntervalChange={(key, id, hours) =>
-                      void saveServiceConfig(key, id, {
-                        intervalHours: hours,
-                        customSchedule: null
-                      })
-                    }
-                    onCustomScheduleChange={(key, id, customSchedule) =>
-                      void saveServiceConfig(key, id, { customSchedule })
-                    }
-                  />
-                );
-              });
-            })}
+                      runPending={isRunServicePending(row.serviceId, row.scheduleId)}
+                      runDisabled={runServiceDisabled || row.isRunning}
+                      isRunning={row.isRunning}
+                      enablePending={pendingKeys.includes(rowId)}
+                      onRun={onRunService}
+                      onOpen={handleOpenSchedule}
+                      onDuplicate={(key, id) => void createDraft(key, id)}
+                      onDelete={(key, id) =>
+                        setDeleteTarget({ serviceKey: key, scheduleId: id, name: row.name })
+                      }
+                      triggerRef={(node) => {
+                        if (node) rowRefs.current.set(rowId, node);
+                        else rowRefs.current.delete(rowId);
+                      }}
+                      onToggleEnabled={(key, id) =>
+                        void saveServiceConfig(key, id, { enabled: !row.enabled })
+                      }
+                      onIntervalChange={(key, id, hours) =>
+                        void saveServiceConfig(key, id, {
+                          intervalHours: hours,
+                          customSchedule: null
+                        })
+                      }
+                      onCustomScheduleChange={(key, id, customSchedule) =>
+                        void saveServiceConfig(key, id, { customSchedule })
+                      }
+                    />
+                  );
+                })
+            )}
           </div>
         )}
         {noScheduleEnabled && (
@@ -1046,7 +1229,17 @@ export function ScheduledPrefillScheduleDetail({
         serviceKey={containerService}
         containers={containers}
         disabled={disabled}
-        onClose={() => setContainerService(null)}
+        justLoggedIn={loggedInService !== null && loggedInService === containerService}
+        onLogout={() => {
+          // The restart fallback of Log out logs the daemon in again, which must not bring the
+          // logged-in note back beside its notice.
+          setLoggedInService(null);
+          if (containerService) void containers.handleLogoutPersistent(containerService);
+        }}
+        onClose={() => {
+          setContainerService(null);
+          setLoggedInService(null);
+        }}
       />
       <ScheduledPrefillActivityModal
         opened={activityOpen}
@@ -1067,9 +1260,19 @@ export function ScheduledPrefillScheduleDetail({
             containers.containersByServiceKey.get(loginTarget)?.isAuthenticated === true
           }
           onAuthenticated={() => {
+            setLoggedInService(loginTarget);
             void containers.loadPersistentContainers();
           }}
-          onDismiss={containers.handleDismissPersistentLogin}
+          onDismiss={() => {
+            // The host also dismisses when the container list reports the login before the
+            // prompt does; onAuthenticated never runs on that path.
+            if (
+              containers.containersByServiceKey.get(loginTarget)?.isAuthenticated === true ||
+              getPersistentLoginState(getPersistentServiceId(loginTarget)).authenticated
+            )
+              setLoggedInService(loginTarget);
+            containers.handleDismissPersistentLogin();
+          }}
         />
       )}
       <ConfirmationModal
@@ -1086,6 +1289,7 @@ export function ScheduledPrefillScheduleDetail({
           deleteTarget !== null &&
           pendingKeys.includes(`${deleteTarget.serviceKey}:${deleteTarget.scheduleId}`)
         }
+        busyLabel={t(`${baseKey}.records.deleting`)}
       >
         <p>{t(`${baseKey}.records.deleteBody`)}</p>
       </ConfirmationModal>

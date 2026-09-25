@@ -73,10 +73,10 @@ for (const copy of [false, true]) {
   test(
     copy
       ? 'Duplicate preserves enablement and uses a unique name without writing'
-      : 'Add copies the first record, starts disabled and creates nothing before Save',
+      : 'Add starts from defaults even when the service has schedules, and creates nothing before Save',
     async () => {
       let target;
-      const source = schedule();
+      const source = schedule({ intervalHours: 6, preset: 'Top', topCount: 25, force: true });
       const records = [
         source,
         schedule({
@@ -98,10 +98,21 @@ for (const copy of [false, true]) {
         getErrorMessage: (error) => error.message
       })('steam', copy ? source.id : undefined);
       assert.equal(target.create, true);
-      assert.equal(target.schedule.enabled, copy);
-      assert.equal(target.schedule.name, copy ? 'Evening copy 2' : 'New schedule 2');
-      assert.deepEqual(target.schedule.selectedAppIds, ['10']);
-      assert.notEqual(target.schedule.id, source.id);
+      assert.deepEqual(
+        target.schedule,
+        copy
+          ? {
+              ...source,
+              id: '00000000-0000-4000-8000-000000000003',
+              name: 'Evening copy 2'
+            }
+          : schedule({
+              id: '00000000-0000-4000-8000-000000000003',
+              name: 'New schedule 2',
+              enabled: false,
+              selectedAppIds: []
+            })
+      );
       assert.equal(records.length, 2);
     }
   );
@@ -155,8 +166,7 @@ test('blank names stop Save before the request', () => {
 test('scheduled prefill dialogs hide their load alerts under the connection banner', () => {
   const dialogs = [
     ['ScheduledPrefillConfigModal.tsx', 'loadError.message'],
-    ['ScheduledPrefillContainerModal.tsx', 'error: containers.persistentError'],
-    ['ScheduledPrefillContainerModal.tsx', 'containers.visibleIntegrationLoginErrors[serviceKey]'],
+    ['ScheduledPrefillContainerModal.tsx', 'message={containers.persistentError}'],
     ['ScheduledPrefillActivityModal.tsx', 'error: containers.persistentError'],
     ['ScheduledPrefillSharedSettingsModal.tsx', 'error: readErrors.days'],
     ['ScheduledPrefillSharedSettingsModal.tsx', 'error: readErrors.mode']
@@ -183,7 +193,7 @@ test('scheduled prefill dialogs hide their load alerts under the connection bann
       (node) =>
         ts.isBinaryExpression(node) &&
         node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-        /^\(?\s*<Alert/.test(node.right.getText(dialog)) &&
+        /^\(?\s*<(Alert|ErrorBlock)\b/.test(node.right.getText(dialog)) &&
         node.right.getText(dialog).includes(marker)
     );
     const shows = (connectionLost) =>
@@ -193,4 +203,25 @@ test('scheduled prefill dialogs hide their load alerts under the connection bann
     assert.equal(shows(true), false, `${file}: ${marker} shows under the banner`);
     assert.equal(shows(false), true, `${file}: ${marker} must still show while connected`);
   }
+
+  // The service dialog hands its saved-login read error to the card, which draws the alert.
+  const containerModal = parseSource(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillContainerModal.tsx',
+    ts.ScriptKind.TSX
+  );
+  const integrationError = findSoleNode(
+    containerModal,
+    'integration login error handed to the card',
+    (node) =>
+      ts.isConditionalExpression(node) &&
+      node.whenFalse.getText(containerModal) ===
+        'containers.visibleIntegrationLoginErrors[serviceKey]'
+  );
+  const handed = (connectionLost) =>
+    bindLifted(`() => (${integrationError.getText(containerModal)})`, {
+      ...failedReads,
+      connectionLost
+    })();
+  assert.equal(handed(true), undefined);
+  assert.equal(handed(false), 'reason');
 });

@@ -1,0 +1,76 @@
+/* Border, stripes and phone dividers come from the shared list shell in SchedulesSection.css; this
+   clips the stripes to its rounded corners. */
+.scheduled-prefill-activity-runs__list {
+  overflow: hidden;
+}
+
+.scheduled-prefill-activity-runs__list > .caps-label {
+  padding: 0.5rem 1rem;
+  background: var(--theme-bg-tertiary);
+  font-weight: 500;
+}
+
+/* Open details take the row's stripe instead of the shared page-colored detail fill. */
+.scheduled-prefill-activity-runs__list .mgmt-row-detail {
+  background: transparent;
+}
+
+.scheduled-prefill-activity-runs__row {
+  padding: 1rem;
+}
+
+.scheduled-prefill-activity-runs__running {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.5rem 1rem;
+}
+
+.scheduled-prefill-activity-runs__header {
+  min-width: 0;
+}
+
+.scheduled-prefill-activity-runs__running
+  > :not(.scheduled-prefill-activity-runs__header):not(.scheduled-prefill-activity-runs__cancel) {
+  grid-column: 1 / -1;
+}
+
+.scheduled-prefill-activity-runs__cancel {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 6.5rem;
+}
+
+/* Run, Result, Games, Size, When, then the details square. Below 768px the row keeps Run and the
+   square on the first line, Result under them, and Games, Size and When folded into one muted line. */
+.scheduled-prefill-activity-runs__recent-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1.2fr)
+    2.5rem;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.scheduled-prefill-activity-runs__meta {
+  font-size: var(--font-size-base);
+  color: var(--theme-text-muted);
+}
+
+@media (max-width: 767.98px) {
+  .scheduled-prefill-activity-runs__running {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scheduled-prefill-activity-runs__running > .scheduled-prefill-activity-runs__cancel {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 0.5rem;
+  }
+
+  .scheduled-prefill-activity-runs__recent-row {
+    grid-template-columns: minmax(0, 1fr) 2.75rem;
+  }
+}

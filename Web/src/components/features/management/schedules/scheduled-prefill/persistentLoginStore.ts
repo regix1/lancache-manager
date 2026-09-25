@@ -50,6 +50,7 @@ interface PersistentLoginStoreState {
    * silently substituting it (the pre-fix cross-session leak). `null` when no login is pinned yet.
    */
   sessionId: string | null;
+  loginId: string | null;
   /**
    * Absolute browser attempt expiry, persisted with session and challenge identity. Null when no
    * attempt is admitted; a cached challenge without matching clock authority remains recoverable
@@ -57,6 +58,13 @@ interface PersistentLoginStoreState {
    */
   loginDeadline: number | null;
   step: AuthStep | null;
+  /**
+   * Why the last attempt ended, when that is not a server failure: 'timedOut' after the attempt's
+   * deadline passed, 'cancelFailed' when the server could not confirm a cancel. Lets the UI word
+   * these differently without reading the error text; a failed cancel is not a failed login, so the
+   * account keeps its real status. Cleared by a reset and when a new attempt starts.
+   */
+  endReason: 'timedOut' | 'cancelFailed' | null;
 }
 
 interface PersistentChallengeFlags {
@@ -102,8 +110,10 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   dismissed: false,
   sessionUnavailableState: null,
   sessionId: null,
+  loginId: null,
   loginDeadline: null,
-  step: null
+  step: null,
+  endReason: null
 };
 
 /**
@@ -207,6 +217,8 @@ interface PersistentLoginEditAction {
 }
 
 const requestedLoginStarts = new Map<PersistentPrefillServiceId, PersistentLoginStartRequest>();
+// Cancel round trips still in flight per service; see usePersistentLoginCanceling.
+const cancelingLogins = new Map<PersistentPrefillServiceId, number>();
 const activeLoginEditActions = new Map<PersistentPrefillServiceId, PersistentLoginEditAction>();
 
 export function setPersistentLoginStartSessionId(
@@ -378,7 +390,8 @@ export function beginPersistentLoginStep(
     ...state,
     step,
     loading: true,
-    error: null
+    error: null,
+    endReason: null
   }));
   return step;
 }
@@ -483,7 +496,8 @@ export function armPersistentLoginTimeout(
         loading: false,
         loginDeadline: null,
         step: null,
-        error: messages.noResult
+        error: messages.noResult,
+        endReason: null
       }));
       return false;
     }
@@ -511,7 +525,8 @@ export function armPersistentLoginTimeout(
   updatePersistentLoginState(service, (state) => ({
     ...state,
     sessionId,
-    loginDeadline: deadline
+    loginDeadline: deadline,
+    endReason: null
   }));
   const epoch = getPersistentLoginEpoch(service);
   const expire = () => {
@@ -526,7 +541,8 @@ export function armPersistentLoginTimeout(
     void endPersistentLogin(service);
     updatePersistentLoginState(service, () => ({
       ...INITIAL_PERSISTENT_LOGIN_STATE,
-      error: messages.timedOut
+      error: messages.timedOut,
+      endReason: 'timedOut'
     }));
   };
   const remaining = deadline - Date.now();
@@ -547,7 +563,7 @@ export function ensurePersistentLoginTimeout(
   if (
     current.loginDeadline === null &&
     current.pendingChallenge === null &&
-    current.error === messages.timedOut
+    current.endReason === 'timedOut'
   )
     return false;
   if (
@@ -636,14 +652,39 @@ export async function endPersistentLogin(
   service: PersistentPrefillServiceId,
   fallbackSessionId?: string | null
 ): Promise<boolean> {
-  const sessionId = getPersistentLoginSessionId(service) ?? fallbackSessionId;
+  const current = getPersistentLoginState(service);
+  const sessionId = current.sessionId ?? fallbackSessionId;
+  const loginId = current.loginId;
+  const loginAttempt = current.pendingChallenge?.loginAttempt ?? null;
   resetPersistentLoginState(service);
   if (!sessionId) {
     return true;
   }
-  return await ApiService.cancelPersistentLogin(service, sessionId).then(
+  if (!loginId && loginAttempt === null) return false;
+  cancelingLogins.set(service, (cancelingLogins.get(service) ?? 0) + 1);
+  notify(service);
+  const identity = loginId ? { loginId, loginAttempt } : { loginAttempt: loginAttempt! };
+  const ended = await ApiService.cancelPersistentLogin(service, sessionId, identity).then(
     () => true,
     () => false
+  );
+  const remaining = cancelingLogins.get(service)! - 1;
+  if (remaining === 0) cancelingLogins.delete(service);
+  else cancelingLogins.set(service, remaining);
+  notify(service);
+  return ended;
+}
+
+/**
+ * True while a cancel round trip for this service is still in flight. The store is already at
+ * rest by then, but the server is still ending the old attempt: its cancel takes no login lock,
+ * and its late answer settles whichever attempt is current. A login started in that window would
+ * be reported cancelled while its prompt is open, so login controls wait for this to clear.
+ */
+export function usePersistentLoginCanceling(service: PersistentPrefillServiceId): boolean {
+  return useSyncExternalStore(
+    (listener) => subscribePersistentLoginState(service, listener),
+    () => cancelingLogins.has(service)
   );
 }
 
@@ -848,6 +889,11 @@ export function usePersistentLoginStoreState(
     (listener) => subscribePersistentLoginState(service, listener),
     () => getPersistentLoginState(service)
   );
+}
+
+/** The error that makes the account read "Login failed"; a failed cancel shows its text but is not one [97]. */
+export function getPersistentLoginFailure(state: PersistentLoginStoreState): string | null {
+  return state.endReason === 'cancelFailed' ? null : state.error;
 }
 
 /**

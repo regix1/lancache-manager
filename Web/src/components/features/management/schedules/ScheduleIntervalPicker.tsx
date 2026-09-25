@@ -5,6 +5,7 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { Button } from '@components/ui/Button';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { getScheduleIntervalOptions } from './constants';
+import { formatIntervalLabel } from './scheduleFormatting';
 import CustomScheduleModal from './custom-schedule/CustomScheduleModal';
 import type { CustomSchedule } from './custom-schedule/types';
 import './ScheduleIntervalPicker.css';
@@ -31,15 +32,6 @@ interface ScheduleIntervalPickerProps {
       closed trigger as plain text for table rows; the field chrome returns on hover,
       keyboard focus and while the menu is open. */
   variant?: 'field' | 'ghost';
-}
-
-function formatIntervalLabel(hours: number, t: ReturnType<typeof useTranslation>['t']): string {
-  if (hours <= 0) return '';
-  if (hours < 1) {
-    const count = Math.round(hours * 60);
-    return t('management.schedules.everyNMinutes', { count });
-  }
-  return t('management.schedules.everyNHours', { count: hours });
 }
 
 function parseCustomMinutes(raw: string): number | null {

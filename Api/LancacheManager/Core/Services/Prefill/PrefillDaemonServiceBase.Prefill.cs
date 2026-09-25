@@ -542,10 +542,14 @@ public abstract partial class PrefillDaemonServiceBase
         try
         {
             if (run.TerminalCompletedFlag != 0) return;
-            if (!run.CancelRequested || (reason is not null && run.CancelReason is null))
+            // The first cancel owns the reason: a sign-out or time limit landing during a user's cancel must not
+            // turn that cancel into a failure [91].
+            if (!run.CancelRequested)
+            {
                 await _sessionService.SetRunCancellationAsync(runId, cancellationToken, reason);
+                run.CancelReason = reason;
+            }
             run.CancelRequested = true;
-            run.CancelReason ??= reason;
             if (session.Recovering) return;
             try
             {

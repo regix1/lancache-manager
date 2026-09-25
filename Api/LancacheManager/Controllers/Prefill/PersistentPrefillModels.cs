@@ -61,6 +61,7 @@ public sealed class PersistentLoginRequest
     public string? EditSessionId { get; init; }
     public string? EditActionId { get; init; }
     public bool ReuseIntegration { get; init; }
+    public Guid? LoginId { get; init; }
 }
 
 public sealed class PersistentPrefillEditSessionCleanupRequest
@@ -122,6 +123,14 @@ public sealed class PersistentCancelLoginRequest
     /// treated as an idempotent no-op (200) that does not touch the currently-active session's login.
     /// </summary>
     public string? SessionId { get; init; }
+
+    /// <summary>
+    /// The <c>loginAttempt</c> of the challenge this cancel belongs to. A cancel for an older attempt is an
+    /// idempotent no-op (200). Null when the caller holds no challenge (Log out during a login that has not
+    /// answered yet), which cancels whatever login is current.
+    /// </summary>
+    public long? LoginAttempt { get; init; }
+    public Guid? LoginId { get; init; }
 }
 
 /// <summary>Request body for stopping a persistent session.</summary>

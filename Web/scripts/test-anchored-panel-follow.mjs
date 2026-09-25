@@ -374,6 +374,7 @@ const followNames = [
 const panelNames = [
   'DEFAULT_ANCHOR_GAP_PX',
   'POSITION_EPSILON_PX',
+  'openPanels',
   'isSamePlacement',
   'placeBelowAnchor',
   'useAnchoredPanel'
@@ -464,6 +465,51 @@ test('anchor and panel changes publish before the next paint boundary', () => {
   assert.deepEqual(run.warnings, []);
   assert.deepEqual(run.observerErrors, []);
   assert.equal(closes, 0);
+  run.dispose();
+});
+
+test('opening a second panel closes the first and the second stays open', () => {
+  const run = createHookRun();
+  const { useAnchoredPanel } = loadPanel(run);
+  const { useState } = run.bindings;
+  const panelProps = (open, setOpen, top) => ({
+    open,
+    anchorRef: { current: makeAnchor(top) },
+    panelRef: { current: null },
+    // A fresh arrow each render, the way callers write it.
+    onClose: () => setOpen(false),
+    gutter: 8
+  });
+  // The panel opened second renders first, as the add menu sits before the actions menu.
+  run.setHook(() => {
+    const [secondOpen, setSecondOpen] = useState(false);
+    const [firstOpen, setFirstOpen] = useState(false);
+    useAnchoredPanel(panelProps(secondOpen, setSecondOpen, 100));
+    useAnchoredPanel(panelProps(firstOpen, setFirstOpen, 200));
+    return { firstOpen, secondOpen, setFirstOpen, setSecondOpen };
+  });
+  run.render({});
+  run.flushPassive();
+
+  run.output.setFirstOpen(true);
+  run.flushOrdinary();
+  run.flushPassive();
+  assert.equal(run.output.firstOpen, true);
+
+  run.output.setSecondOpen(true);
+  run.flushOrdinary();
+  run.flushPassive();
+  assert.equal(run.output.secondOpen, true, 'the panel just opened stays open');
+  assert.equal(run.output.firstOpen, false, 'the panel open before it closes');
+
+  run.output.setSecondOpen(false);
+  run.flushOrdinary();
+  run.flushPassive();
+  run.output.setFirstOpen(true);
+  run.flushOrdinary();
+  run.flushPassive();
+  assert.equal(run.output.firstOpen, true, 'a closed panel no longer closes others');
+  assert.equal(run.output.secondOpen, false);
   run.dispose();
 });
 

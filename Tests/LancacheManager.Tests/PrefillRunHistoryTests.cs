@@ -244,6 +244,205 @@ public sealed class PrefillRunHistoryTests
         Assert.Equal(snapshot.Sequence + 1, row.Sequence);
     }
 
+    [Fact]
+    public async Task FailedGamesReturnsOnlyFailedRowsInSequence()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(fixture);
+        var run = await fixture.StartAsync("10");
+        var other = await fixture.StartAsync("90");
+        var sequence = run.Snapshot.Sequence + 10;
+        await fixture.History.SaveRunAsync(run, run.Snapshot with
+        { Sequence = sequence + 10, State = "completed", UpdatedAt = DateTimeOffset.UtcNow },
+        [
+            new DaemonRunItem { AppId = "40", Name = "Delta", Sequence = sequence + 4, Result = "failed", Reason = "runtime-exceeded" },
+            new DaemonRunItem { AppId = "30", Name = "Charlie", Sequence = sequence + 3, Result = "failed" },
+            new DaemonRunItem { AppId = "20", Name = "Bravo", Sequence = sequence + 2, Result = "success" },
+            new DaemonRunItem { AppId = "10", Name = "Alpha", Sequence = sequence + 1, Result = "failed", Reason = "auth-lost" }
+        ], true, CancellationToken.None);
+        await fixture.History.SaveRunAsync(other, other.Snapshot with
+        { Sequence = other.Snapshot.Sequence + 10, State = "completed", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "90", Sequence = other.Snapshot.Sequence + 10, Result = "failed", Reason = "stalled" }],
+        true, CancellationToken.None);
+
+        var games = await fixture.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+
+        Assert.NotNull(games);
+        Assert.Equal(["10", "30", "40"], games.Select(game => game.AppId));
+        Assert.Equal(["Alpha", "Charlie", "Delta"], games.Select(game => game.Name));
+        Assert.Equal(["errors.prefill.signInLost", "errors.prefill.gameDownloadFailed", "signalr.scheduledPrefill.failedMaxRuntime"],
+            games.Select(game => game.ReasonKey));
+    }
+
+    [Fact]
+    public async Task FailedGamesIncludesGamesLeftUnfinishedByStalledRun()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(fixture);
+        var run = await fixture.StartAsync("10");
+        var sequence = run.Snapshot.Sequence + 10;
+        await fixture.History.SaveRunAsync(run, run.Snapshot with
+        { Sequence = sequence + 10, State = "failed", Reason = "stalled", UpdatedAt = DateTimeOffset.UtcNow },
+        [
+            new DaemonRunItem { AppId = "10", Sequence = sequence + 1, Result = "success" },
+            new DaemonRunItem { AppId = "20", Name = "Pending game", Sequence = sequence + 2 }
+        ], true, CancellationToken.None);
+
+        var games = await fixture.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+
+        var game = Assert.Single(games!);
+        Assert.Equal("20", game.AppId);
+        Assert.Equal("signalr.scheduledPrefill.failedStalled", game.ReasonKey);
+    }
+
+    [Fact]
+    public async Task FailedGamesIncludesGamesTheDaemonMarkedCancelledOrSkippedWhenTheRunFailed()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(fixture);
+        var stalled = await fixture.StartAsync("10");
+        var sequence = stalled.Snapshot.Sequence + 10;
+        // The daemon's terminal page after a server cancel: every game without a result is cancelled.
+        await fixture.History.SaveRunAsync(stalled, stalled.Snapshot with
+        { Sequence = sequence + 10, State = "failed", Reason = "stalled", UpdatedAt = DateTimeOffset.UtcNow },
+        [
+            new DaemonRunItem { AppId = "10", Sequence = sequence + 1, Result = "success" },
+            new DaemonRunItem { AppId = "20", Name = "In flight", Sequence = sequence + 2, State = "cancelled", Result = "cancelled", Reason = "notAttempted", BytesTransferred = 5 },
+            new DaemonRunItem { AppId = "30", Name = "Queued", Sequence = sequence + 3, State = "cancelled", Result = "cancelled", Reason = "notAttempted" }
+        ], true, CancellationToken.None);
+        var signedOut = await fixture.StartAsync("40");
+        sequence = signedOut.Snapshot.Sequence + 10;
+        // The daemon failed the run itself: unfinished games are skipped with the run's reason.
+        var unfinishedItem = new DaemonRunItem { AppId = "40", Name = "Unfinished", Sequence = sequence + 1, State = "skipped", Result = "skipped", Reason = "auth-lost" };
+        await fixture.History.SaveRunAsync(signedOut, signedOut.Snapshot with
+        { Sequence = sequence + 10, State = "failed", Reason = "auth-lost", CurrentItem = unfinishedItem, UpdatedAt = DateTimeOffset.UtcNow },
+        [
+            unfinishedItem,
+            new DaemonRunItem { AppId = "45", Sequence = sequence + 2, State = "skipped", Result = "skipped", Reason = "auth-lost" },
+            new DaemonRunItem { AppId = "50", Sequence = sequence + 3, State = "skipped", Result = "skipped", Reason = "skippedOverlap" }
+        ], true, CancellationToken.None);
+        var canceled = await fixture.StartAsync("60");
+        sequence = canceled.Snapshot.Sequence + 10;
+        await fixture.History.SaveRunAsync(canceled, canceled.Snapshot with
+        { Sequence = sequence + 10, State = "cancelled", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "60", Sequence = sequence + 1, State = "cancelled", Result = "cancelled", Reason = "notAttempted" }],
+        true, CancellationToken.None);
+
+        var stalledGames = await fixture.History.GetFailedGamesAsync(stalled.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+        var signedOutGames = await fixture.History.GetFailedGamesAsync(signedOut.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+        var canceledGames = await fixture.History.GetFailedGamesAsync(canceled.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+
+        var inFlight = Assert.Single(stalledGames!);
+        Assert.Equal("20", inFlight.AppId);
+        Assert.Equal("signalr.scheduledPrefill.failedStalled", inFlight.ReasonKey);
+        var unfinished = Assert.Single(signedOutGames!);
+        Assert.Equal("40", unfinished.AppId);
+        Assert.Equal("errors.prefill.signInLost", unfinished.ReasonKey);
+        Assert.Empty(canceledGames!);
+    }
+
+    [Fact]
+    public async Task FailedGamesListsGameInFlightWhenRunFailedWithoutOrWithUnnamedReason()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(fixture);
+        var noCode = await fixture.StartAsync("10");
+        var sequence = noCode.Snapshot.Sequence + 10;
+        // The daemon failed the run on an exception that carries no error code.
+        var downloading = new DaemonRunItem { AppId = "10", Name = "Downloading", Sequence = sequence + 1, State = "skipped", Result = "skipped", Reason = "notAttempted" };
+        await fixture.History.SaveRunAsync(noCode, noCode.Snapshot with
+        { Sequence = sequence + 10, State = "failed", CurrentItem = downloading, UpdatedAt = DateTimeOffset.UtcNow },
+        [
+            downloading,
+            new DaemonRunItem { AppId = "20", Sequence = sequence + 2, State = "skipped", Result = "skipped", Reason = "notAttempted" }
+        ], true, CancellationToken.None);
+        var changed = await fixture.StartAsync("30");
+        sequence = changed.Snapshot.Sequence + 10;
+        await fixture.History.SaveRunAsync(changed, changed.Snapshot with
+        { Sequence = sequence + 10, State = "failed", Reason = "instance-changed", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "30", Sequence = sequence + 1, State = "cancelled", Result = "cancelled", Reason = "notAttempted", BytesTransferred = 7 }],
+        true, CancellationToken.None);
+
+        var noCodeGames = await fixture.History.GetFailedGamesAsync(noCode.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+        var changedGames = await fixture.History.GetFailedGamesAsync(changed.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+
+        var game = Assert.Single(noCodeGames!);
+        Assert.Equal("10", game.AppId);
+        Assert.Equal("errors.prefill.gameDownloadFailed", game.ReasonKey);
+        Assert.Equal("errors.prefill.instanceChanged", Assert.Single(changedGames!).ReasonKey);
+    }
+
+    [Fact]
+    public async Task FailedGamesIsEmptyForRunWithoutFailures()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(fixture);
+        var run = await fixture.StartAsync("10");
+        await fixture.History.SaveRunAsync(run, run.Snapshot with
+        { Sequence = run.Snapshot.Sequence + 10, State = "completed", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "10", Sequence = run.Snapshot.Sequence + 10, Result = "success" }],
+        true, CancellationToken.None);
+
+        var games = await fixture.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+
+        Assert.NotNull(games);
+        Assert.Empty(games);
+    }
+
+    [Fact]
+    public async Task FailedGamesIsNullForAnotherServiceGuestSessionOrUnknownRun()
+    {
+        await using var persistent = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(persistent);
+        var run = await persistent.StartAsync("10");
+        await using var guest = await RunFixture.CreateAsync();
+        var guestRun = await guest.StartAsync("10");
+
+        Assert.Null(await persistent.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Epic, CancellationToken.None));
+        Assert.Null(await guest.History.GetFailedGamesAsync(guestRun.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None));
+        Assert.Null(await persistent.History.GetFailedGamesAsync(Guid.NewGuid(), PrefillPlatform.Steam, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task FailedGamesReadsRunOfEndedSession()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await MarkPersistentAsync(fixture);
+        var run = await fixture.StartAsync("10");
+        await fixture.History.SaveRunAsync(run, run.Snapshot with
+        { Sequence = run.Snapshot.Sequence + 10, State = "completed", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "10", Sequence = run.Snapshot.Sequence + 10, Result = "failed", Reason = "game-details-unavailable" }],
+        true, CancellationToken.None);
+        await using (var context = new AppDbContext(fixture.Options))
+        {
+            var session = await context.PrefillSessions.SingleAsync(row => row.SessionId == fixture.Session.Id);
+            session.Status = PrefillSessionStatus.Terminated;
+            session.EndedAtUtc = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+
+        var games = await fixture.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
+
+        Assert.Equal("errors.prefill.gameDetailsUnavailable", Assert.Single(games!).ReasonKey);
+    }
+
+    [Fact]
+    public void DaemonCommandStageKeysKeepTheirValues()
+    {
+        Assert.Equal("errors.prefill.runLimit", new DaemonCommandException("run-limit").StageKey);
+        Assert.Equal("errors.steam.signInLost", new DaemonCommandException("auth-lost").StageKey);
+        Assert.Equal("errors.prefill.requestFailed", new DaemonCommandException("unknown-code").StageKey);
+    }
+
+    private static async Task MarkPersistentAsync(RunFixture fixture)
+    {
+        await using var context = new AppDbContext(fixture.Options);
+        var session = await context.PrefillSessions.SingleAsync(row => row.SessionId == fixture.Session.Id);
+        session.IsPersistent = true;
+        session.Platform = PrefillPlatform.Steam;
+        await context.SaveChangesAsync();
+    }
+
     private sealed class RunSave(bool retry) : SaveChangesInterceptor
     {
         private int _saved;

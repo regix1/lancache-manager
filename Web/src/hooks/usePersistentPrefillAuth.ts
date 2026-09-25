@@ -6,6 +6,7 @@ import ApiService, {
 } from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
+import { createUuid } from '@utils/uuid';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import { loginAttemptTimeoutMs } from './loginAttemptTimeout';
@@ -529,6 +530,20 @@ export function usePersistentPrefillAuth(
       setPersistentLoginCancelled(service, false);
       const submitted = beginPersistentLoginStep(service, 'start');
       if (!submitted) return getPersistentLoginState(service).pendingChallenge;
+      const loginId = createUuid();
+      updatePersistentLoginState(service, (state) => ({ ...state, loginId }));
+      const startRequest = consumePersistentLoginStartRequest(service);
+      const startSessionId = startRequest?.sessionId ?? getPersistentLoginState(service).sessionId;
+      const cancelStale = async (response?: unknown): Promise<void> => {
+        const sessionId = startSessionId ?? extractPersistentSessionId(response);
+        if (!sessionId) return;
+        const loginAttempt = isPersistentLoginCredentialChallenge(response)
+          ? (response.loginAttempt ?? null)
+          : null;
+        await ApiService.cancelPersistentLogin(service, sessionId, { loginId, loginAttempt }).catch(
+          () => undefined
+        );
+      };
       // Captured AFTER the synchronous writes above: every reset path (container stop/start, the
       // cleanup retire, an explicit cancel, the overall timeout) bumps the store's login epoch, so
       // comparing against this snapshot below tells this attempt that the store no longer belongs
@@ -537,18 +552,23 @@ export function usePersistentPrefillAuth(
       const startEpoch = getPersistentLoginEpoch(service);
 
       try {
-        const startRequest = consumePersistentLoginStartRequest(service);
         const challenge = await ApiService.startPersistentLogin(
           service,
           startRequest?.sessionId,
           startRequest?.editSessionId,
           startRequest?.editActionId,
-          startRequest?.reuseIntegration
+          startRequest?.reuseIntegration,
+          loginId
         );
         const epochStale = getPersistentLoginEpoch(service) !== startEpoch;
-        if (isPersistentLoginSuspended()) return null;
-        if (!epochStale && getPersistentLoginState(service).step?.actionId !== submitted.actionId)
+        if (isPersistentLoginSuspended()) {
+          if (epochStale) await cancelStale(challenge);
           return null;
+        }
+        if (!epochStale && getPersistentLoginState(service).step?.actionId !== submitted.actionId) {
+          await cancelStale(challenge);
+          return null;
+        }
         if (epochStale || isPersistentLoginCancelled(service)) {
           if (!epochStale) {
             // Same attempt, an explicit cancel racing this response (cancel() sets the flag before
@@ -560,16 +580,9 @@ export function usePersistentPrefillAuth(
           }
           // Either way the daemon answered a login attempt that no longer has an owner - tear a
           // late challenge down so its daemon login is not left running orphaned.
-          // cancelPersistentLogin is idempotent and session-pinned, so this can never cancel a
-          // newer attempt's login.
-          if (isPersistentLoginCredentialChallenge(challenge)) {
-            const cancelSessionId = extractPersistentSessionId(challenge);
-            if (cancelSessionId) {
-              await ApiService.cancelPersistentLogin(service, cancelSessionId).catch(
-                () => undefined
-              );
-            }
-          }
+          // cancelPersistentLogin is idempotent, session-pinned and names this challenge's attempt,
+          // so this can never cancel a newer attempt's login.
+          await cancelStale(challenge);
           return null;
         }
         if (isPersistentLoginAuthenticatedResponse(challenge)) {
@@ -589,13 +602,17 @@ export function usePersistentPrefillAuth(
         return null;
       } catch (err) {
         if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== startEpoch) {
+          if (getPersistentLoginEpoch(service) !== startEpoch) await cancelStale();
           // The flow this call belonged to was already reset/superseded - its failure (typically
           // the backend's "Login timeout" 400 for a container that has since been stopped) is not
           // the current attempt's failure. Discard it instead of writing a stale error over live
           // state.
           return null;
         }
-        if (getPersistentLoginState(service).step?.actionId !== submitted.actionId) return null;
+        if (getPersistentLoginState(service).step?.actionId !== submitted.actionId) {
+          await cancelStale();
+          return null;
+        }
         if (isPersistentLoginBusyError(err)) {
           // A retryable ending, not a broken login: another attempt already holds this session's
           // login. The persistent session is shared per service rather than per user, so the other
@@ -649,11 +666,19 @@ export function usePersistentPrefillAuth(
     // settlement as stale and discards it.
     const ending = endPersistentLogin(service);
     const epoch = getPersistentLoginEpoch(service);
-    await ending;
-    // The store half is already at rest; this clears the credentials typed into the form, which is
-    // this hook's own state and not the store's.
-    if (getPersistentLoginEpoch(service) === epoch) resetAuthForm();
-  }, [resetAuthForm, service]);
+    const ended = await ending;
+    // A newer attempt moved the epoch before this cancel settled; leave its state alone.
+    if (getPersistentLoginEpoch(service) !== epoch) return;
+    // The reset clears the typed credentials and the store; the failed-cancel error is written after
+    // it with no await between, so the reset cannot erase it.
+    resetAuthForm();
+    if (!ended)
+      updatePersistentLoginState(service, (current) => ({
+        ...current,
+        error: t('prefill.persistent.loginNotCanceled'),
+        endReason: 'cancelFailed'
+      }));
+  }, [resetAuthForm, service, t]);
 
   const cancelPendingRequest = useCallback(() => {
     void cancel();

@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface ConfirmationModalProps {
   opened: boolean;
@@ -11,6 +12,8 @@ interface ConfirmationModalProps {
   title: string;
   children: React.ReactNode;
   confirmLabel?: string;
+  /** Label for the Cancel button, for a dialog whose way out means something other than "Cancel". */
+  cancelLabel?: string;
   confirmColor?:
     | 'destructive'
     | 'run'
@@ -31,6 +34,12 @@ interface ConfirmationModalProps {
    */
   confirmBusy?: boolean;
   /**
+   * Says what the dialog is waiting on while `loading` or `confirmBusy` is set. When given, the
+   * spinner moves out of the confirm button to this line at the start of the actions row, and the
+   * button only goes disabled with its label kept. Unset keeps the spinner inside the button.
+   */
+  busyLabel?: string;
+  /**
    * Replaces the default warning triangle in the title row. Pass a `w-6 h-6` icon when the dialog
    * needs a stronger or gentler signal than "caution" — e.g. a red trash for a permanent delete, or
    * a shield for lifting a ban. The default suits any ordinary destructive confirmation.
@@ -47,14 +56,17 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   title,
   children,
   confirmLabel,
+  cancelLabel,
   confirmColor = 'destructive',
   loading = false,
   confirmDisabled = false,
   confirmBusy = false,
+  busyLabel,
   icon,
   size = 'md'
 }) => {
   const { t } = useTranslation();
+  const busy = loading || confirmBusy;
 
   return (
     <Modal
@@ -78,22 +90,28 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         {children}
 
         <div className="confirmation-modal__actions">
+          {busyLabel && busy && (
+            <span className="confirmation-modal__status" role="status">
+              <LoadingSpinner inline size="xs" />
+              {busyLabel}
+            </span>
+          )}
           <Button
             variant="default"
             onClick={onClose}
             disabled={loading}
             className="min-h-[44px] sm:min-h-10"
           >
-            {t('common.cancel')}
+            {cancelLabel ?? t('common.cancel')}
           </Button>
           <Button
             variant="filled"
             color={confirmColor}
             onClick={onConfirm}
-            loading={loading || confirmBusy}
+            loading={!busyLabel && busy}
             stableWidth
-            disabled={confirmDisabled}
-            aria-busy={loading || confirmBusy}
+            disabled={busyLabel ? confirmDisabled || busy : confirmDisabled}
+            aria-busy={busy}
             className="min-h-[44px] sm:min-h-10"
           >
             {confirmLabel || t('common.confirm')}

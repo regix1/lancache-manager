@@ -39,7 +39,7 @@ export const PersistentLoginCountdown = memo(function PersistentLoginCountdown({
 
   return (
     <p
-      className={`text-xs ${isFinalStretch ? 'text-warning-text' : 'text-themed-muted'} text-center tabular-nums`}
+      className={`ml-auto whitespace-nowrap text-xs ${isFinalStretch ? 'text-warning-text' : 'text-themed-muted'} tabular-nums`}
     >
       {/* Zero gets a finished sentence of its own instead of being poured into "expires in
           {{time}}". formatTimeRemaining answers zero with a word, not a duration, so the two

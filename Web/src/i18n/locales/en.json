@@ -599,7 +599,9 @@
       "hoursAgo": "{{count}}h ago",
       "daysAgo": "{{count}}d ago",
       "invalidDate": "Invalid Date"
-    }
+    },
+    "keepEditing": "Keep editing",
+    "waitingForCode": "Waiting for your code"
   },
   "tooltips": {
     "dragToReorder": "Drag to reorder",
@@ -3941,20 +3943,14 @@
               "customSchedule": "custom schedule"
             },
             "configure": "Configure",
-            "modalTitle": "{{service}} · {{name}}",
-            "modalDescription": "Edit this schedule, then save it. Run the saved schedule from its row.",
             "servicesTitle": "Services",
             "records": {
-              "label": "Saved schedule",
               "name": "Schedule name",
               "new": "Add",
               "newName": "New schedule",
               "open": "Open",
               "edit": "Edit schedule",
               "run": "Run schedule",
-              "manageContainer": "Manage container",
-              "menuAdd": "Add {{service}} schedule",
-              "addForService": "Add schedule for {{service}}",
               "duplicate": "Duplicate",
               "enable": "Enable",
               "disable": "Disable",
@@ -3965,15 +3961,16 @@
               "deleteBody": "Deletes this saved schedule. It does not stop or delete the service container.",
               "lastRecord": "Keep at least one schedule for this service.",
               "missing": "This schedule no longer exists. Close this dialog and refresh the schedules.",
-              "empty": "No saved schedules for {{service}}.",
               "saveAs": "Copy",
               "copySuffix": "copy",
               "nameRequired": "Enter a schedule name before saving.",
               "nameTaken": "A schedule named \"{{name}}\" already exists for {{service}}. Choose a different name.",
               "enabled": "{{service}} schedule \"{{name}}\" is now enabled.",
               "disabled": "{{service}} schedule \"{{name}}\" is now disabled.",
-              "confirmEnabledSaveTitle": "Save changes to an enabled schedule?",
-              "confirmEnabledSaveBody": "Save changes to {{service}} schedule “{{name}}”? Its next due run uses these settings."
+              "addSchedule": "Add schedule",
+              "runNeedsEnable": "Enable the schedule to run it.",
+              "runAlreadyRunning": "This schedule is already running.",
+              "deleting": "Deleting..."
             },
             "enabled": "Enabled",
             "service": "Service",
@@ -3993,7 +3990,7 @@
             "anonymousReady": "No login required",
             "logIn": "Log in",
             "loginToSteam": "Log in to Steam",
-            "loginToEpic": "Log in to Epic",
+            "loginToEpic": "Log in to Epic Games",
             "loginToXbox": "Log in to Xbox",
             "save": "Save schedule",
             "saving": "Saving schedule...",
@@ -4020,22 +4017,22 @@
             "actions": {
               "configure": "Configure",
               "viewActivity": "View activity",
-              "sharedSettings": "Shared container settings",
-              "save": "Save schedule",
+              "sharedSettings": "Container settings",
+              "save": "Save",
               "saving": "Saving schedule...",
               "forceDownload": "Download even if already cached",
               "selectGames": "Select games",
-              "clearGames": "Clear selection"
+              "clearGames": "Clear selection",
+              "allServicesGroup": "All services"
             },
             "discardChanges": {
-              "confirmTitle": "Discard your changes?",
+              "confirmTitle": "Discard changes?",
               "confirmBody": "Discards only unsaved changes in this dialog.",
-              "confirmButton": "Discard changes"
+              "confirmButton": "Discard"
             },
-            "containerModalTitle": "{{service}} container",
             "containerModalDescription": "This container is shared by all {{service}} schedules.",
-            "activityTitle": "Scheduled Prefill activity",
-            "activityDescription": "Active downloads and run history for every service.",
+            "activityTitle": "Activity",
+            "activityDescription": "What is downloading now, and how recent runs ended.",
             "persistentContainer": {
               "help": "Long-lived container for game library, login, and downloads. The current Steam container runs one prefill at a time and downloads games sequentially. Connections controls requests for the current game.",
               "error": "Persistent prefill container action failed: {{error}}",
@@ -4087,16 +4084,17 @@
             "selectedGames": {
               "count": "{{count}} games selected",
               "overridePreset": "Specific game selection overrides the preset for this service.",
-              "requiresPersistentContainer": "Save or close this schedule, then start its container from Manage the service container.",
-              "signInToSelectGames": "Sign in to select games. Use {{actions}} → {{manageContainer}}.",
-              "error": "Failed to load game selection: {{error}}"
+              "requiresPersistentContainer": "Start the container first. Use Start on its row under Services.",
+              "signInToSelectGames": "Log in to {{service}} first. Use Log in on its row under Services.",
+              "error": "Failed to load game selection: {{error}}",
+              "startContainerFirst": "Start the {{service}} container first. Use Start on its row under Services."
             },
             "settings": {
-              "title": "Shared container settings",
+              "title": "Container settings",
               "loadError": "Failed to load the settings: {{error}}",
               "saveError": "Failed to save the settings: {{error}}",
               "description": "Applies to all service containers.",
-              "save": "Save settings",
+              "save": "Save",
               "overrideNote": "These services use saved restart overrides: {{services}}.",
               "partialSave": "Some settings were saved. Retry the fields that still show an error.",
               "loading": "Loading settings...",
@@ -4124,7 +4122,11 @@
                 "confirmButton": "Clear logins",
                 "success": "Stored logins cleared.",
                 "partialFailure": "Cleared logins for {{total}} service(s), but {{failedCount}} failed: {{services}}."
-              }
+              },
+              "sections": {
+                "login": "Login"
+              },
+              "saving": "Saving..."
             },
             "platforms": {
               "description": "Pick a platform to configure everything for that service in one view.",
@@ -4133,10 +4135,11 @@
                 "loginRequired": "Login required"
               },
               "sections": {
-                "download": "Download settings",
+                "download": "Download",
                 "notifications": "Notifications",
                 "persistentContainer": "Persistent container",
-                "schedule": "Schedule settings"
+                "schedule": "Schedule",
+                "games": "Games"
               },
               "status": {
                 "enabled": "Enabled",
@@ -4215,6 +4218,85 @@
               "cleanupPending": "Previous container changes could not be cleared. Retry this action.",
               "recordAction": "Could not update this schedule.",
               "sharedSettings": "Could not save the shared container settings."
+            },
+            "runAll": "Run all",
+            "schedulesTitle": "Schedules",
+            "scheduleColumn": "Schedule",
+            "statusColumn": "Status",
+            "serviceStatus": {
+              "checking": "Checking",
+              "starting": "Starting",
+              "stopping": "Stopping",
+              "runCount_one": "{{count}} run",
+              "runCount_other": "{{count}} runs",
+              "checkedAfterStart": "Checked after start",
+              "loginExpired": "Login expired",
+              "loggingIn": "Logging in",
+              "loggingOut": "Logging out",
+              "cancelingLogin": "Canceling login",
+              "loginFailed": "Login failed",
+              "reloginBy": "re-login by {{date}}",
+              "loadFailed": "Couldn't read container status",
+              "unknownUntilLoaded": "The service states below are unknown until this loads.",
+              "hiddenUntilLoaded": "Start and login stay hidden until the status loads."
+            },
+            "serviceActions": {
+              "start": "Start",
+              "manage": "Manage"
+            },
+            "scheduleMeta": {
+              "waitsForLogin": "Waits for {{service}} login",
+              "runs": "runs {{when}}",
+              "ran": "ran {{when}}",
+              "neverRan": "never ran"
+            },
+            "account": {
+              "loginHelp": "Log in with the {{service}} account this container downloads with.",
+              "logoutWhileDownloading": "Log out is available when downloads finish.",
+              "savedLoginInProgress": "Logging in with your saved login",
+              "savedLoginWait": "Both login buttons wait until this finishes.",
+              "anonymous": "{{service}} downloads without an account.",
+              "loggedInNote": {
+                "title": "Logged in to {{service}}",
+                "body": "{{service}} schedules can download now."
+              }
+            },
+            "editTitle": "Edit {{service}} schedule",
+            "newTitle": "New {{service}} schedule",
+            "activity": {
+              "allServices": "All services",
+              "runningNow": "Running now",
+              "recentRuns": "Recent runs",
+              "started": "started {{time}}",
+              "slot": "slot {{slot}} of {{limit}}",
+              "gameOf": "game {{current}} of {{total}}",
+              "sizeOf": "{{done}} of {{total}}",
+              "timeLeft": "about {{time}} left on this game",
+              "canceling": "Canceling",
+              "canceled": "Canceled",
+              "finishedWithFailures_one": "Finished, {{count}} failed",
+              "finishedWithFailures_other": "Finished, {{count}} failed",
+              "downloaded_one": "{{count}} downloaded",
+              "downloaded_other": "{{count}} downloaded",
+              "cached_one": "{{count}} cached",
+              "cached_other": "{{count}} cached",
+              "failed_one": "{{count}} failed",
+              "failed_other": "{{count}} failed",
+              "ranFor": "ran {{duration}}",
+              "finishedLabel": "Finished",
+              "columns": {
+                "run": "Run",
+                "result": "Result",
+                "games": "Games",
+                "size": "Size",
+                "when": "When"
+              },
+              "noRunning": "Nothing is downloading. A run shows here as soon as a schedule starts.",
+              "noRecent": "Completed, canceled and failed runs will appear here.",
+              "failedGames": "Failed games",
+              "loadingFailedGames": "Loading failed games",
+              "failedGamesLoadFailed": "Couldn't load the failed games.",
+              "noFailedGames": "No failed games were recorded for this run."
             }
           },
           "events": {
@@ -4763,10 +4845,8 @@
       "history": "Run history",
       "configuration": "Configuration",
       "downloads": "Downloads",
-      "scope": "All {{service}} schedules on this persistent container.",
       "active": "Active downloads",
       "noActive": "No active downloads",
-      "noActiveHelp": "Start a download from Configuration or wait for a saved schedule.",
       "noHistory": "Completed, cancelled and failed runs will appear here.",
       "capacity_one": "{{count}} of {{limit}} simultaneous download active",
       "capacity_other": "{{count}} of {{limit}} simultaneous downloads active",
@@ -4793,6 +4873,9 @@
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
       "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
       "loginTimedOut": "Login timed out. Please try again.",
+      "loginTimedOutTitle": "Login timed out",
+      "loginTimedOutBody_one": "The code was not entered within {{count}} minute. Log in again.",
+      "loginTimedOutBody_other": "The code was not entered within {{count}} minutes. Log in again.",
       "loginBusy": "Another login for this service is already in progress. Wait for it to finish, or try again shortly.",
       "cancelLoginFailed": "Could not cancel the login already in progress. The container may still be waiting for a code. Please try logging out again.",
       "services": {
@@ -4815,7 +4898,7 @@
       "reloginRequiredBy": "Re-login required by",
       "timeRemaining": "{{time}} remaining",
       "signInExpired": "Sign-in has expired",
-      "loginTimeRemaining": "Login attempt expires in {{time}}",
+      "loginTimeRemaining": "Expires in {{time}}",
       "loginAttemptExpired": "Login attempt has expired",
       "needsRelogin": "Login expired. Please log in again.",
       "actions": {
@@ -4828,7 +4911,8 @@
       "errors": {
         "noPendingChallenge": "No pending credential challenge",
         "noResult": "Persistent login did not return a challenge or authentication result. Please try again."
-      }
+      },
+      "loginNotCanceled": "Could not cancel the login. The container may still be waiting for a code; start the login again or stop the container."
     },
     "home": {
       "title": "Game Prefill",
@@ -5221,9 +5305,9 @@
         "deadlineReached": "The cache check did not finish before its deadline.",
         "authenticationRequired": "Sign in to verify this game's cache status."
       },
-      "title": "Select Games to Prefill",
+      "title": "Select games",
       "importAppIds": "Import App IDs",
-      "showCached": "Show Cached",
+      "showCached": "Show cached",
       "clearAllCached": "Clear cached",
       "usingCached": "Using cached results (last scan < 5 min ago)",
       "rescan": "Rescan",
@@ -5259,11 +5343,12 @@
       "appId": "App ID: {{id}}",
       "cachedBadge": "Cached",
       "removeFromCache": "Remove {{name}} from cache",
-      "saveSelection": "Save Selection",
+      "saveSelection": "Save selection",
+      "saving": "Saving...",
       "discardChanges": {
-        "confirmTitle": "Discard game selection changes?",
+        "confirmTitle": "Discard changes?",
         "confirmBody": "Your unsaved game selection changes will be discarded.",
-        "confirmButton": "Discard changes"
+        "confirmButton": "Discard"
       }
     },
     "placeholders": {
@@ -5401,7 +5486,7 @@
       }
     },
     "steamAuth": {
-      "title": "Steam Account Login",
+      "title": "Log in to Steam",
       "signInTitle": "Sign in",
       "connectingSubtitle": "Waiting for Steam",
       "containerAccountNotice": "This is the container's Steam account, not your LANCache Manager login.",
@@ -5419,14 +5504,17 @@
       "mobileConfirmation": {
         "title": "Approve the sign-in on your phone",
         "waiting": "Waiting for your approval",
-        "phoneOnly": "Steam chose phone approval for this sign-in, so there is no code to enter here. Cancel and start again if you cannot reach your phone."
+        "phoneOnly": "Steam chose phone approval for this sign-in, so there is no code to enter here. Cancel and start again if you cannot reach your phone.",
+        "phoneOrCode": "Approve the sign-in in the Steam app on your phone, or enter a code instead."
       },
       "emailVerification": {
-        "title": "Check your email"
+        "title": "Check your email",
+        "help": "Steam sent a code to the account's email address."
       },
       "twoFactor": {
         "title": "Enter your Steam Guard code",
-        "leaveEmptyHint": "Leave it empty to approve on your phone instead."
+        "leaveEmptyHint": "Leave it empty to approve on your phone instead.",
+        "help": "Open the Steam app and copy the code."
       },
       "security": {
         "description": "Your password goes to Steam and is never stored."
@@ -5436,7 +5524,7 @@
         "authenticating": "Authenticating...",
         "verify": "Verify",
         "confirm": "Confirm",
-        "login": "Login"
+        "login": "Log in"
       },
       "errors": {
         "authenticationFailed": "Authentication failed",
@@ -5451,28 +5539,48 @@
       },
       "success": {
         "authenticatedAs": "Successfully authenticated as {{username}}"
-      }
+      },
+      "steps": {
+        "signIn": "Sign in",
+        "verify": "Verify",
+        "guard": "Steam Guard",
+        "email": "Email code",
+        "phone": "Phone approval"
+      },
+      "status": {
+        "credentials": "Waiting for your sign-in"
+      },
+      "connectingHelp": "The sign-in form appears when the Steam container answers."
     },
     "epicAuth": {
-      "title": "Epic Games Account Login",
+      "title": "Log in to Epic Games",
       "containerAccountNotice": "This is the container's Epic Games account, not your LANCache Manager login.",
       "signInTitle": "Sign in with Epic Games",
       "signInDescription": "You sign in at Epic, then paste a code here.",
       "connectingSubtitle": "Getting your sign-in link",
       "enterCodeTitle": "Get your code from Epic",
-      "openEpicLogin": "Open the sign-in page",
+      "openEpicLogin": "Open Epic sign-in page",
       "authorizationCodeLabel": "Authorization Code",
       "authorizationCodePlaceholder": "Paste your authorization code here",
       "authenticatingMessage": "Checking your code",
       "actions": {
         "authenticating": "Authenticating...",
-        "submitCode": "Submit Code",
+        "submitCode": "Submit code",
         "connecting": "Connecting...",
         "continue": "Continue"
+      },
+      "steps": {
+        "link": "Get sign-in link",
+        "code": "Enter code"
+      },
+      "instructions": {
+        "open": "Open Epic's sign-in page and sign in.",
+        "copy": "Copy the authorization code Epic shows.",
+        "paste": "Paste it below and submit."
       }
     },
     "xboxAuth": {
-      "title": "Xbox Account Login",
+      "title": "Log in to Xbox",
       "containerAccountNotice": "This is the container's Xbox account, not your LANCache Manager login.",
       "signInTitle": "Sign in with Microsoft",
       "signInDescription": "You enter a code and your password at Microsoft.",
@@ -5480,7 +5588,7 @@
       "enterCodeTitle": "Enter this code on Microsoft's page",
       "codeCopied": "Copied",
       "copyFailed": "Copy failed",
-      "openVerification": "Open the verification page",
+      "openVerification": "Open Microsoft page",
       "waitingMessage": "Waiting for you to approve",
       "errors": {
         "loginFailed": "The Xbox sign-in did not go through."
@@ -5488,6 +5596,17 @@
       "actions": {
         "connecting": "Connecting...",
         "continue": "Continue"
+      },
+      "steps": {
+        "code": "Get code",
+        "approve": "Approve at Microsoft"
+      },
+      "copyCode": "Copy code",
+      "yourCode": "Your code",
+      "instructions": {
+        "open": "Open Microsoft's page and enter the code.",
+        "approve": "Sign in with the Xbox account and approve.",
+        "closes": "This window closes by itself when Microsoft confirms."
       }
     },
     "cacheRemoval": {
@@ -7962,7 +8081,11 @@
       "instanceChanged": "The prefill daemon restarted. Its previous runs were interrupted.",
       "ambiguousOperation": "Choose which prefill run to cancel.",
       "outcomeUnknown": "The outcome of this prefill could not be recovered.",
-      "startUnavailable": "The container could not start the prefill. Try again."
+      "startUnavailable": "The container could not start the prefill. Try again.",
+      "gameDownloadFailed": "This game did not finish downloading.",
+      "signInLost": "The service account was signed out before this finished. Log in again, then run it again.",
+      "gameDetailsUnavailable": "The service did not return details for this game.",
+      "runNotFound": "This run is no longer stored, so its failed games cannot be shown."
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."

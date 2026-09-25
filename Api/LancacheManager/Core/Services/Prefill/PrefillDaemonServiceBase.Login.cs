@@ -87,7 +87,8 @@ public abstract partial class PrefillDaemonServiceBase
                     timeout: null,
                     abandonedLoginCleanup,
                     onCommandDispatched: null,
-                    cancellationToken);
+                    cancellationToken,
+                    loginId: null);
                 switch (result.Outcome)
                 {
                     case LoginAttemptOutcome.Authenticated:
@@ -247,7 +248,8 @@ public abstract partial class PrefillDaemonServiceBase
         TimeSpan? timeout,
         Action onCommandDispatched,
         Guid ownerSessionId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? loginId = null)
     {
         return StartLoginEntryAsync(
             sessionId,
@@ -256,7 +258,8 @@ public abstract partial class PrefillDaemonServiceBase
             onCommandDispatched,
             reuseIntegration: false,
             ownerSessionId,
-            cancellationToken);
+            cancellationToken,
+            loginId: loginId);
     }
 
     /// <summary>
@@ -270,7 +273,8 @@ public abstract partial class PrefillDaemonServiceBase
         Action onCommandDispatched,
         Guid ownerSessionId,
         CancellationToken cancellationToken = default,
-        IntegrationLease? lease = null)
+        IntegrationLease? lease = null,
+        Guid? loginId = null)
     {
         return StartLoginEntryAsync(
             sessionId,
@@ -280,7 +284,8 @@ public abstract partial class PrefillDaemonServiceBase
             reuseIntegration: true,
             ownerSessionId,
             cancellationToken,
-            lease);
+            lease,
+            loginId);
     }
 
     /// <summary>
@@ -411,7 +416,8 @@ public abstract partial class PrefillDaemonServiceBase
         bool reuseIntegration,
         Guid? ownerSessionId,
         CancellationToken cancellationToken,
-        IntegrationLease? lease = null)
+        IntegrationLease? lease = null,
+        Guid? loginId = null)
     {
         if (reuseIntegration)
         {
@@ -421,6 +427,23 @@ public abstract partial class PrefillDaemonServiceBase
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
             throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        if (loginId is { } id)
+        {
+            lock (session.PrefillLock)
+            {
+                if (session.LoginRequests.TryGetValue(id, out var request))
+                {
+                    if (request.Canceled || request.Attempt is not null)
+                        throw new ConflictException("This login request is no longer active.")
+                        { StageKey = "errors.prefill.loginInProgress" };
+                }
+                else
+                {
+                    session.LoginRequests.Add(id, new DaemonSession.LoginRequest());
+                }
+            }
         }
 
         if (!session.Runs.IsEmpty && (session.IsPrefilling || session.Recovering))
@@ -443,14 +466,27 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
+        var loginRegistered = false;
         try
         {
             EnsureCurrentSession(session);
+            lock (session.PrefillLock)
+            {
+                if (session.LoginCanceling)
+                {
+                    throw new ConflictException("Wait for login cancellation to finish.")
+                    {
+                        StageKey = "errors.prefill.loginInProgress"
+                    };
+                }
+                ThrowIfLoginRevoked(session, loginId);
+            }
             session.PreserveLoginExpiry = false;
             session.LoginSettled = false;
             // A hub session is created for the caller's own auth session, so its UserId names the
             // caller; the persistent entry points pass the caller explicitly.
             RegisterLoginOperation(session, ownerSessionId ?? session.UserId);
+            loginRegistered = true;
 
             CredentialChallenge? challenge;
             if (reuseIntegration)
@@ -461,7 +497,8 @@ public abstract partial class PrefillDaemonServiceBase
                     onCommandDispatched
                         ?? throw new ArgumentNullException(nameof(onCommandDispatched)),
                     cancellationToken,
-                    lease!);
+                    lease!,
+                    loginId);
             }
             else
             {
@@ -473,7 +510,8 @@ public abstract partial class PrefillDaemonServiceBase
                     timeout,
                     abandonedLoginCleanup,
                     onCommandDispatched,
-                    cancellationToken);
+                    cancellationToken,
+                    loginId);
                 challenge = result.Challenge;
             }
 
@@ -482,16 +520,21 @@ public abstract partial class PrefillDaemonServiceBase
             if (challenge is not null)
             {
                 challenge.OperationId = session.LoginOperationId?.ToString();
+                challenge.LoginAttempt = session.LoginAttempt;
             }
 
             return challenge;
         }
         finally
         {
+            lock (session.PrefillLock)
+            {
+                session.LoginDispatch?.TrySetResult(false);
+            }
             // Only a signed-in or signed-out session has finished its sign-in. LoggingIn and the prompt
             // states (a username, password, code or link the person still has to answer) are mid-flow, and
             // the auth-state funnel closes the card when they finish.
-            if (session.AuthState is DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated)
+            if (loginRegistered && session.AuthState is (DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated))
             {
                 CompleteLoginOperation(session);
             }
@@ -505,16 +548,25 @@ public abstract partial class PrefillDaemonServiceBase
         Guid? accountId,
         Action onCommandDispatched,
         CancellationToken cancellationToken,
-        IntegrationLease lease)
+        IntegrationLease lease,
+        Guid? loginId)
     {
         lease.Validate();
         var availability = GetIntegrationLoginAvailability(accountId, lease.Caller);
         if (!availability.Available) IntegrationLease.Refuse(availability.Reason);
-        session.LastLoginFailureMessage = null;
-        session.LastConsumedLoginChallengeId = null;
-        ClearPendingLoginChallenge(session);
+        lock (session.PrefillLock)
+        {
+            ThrowIfLoginRevoked(session, loginId);
+            session.LastLoginFailureMessage = null;
+            session.LastConsumedLoginChallengeId = null;
+            ClearPendingLoginChallenge(session);
+        }
 
         var currentStatus = await session.Client.GetStatusAsync(cancellationToken);
+        lock (session.PrefillLock)
+        {
+            ThrowIfLoginRevoked(session, loginId);
+        }
         if (currentStatus?.Status == "logged-in")
         {
             await OnStatusChangeAsync(session, currentStatus);
@@ -541,6 +593,17 @@ public abstract partial class PrefillDaemonServiceBase
         try
         {
             lease.Validate();
+            lock (session.PrefillLock)
+            {
+                if (session.LoginCanceling)
+                {
+                    throw new ConflictException("Wait for login cancellation to finish.")
+                    {
+                        StageKey = "errors.prefill.loginInProgress"
+                    };
+                }
+                ThrowIfLoginRevoked(session, loginId);
+            }
             if (!await session.Client.CancelLoginWithOutcomeAsync(cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -565,6 +628,20 @@ public abstract partial class PrefillDaemonServiceBase
         session.SuppressLoginChallengePublication = true;
         try
         {
+            lock (session.PrefillLock)
+            {
+                if (session.LoginCanceling)
+                {
+                    throw new ConflictException("Wait for login cancellation to finish.")
+                    {
+                        StageKey = "errors.prefill.loginInProgress"
+                    };
+                }
+                BindLoginRequest(session, loginId, session.LoginAttempt + 1);
+                session.LoginAttempt++;
+                session.LoginCancelTask = null;
+                session.LoginDispatch = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
             session.AuthState = DaemonAuthState.LoggingIn;
             await NotifyAuthStateChangeAsync(session);
         }
@@ -605,12 +682,20 @@ public abstract partial class PrefillDaemonServiceBase
             try
             {
                 lease.Validate();
+                lock (session.PrefillLock)
+                {
+                    ThrowIfLoginRevoked(session, loginId);
+                }
                 accepted = await ReuseIntegrationLoginAsync(
                     session,
                     accountId,
                     () =>
                     {
                         dispatched = true;
+                        lock (session.PrefillLock)
+                        {
+                            session.LoginDispatch?.TrySetResult(true);
+                        }
                         onCommandDispatched();
                     },
                     cancellationToken,
@@ -619,6 +704,10 @@ public abstract partial class PrefillDaemonServiceBase
             finally
             {
                 lease.Dispose();
+            }
+            lock (session.PrefillLock)
+            {
+                ThrowIfLoginRevoked(session, loginId);
             }
             if (!accepted)
             {
@@ -632,6 +721,10 @@ public abstract partial class PrefillDaemonServiceBase
             if (finalStatus?.Status != "logged-in")
             {
                 finalStatus = await completion.Task.WaitAsync(TimeSpan.FromMinutes(2), cancellationToken);
+            }
+            lock (session.PrefillLock)
+            {
+                ThrowIfLoginRevoked(session, loginId);
             }
             EnsureCurrentSession(session);
             if (finalStatus?.Status == "logged-in")
@@ -726,8 +819,21 @@ public abstract partial class PrefillDaemonServiceBase
         TimeSpan? timeout,
         AbandonedLoginCleanupHolder abandonedLoginCleanup,
         Action? onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? loginId)
     {
+        long loginAttempt;
+        lock (session.PrefillLock)
+        {
+            if (session.LoginCanceling)
+            {
+                throw new ConflictException("Wait for login cancellation to finish.")
+                {
+                    StageKey = "errors.prefill.loginInProgress"
+                };
+            }
+            ThrowIfLoginRevoked(session, loginId);
+        }
         // Resume path: a challenge from an earlier StartLoginAsync call on this session is still
         // pending (e.g. the frontend closed/reopened the login modal, or a second request raced in
         // before the first one's challenge was consumed). Answer with the SAME challenge and issue NO
@@ -736,6 +842,13 @@ public abstract partial class PrefillDaemonServiceBase
         // it's invoked again, so this check must run before anything touches session.Client.
         if (session.PendingLoginChallenge is { } pendingLoginChallenge && session.AuthState != DaemonAuthState.Authenticated)
         {
+            lock (session.PrefillLock)
+            {
+                ThrowIfLoginRevoked(session, loginId);
+                if (!ReferenceEquals(session.PendingLoginChallenge, pendingLoginChallenge))
+                    throw new OperationCanceledException("Login challenge was cancelled.");
+                BindLoginRequest(session, loginId, session.LoginAttempt);
+            }
             _logger.LogInformation(
                 "Session {SessionId} has a pending login challenge - resuming it instead of starting a new daemon login",
                 sessionId);
@@ -745,14 +858,26 @@ public abstract partial class PrefillDaemonServiceBase
         _logger.LogInformation("Starting login for session {SessionId}. ResponsesDir: {ResponsesDir}",
             sessionId, session.ResponsesDir);
 
-        // Reset any stale failure text from a previous attempt before racing this one.
-        session.LastLoginFailureMessage = null;
-
-        // A fresh attempt gets brand-new challenge ids from the daemon, so clear the just-consumed
-        // marker left by any earlier attempt/step - it must only ever name the single most-recently
-        // consumed challenge of the CURRENT flow, so it can never suppress a legitimate future
-        // challenge. (The resume path above returns before here, so a mid-flow resume keeps it.)
-        session.LastConsumedLoginChallengeId = null;
+        lock (session.PrefillLock)
+        {
+            if (session.LoginCanceling)
+            {
+                throw new ConflictException("Wait for login cancellation to finish.")
+                {
+                    StageKey = "errors.prefill.loginInProgress"
+                };
+            }
+            ThrowIfLoginRevoked(session, loginId);
+            BindLoginRequest(session, loginId, session.LoginAttempt + 1);
+            session.LastLoginFailureMessage = null;
+            session.LastConsumedLoginChallengeId = null;
+            session.LoginAttempt++;
+            loginAttempt = session.LoginAttempt;
+            session.LoginCancelTask = null;
+            session.LoginDispatch = onCommandDispatched is null
+                ? null
+                : new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
 
         // The daemon broadcasts "Login failed: <reason>" (status "awaiting-login") within
         // milliseconds when it can't proceed (e.g. an undecryptable stored token). Racing that
@@ -775,8 +900,25 @@ public abstract partial class PrefillDaemonServiceBase
             if (session.AuthState == DaemonAuthState.Authenticated)
             {
                 _logger.LogInformation("Session {SessionId} is already authenticated, checking daemon status", sessionId);
-                var existingChallenge = await AwaitChallengeOrLoginFailureAsync(
-                    session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+                CredentialChallenge? existingChallenge;
+                if (onCommandDispatched is null)
+                {
+                    existingChallenge = await AwaitChallengeOrLoginFailureAsync(
+                        session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+                }
+                else
+                {
+                    existingChallenge = await AwaitChallengeOrLoginFailureAsync(
+                        session,
+                        StartLoginWithDispatchTrackingAsync(
+                            session, timeout, onCommandDispatched, cancellationToken, DaemonAuthState.Authenticated),
+                        loginFailureTcs,
+                        abandonedLoginCleanup);
+                }
+                lock (session.PrefillLock)
+                {
+                    ThrowIfLoginRevoked(session, loginId);
+                }
                 if (loginFailureTcs.Task.IsCompleted)
                 {
                     await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
@@ -807,6 +949,10 @@ public abstract partial class PrefillDaemonServiceBase
             session.AuthState = DaemonAuthState.LoggingIn;
             await NotifyAuthStateChangeAsync(session);
 
+            lock (session.PrefillLock)
+            {
+                ThrowIfLoginRevoked(session, loginId);
+            }
             var loginTask = onCommandDispatched is null
                 ? session.Client.StartLoginAsync(timeout, cancellationToken)
                 : StartLoginWithDispatchTrackingAsync(
@@ -819,6 +965,10 @@ public abstract partial class PrefillDaemonServiceBase
                 loginTask,
                 loginFailureTcs,
                 abandonedLoginCleanup);
+            lock (session.PrefillLock)
+            {
+                ThrowIfLoginRevoked(session, loginId);
+            }
             if (loginFailureTcs.Task.IsCompleted)
             {
                 await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
@@ -833,9 +983,13 @@ public abstract partial class PrefillDaemonServiceBase
                 // A headless attempt consumes and cancels its challenge without publishing it, so the
                 // resume cache must not hold a challenge that is about to be revoked (an unlocked REST
                 // challenge poll could otherwise serve it mid-attempt).
-                if (!session.SuppressLoginChallengePublication)
+                lock (session.PrefillLock)
                 {
-                    session.PendingLoginChallenge = challenge;
+                    ThrowIfLoginRevoked(session, loginId);
+                    if (session.LoginAttempt != loginAttempt || session.LoginCancelTask is not null)
+                        throw new OperationCanceledException("Login request was cancelled.");
+                    if (!session.SuppressLoginChallengePublication)
+                        session.PendingLoginChallenge = challenge;
                 }
                 return LoginAttemptResult.ForChallenge(challenge);
             }
@@ -843,6 +997,10 @@ public abstract partial class PrefillDaemonServiceBase
             // If login is already in progress, a challenge might already be queued.
             var pendingChallenge = await AwaitChallengeOrLoginFailureAsync(
                 session, session.Client.WaitForChallengeAsync(TimeSpan.FromSeconds(10), cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+            lock (session.PrefillLock)
+            {
+                ThrowIfLoginRevoked(session, loginId);
+            }
             if (loginFailureTcs.Task.IsCompleted)
             {
                 await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
@@ -853,9 +1011,13 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogInformation("Received queued challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
                     sessionId, pendingChallenge.CredentialType, pendingChallenge.ChallengeId);
                 // Same suppression rule as the first-challenge cache write above.
-                if (!session.SuppressLoginChallengePublication)
+                lock (session.PrefillLock)
                 {
-                    session.PendingLoginChallenge = pendingChallenge;
+                    ThrowIfLoginRevoked(session, loginId);
+                    if (session.LoginAttempt != loginAttempt || session.LoginCancelTask is not null)
+                        throw new OperationCanceledException("Login request was cancelled.");
+                    if (!session.SuppressLoginChallengePublication)
+                        session.PendingLoginChallenge = pendingChallenge;
                 }
                 return LoginAttemptResult.ForChallenge(pendingChallenge);
             }
@@ -908,7 +1070,8 @@ public abstract partial class PrefillDaemonServiceBase
         DaemonSession session,
         TimeSpan? timeout,
         Action onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DaemonAuthState restoreAuthState = DaemonAuthState.NotAuthenticated)
     {
         var commandDispatched = false;
         try
@@ -918,6 +1081,10 @@ public abstract partial class PrefillDaemonServiceBase
                 () =>
                 {
                     commandDispatched = true;
+                    lock (session.PrefillLock)
+                    {
+                        session.LoginDispatch?.TrySetResult(true);
+                    }
                     onCommandDispatched();
                 },
                 cancellationToken);
@@ -929,7 +1096,7 @@ public abstract partial class PrefillDaemonServiceBase
                 // The state was moved to LoggingIn immediately before the transport call. If no
                 // command reached the daemon, restore the pre-attempt state and leave no edit-owned
                 // work for cleanup to claim.
-                session.AuthState = DaemonAuthState.NotAuthenticated;
+                session.AuthState = restoreAuthState;
                 await NotifyAuthStateChangeAsync(session);
             }
 
@@ -1053,6 +1220,27 @@ public abstract partial class PrefillDaemonServiceBase
         return previous;
     }
 
+    private static void ThrowIfLoginRevoked(DaemonSession session, Guid? loginId)
+    {
+        if (session.LoginCanceling ||
+            (loginId is { } id &&
+             session.LoginRequests.TryGetValue(id, out var request) &&
+             request.Canceled &&
+             (request.Attempt is null || session.LoginCancelTask is not null)))
+        {
+            throw new OperationCanceledException("Login request was cancelled.");
+        }
+    }
+
+    private static void BindLoginRequest(DaemonSession session, Guid? loginId, long attempt)
+    {
+        if (loginId is not { } id) return;
+        var request = session.LoginRequests[id];
+        if (request.Canceled || (request.Attempt is { } bound && bound != attempt))
+            throw new OperationCanceledException("Login request was cancelled.");
+        request.Attempt = attempt;
+    }
+
     /// <summary>
     /// Provides an encrypted credential in response to a challenge.
     /// Override in derived class to add service-specific credential handling (e.g., ban checking).
@@ -1155,6 +1343,7 @@ public abstract partial class PrefillDaemonServiceBase
         if (challenge is not null)
         {
             challenge.OperationId = session.LoginOperationId?.ToString();
+            challenge.LoginAttempt = session.LoginAttempt;
         }
 
         return challenge;
@@ -1164,7 +1353,13 @@ public abstract partial class PrefillDaemonServiceBase
     /// Cancels a pending login attempt and resets auth state.
     /// Sends cancel-login command to the daemon to abort any pending credential waits.
     /// </summary>
-    public async Task CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default)
+    /// <param name="loginAttempt">
+    /// The <see cref="DaemonSession.LoginAttempt"/> a browser cancel belongs to; null for a caller that ends
+    /// whatever login is current. A cancel for an older attempt changes nothing.
+    /// </param>
+    /// <returns>False when <paramref name="loginAttempt"/> names an older attempt and nothing was cancelled.</returns>
+    public async Task<bool> CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default,
+        long? loginAttempt = null, Guid? loginId = null)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -1172,60 +1367,176 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         var client = session.Client;
+        long attempt;
+        bool settledBeforeCancel;
+        TaskCompletionSource<bool>? completion = null;
+        Task<bool>? joined = null;
+        Task<bool>? dispatch = null;
         lock (session.PrefillLock)
         {
             EnsureCurrentSession(session);
-            session.LoginSettled = false;
+            attempt = session.LoginAttempt;
+            if (loginId is { } id)
+            {
+                if (!session.LoginRequests.TryGetValue(id, out var request))
+                {
+                    session.LoginRequests.Add(id, new DaemonSession.LoginRequest { Canceled = true });
+                    return false;
+                }
+                if (request.Attempt is null)
+                {
+                    request.Canceled = true;
+                    return false;
+                }
+                if (request.Attempt != attempt)
+                {
+                    request.Canceled = true;
+                    return false;
+                }
+                if (loginAttempt is not null && loginAttempt != request.Attempt)
+                {
+                    return false;
+                }
+            }
+            if (loginAttempt is not null && loginAttempt != attempt)
+            {
+                _logger.LogInformation(
+                    "Ignoring cancel-login for session {SessionId}: attempt {Expected} is no longer current (current {Actual})",
+                    sessionId, loginAttempt, attempt);
+                return false;
+            }
+            if (session.LoginCancelTask is { } running)
+            {
+                joined = running;
+                settledBeforeCancel = session.LoginSettled;
+            }
+            else
+            {
+                foreach (var request in session.LoginRequests.Values)
+                {
+                    if (request.Attempt == attempt) request.Canceled = true;
+                }
+                completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                session.LoginCancelTask = completion.Task;
+                session.LoginCanceling = true;
+                settledBeforeCancel = session.LoginSettled;
+                session.LoginSettled = false;
+                dispatch = session.LoginDispatch?.Task;
+            }
         }
 
-        _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
+        if (joined is not null) return await joined.WaitAsync(cancellationToken);
 
-        // Clear the resume cache and any queued daemon-side challenge FIRST, before the (possibly
-        // slow) daemon cancel round-trip below. CancelLoginAsync takes no lock, so a concurrent
-        // resume/poll landing during that await would otherwise be able to serve a challenge that is
-        // being cancelled out from under it - a cancelled login must never be resumable, not even for
-        // the few ms the daemon round-trip takes. Captured first so it can be restored if the daemon
-        // round-trip itself fails below - a failed cancel must not be treated as a successful one.
-        var capturedPendingChallenge = ClearPendingLoginChallenge(session);
-        session.Client.ClearPendingChallenges();
-
+        Exception? failure = null;
         try
         {
-            // Send cancel-login command to daemon - this will abort any pending credential waits
-            await session.Client.CancelLoginAsync(cancellationToken);
+            _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
+
+            // Clear the resume cache and any queued daemon-side challenge FIRST, before the (possibly
+            // slow) daemon cancel round-trip below. CancelLoginAsync takes no lock, so a concurrent
+            // resume/poll landing during that await would otherwise be able to serve a challenge that is
+            // being cancelled out from under it - a cancelled login must never be resumable, not even for
+            // the few ms the daemon round-trip takes. Captured first so it can be restored if the daemon
+            // round-trip itself fails below - a failed cancel must not be treated as a successful one.
+            var capturedPendingChallenge = ClearPendingLoginChallenge(session);
+            session.Client.ClearPendingChallenges();
+
+            // The daemon did not confirm the cancel, so it may still believe this login is in progress.
+            // Restore the cached challenge so a later StartLoginAsync resumes it instead of racing a
+            // brand-new daemon login against the one that was never actually cancelled - the exact
+            // duplicate-login race the resume cache exists to prevent.
+            void RestorePendingChallenge()
+            {
+                lock (session.PrefillLock)
+                {
+                    if (session.LoginAttempt == attempt
+                        && IsSessionLive(session)
+                        && ReferenceEquals(session.Client, client)
+                        && !session.AdmissionClosed)
+                    {
+                        if (session.PendingLoginChallenge is null)
+                        {
+                            session.PendingLoginChallenge = capturedPendingChallenge;
+                        }
+                        session.LoginSettled = settledBeforeCancel;
+                    }
+                }
+            }
+
+            bool acknowledged;
+            try
+            {
+                // Send cancel-login command to daemon - this will abort any pending credential waits
+                acknowledged = dispatch is null || await dispatch.WaitAsync(cancellationToken)
+                    ? await session.Client.CancelLoginWithOutcomeAsync(cancellationToken)
+                    : true;
+            }
+            catch (Exception ex)
+            {
+                RestorePendingChallenge();
+                _logger.LogWarning(ex, "Error sending cancel-login to daemon for session {SessionId}; login was not cancelled", sessionId);
+                throw;
+            }
+            // A refused or timed-out cancel of a container login is a failed cancel, not a successful one;
+            // the scheduled prefill dialog reports it. Guest sessions keep their best-effort cancel [93].
+            if (!acknowledged && session.IsPersistent)
+            {
+                RestorePendingChallenge();
+                _logger.LogWarning("Daemon did not acknowledge cancel-login for session {SessionId}; login was not cancelled", sessionId);
+                throw new ConflictException($"Login for session {session.Id} was not cancelled.")
+                {
+                    StageKey = "prefill.persistent.loginNotCanceled",
+                    Context = new() { ["sessionId"] = session.Id }
+                };
+            }
+
+            // A newer attempt started while the daemon answered; it owns the auth state now [92].
+            bool newerAttempt;
+            lock (session.PrefillLock)
+            {
+                newerAttempt = session.LoginAttempt != attempt;
+            }
+            if (newerAttempt)
+            {
+                _logger.LogInformation(
+                    "Login cancelled for session {SessionId}; a newer attempt started meanwhile, auth state left to it",
+                    sessionId);
+            }
+            else
+            {
+                // Reset auth state to allow a new login attempt
+                EnsureCurrentSession(session);
+                if (!ReferenceEquals(session.Client, client))
+                {
+                    throw new ConflictException($"Persistent session {session.Id} was replaced.")
+                    {
+                        StageKey = "errors.prefill.sessionReplaced",
+                        Context = new() { ["sessionId"] = session.Id }
+                    };
+                }
+                session.AuthState = DaemonAuthState.NotAuthenticated;
+                session.LoginSettled = true;
+                await NotifyAuthStateChangeAsync(session);
+
+                _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
+            }
         }
         catch (Exception ex)
         {
-            // The daemon round-trip failed, so the daemon may still believe this login is in
-            // progress. Restore the cached challenge so a later StartLoginAsync resumes it instead of
-            // racing a brand-new daemon login against the one that was never actually cancelled - the
-            // exact duplicate-login race the resume cache exists to prevent - and surface the failure
-            // to the caller instead of silently proceeding as if the cancel had succeeded.
-            if (IsSessionLive(session)
-                && ReferenceEquals(session.Client, client)
-                && !session.AdmissionClosed)
-            {
-                session.PendingLoginChallenge = capturedPendingChallenge;
-            }
-            _logger.LogWarning(ex, "Error sending cancel-login to daemon for session {SessionId}; login was not cancelled", sessionId);
-            throw;
+            failure = ex;
         }
-
-        // Reset auth state to allow a new login attempt
-        EnsureCurrentSession(session);
-        if (!ReferenceEquals(session.Client, client))
+        finally
         {
-            throw new ConflictException($"Persistent session {session.Id} was replaced.")
+            lock (session.PrefillLock)
             {
-                StageKey = "errors.prefill.sessionReplaced",
-                Context = new() { ["sessionId"] = session.Id }
-            };
+                session.LoginCanceling = false;
+                if (failure is not null && ReferenceEquals(session.LoginCancelTask, completion!.Task))
+                    session.LoginCancelTask = null;
+            }
+            if (failure is null) completion!.TrySetResult(true);
+            else completion!.TrySetException(failure);
         }
-        session.AuthState = DaemonAuthState.NotAuthenticated;
-        session.LoginSettled = true;
-        await NotifyAuthStateChangeAsync(session);
-
-        _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
+        return await completion!.Task;
     }
 
     /// <summary>

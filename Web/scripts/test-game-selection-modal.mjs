@@ -454,12 +454,13 @@ test('the shared game row keeps selection and status without a delete action', (
   const Trash2 = () => null;
   const cases = [
     {
+      // The Cached pane already says so; the word appears only once the game is selected.
       game: { appId: 'Opaque/Game-ID', name: 'Cached verified game' },
       selected: false,
       cached: ['opaque/game-id'],
       outdated: [],
       unknown: [],
-      badges: ['prefill.gameSelection.cachedBadge']
+      badges: []
     },
     {
       game: { appId: 'Opaque/Game-ID', name: 'Selected cached game' },
@@ -581,14 +582,21 @@ test('the shared game row keeps selection and status without a delete action', (
       elements.some((element) => element.type === Trash2),
       false
     );
+    // Cache status is a plain word, green for cached and muted for a state that still downloads.
+    const statusWords = elements.filter((element) =>
+      ['cache-hit', 'cache-miss'].includes(element.props.className)
+    );
     assert.deepEqual(
-      elements.filter((element) => element.type === Badge).map((element) => element.props.children),
+      statusWords.map((element) => element.props.children),
       fixture.badges
     );
-    assert.ok(
-      elements.filter((element) => element.type === Badge).length <= 1,
-      `${fixture.game.appId} must render at most one cache-status badge`
+    assert.deepEqual(
+      statusWords.map((element) => element.props.className),
+      fixture.badges.map((label) =>
+        label === 'prefill.gameSelection.cachedBadge' ? 'cache-hit' : 'cache-miss'
+      )
     );
+    assert.equal(elements.filter((element) => element.type === Badge).length, 0);
     assert.equal(
       rowActions[0].props['aria-describedby'] !== undefined,
       fixture.reason !== undefined

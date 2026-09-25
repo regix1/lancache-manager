@@ -29,15 +29,17 @@ public sealed class DaemonCommandException : ServiceUnavailableException
         RequiresLogin = requiresLogin || ErrorCode == "auth-lost";
         StageKey = RequiresLogin ? "errors.steam.signInLost"
             : ErrorCode == "game-details-unavailable" ? "errors.steam.gameDetailsUnavailable"
-            : ErrorCode switch
-            {
-                "run-limit" => "errors.prefill.runLimit",
-                "operation-conflict" => "errors.prefill.operationConflict",
-                "operation-not-found" => "errors.prefill.operationNotFound",
-                "instance-changed" => "errors.prefill.instanceChanged",
-                "ambiguous-operation" => "errors.prefill.ambiguousOperation",
-                "outcome-unknown" => "errors.prefill.outcomeUnknown",
-                _ => "errors.prefill.requestFailed"
-            };
+            : StageKeyForCode(ErrorCode) switch { { } key => key, null => "errors.prefill.requestFailed" };
     }
+
+    internal static string? StageKeyForCode(string? errorCode) => errorCode switch
+    {
+        "run-limit" => "errors.prefill.runLimit",
+        "operation-conflict" => "errors.prefill.operationConflict",
+        "operation-not-found" => "errors.prefill.operationNotFound",
+        "instance-changed" => "errors.prefill.instanceChanged",
+        "ambiguous-operation" => "errors.prefill.ambiguousOperation",
+        "outcome-unknown" => "errors.prefill.outcomeUnknown",
+        _ => null
+    };
 }

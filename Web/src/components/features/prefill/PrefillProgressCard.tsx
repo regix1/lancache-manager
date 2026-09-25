@@ -8,7 +8,13 @@ import { ChevronDown, Download } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatSpeed, formatPercent, formatCount } from '@utils/formatters';
 import { formatTimeRemaining, formatEtaShort } from './types';
-import { isPrefillRunActive, type PrefillRun, type PrefillProgress } from './hooks/prefillTypes';
+import {
+  getPrefillProgressStateKey,
+  getPrefillRunReasonKey,
+  isPrefillRunActive,
+  type PrefillRun,
+  type PrefillProgress
+} from './hooks/prefillTypes';
 import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import Badge from '@components/ui/Badge';
@@ -43,29 +49,7 @@ export function PrefillProgressCard({
     if (run && !isPrefillRunActive(run)) recordRunCompletion?.(run);
   }, [run, recordRunCompletion]);
 
-  const getStateLabel = () => {
-    switch (progress.state) {
-      case 'reconnecting':
-        return t('prefill.progress.reconnecting');
-      case 'loading-metadata':
-        return t('prefill.progress.loadingGameData');
-      case 'metadata-loaded':
-        return t('prefill.progress.preparingDownload');
-      case 'starting':
-        return t('prefill.progress.starting');
-      case 'preparing':
-        return t('prefill.progress.preparing');
-      case 'app_completed':
-        return t('prefill.progress.loadingNextGame');
-      case 'already_cached':
-        return t('prefill.progress.alreadyCached');
-      case 'downloading':
-        return t('prefill.progress.downloading');
-      default:
-        // Unknown/transitional state must NOT assert an active download — use a neutral label.
-        return t('prefill.progress.preparing');
-    }
-  };
+  const getStateLabel = () => t(getPrefillProgressStateKey(progress.state));
 
   const showAppInfo =
     progress.state === 'downloading' ||
@@ -117,18 +101,7 @@ export function PrefillProgressCard({
         : active
           ? getStateLabel()
           : t(`prefill.runs.${snapshot.state}`);
-    const reasonKey =
-      snapshot.reason === 'skippedOverlap'
-        ? 'prefill.runs.overlap'
-        : snapshot.reason === 'instance-changed'
-          ? 'errors.prefill.instanceChanged'
-          : snapshot.reason === 'outcome-unknown'
-            ? 'errors.prefill.outcomeUnknown'
-            : snapshot.reason === 'runtime-exceeded'
-              ? 'signalr.scheduledPrefill.failedMaxRuntime'
-              : snapshot.reason === 'operation-not-found'
-                ? 'errors.prefill.operationNotFound'
-                : null;
+    const reasonKey = getPrefillRunReasonKey(snapshot.reason);
     const itemsText = t('prefill.runs.items', {
       count: finished,
       total: snapshot.totalApps

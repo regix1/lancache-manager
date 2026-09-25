@@ -93,6 +93,57 @@ export function prefillRunKey(run: PrefillRun): string {
   return `${run.sessionId}:${run.daemonInstanceId}:${run.runId}`;
 }
 
+export interface PrefillRunFailedGame {
+  appId: string;
+  name?: string;
+  reasonKey: string;
+}
+
+export function getPrefillRunReasonKey(reason: string | null | undefined): string | null {
+  switch (reason) {
+    case 'skippedOverlap':
+      return 'prefill.runs.overlap';
+    case 'instance-changed':
+      return 'errors.prefill.instanceChanged';
+    case 'outcome-unknown':
+      return 'errors.prefill.outcomeUnknown';
+    case 'runtime-exceeded':
+      return 'signalr.scheduledPrefill.failedMaxRuntime';
+    case 'operation-not-found':
+      return 'errors.prefill.operationNotFound';
+    case 'stalled':
+      return 'signalr.scheduledPrefill.failedStalled';
+    case 'auth-lost':
+      return 'errors.prefill.signInLost';
+    default:
+      return null;
+  }
+}
+
+export function getPrefillProgressStateKey(state: PrefillProgress['state']): string {
+  switch (state) {
+    case 'reconnecting':
+      return 'prefill.progress.reconnecting';
+    case 'loading-metadata':
+      return 'prefill.progress.loadingGameData';
+    case 'metadata-loaded':
+      return 'prefill.progress.preparingDownload';
+    case 'starting':
+      return 'prefill.progress.starting';
+    case 'preparing':
+      return 'prefill.progress.preparing';
+    case 'app_completed':
+      return 'prefill.progress.loadingNextGame';
+    case 'already_cached':
+      return 'prefill.progress.alreadyCached';
+    case 'downloading':
+      return 'prefill.progress.downloading';
+    default:
+      // Unknown/transitional state must NOT assert an active download — use a neutral label.
+      return 'prefill.progress.preparing';
+  }
+}
+
 export interface PrefillCompletion {
   key: string;
   completedAt: number;

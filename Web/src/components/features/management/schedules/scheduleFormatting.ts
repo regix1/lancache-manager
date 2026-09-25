@@ -3,6 +3,16 @@ import type { useTranslation } from 'react-i18next';
 /** react-i18next's translate function, as returned by `useTranslation()`. */
 type TranslateFn = ReturnType<typeof useTranslation>['t'];
 
+/** "Every N hours" / "Every N minutes" for an interval that has no preset option label. */
+export function formatIntervalLabel(hours: number, t: TranslateFn): string {
+  if (hours <= 0) return '';
+  if (hours < 1) {
+    const count = Math.round(hours * 60);
+    return t('management.schedules.everyNMinutes', { count });
+  }
+  return t('management.schedules.everyNHours', { count: hours });
+}
+
 /**
  * Relative "last run" label shared by the generic schedule cards and the Scheduled Prefill
  * per-service rows: Never / Just now / {count}m|h|d ago. Kept framework-agnostic (it takes the

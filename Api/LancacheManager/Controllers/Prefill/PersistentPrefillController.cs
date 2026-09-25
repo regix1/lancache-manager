@@ -696,6 +696,18 @@ public class PersistentPrefillController : ControllerBase
         return Ok(daemon!.GetRuns(session!.Id));
     }
 
+    [HttpGet("runs/{runId:guid}/failed-games")]
+    [ProducesResponseType(typeof(IReadOnlyList<PrefillRunFailedGame>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<PrefillRunFailedGame>>> GetRunFailedGamesAsync(
+        Guid runId, [FromQuery] PrefillPlatform service, CancellationToken cancellationToken)
+    {
+        var games = await _serviceProvider.GetRequiredService<PrefillSessionService>()
+            .GetFailedGamesAsync(runId, service, cancellationToken);
+        if (games is null)
+            return NotFound(new NotFoundResponse { Error = "Prefill run not found", StageKey = "errors.prefill.runNotFound" });
+        return Ok(games);
+    }
+
     [HttpGet("integration-login")]
     [ProducesResponseType(typeof(IntegrationLoginAvailability), StatusCodes.Status200OK)]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
@@ -728,6 +740,10 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentLoginRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.LoginId == Guid.Empty)
+        {
+            return BadRequest(ApiResponse.Error("loginId must be a non-empty UUID."));
+        }
         var (daemon, session, error) = ResolveRunningPersistentSession(
             request.Service,
             request.SessionId);
@@ -778,13 +794,15 @@ public class PersistentPrefillController : ControllerBase
                     ConfirmLoginDispatch,
                     HttpContext.GetRequiredSessionId(),
                     cancellationToken,
-                    lease)
+                    lease,
+                    request.LoginId)
                 : await daemon!.StartLoginForEditAsync(
                     session!.Id,
                     TimeSpan.FromSeconds(30),
                     ConfirmLoginDispatch,
                     HttpContext.GetRequiredSessionId(),
-                    cancellationToken);
+                    cancellationToken,
+                    request.LoginId);
 
             if (challenge == null)
             {
@@ -974,7 +992,7 @@ public class PersistentPrefillController : ControllerBase
     /// </summary>
     /// <remarks>
     /// For the running persistent session. AccountHolder analogue of the user cancel-login flow.
-    /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken)"/>.
+    /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken, long?, Guid?)"/>.
     /// </remarks>
     [HttpPost("cancel-login")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
@@ -982,6 +1000,10 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentCancelLoginRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.LoginId == Guid.Empty || (request.LoginId is null && request.LoginAttempt is null))
+        {
+            return BadRequest(ApiResponse.Error("A non-empty loginId or loginAttempt is required."));
+        }
         // RC3: sessionId is REQUIRED - no fallback defaults.
         if (string.IsNullOrWhiteSpace(request.SessionId))
         {
@@ -1006,7 +1028,12 @@ public class PersistentPrefillController : ControllerBase
             return Ok(new MessageOnlyResponse { Message = "Login already cancelled" });
         }
 
-        await daemon!.CancelLoginAsync(session.Id, cancellationToken);
+        // Same idempotent no-op for a cancel meant for an older login attempt on this session: that
+        // attempt has already ended, and a newer one must never be cancelled by it.
+        if (!await daemon!.CancelLoginAsync(session.Id, cancellationToken, request.LoginAttempt, request.LoginId))
+        {
+            return Ok(new MessageOnlyResponse { Message = "Login already cancelled" });
+        }
 
         return Ok(new MessageOnlyResponse { Message = "Login cancelled" });
     }
@@ -1489,4 +1516,3 @@ public class PersistentPrefillController : ControllerBase
         return expiresAt;
     }
 }
-
