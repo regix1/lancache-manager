@@ -16,12 +16,9 @@ namespace LancacheManager.Tests;
 /// Proves
 /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>,
 /// which lets the "Log out" button forget a persistent container's stored account IN PLACE (no
-/// container restart) when the daemon supports the <c>logout</c> command, instead of the previous
-/// stop+restart flow that never actually cleared the account (its named auth volume survives a
-/// restart). A daemon reporting failure (older image without the command) or an exception from the
-/// round-trip must both be treated identically as "not supported", with NO auth-state teardown
-/// performed here - the caller (<see cref="Controllers.PersistentPrefillController"/> / the frontend)
-/// decides whether to fall back to the old stop+restart path. The pending login challenge IS cleared
+/// container restart) when the daemon supports the <c>logout</c> command. A daemon reporting failure
+/// or an exception from the round-trip leaves the running container and its last confirmed auth state
+/// intact so the controller can report a typed conflict. The pending login challenge is cleared
 /// unconditionally, before the daemon round-trip even starts (mirrors <c>CancelLoginAsync</c>'s
 /// ordering) - logout intent is terminal, so unlike cancel, a failed round-trip does not restore it.
 /// </summary>
@@ -43,6 +40,9 @@ public class PersistentLogoutTests
         Assert.False(session.NeedsRelogin);
         Assert.Null(session.PendingLoginChallenge);
         Assert.Equal(1, client.LogoutCallCount);
+        Assert.Same(session, daemon.GetSession(session.Id));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
     }
 
     [Fact]
@@ -57,12 +57,14 @@ public class PersistentLogoutTests
         var result = await daemon.LogoutPersistentSessionAsync(session.Id, CancellationToken.None);
 
         Assert.False(result.LoggedOut);
-        // Not-supported must never touch auth state - the caller's stop+restart fallback (or a later
-        // resume) needs to see it exactly as it was. The pending challenge, however, is cleared
+        // A refusal must never touch the last confirmed auth state. The pending challenge is cleared
         // unconditionally before the daemon round-trip even starts (mirrors CancelLoginAsync's
         // ordering) and is NOT restored on failure - logout intent is terminal.
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
         Assert.Null(session.PendingLoginChallenge);
+        Assert.Same(session, daemon.GetSession(session.Id));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
     }
 
     [Fact]
@@ -79,6 +81,46 @@ public class PersistentLogoutTests
         Assert.False(result.LoggedOut);
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
         Assert.Null(session.PendingLoginChallenge);
+        Assert.Same(session, daemon.GetSession(session.Id));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+    }
+
+    [Fact]
+    public async Task LogoutPersistentSessionAsync_CallerCancellation_PropagatesAndKeepsContainer()
+    {
+        var client = new CancelingLogoutDaemonClient();
+        var (daemon, session) = CreateSessionWithClient(client);
+        session.AuthState = DaemonAuthState.Authenticated;
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => daemon.LogoutPersistentSessionAsync(session.Id, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, thrown.CancellationToken);
+        Assert.Same(session, daemon.GetSession(session.Id));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.False(session.AdmissionClosed);
+    }
+
+    [Fact]
+    public async Task LogoutPersistentSessionAsync_InternalCommandCancellation_ReturnsFailureAndKeepsContainer()
+    {
+        var client = new InternallyCanceledLogoutDaemonClient();
+        var (daemon, session) = CreateSessionWithClient(client);
+        session.AuthState = DaemonAuthState.Authenticated;
+
+        var result = await daemon.LogoutPersistentSessionAsync(session.Id, CancellationToken.None);
+
+        Assert.False(result.LoggedOut);
+        Assert.Same(session, daemon.GetSession(session.Id));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.False(session.AdmissionClosed);
     }
 
     [Fact]
@@ -213,6 +255,18 @@ public class PersistentLogoutTests
             ChallengeWasAlreadyNullDuringLogoutCall = Session?.PendingLoginChallenge is null;
             return Task.FromResult(true);
         }
+    }
+
+    private sealed class CancelingLogoutDaemonClient : TestDaemonClientBase
+    {
+        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+            => Task.FromCanceled<bool>(cancellationToken);
+    }
+
+    private sealed class InternallyCanceledLogoutDaemonClient : TestDaemonClientBase
+    {
+        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+            => Task.FromException<bool>(new OperationCanceledException("Daemon command timed out."));
     }
 
 }

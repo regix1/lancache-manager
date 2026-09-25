@@ -1547,9 +1547,8 @@ public abstract partial class PrefillDaemonServiceBase
     /// (<see cref="NotifyAuthStateChangeAsync"/>) so subscribers see the account was forgotten, its
     /// cached resume challenge is cleared, and <see cref="DaemonSession.NeedsRelogin"/> is reset. On
     /// failure - the daemon reports failure, or the round-trip itself throws (socket error, timeout)
-    /// - this performs NO teardown and returns a not-forgotten result; the caller
-    /// (<see cref="Controllers.PersistentPrefillController"/> / the frontend) decides whether to fall
-    /// back to a stop+restart. NOTE: an un-updated steam/epic daemon image reports SUCCESS here while
+    /// - this performs no teardown and returns a not-forgotten result while the container keeps its
+    /// last confirmed authentication state. NOTE: an un-updated steam/epic daemon image reports SUCCESS here while
     /// only tearing down the live session, without deleting the stored account file - that case is
     /// in-band indistinguishable from a true success and is not detected by this method; it
     /// self-resolves once the daemon image is rebuilt with the account-file-delete fix.
@@ -1591,23 +1590,34 @@ public abstract partial class PrefillDaemonServiceBase
             }
             catch
             {
-                session.AdmissionClosed = false;
+                if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
+                {
+                    session.AdmissionClosed = false;
+                }
                 throw;
             }
         }
 
         ClearPendingLoginChallenge(session);
-        session.Client.ClearPendingChallenges();
+        client.ClearPendingChallenges();
 
         LogoutOutcome outcome;
         try
         {
-            outcome = await session.Client.LogoutWithReasonAsync(cancellationToken);
+            outcome = await client.LogoutWithReasonAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
+            {
+                session.AdmissionClosed = false;
+            }
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogInformation(ex,
-                "Daemon logout command failed for persistent session {SessionId}; caller should fall back to a stop+restart",
+                "Daemon logout command failed for persistent session {SessionId}; the container remains running",
                 sessionId);
             if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
             {
@@ -1626,8 +1636,7 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 // Older daemon image's pre-login command gate rejected "logout" outright because this
                 // session hasn't finished authenticating - not a genuine failure. Still returns
-                // forgotten=false; the caller (frontend) routes this case to cancelling the in-flight
-                // login instead of falling back to a stop+restart.
+                // forgotten=false so the caller can report that the daemon did not confirm logout.
                 _logger.LogInformation(
                     "Daemon declined logout for persistent session {SessionId} before authentication completed " +
                     "(older daemon image); nothing to log out",
@@ -1636,7 +1645,7 @@ public abstract partial class PrefillDaemonServiceBase
             else
             {
                 _logger.LogInformation(
-                    "Daemon reported logout failed for persistent session {SessionId}; caller should fall back to a stop+restart",
+                    "Daemon reported logout failed for persistent session {SessionId}; the container remains running",
                     sessionId);
             }
             return new PersistentLogoutResult(false);

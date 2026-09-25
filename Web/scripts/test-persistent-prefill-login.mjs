@@ -492,8 +492,3 @@ test('while a cancel is ending the old login, the status line says so and Log in
     loginStore.canceling = false;
   }
 });
-
-test('the Log out restart notice is translated when it shows', () => {
-  const nodes = card({ actionNotice: true, actionError: undefined });
-  assert.ok(text(nodes).includes(en.prefill.persistent.messages.logoutFallbackNotice));
-});

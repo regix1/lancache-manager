@@ -73,7 +73,6 @@ export function ScheduledPrefillContainerModal({
                   listFailed={containers.persistentError !== null}
                   justLoggedIn={justLoggedIn}
                   actionError={containers.errors[serviceKey]}
-                  actionNotice={containers.errorActions[serviceKey] === 'logoutRestarted'}
                   integrationLoginError={
                     connectionLost
                       ? undefined

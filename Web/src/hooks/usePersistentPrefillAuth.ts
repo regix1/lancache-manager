@@ -32,6 +32,7 @@ import {
   isPersistentLoginCancelled,
   isPersistentLoginCredentialChallenge,
   isPersistentLoginSuspended,
+  markPersistentLoginAuthenticated,
   resetPersistentLoginSessionReplaced,
   resetPersistentLoginState,
   setPersistentLoginCancelled,
@@ -230,8 +231,7 @@ export function usePersistentPrefillAuth(
 
   const finishAuthenticated = useCallback(() => {
     if (isPersistentLoginSuspended()) return;
-    resetPersistentLoginState(service);
-    updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
+    markPersistentLoginAuthenticated(service);
     onSuccess?.();
   }, [service, onSuccess]);
 
@@ -560,14 +560,17 @@ export function usePersistentPrefillAuth(
           startRequest?.reuseIntegration,
           loginId
         );
+        const settled = getPersistentLoginState(service);
         const epochStale = getPersistentLoginEpoch(service) !== startEpoch;
+        if (settled.authenticated && settled.loginId === loginId) {
+          return null;
+        }
         if (isPersistentLoginSuspended()) {
           if (epochStale) await cancelStale(challenge);
           return null;
         }
-        if (!epochStale && getPersistentLoginState(service).step?.actionId !== submitted.actionId) {
-          await cancelStale(challenge);
-          return null;
+        if (!epochStale && settled.step?.actionId !== submitted.actionId) {
+          return settled.pendingChallenge;
         }
         if (epochStale || isPersistentLoginCancelled(service)) {
           if (!epochStale) {
@@ -601,6 +604,14 @@ export function usePersistentPrefillAuth(
         fail(t('prefill.persistent.errors.noResult'));
         return null;
       } catch (err) {
+        const settled = getPersistentLoginState(service);
+        const attemptStale = getPersistentLoginEpoch(service) !== startEpoch;
+        if (settled.authenticated && settled.loginId === loginId) {
+          return null;
+        }
+        if (!attemptStale && settled.step?.actionId !== submitted.actionId) {
+          return settled.pendingChallenge;
+        }
         if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== startEpoch) {
           if (getPersistentLoginEpoch(service) !== startEpoch) await cancelStale();
           // The flow this call belonged to was already reset/superseded - its failure (typically

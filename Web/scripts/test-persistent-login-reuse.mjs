@@ -549,7 +549,7 @@ test('an aborted caller cannot issue requests or disturb a newer availability re
   await current;
 });
 
-test('the shared API sends availability, reuse mode, and qualified login identity', async () => {
+test('the shared API sends availability, reuse mode, and qualified login and logout identity', async () => {
   const api = await loadApi('transport');
   const requests = [];
   const originalFetch = globalThis.fetch;
@@ -580,6 +580,7 @@ test('the shared API sends availability, reuse mode, and qualified login identit
       loginId
     );
     await api.cancelPersistentLogin('Xbox', 'session-1', { loginId });
+    await api.logoutPersistentPrefillContainer('Xbox', 'session-1');
 
     assert.deepEqual(availability, { available: true, account: 'masked-account', reason: null });
     assert.deepEqual(login, { authenticated: true, sessionId: 'session-1' });
@@ -597,6 +598,10 @@ test('the shared API sends availability, reuse mode, and qualified login identit
       service: 'Xbox',
       sessionId: 'session-1',
       loginId
+    });
+    assert.deepEqual(JSON.parse(requests[3].init.body), {
+      service: 'Xbox',
+      sessionId: 'session-1'
     });
     assert.equal('accountId' in JSON.parse(requests[1].init.body), false);
     assert.equal('ownerId' in JSON.parse(requests[1].init.body), false);

@@ -1572,6 +1572,111 @@ test('closing before the first response cancels the exact login on every platfor
   }
 });
 
+for (const [service, credentialType] of [
+  ['Steam', 'username'],
+  ['Epic', 'authorization-url'],
+  ['Xbox', 'device-code']
+]) {
+  test(`${service} SignalR challenge owns the flow when the start response arrives later`, async () => {
+    const time = clock();
+    let flow;
+    try {
+      flow = await persistent(new MemoryStorage(), service);
+      const held = deferred();
+      flow.startReply = () => held.promise;
+      flow.store.setPersistentLoginStartSessionId(service, 'session');
+      const starting = flow.render().actions.start();
+      const deadline = flow.store.getPersistentLoginState(service).loginDeadline;
+      const pushed = {
+        ...challenge('signal-first', credentialType),
+        sessionId: 'session'
+      };
+      flow.handlers.get(`challenge:${service}`)({ sessionId: 'session', challenge: pushed });
+      held.resolve({ ...challenge('http-late', credentialType), sessionId: 'session' });
+
+      const result = await starting;
+      const current = flow.store.getPersistentLoginState(service);
+      assert.equal(result.challengeId, 'signal-first');
+      assert.equal(current.pendingChallenge.challengeId, 'signal-first');
+      assert.equal(current.loginDeadline, deadline);
+      assert.equal(current.error, null);
+      assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 0);
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+test('a later SignalR stage keeps ownership when the start request fails late', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    const held = deferred();
+    flow.startReply = () => held.promise;
+    flow.store.setPersistentLoginStartSessionId('Steam', 'session');
+    const starting = flow.render().actions.start();
+    const deadline = flow.store.getPersistentLoginState('Steam').loginDeadline;
+    const first = { ...challenge('credentials', 'username'), sessionId: 'session' };
+    flow.handlers.get('challenge:Steam')({ sessionId: 'session', challenge: first });
+    assert.ok(flow.store.beginPersistentLoginStep('Steam', 'credentials'));
+    flow.store.updatePersistentLoginState('Steam', (current) => ({
+      ...current,
+      dismissed: true
+    }));
+    const second = { ...challenge('two-factor', '2fa'), sessionId: 'session' };
+    flow.handlers.get('challenge:Steam')({ sessionId: 'session', challenge: second });
+    held.reject(new Error('late start failed'));
+
+    const result = await starting;
+    const current = flow.store.getPersistentLoginState('Steam');
+    assert.equal(result.challengeId, 'two-factor');
+    assert.equal(current.pendingChallenge.challengeId, 'two-factor');
+    assert.equal(current.loginDeadline, deadline);
+    assert.equal(current.dismissed, true);
+    assert.equal(current.loading, false);
+    assert.equal(current.error, null);
+    assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 0);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+for (const service of ['Steam', 'Epic']) {
+  for (const outcome of ['success', 'failure']) {
+    test(`${service} SignalR authentication owns the flow after a late start ${outcome}`, async () => {
+      const time = clock();
+      let flow;
+      try {
+        flow = await persistent(new MemoryStorage(), service);
+        const held = deferred();
+        flow.startReply = () => held.promise;
+        flow.store.setPersistentLoginStartSessionId(service, 'session');
+        const starting = flow.render().actions.start();
+        const loginId = flow.calls.find(([name]) => name === 'start').at(-1);
+        flow.handlers.get(`auth:${service}`)({
+          sessionId: 'session',
+          authState: 'Authenticated'
+        });
+        if (outcome === 'success') held.resolve({ authenticated: true, sessionId: 'session' });
+        else held.reject(new Error('late start failed'));
+
+        await starting;
+        const current = flow.store.getPersistentLoginState(service);
+        assert.equal(current.authenticated, true);
+        assert.equal(current.loginId, loginId);
+        assert.equal(current.error, null);
+        assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 0);
+      } finally {
+        flow?.close();
+        time.restore();
+      }
+    });
+  }
+}
+
 for (const outcome of ['challenge', 'authenticated', 'failure']) {
   test(`a stale ${outcome} start cleans up its original session without changing a successor`, async () => {
     const time = clock();

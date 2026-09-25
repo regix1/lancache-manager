@@ -776,8 +776,9 @@ export function resetPersistentLoginSessionReplaced(
  */
 export function markPersistentLoginAuthenticated(service: PersistentPrefillServiceId): void {
   if (suspended) return;
+  const loginId = getPersistentLoginState(service).loginId;
   resetPersistentLoginState(service);
-  updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
+  updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true, loginId }));
 }
 
 export function applyPersistentLoginChallenge(
@@ -1118,8 +1119,7 @@ export async function reconcilePersistentLoginFromServer(
     if (isPersistentLoginAuthenticatedResponse(response)) {
       const clock = readPersistentLoginClock(service);
       if (!clocks.has(service) && clock?.sessionId === sessionId) snapshots.set(service, clock);
-      resetPersistentLoginState(service);
-      updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
+      markPersistentLoginAuthenticated(service);
       return 'authenticated';
     }
     if (isPersistentLoginCredentialChallenge(response)) {

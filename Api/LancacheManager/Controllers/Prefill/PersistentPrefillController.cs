@@ -1042,14 +1042,12 @@ public class PersistentPrefillController : ControllerBase
     /// Logs the running persistent session out in place.
     /// </summary>
     /// <remarks>
-    /// The daemon forgets its stored account without the container being restarted. AccountHolder
-    /// analogue of the other persistent-session routes. Delegates to
+    /// The daemon forgets its stored account while the same container keeps running. The caller must
+    /// identify that container by its current session id. AccountHolder analogue of the other
+    /// persistent-session routes. Delegates to
     /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>.
-    /// When the attempt genuinely fails (daemon reports failure, or the round-trip throws),
-    /// <c>forgotten</c> is false and the frontend falls back to its existing stop+restart flow. NOTE:
-    /// an un-updated steam/epic daemon image reports success here without actually deleting the
-    /// stored account file - <c>forgotten:true</c> is not a hard guarantee on such images, and this
-    /// endpoint has no way to detect that case; it self-resolves once the image is rebuilt.
+    /// A daemon refusal or unconfirmed round-trip is a typed conflict and leaves the current container
+    /// running with its last confirmed authentication state.
     /// </remarks>
     [HttpPost("logout")]
     [ProducesResponseType(typeof(PersistentLogoutResponseDto), StatusCodes.Status200OK)]
@@ -1057,18 +1055,31 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentLoginRequest request,
         CancellationToken cancellationToken)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (string.IsNullOrWhiteSpace(request.SessionId))
+        {
+            return BadRequest(ApiResponse.Required("sessionId"));
+        }
+
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service, request.SessionId);
         if (error is not null)
         {
             return error;
         }
 
         var result = await daemon!.LogoutPersistentSessionAsync(session!.Id, cancellationToken);
+        if (!result.LoggedOut)
+        {
+            throw new ConflictException(
+                $"The persistent {request.Service} session did not confirm logout.")
+            {
+                StageKey = "management.auth.errors.logoutFailed",
+                Context = new() { ["service"] = request.Service, ["sessionId"] = session.Id }
+            };
+        }
 
         return Ok(new PersistentLogoutResponseDto
         {
-            Forgotten = result.LoggedOut,
-            Fallback = result.LoggedOut ? null : "restart-required"
+            Forgotten = true
         });
     }
 
@@ -1083,7 +1094,7 @@ public class PersistentPrefillController : ControllerBase
     /// take (an un-updated image reports success while its volume login survives). When no session is
     /// running, the service's persistent auth volume is removed outright so a STOPPED service's stored
     /// login is forgotten too. Distinct from <see cref="LogoutAsync(PersistentLoginRequest, CancellationToken)"/>,
-    /// whose in-place logout (with a frontend stop+restart fallback) is intentionally NOT escalated;
+    /// whose in-place logout is intentionally not escalated;
     /// this is the only route that hard-removes a RUNNING container's login and the only one that can
     /// forget a login for a service with no running container at all.
     /// </remarks>

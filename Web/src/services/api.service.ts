@@ -164,17 +164,9 @@ export interface PersistentSessionConflictInfo {
   state: string;
 }
 
-/**
- * Result of POST persistent/logout. `forgotten` is true when the daemon acknowledged an in-place
- * logout (no container restart); false covers a genuine failure (daemon reported failure, or the
- * round-trip throwing) and the caller must fall back to a stop+restart. NOTE: an un-updated
- * steam/epic daemon image also reports `forgotten: true` while only tearing down the live session
- * without deleting the stored account file - this is in-band indistinguishable and not detected;
- * it self-resolves once the daemon image is rebuilt.
- */
+/** Result of POST persistent/logout after the daemon handles the requested running session. */
 interface PersistentLogoutResponse {
   forgotten: boolean;
-  fallback?: string;
 }
 
 interface OperationResponse {
@@ -3896,12 +3888,13 @@ class ApiService {
   }
 
   static async logoutPersistentPrefillContainer(
-    service: PersistentPrefillServiceId
+    service: PersistentPrefillServiceId,
+    sessionId: string
   ): Promise<PersistentLogoutResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/logout`,
-        this.getJsonFetchOptions({ service }, { method: 'POST' })
+        this.getJsonFetchOptions({ service, sessionId }, { method: 'POST' })
       );
       return await this.handleResponse<PersistentLogoutResponse>(res);
     } catch (error: unknown) {

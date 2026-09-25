@@ -36,7 +36,6 @@ export function ScheduledPrefillPersistentCard({
   listFailed,
   justLoggedIn,
   actionError,
-  actionNotice,
   integrationLoginError,
   authenticating = false,
   integrationLoginAvailability,
@@ -113,14 +112,8 @@ export function ScheduledPrefillPersistentCard({
   const loginKey =
     serviceKey === 'steam' ? 'loginToSteam' : serviceKey === 'epic' ? 'loginToEpic' : 'loginToXbox';
   const containerRunning = container?.isRunning === true;
-  // The Log out fallback marks its notice with a flag in the failure slot; the notice is not a
-  // failure, so it skips the error wording.
-  const actionErrorAlert = actionNotice ? (
-    <Alert color="red">{t('prefill.persistent.messages.logoutFallbackNotice')}</Alert>
-  ) : (
-    actionError && (
-      <Alert color="red">{t(`${baseKey}.persistentContainer.error`, { error: actionError })}</Alert>
-    )
+  const actionErrorAlert = actionError && (
+    <Alert color="red">{t(`${baseKey}.persistentContainer.error`, { error: actionError })}</Alert>
   );
 
   // With no status known the dialog shows only the load error and its Retry; sections would read

@@ -4905,9 +4905,6 @@
         "start": "Start container",
         "stop": "Stop container"
       },
-      "messages": {
-        "logoutFallbackNotice": "Logged out by restarting the container, but it kept using the same stored account. Update the daemon image to forget the account without a restart."
-      },
       "errors": {
         "noPendingChallenge": "No pending credential challenge",
         "noResult": "Persistent login did not return a challenge or authentication result. Please try again."

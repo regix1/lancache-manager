@@ -1231,8 +1231,6 @@ export function ScheduledPrefillScheduleDetail({
         disabled={disabled}
         justLoggedIn={loggedInService !== null && loggedInService === containerService}
         onLogout={() => {
-          // The restart fallback of Log out logs the daemon in again, which must not bring the
-          // logged-in note back beside its notice.
           setLoggedInService(null);
           if (containerService) void containers.handleLogoutPersistent(containerService);
         }}

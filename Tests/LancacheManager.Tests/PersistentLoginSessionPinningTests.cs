@@ -315,6 +315,98 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
+    public async Task Logout_MissingSessionId_Returns400WithoutCallingDaemon()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession(activeSessionId: "session-B");
+
+        var result = await controller.LogoutAsync(
+            new PersistentLoginRequest { Service = PrefillPlatform.Steam, SessionId = " " },
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.DoesNotContain(nameof(IDaemonClient.LogoutWithReasonAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task Logout_PinnedToReplacedSession_Returns409WithoutCallingReplacementDaemon()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession(activeSessionId: "session-B");
+
+        var result = await controller.LogoutAsync(
+            new PersistentLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-A" },
+            CancellationToken.None);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
+        var body = Assert.IsType<PersistentLoginConflictResponse>(conflict.Value);
+        Assert.Equal(PersistentLoginConflictReasons.SessionReplaced, body.Error);
+        Assert.DoesNotContain(nameof(IDaemonClient.LogoutWithReasonAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task Logout_MatchingSession_LeavesSameContainerRunningAndReturnsForgotten()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession(activeSessionId: "session-A");
+        client.Logout = _ => Task.FromResult(new LogoutOutcome(Success: true, RequiresLogin: false));
+        var session = daemon.GetSession("session-A")!;
+        session.AuthState = DaemonAuthState.Authenticated;
+
+        var result = await controller.LogoutAsync(
+            new PersistentLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-A" },
+            CancellationToken.None);
+
+        var response = Assert.IsType<PersistentLogoutResponseDto>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Forgotten);
+        Assert.Same(session, daemon.GetSession("session-A"));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);
+        Assert.Contains(nameof(IDaemonClient.LogoutWithReasonAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task Logout_DaemonRefusal_ThrowsTypedConflictAndKeepsCurrentContainer()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession(activeSessionId: "session-A");
+        client.Logout = _ => Task.FromResult(new LogoutOutcome(Success: false, RequiresLogin: false));
+        var session = daemon.GetSession("session-A")!;
+        session.AuthState = DaemonAuthState.Authenticated;
+
+        var thrown = await Assert.ThrowsAsync<ConflictException>(() => controller.LogoutAsync(
+            new PersistentLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-A" },
+            CancellationToken.None));
+
+        Assert.Equal("management.auth.errors.logoutFailed", thrown.StageKey);
+        Assert.Contains("did not confirm logout", thrown.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("restart", thrown.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(session, daemon.GetSession("session-A"));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+    }
+
+    [Fact]
+    public async Task Logout_CallerCancellation_PropagatesForHttp499WithoutRestartInstruction()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession(activeSessionId: "session-A");
+        using var cancellation = new CancellationTokenSource();
+        client.Logout = token => Task.FromCanceled<LogoutOutcome>(token);
+        var session = daemon.GetSession("session-A")!;
+        session.AuthState = DaemonAuthState.Authenticated;
+        await cancellation.CancelAsync();
+
+        var thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => controller.LogoutAsync(
+            new PersistentLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-A" },
+            cancellation.Token));
+
+        Assert.Equal(cancellation.Token, thrown.CancellationToken);
+        Assert.Same(session, daemon.GetSession("session-A"));
+        Assert.Same(client, session.Client);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+    }
+
+    [Fact]
     public async Task CancelLogin_RequiresAValidAttemptIdentity()
     {
         var (controller, _, client) = CreateControllerWithActiveSession("session-B");
@@ -1386,6 +1478,7 @@ public class PersistentLoginSessionPinningTests
         public string LiveStatus { get; set; } = "awaiting-login";
         public Func<Task<List<OwnedGame>>>? Games { get; set; }
         public Func<CancellationToken, Task<List<OwnedGame>>>? GamesWithToken { get; set; }
+        public Func<CancellationToken, Task<LogoutOutcome>>? Logout { get; set; }
         private Func<DaemonStatus, Task>? StatusChanged { get; set; }
         public int StatusSubscribers => StatusChanged?.GetInvocationList().Length ?? 0;
 
@@ -1430,6 +1523,12 @@ public class PersistentLoginSessionPinningTests
             if (targetMethod?.Name == nameof(IDaemonClient.CancelLoginWithOutcomeAsync))
             {
                 return Task.FromResult(AcknowledgeLoginCancel);
+            }
+
+            if (targetMethod?.Name == nameof(IDaemonClient.LogoutWithReasonAsync)
+                && Logout is not null)
+            {
+                return Logout((CancellationToken)args![0]!);
             }
 
             if (targetMethod?.Name == nameof(IDaemonClient.GetOwnedGamesAsync))

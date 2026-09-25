@@ -35,6 +35,7 @@ import {
   hasActivePersistentLogin,
   isPersistentLoginIntegrationReuse,
   isPersistentLoginDismissed,
+  markPersistentLoginAuthenticated,
   reconcilePersistentLoginFromServer,
   requestPersistentLoginAttempt,
   resetPersistentLoginState,
@@ -468,14 +469,16 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
 
     const retire = (
       serviceKey: ScheduledPrefillServiceKey,
-      serviceId: PersistentPrefillServiceId
+      serviceId: PersistentPrefillServiceId,
+      authenticated = false
     ) => {
       const admitted = login.current;
       if (admitted?.serviceKey === serviceKey) {
         admitted.visible = false;
         login.current = null;
       }
-      resetPersistentLoginState(serviceId);
+      if (authenticated) markPersistentLoginAuthenticated(serviceId);
+      else resetPersistentLoginState(serviceId);
       setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
     };
 
@@ -501,7 +504,10 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
 
       if (authenticatedElsewhere) {
         clearPendingTimer(service.service);
-        retire(service.key, service.service);
+        const storeSession =
+          getPersistentLoginState(service.service).sessionId ??
+          getPersistentLoginStartRequest(service.service)?.sessionId;
+        retire(service.key, service.service, storeSession === container.sessionId);
         continue;
       }
 
@@ -563,14 +569,8 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
 
   const [errors, setErrors] = useState<Partial<Record<ScheduledPrefillServiceKey, string>>>({});
   // Which action wrote each entry in `errors`, so a Services row shows only its own Start failure.
-  // 'logoutRestarted' marks the Log out restart notice, which is not a failure.
   const [errorActions, setErrorActions] = useState<
-    Partial<
-      Record<
-        ScheduledPrefillServiceKey,
-        ScheduledPrefillPersistentActionState['action'] | 'logoutRestarted'
-      >
-    >
+    Partial<Record<ScheduledPrefillServiceKey, ScheduledPrefillPersistentActionState['action']>>
   >({});
   // A running container means someone started it after this tab's Start failed, so that failure
   // no longer describes the row and must not return when the container later stops [88]
@@ -687,14 +687,12 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
         const cancelled = await endPersistentLogin(serviceId, container.sessionId);
         if (!cancelled) throw new Error(t('prefill.persistent.cancelLoginFailed'));
       } else {
-        const { forgotten } = await ApiService.logoutPersistentPrefillContainer(serviceId);
+        const { forgotten } = await ApiService.logoutPersistentPrefillContainer(
+          serviceId,
+          container.sessionId
+        );
         if (!forgotten) {
-          await ApiService.stopPersistentPrefillContainer(container.sessionId);
-          await ApiService.startPersistentPrefillContainer(serviceId);
-          // Stored as a flag and translated where it shows, so it follows a language switch [94].
-          if (current()) {
-            setErrorActions((previous) => ({ ...previous, [serviceKey]: 'logoutRestarted' }));
-          }
+          throw new Error(t('management.auth.errors.logoutFailed'));
         }
       }
       if (current()) {

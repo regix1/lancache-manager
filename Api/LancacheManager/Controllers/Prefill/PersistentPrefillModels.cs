@@ -50,13 +50,18 @@ public sealed class StartPersistentSessionRequest
 }
 
 /// <summary>
-/// Request body for the persistent interactive-login routes that only need to identify the platform
-/// (login start / cancel-login). The running persistent session is resolved server-side.
+/// Request body for persistent login and logout routes. Each route validates the identifiers it needs
+/// before resolving the running persistent session.
 /// </summary>
 public sealed class PersistentLoginRequest
 {
-    /// <summary>Platform whose running persistent session should be logged in / cancelled.</summary>
+    /// <summary>Platform whose running persistent session the operation targets.</summary>
     public required PrefillPlatform Service { get; init; }
+
+    /// <summary>
+    /// Exact running session targeted by operations that mutate one container. Routes that do not
+    /// require a pinned session validate only their own prerequisites.
+    /// </summary>
     public string? SessionId { get; init; }
     public string? EditSessionId { get; init; }
     public string? EditActionId { get; init; }
@@ -140,23 +145,13 @@ public sealed class StopPersistentSessionRequest
     public required string SessionId { get; init; }
 }
 
-/// <summary>Result of a persistent-session logout attempt.</summary>
+/// <summary>Confirmation that the targeted persistent session logged out in place.</summary>
 public sealed class PersistentLogoutResponseDto
 {
     /// <summary>
-    /// True when the daemon acknowledged the in-place logout; the container was not restarted. Not a
-    /// hard guarantee the account file was deleted - an un-updated steam/epic daemon image also
-    /// reports success while only tearing down the live session (see
-    /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>).
+    /// True when the daemon confirmed the in-place logout and the same container remains running.
     /// </summary>
     public required bool Forgotten { get; init; }
-
-    /// <summary>
-    /// Present only when <see cref="Forgotten"/> is false: the attempt genuinely failed (daemon
-    /// reported failure, or the round-trip threw), so the caller must fall back to a stop+restart to
-    /// clear the session's auth state.
-    /// </summary>
-    public string? Fallback { get; init; }
 }
 
 /// <summary>Typed view of a persistent prefill session.</summary>

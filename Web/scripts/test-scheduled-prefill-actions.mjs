@@ -3233,6 +3233,154 @@ test('account and container session replacement revoke the matching admission', 
   assert.equal(sessionTarget, null);
 });
 
+test('same-session authenticated status completes the admitted login without retiring its identity', () => {
+  const admission = {
+    serviceKey: 'steam',
+    sessionId: 'steam-session',
+    identity: 'owner',
+    visible: true
+  };
+  const login = { current: admission };
+  const authenticated = [];
+  const resets = [];
+  let target = 'steam';
+  effect(containerSource, 'const timers = stopCleanupTimersRef.current', {
+    opened: true,
+    stopCleanupTimersRef: { current: new Map() },
+    login,
+    persistentContainerByService: new Map([
+      ['Steam', { sessionId: 'steam-session', isRunning: true, isAuthenticated: true }]
+    ]),
+    persistentContainerByServiceRef: {
+      current: new Map([
+        ['Steam', { sessionId: 'steam-session', isRunning: true, isAuthenticated: true }]
+      ])
+    },
+    PERSISTENT_PREFILL_SERVICES: [{ key: 'steam', service: 'Steam' }],
+    getPersistentLoginState: () => ({ sessionId: 'steam-session' }),
+    getPersistentLoginStartRequest: () => undefined,
+    markPersistentLoginAuthenticated: (service) => authenticated.push(service),
+    resetPersistentLoginState: (service) => resets.push(service),
+    setPersistentLoginTarget: (update) => {
+      target = update(target);
+    },
+    hasActivePersistentLogin: () => true,
+    SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS: 1000,
+    setTimeout,
+    clearTimeout
+  })();
+  assert.equal(admission.visible, false);
+  assert.equal(login.current, null);
+  assert.deepEqual(authenticated, ['Steam']);
+  assert.deepEqual(resets, []);
+  assert.equal(target, null);
+});
+
+test('logout keeps the shared container running on refusal and succeeds on retry while Stop stays separate', async () => {
+  const container = {
+    service: 'Steam',
+    sessionId: 'steam-session',
+    isRunning: true,
+    isAuthenticated: true
+  };
+  const persistentContainerByServiceRef = { current: new Map([['Steam', container]]) };
+  const containersByServiceKey = new Map([['steam', container]]);
+  const attempts = { current: new Map() };
+  let actions = {};
+  let errors = {};
+  let errorActions = {};
+  let target = 'steam';
+  const calls = [];
+  const replies = [{ forgotten: false }, { forgotten: true }];
+  const ApiService = {
+    logoutPersistentPrefillContainer: async (...args) => {
+      calls.push(['logout', ...args]);
+      return replies.shift();
+    },
+    stopPersistentPrefillContainer: async (...args) => {
+      calls.push(['stop', ...args]);
+    },
+    startPersistentPrefillContainer: async (...args) => {
+      calls.push(['start', ...args]);
+    }
+  };
+  const act = arrow(containerSource, 'act', {
+    privateAvailabilityIdentity: 'owner',
+    privateAvailabilityIdentityRef: { current: 'owner' },
+    attempts,
+    view: { current: { service: 'steam' } },
+    persistentContainerByServiceRef,
+    getPersistentServiceId: () => 'Steam',
+    setActions: (update) => {
+      actions = update(actions);
+    },
+    setErrors: (update) => {
+      errors = update(errors);
+    },
+    setErrorActions: (update) => {
+      errorActions = update(errorActions);
+    },
+    recover: async () => undefined,
+    loadPersistentContainers: async () => calls.push(['load']),
+    getErrorMessage: (error) => error.message
+  });
+  const bindings = {
+    containersByServiceKey,
+    act,
+    getPersistentServiceId: () => 'Steam',
+    hasActivePersistentLogin: () => false,
+    endPersistentLogin: async () => true,
+    ApiService,
+    t: (key) => key,
+    login: { current: null },
+    resetPersistentLoginState: (service) => calls.push(['reset', service]),
+    setPersistentLoginTarget: (update) => {
+      target = update(target);
+    },
+    persistentContainerByServiceRef
+  };
+  const logout = arrow(containerSource, 'handleLogoutPersistent', bindings);
+  const stop = arrow(containerSource, 'handleStopPersistent', bindings);
+
+  await logout('steam');
+  assert.equal(errors.steam, 'management.auth.errors.logoutFailed');
+  assert.equal(errorActions.steam, 'logout');
+  assert.equal(actions.steam, undefined);
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'logout'),
+    [['logout', 'Steam', 'steam-session']]
+  );
+  assert.equal(
+    calls.some(([name]) => name === 'start' || name === 'stop'),
+    false
+  );
+  assert.equal(target, 'steam');
+
+  await logout('steam');
+  assert.equal(errors.steam, undefined);
+  assert.equal(errorActions.steam, undefined);
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'logout'),
+    [
+      ['logout', 'Steam', 'steam-session'],
+      ['logout', 'Steam', 'steam-session']
+    ]
+  );
+  assert.equal(calls.filter(([name]) => name === 'load').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'reset').length, 1);
+  assert.equal(target, null);
+
+  await stop('steam');
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'stop'),
+    [['stop', 'steam-session']]
+  );
+  assert.equal(
+    calls.some(([name]) => name === 'start'),
+    false
+  );
+});
+
 test('settled empty container status does not re-enter initial loading during refresh', async () => {
   const second = deferred();
   const responses = [Promise.resolve([]), second.promise];

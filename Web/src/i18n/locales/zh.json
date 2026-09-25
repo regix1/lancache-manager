@@ -4905,9 +4905,6 @@
         "start": "启动容器",
         "stop": "停止容器"
       },
-      "messages": {
-        "logoutFallbackNotice": "已通过重启容器退出登录，但容器仍使用同一个已保存的账号。请更新守护进程镜像，以便无需重启即可忘记该账号。"
-      },
       "errors": {
         "noPendingChallenge": "没有待处理的凭据验证请求",
         "noResult": "持久登录未返回验证请求或认证结果。请重试。"

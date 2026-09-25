@@ -32,8 +32,6 @@ export interface ScheduledPrefillPersistentCardProps {
   justLoggedIn: boolean;
   /** The last Start, Stop, Log in or Log out error for this service. */
   actionError?: string;
-  /** True when `actionError` holds the Log out restart notice rather than a failure. */
-  actionNotice: boolean;
   integrationLoginError?: string;
   authenticating?: boolean;
   integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
