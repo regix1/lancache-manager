@@ -1650,7 +1650,6 @@
       "filters": {
         "showPrefix": "Show:",
         "allServices": "All Services",
-        "smallFilesOnly": "Small Files Only",
         "allClients": "All Clients",
         "allItems": "All",
         "hideMetadata": "Hide metadata (0 bytes)",

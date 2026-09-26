@@ -11,7 +11,7 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import Badge from '@components/ui/Badge';
 import BadgesRow from './BadgesRow';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
-import { buildTrafficKey } from './liveDownloadPreviews';
+import { buildTrafficKey, getGameDisplayName } from './liveDownloadPreviews';
 import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
@@ -130,59 +130,61 @@ const ActiveDownloadsView: React.FC = () => {
       {/* Downloads List */}
       <div className="downloads-list">
         {viewMode === 'games'
-          ? games.map((game: GameSpeedInfo) => (
-              <div
-                key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
-                className={`download-item ${game === fastestGame ? 'top' : ''}`}
-              >
-                <div className="download-avatar">
-                  <HardDrive className="fallback-icon" size={20} />
-                  {gameDownloading(game) && <div className="active-indicator" />}
-                </div>
-
-                <div className="download-info">
-                  <div className="download-name-row">
-                    <BadgesRow service={game.service} showDatasource={false} />
-                    <Tooltip
-                      content={
-                        game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })
-                      }
-                      className="download-name"
-                    >
-                      {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
-                    </Tooltip>
+          ? games.map((game: GameSpeedInfo) => {
+              const displayName = getGameDisplayName(
+                game.gameName,
+                game.service,
+                t('downloads.active.depotLabel', { depotId: game.depotId })
+              );
+              return (
+                <div
+                  key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
+                  className={`download-item ${game === fastestGame ? 'top' : ''}`}
+                >
+                  <div className="download-avatar">
+                    <HardDrive className="fallback-icon" size={20} />
+                    {gameDownloading(game) && <div className="active-indicator" />}
                   </div>
-                  <div className="download-meta">
-                    <span className="meta-item">{formatBytes(game.totalBytes)}</span>
-                    <span className="meta-divider">•</span>
-                    <span
-                      className={`meta-item cache-hit ${HIT_TIER_CLASS[efficiencyTier(game.cacheHitPercent)]}`}
-                    >
-                      {t('downloads.active.hitRate', {
-                        percent: Math.round(game.cacheHitPercent)
-                      })}
-                    </span>
-                    <span className="meta-divider">•</span>
-                    <span className="meta-item">
-                      {t('downloads.active.requests', { count: game.requestCount })}
-                    </span>
-                    {game.clientIp && (
-                      <>
-                        <span className="meta-divider">•</span>
-                        <span className="meta-item">
-                          <ClientIpDisplay clientIp={game.clientIp} />
-                        </span>
-                      </>
-                    )}
+
+                  <div className="download-info">
+                    <div className="download-name-row">
+                      <BadgesRow service={game.service} showDatasource={false} />
+                      <Tooltip content={displayName} className="download-name">
+                        {displayName}
+                      </Tooltip>
+                    </div>
+                    <div className="download-meta">
+                      <span className="meta-item">{formatBytes(game.totalBytes)}</span>
+                      <span className="meta-divider">•</span>
+                      <span
+                        className={`meta-item cache-hit ${HIT_TIER_CLASS[efficiencyTier(game.cacheHitPercent)]}`}
+                      >
+                        {t('downloads.active.hitRate', {
+                          percent: Math.round(game.cacheHitPercent)
+                        })}
+                      </span>
+                      <span className="meta-divider">•</span>
+                      <span className="meta-item">
+                        {t('downloads.active.requests', { count: game.requestCount })}
+                      </span>
+                      {game.clientIp && (
+                        <>
+                          <span className="meta-divider">•</span>
+                          <span className="meta-item">
+                            <ClientIpDisplay clientIp={game.clientIp} />
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="download-speed">
+                    <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
+                    <span className="speed-label caps-label">{t('downloads.active.speed')}</span>
                   </div>
                 </div>
-
-                <div className="download-speed">
-                  <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-                  <span className="speed-label caps-label">{t('downloads.active.speed')}</span>
-                </div>
-              </div>
-            ))
+              );
+            })
           : clients.map((client: ClientSpeedInfo, index: number) => (
               <div key={client.clientIp} className={`download-item ${index === 0 ? 'top' : ''}`}>
                 <div className="download-avatar">

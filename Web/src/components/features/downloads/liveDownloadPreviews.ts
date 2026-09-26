@@ -1,4 +1,5 @@
 import type { Download, GameSpeedInfo } from '../../../types';
+import { getServiceFilterKey } from '../../../utils/serviceDisplayName.ts';
 
 /**
  * Presentation model for traffic that is visible in the live speed window but has no
@@ -14,6 +15,8 @@ export interface LiveDownloadPreview {
   service: string;
   /** Resolved game title, or the truthful service label for service-only traffic. */
   displayName: string;
+  /** Original speed-snapshot title used for reconciliation and search. */
+  gameName: string | undefined;
   /**
    * Translation key for displayName when the label is this app's own text (depot placeholder
    * or generic service fallback), null when displayName is the backend's own game name.
@@ -104,23 +107,11 @@ const SERVICE_LABEL_KEYS: Record<string, string> = {
 // service-only matches never do, so generic wsus can never attach to a named Xbox row.
 const XBOX_ALIAS_GROUP = new Set(['wsus', 'xbox', 'xboxlive']);
 
-// Folds service aliases the same way the service filter dropdowns do (xboxlive/microsoft
-// display as Xbox). Kept dependency-free so this module stays loadable outside the bundler.
-const SERVICE_FILTER_ALIASES: Record<string, string> = {
-  xboxlive: 'xbox',
-  microsoft: 'xbox'
-};
-
 const normalizeService = (service: string | null | undefined): string =>
   (service ?? '').trim().toLowerCase();
 
 const normalizeTitle = (title: string | null | undefined): string =>
   (title ?? '').trim().toLowerCase();
-
-const serviceFilterKey = (service: string): string => {
-  const raw = normalizeService(service);
-  return SERVICE_FILTER_ALIASES[raw] ?? raw;
-};
 
 export const isResolvedGameName = (
   gameName: string | null | undefined,
@@ -135,6 +126,35 @@ export const isResolvedGameName = (
   if (fallback && normalized === fallback.toLowerCase()) return false;
   if (STEAM_APP_PLACEHOLDER.test(name)) return false;
   return true;
+};
+
+export const getGameDisplayName = (
+  gameName: string | null | undefined,
+  service: string,
+  emptyName: string
+): string => {
+  const normalizedName = normalizeTitle(gameName);
+  const raw = normalizeService(service);
+  const serviceKey = getServiceFilterKey(raw);
+
+  if (SERVICE_LABEL_KEYS[raw]) return normalizedName ? gameName! : emptyName;
+  if (normalizedName && STEAM_APP_PLACEHOLDER.test(gameName!.trim())) return gameName!;
+
+  if (!normalizedName) {
+    if (!raw) return emptyName;
+    if (raw === 'steam') return normalizeTitle(emptyName) === 'steam' ? 'steam' : emptyName;
+    return serviceKey;
+  }
+
+  if (
+    serviceKey === 'xbox' &&
+    (getServiceFilterKey(normalizedName) === 'xbox' ||
+      normalizedName === normalizeTitle(SERVICE_FALLBACK_LABELS.xboxlive))
+  ) {
+    return 'xbox';
+  }
+
+  return isResolvedGameName(gameName, service) ? gameName! : serviceKey;
 };
 
 const previewGameAppId = (game: GameSpeedInfo): number | null =>
@@ -170,19 +190,22 @@ export const buildTrafficKey = (game: GameSpeedInfo): string => {
 // then a depot placeholder, then the service label. No game title is ever invented for
 // service-only traffic.
 const previewDisplayName = (
-  game: GameSpeedInfo,
-  resolved: boolean
+  game: GameSpeedInfo
 ): { displayName: string; displayNameKey: string | null } => {
   const name = (game.gameName ?? '').trim();
-  if (resolved) return { displayName: name, displayNameKey: null };
-  if (name) return { displayName: name, displayNameKey: null };
+  const displayName = getGameDisplayName(name, game.service, '');
+  if (displayName) return { displayName, displayNameKey: null };
   const depotId = previewDepotId(game);
   if (depotId !== null) {
     return { displayName: `Depot ${depotId}`, displayNameKey: 'downloads.active.depotLabel' };
   }
   const raw = normalizeService(game.service);
   return {
-    displayName: SERVICE_FALLBACK_LABELS[raw] ?? game.service.trim(),
+    displayName: getGameDisplayName(
+      SERVICE_FALLBACK_LABELS[raw],
+      game.service,
+      game.service.trim()
+    ),
     displayNameKey: SERVICE_LABEL_KEYS[raw] ?? null
   };
 };
@@ -232,7 +255,7 @@ const matchesPreview = (preview: LiveDownloadPreview, download: Download): boole
   if (preview.hasResolvedGame) {
     return (
       isResolvedGameName(download.gameName, download.service) &&
-      normalizeTitle(download.gameName) === normalizeTitle(preview.displayName) &&
+      normalizeTitle(download.gameName) === normalizeTitle(preview.gameName) &&
       servicesCompatibleForNamedMatch(preview.service, downloadService)
     );
   }
@@ -298,7 +321,7 @@ export const reconcileLivePreviews = (
     }
 
     const resolved = isResolvedGameName(game.gameName, game.service);
-    const display = previewDisplayName(game, resolved);
+    const display = previewDisplayName(game);
     liveByKey.set(key, {
       cacheHitBytes: game.cacheHitBytes,
       preview: {
@@ -306,6 +329,7 @@ export const reconcileLivePreviews = (
         clientIp: (game.clientIp ?? '').trim(),
         service: normalizeService(game.service),
         displayName: display.displayName,
+        gameName: game.gameName,
         displayNameKey: display.displayNameKey,
         hasResolvedGame: resolved,
         gameAppId: previewGameAppId(game),
@@ -422,7 +446,7 @@ export const filterLivePreviews = (
     if (
       args.serviceFilterKey &&
       args.serviceFilterKey !== 'all' &&
-      serviceFilterKey(preview.service) !== args.serviceFilterKey
+      getServiceFilterKey(preview.service) !== args.serviceFilterKey
     ) {
       return false;
     }
@@ -453,6 +477,7 @@ export const filterLivePreviews = (
     if (query) {
       const matchesQuery =
         preview.displayName.toLowerCase().includes(query) ||
+        (preview.gameName?.toLowerCase().includes(query) ?? false) ||
         preview.service.includes(query) ||
         preview.clientIp.toLowerCase().includes(query) ||
         (preview.depotId !== null && String(preview.depotId).includes(query)) ||

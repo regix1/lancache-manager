@@ -34,7 +34,7 @@ import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
 import {
   buildTrafficKey,
   filterLivePreviews,
-  isResolvedGameName
+  getGameDisplayName
 } from '../downloads/liveDownloadPreviews';
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
@@ -85,12 +85,13 @@ const ActiveDownloadItem: React.FC<{
     'downloading',
     fallbackActive
   );
-  const displayName = isResolvedGameName(game.gameName, game.service)
-    ? game.gameName!
-    : game.gameName ||
-      (game.depotId
-        ? t('downloads.active.depotLabel', { depotId: game.depotId })
-        : getServiceDisplayName(game.service));
+  const displayName = getGameDisplayName(
+    game.gameName,
+    game.service,
+    game.depotId
+      ? t('downloads.active.depotLabel', { depotId: game.depotId })
+      : getServiceDisplayName(game.service)
+  );
   return (
     <div className="rdl-row rdl-row-active">
       <div className="rdl-row-main">
@@ -172,7 +173,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
             : t('dashboard.downloadsPanel.serviceGroup', {
                 service: formatServiceLabel(item.name)
               })
-          : item.name,
+          : getGameDisplayName(item.name, item.service, item.name),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.totalBytes > 0 ? (item.cacheHitBytes / item.totalBytes) * 100 : 0,
         cacheHitBytes: item.cacheHitBytes,
@@ -187,12 +188,13 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
       }
     : {
         service: item.service,
-        name: isResolvedGameName(item.gameName, item.service)
-          ? item.gameName!
-          : item.gameName ||
-            (item.depotId
-              ? t('downloads.active.depotLabel', { depotId: item.depotId })
-              : getServiceDisplayName(item.service)),
+        name: getGameDisplayName(
+          item.gameName,
+          item.service,
+          item.depotId
+            ? t('downloads.active.depotLabel', { depotId: item.depotId })
+            : getServiceDisplayName(item.service)
+        ),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         cacheHitBytes: item.cacheHitBytes,

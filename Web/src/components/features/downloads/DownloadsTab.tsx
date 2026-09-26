@@ -61,6 +61,7 @@ import {
   getServiceDisplayName,
   getServiceFilterKey
 } from '@utils/serviceDisplayName';
+import { getGameDisplayName } from './liveDownloadPreviews';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -768,51 +769,26 @@ const DownloadsTab: React.FC = () => {
 
   const availableClients = useMemo(() => Array.from(new Set(clientIps)).sort(), [clientIps]);
 
-  // Services that only ever cached files under a megabyte are demoted below the divider rather
-  // than removed. The server reports the flag per raw service name, so two aliases of one service
-  // are folded here and the group counts as large-file when either alias is.
-  const filteredAvailableServices = useMemo(() => {
-    const largeFileServices = new Set(
-      serviceFilterOptions
-        .filter((option) => option.hasLargeFiles)
-        .map((option) => option.service.toLowerCase())
-    );
-    return availableServices.filter((service) => largeFileServices.has(service));
-  }, [availableServices, serviceFilterOptions]);
-
   const serviceOptions = useMemo(() => {
     // Group raw service names by their folded display name (e.g. "xbox" and
     // "xboxlive" both fold to "Xbox") so the dropdown shows one entry per
     // displayed name instead of one per raw alias.
-    const groups = new Map<string, { service: string; visible: boolean }>();
+    const groups = new Map<string, string>();
     availableServices.forEach((service) => {
       const key = getServiceFilterKey(service);
-      const isVisible = filteredAvailableServices.includes(service);
-      const existing = groups.get(key);
-      if (!existing) {
-        groups.set(key, { service, visible: isVisible });
-      } else if (isVisible) {
-        existing.visible = true;
+      if (!groups.has(key)) {
+        groups.set(key, service);
       }
     });
 
-    const visibleEntries = Array.from(groups.entries()).filter(([, g]) => g.visible);
-    const hiddenEntries = Array.from(groups.entries()).filter(([, g]) => !g.visible);
-
-    const baseOptions = [
+    return [
       { value: 'all', label: t('downloads.tab.filters.allServices') },
-      ...visibleEntries.map(([key, g]) => ({ value: key, label: formatServiceLabel(g.service) }))
+      ...Array.from(groups, ([key, service]) => ({
+        value: key,
+        label: formatServiceLabel(service)
+      }))
     ];
-
-    if (hiddenEntries.length > 0) {
-      baseOptions.push(
-        { value: 'divider', label: t('downloads.tab.filters.smallFilesOnly') },
-        ...hiddenEntries.map(([key, g]) => ({ value: key, label: formatServiceLabel(g.service) }))
-      );
-    }
-
-    return baseOptions;
-  }, [filteredAvailableServices, availableServices, t]);
+  }, [availableServices, t]);
 
   const clientOptions = useMemo(
     () =>
@@ -878,7 +854,7 @@ const DownloadsTab: React.FC = () => {
       } else if (row.steamAppId && !row.hasRealGameName) {
         name = t('downloads.tab.groups.steamApp', { appId: row.steamAppId });
       } else {
-        name = row.appName;
+        name = getGameDisplayName(row.appName, row.service, row.appName);
       }
 
       return {
@@ -1429,12 +1405,14 @@ const DownloadsTab: React.FC = () => {
                 {/* Mobile: First row with service and client filters */}
                 <div className="flex sm:hidden gap-2 w-full">
                   <EnhancedDropdown
+                    variant="button"
                     options={serviceOptions}
                     value={settings.selectedService}
                     onChange={(value) => setSettings({ ...settings, selectedService: value })}
                     className="flex-1 min-w-0"
                   />
                   <EnhancedDropdown
+                    variant="button"
                     options={clientOptions}
                     value={settings.selectedClient}
                     onChange={(value) => setSettings({ ...settings, selectedClient: value })}
@@ -1445,6 +1423,7 @@ const DownloadsTab: React.FC = () => {
                 {/* Mobile: Second row with items per page and sort */}
                 <div className="flex sm:hidden gap-2 w-full items-center">
                   <EnhancedDropdown
+                    variant="button"
                     options={itemsPerPageOptions}
                     value={settings.itemsPerPage.toString()}
                     onChange={handleItemsPerPageChange}
@@ -1452,6 +1431,7 @@ const DownloadsTab: React.FC = () => {
                     className="flex-1 min-w-0"
                   />
                   <EnhancedDropdown
+                    variant="button"
                     options={[
                       { value: 'recent', label: t('downloads.tab.sort.recent') },
                       { value: 'oldest', label: t('downloads.tab.sort.oldest') },
@@ -1528,6 +1508,7 @@ const DownloadsTab: React.FC = () => {
                 {/* Desktop: All controls in one row */}
                 <div className="hidden sm:flex sm:flex-wrap gap-2 items-center">
                   <EnhancedDropdown
+                    variant="button"
                     options={serviceOptions}
                     value={settings.selectedService}
                     onChange={(value) => setSettings({ ...settings, selectedService: value })}
@@ -1535,6 +1516,7 @@ const DownloadsTab: React.FC = () => {
                   />
 
                   <EnhancedDropdown
+                    variant="button"
                     options={clientOptions}
                     value={settings.selectedClient}
                     onChange={(value) => setSettings({ ...settings, selectedClient: value })}
@@ -1542,6 +1524,7 @@ const DownloadsTab: React.FC = () => {
                   />
 
                   <EnhancedDropdown
+                    variant="button"
                     options={itemsPerPageOptions}
                     value={settings.itemsPerPage.toString()}
                     onChange={handleItemsPerPageChange}
@@ -1550,6 +1533,7 @@ const DownloadsTab: React.FC = () => {
                   />
 
                   <EnhancedDropdown
+                    variant="button"
                     options={[
                       { value: 'recent', label: t('downloads.tab.sort.recent') },
                       { value: 'oldest', label: t('downloads.tab.sort.oldest') },

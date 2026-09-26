@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { bindLifted, liftHookCallback } from './transpile-module.mjs';
+import { bindLifted, compileTree, liftHookCallback } from './transpile-module.mjs';
 
 /**
  * The title of a Steam group whose depots never resolved to a game.
@@ -14,6 +14,10 @@ import { bindLifted, liftHookCallback } from './transpile-module.mjs';
  */
 
 const DOWNLOADS_TAB = 'src/components/features/downloads/DownloadsTab.tsx';
+
+const { getGameDisplayName } = await import(
+  await compileTree('../src/components/features/downloads/liveDownloadPreviews.ts')
+);
 
 const locales = {
   en: JSON.parse(readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')),
@@ -32,6 +36,7 @@ const translator =
 const groupFor = (locale, row) =>
   bindLifted(liftHookCallback(DOWNLOADS_TAB, 'useCallback', 'downloads.tab.groups.steamApp'), {
     t: translator(locale),
+    getGameDisplayName,
     getServiceDisplayName: (service) => service,
     getServiceFilterKey: (service) => service
   })(row, []);

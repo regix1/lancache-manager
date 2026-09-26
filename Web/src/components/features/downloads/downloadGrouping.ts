@@ -1,6 +1,6 @@
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import type { Download, DownloadGroup } from '../../../types';
-import { isResolvedGameName } from './liveDownloadPreviews';
+import { getGameDisplayName, isResolvedGameName } from './liveDownloadPreviews';
 
 /**
  * Wraps one download in the group shape the row and card renderers accept, so an individual
@@ -15,7 +15,11 @@ const toSingleDownloadGroup = (download: Download): DownloadGroup => {
 
   return {
     id: `individual-${download.id}`,
-    name: download.gameName || getServiceDisplayName(download.service),
+    name: getGameDisplayName(
+      download.gameName,
+      download.service,
+      getServiceDisplayName(download.service)
+    ),
     type: 'game',
     service: download.service,
     downloads: [download],

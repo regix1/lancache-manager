@@ -1650,7 +1650,6 @@
       "filters": {
         "showPrefix": "显示：",
         "allServices": "所有服务",
-        "smallFilesOnly": "仅小文件",
         "allClients": "所有客户端",
         "allItems": "全部",
         "hideMetadata": "隐藏元数据（0字节）",

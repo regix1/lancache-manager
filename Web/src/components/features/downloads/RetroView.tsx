@@ -42,6 +42,7 @@ import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
 import { cacheHitPercent } from './downloadGrouping';
 import { efficiencyTier } from '@utils/efficiencyTier';
+import { getGameDisplayName } from './liveDownloadPreviews';
 import {
   formatTimeRangeLines,
   mapDtoToDepotGroupedData,
@@ -410,7 +411,11 @@ const RetroView = memo(
             const onDiskSizeBytes = detection?.total_size_bytes;
             return {
               timeLines: formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc, clock),
-              appName: data.gameName || getServiceDisplayName(data.service),
+              appName: getGameDisplayName(
+                data.gameName,
+                data.service,
+                getServiceDisplayName(data.service)
+              ),
               serviceBadge: getServiceDisplayName(data.service).toUpperCase(),
               evictionLabel: data.isPartiallyEvicted
                 ? t('common.partiallyEvicted')

@@ -20,6 +20,7 @@ import { efficiencyTier, type EfficiencyTier } from '@utils/efficiencyTier';
 import { cacheHitPercent } from './downloadGrouping';
 import { GAUGE_DIAL_SIZE } from './retroColumnSizing';
 import { useFitTextSize } from '@hooks/useFitTextSize';
+import { getGameDisplayName } from './liveDownloadPreviews';
 
 const getServiceIcon = (service: string, size = 24) => {
   const serviceLower = service.toLowerCase();
@@ -206,7 +207,16 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     const tier = efficiencyTier(hitPercent);
     // The phone layout keeps the title on one line by stepping its size down before it
     // would truncate; the desktop grid truncates inside its column instead.
-    const title = data.gameName || getServiceDisplayName(data.service);
+    const title = getGameDisplayName(
+      data.gameName,
+      data.service,
+      getServiceDisplayName(data.service)
+    );
+    const imageTitle = getGameDisplayName(
+      data.gameName,
+      data.service,
+      t('downloads.tab.retro.gameFallback')
+    );
     const titleFit = useFitTextSize(title);
     const rowClasses = `${ROW_ACCENT_CLASS[tier]}${rowIndex % 2 === 1 ? ' retro-row-alt' : ''}${
       data.isEvicted ? ' retro-row-evicted' : ''
@@ -249,7 +259,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                       epicAppId={data.epicAppId || undefined}
                       nameKeyedService={nameKeyedService || undefined}
                       nameKeyedSlug={nameKeyedSlug || undefined}
-                      alt={data.gameName || t('downloads.tab.retro.gameFallback')}
+                      alt={imageTitle}
                       className="retro-banner-img"
                       onError={onImageError}
                     />
@@ -266,7 +276,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               <div className="px-2 min-w-0 overflow-hidden" data-cell>
                 <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
                   <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                    {data.gameName || getServiceDisplayName(data.service)}
+                    {title}
                   </span>
                   <BadgesRow
                     service={data.service}
@@ -380,7 +390,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                       epicAppId={data.epicAppId || undefined}
                       nameKeyedService={nameKeyedService || undefined}
                       nameKeyedSlug={nameKeyedSlug || undefined}
-                      alt={data.gameName || t('downloads.tab.retro.gameFallback')}
+                      alt={imageTitle}
                       className="retro-banner-img flex-shrink-0"
                       onError={onImageError}
                     />

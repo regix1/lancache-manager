@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bindLifted, compileToUrl, liftHookCallback } from './transpile-module.mjs';
+import { bindLifted, compileToUrl, compileTree, liftHookCallback } from './transpile-module.mjs';
 
 /**
  * The Downloads page asks the server for one page of grouped rows instead of reading the whole
@@ -26,6 +26,9 @@ const { findClientFilterGroup } = await import(
 const { getServiceDisplayName, getServiceFilterKey } = await import(
   await compileToUrl('../src/utils/serviceDisplayName.ts')
 );
+const { getGameDisplayName } = await import(
+  await compileTree('../src/components/features/downloads/liveDownloadPreviews.ts')
+);
 
 /** Enough of i18next to tell the three title branches apart. */
 const t = (key, values) => (values ? `${key}:${Object.values(values).join(',')}` : key);
@@ -39,7 +42,7 @@ const runClientFilter = (selectedClient, clientGroups) =>
 
 const toDownloadGroup = bindLifted(
   liftHookCallback(DOWNLOADS_TAB, 'useCallback', 'downloads.tab.groups.unknownOther'),
-  { t, getServiceDisplayName, getServiceFilterKey }
+  { t, getGameDisplayName, getServiceDisplayName, getServiceFilterKey }
 );
 
 const buildPage = (items, expandedMembers = null) =>

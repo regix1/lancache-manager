@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   computeStickyTtlMs,
   filterLivePreviews,
+  getGameDisplayName,
   isResolvedGameName,
   reconcileLivePreviews
 } from '../src/components/features/downloads/liveDownloadPreviews.ts';
@@ -115,7 +116,41 @@ test('service-only traffic is never treated as a resolved game', () => {
 
   assert.equal(previews.length, 1);
   assert.equal(previews[0].hasResolvedGame, false);
-  assert.equal(previews[0].displayName, 'Windows Update');
+  assert.equal(previews[0].displayName, 'wsus');
+  assert.equal(previews[0].gameName, 'Windows Update');
+});
+
+test('display names lowercase service placeholders and preserve genuine titles', () => {
+  const cases = [
+    [undefined, 'xbox', 'Existing', 'xbox'],
+    [null, 'xboxlive', 'Existing', 'xbox'],
+    ['   ', 'microsoft', 'Existing', 'xbox'],
+    ['XBOX', 'xbox', 'Existing', 'xbox'],
+    ['xboxlive', 'microsoft', 'Existing', 'xbox'],
+    ['Xbox Live', 'microsoft', 'Existing', 'xbox'],
+    ['Windows Update', 'wsus', 'Existing', 'wsus'],
+    ['WSUS', 'wsus', 'Existing', 'wsus'],
+    [undefined, 'wsus', 'Existing', 'wsus'],
+    ['Windows Update', 'windows', 'Existing', 'windows'],
+    ['Epic Games', 'epicgames', 'Existing', 'epicgames'],
+    [undefined, 'epicgames', 'Existing', 'epicgames'],
+    ['Riot Games', 'riot', 'Existing', 'riot'],
+    ['Steam', 'steam', 'Existing', 'steam'],
+    ['Steam App 730', 'steam', 'Existing', 'Steam App 730'],
+    [undefined, 'steam', 'Depot 731', 'Depot 731'],
+    [undefined, 'steam', 'Steam', 'steam'],
+    [undefined, '', 'Existing', 'Existing'],
+    [undefined, 'unknown', 'Unknown Service', 'Unknown Service'],
+    ['Unknown Service', 'unknown', 'Existing', 'Unknown Service'],
+    [undefined, 'ip-address', 'Direct IP', 'Direct IP'],
+    ['Forza Horizon 5', 'xboxlive', 'Existing', 'Forza Horizon 5'],
+    ['Xbox Live Arcade Collection', 'microsoft', 'Existing', 'Xbox Live Arcade Collection'],
+    ['Windows Update', 'steam', 'Existing', 'Windows Update']
+  ];
+
+  for (const [gameName, service, emptyName, expected] of cases) {
+    assert.equal(getGameDisplayName(gameName, service, emptyName), expected);
+  }
 });
 
 test('resolved game-name policy rejects service labels and Steam placeholders', () => {
@@ -225,6 +260,21 @@ test('generic wsus never matches a named Xbox row; a named wsus title does', () 
   assert.equal(named.previews.length, 0, 'same title reconciles across the wsus/xbox alias');
 });
 
+test('raw placeholder titles still reconcile after their visible labels change', () => {
+  for (const [service, gameName] of [
+    ['microsoft', 'Xbox Live'],
+    ['wsus', 'Windows Update']
+  ]) {
+    const source = Object.freeze(game({ service, gameName }));
+    const { previews } = run({
+      gameSpeeds: [source],
+      downloads: [download({ service, gameName, isActive: true })]
+    });
+    assert.equal(previews.length, 0, `${service} raw title reconciles`);
+    assert.equal(source.gameName, gameName, `${service} input stays unchanged`);
+  }
+});
+
 test('sticky TTL retains a briefly absent row, then drops it', () => {
   const first = run({ gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })] });
   const stickyMs = computeStickyTtlMs(2);
@@ -274,6 +324,27 @@ test('filters apply the view predicates to previews', () => {
   assert.deepEqual(
     bySearch.map((p) => p.clientIp),
     ['10.0.0.2']
+  );
+
+  const rawNames = run({
+    gameSpeeds: [
+      game({ service: 'microsoft', gameName: 'Xbox Live', clientIp: '10.0.0.4' }),
+      game({ service: 'wsus', gameName: 'Windows Update', clientIp: '10.0.0.5' })
+    ]
+  }).previews;
+  assert.deepEqual(
+    rawNames.map((preview) => preview.displayName),
+    ['xbox', 'wsus']
+  );
+  assert.deepEqual(
+    filterLivePreviews(rawNames, { searchQuery: 'xbox live' }).map((preview) => preview.clientIp),
+    ['10.0.0.4']
+  );
+  assert.deepEqual(
+    filterLivePreviews(rawNames, { searchQuery: 'windows update' }).map(
+      (preview) => preview.clientIp
+    ),
+    ['10.0.0.5']
   );
 
   const noLocalhost = filterLivePreviews(previews, { hideLocalhost: true });

@@ -1,18 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compileToUrl } from './transpile-module.mjs';
+import { compileTree } from './transpile-module.mjs';
 
-// The helper imports a path-aliased module, which a bare data-URL import cannot resolve, so the
-// dependency is compiled first and its data URL substituted for the alias.
-const serviceDisplayNameUrl = await compileToUrl('../src/utils/serviceDisplayName.ts');
-const liveDownloadPreviewsUrl = await compileToUrl(
-  '../src/components/features/downloads/liveDownloadPreviews.ts'
-);
 const { cacheHitPercent, toGroup } = await import(
-  await compileToUrl('../src/components/features/downloads/downloadGrouping.ts', {
-    '@utils/serviceDisplayName': serviceDisplayNameUrl,
-    './liveDownloadPreviews': liveDownloadPreviewsUrl
-  })
+  await compileTree('../src/components/features/downloads/downloadGrouping.ts')
 );
 
 const download = (overrides = {}) => ({
@@ -71,7 +62,7 @@ test('answers the membership questions from the one row it wraps', () => {
 
 test('falls back to the service display name when the game is unidentified', () => {
   assert.equal(toGroup(download({ gameName: undefined })).name, 'steam');
-  assert.equal(toGroup(download({ gameName: '', service: 'xboxlive' })).name, 'Xbox');
+  assert.equal(toGroup(download({ gameName: '', service: 'xboxlive' })).name, 'xbox');
 });
 
 test('passes a real group straight through instead of wrapping it again', () => {

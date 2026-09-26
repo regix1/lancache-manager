@@ -29,6 +29,7 @@ import { useMockMode } from '@contexts/useMockMode';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
 import { APP_EVENTS } from '@utils/constants';
+import { getGameDisplayName } from '../downloads/liveDownloadPreviews';
 
 type EventDownloadsCache = Record<
   number,
@@ -50,7 +51,7 @@ const groupDownloadsByGame = (downloads: Download[], unknownLabel: string) => {
     const key = `${getServiceFilterKey(d.service)}-${d.gameName || unknownLabel}`;
     if (!grouped[key]) {
       grouped[key] = {
-        name: d.gameName || unknownLabel,
+        name: getGameDisplayName(d.gameName, d.service, unknownLabel),
         service: d.service,
         totalBytes: 0,
         count: 0
