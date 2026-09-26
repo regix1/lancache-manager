@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import typescript from 'typescript';
 import {
@@ -12,7 +11,6 @@ import {
 } from './transpile-module.mjs';
 
 const DOWNLOADS_TAB = 'src/components/features/downloads/DownloadsTab.tsx';
-const BASE = '74a345a54b7fa47d2867cacff0ad3a8a626c7138';
 
 const serviceNames = await import(await compileTree('../src/utils/serviceDisplayName.ts'));
 const liveNames = await import(
@@ -156,45 +154,6 @@ test('service options keep every service, fold aliases once, and never add a div
   }
 });
 
-test('base service options demonstrate the removed small-files divider', () => {
-  const source = execFileSync(
-    'git',
-    ['show', `${BASE}:Web/src/components/features/downloads/DownloadsTab.tsx`],
-    {
-      cwd: new URL('../..', import.meta.url),
-      encoding: 'utf8'
-    }
-  );
-  const sourceFile = typescript.createSourceFile(
-    'DownloadsTab.base.tsx',
-    source,
-    typescript.ScriptTarget.Latest,
-    true,
-    typescript.ScriptKind.TSX
-  );
-  const oldOptionsNode = findSoleNode(sourceFile, 'base service-options memo', (node) => {
-    if (!typescript.isCallExpression(node) || node.arguments.length === 0) return false;
-    if (node.expression.getText(sourceFile) !== 'useMemo') return false;
-    const [argument] = node.arguments;
-    return (
-      typescript.isArrowFunction(argument) &&
-      argument.getText(sourceFile).includes("value: 'divider'")
-    );
-  });
-  const oldOptionsSource = oldOptionsNode.arguments[0].getText(sourceFile);
-  const t = (key) =>
-    key === 'downloads.tab.filters.allServices' ? 'All Services' : 'Small Files Only';
-  const options = bindLifted(oldOptionsSource, {
-    availableServices: ['steam', 'wsus'],
-    filteredAvailableServices: [],
-    getServiceFilterKey: serviceNames.getServiceFilterKey,
-    formatServiceLabel: serviceNames.formatServiceLabel,
-    t
-  })();
-
-  assert.ok(options.some((option) => option.value === 'divider'));
-});
-
 test('hide-small-files storage keeps current and legacy semantics', () => {
   const load = (entries) =>
     bindLifted(loadHideSmallFilesSource, {
@@ -271,29 +230,6 @@ test('the shared helper preserves real titles and lowercases recognized service 
   for (const [gameName, service, emptyName, expected] of cases) {
     assert.equal(liveNames.getGameDisplayName(gameName, service, emptyName), expected);
   }
-});
-
-test('base preview display demonstrates the corrected Xbox placeholder behavior', () => {
-  const source = execFileSync(
-    'git',
-    ['show', `${BASE}:Web/src/components/features/downloads/liveDownloadPreviews.ts`],
-    { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }
-  );
-  const sourceFile = typescript.createSourceFile(
-    'liveDownloadPreviews.base.ts',
-    source,
-    typescript.ScriptTarget.Latest,
-    true,
-    typescript.ScriptKind.TS
-  );
-  const oldDisplaySource = getInitializer(sourceFile, 'previewDisplayName');
-  const oldDisplay = bindLifted(oldDisplaySource, {})(
-    { gameName: 'Xbox Live', service: 'microsoft', depotId: 0 },
-    true
-  );
-
-  assert.equal(oldDisplay.displayName, 'Xbox Live');
-  assert.equal(liveNames.getGameDisplayName('Xbox Live', 'microsoft', ''), 'xbox');
 });
 
 test('single-download grouping changes only the visible title', () => {
