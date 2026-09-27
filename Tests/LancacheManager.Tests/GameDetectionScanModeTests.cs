@@ -217,6 +217,8 @@ public sealed class GameDetectionScanModeTests : IDisposable
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-        return new ServiceScheduleRegistry(Array.Empty<IHostedService>(), stateService, notifications, tracker);
+        return new ServiceScheduleRegistry(
+            Array.Empty<IHostedService>(), stateService, notifications,
+            ScheduleExecutionTestService.Create(), tracker);
     }
 }

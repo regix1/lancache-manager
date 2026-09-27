@@ -557,7 +557,9 @@ public sealed class OperationWaitingBlockerTests
     {
         notifications ??= CreateProxy<ISignalRNotificationService>((method, _) => DefaultReturn(method.ReturnType));
         var stateService = (IStateService)System.Reflection.DispatchProxy.Create<IStateService, NullReturningProxy>();
-        return new ServiceScheduleRegistry(new IHostedService[] { service }, stateService, notifications, tracker);
+        return new ServiceScheduleRegistry(
+            new IHostedService[] { service }, stateService, notifications,
+            ScheduleExecutionTestService.Create(), tracker);
     }
 
     /// <summary>

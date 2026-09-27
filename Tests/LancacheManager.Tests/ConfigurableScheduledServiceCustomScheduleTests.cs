@@ -468,7 +468,7 @@ public class ConfigurableScheduledServiceCustomScheduleTests
     public async Task SetCustomScheduleAsync_WithAScheduleThatCanNeverFire_Answers400AndStoresNothingAsync()
     {
         var (registry, recorder) = CreateRegistryStub();
-        var controller = new ScheduleController(registry);
+        var controller = new ScheduleController(registry, ScheduleExecutionTestService.Create());
 
         var result = await controller.SetCustomScheduleAsync(
             "gameDetection",
@@ -484,7 +484,7 @@ public class ConfigurableScheduledServiceCustomScheduleTests
     {
         var (registry, recorder) = CreateRegistryStub();
         recorder.Accepts = false;
-        var controller = new ScheduleController(registry);
+        var controller = new ScheduleController(registry, ScheduleExecutionTestService.Create());
 
         var result = await controller.SetCustomScheduleAsync(
             "gameDetection",
@@ -498,7 +498,7 @@ public class ConfigurableScheduledServiceCustomScheduleTests
     public async Task SetCustomScheduleAsync_WithNoSchedule_ClearsItAsync()
     {
         var (registry, recorder) = CreateRegistryStub();
-        var controller = new ScheduleController(registry);
+        var controller = new ScheduleController(registry, ScheduleExecutionTestService.Create());
 
         var result = await controller.SetCustomScheduleAsync(
             "gameDetection",
@@ -626,7 +626,8 @@ public class ConfigurableScheduledServiceCustomScheduleTests
     {
         var notifications = (ISignalRNotificationService)DispatchProxy
             .Create<ISignalRNotificationService, NullReturningProxy>();
-        return new ServiceScheduleRegistry(new[] { service }, state, notifications);
+        return new ServiceScheduleRegistry(
+            new[] { service }, state, notifications, ScheduleExecutionTestService.Create());
     }
 
     // ---- probes and fakes (hand-rolled; no mocking framework, matching the suite idiom) ----

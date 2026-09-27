@@ -201,7 +201,11 @@ test('a collapsed group renders from the one download the server sent with it', 
 
 test('the open group renders the sessions that were fetched for it', () => {
   const members = [download({ id: 7 }), download({ id: 8 }), download({ id: 9 })];
-  const [group] = buildPage([row()], { groupId: 'game-appid-440', downloads: members });
+  const [group] = buildPage([row()], {
+    groupId: 'game-appid-440',
+    downloads: members,
+    ready: true
+  });
   assert.deepEqual(
     group.downloads.map((d) => d.id),
     [7, 8, 9]
@@ -213,7 +217,8 @@ test('sessions fetched for one group do not leak into the others', () => {
     [row(), row({ id: 'service-wsus', service: 'wsus', groupType: 'content' })],
     {
       groupId: 'game-appid-440',
-      downloads: [download({ id: 7 }), download({ id: 8 })]
+      downloads: [download({ id: 7 }), download({ id: 8 })],
+      ready: true
     }
   );
   assert.equal(page[0].downloads.length, 2);
@@ -226,4 +231,14 @@ test('a row whose download went away still renders', () => {
   const [group] = buildPage([row({ primaryDownload: null })]);
   assert.deepEqual(group.downloads, []);
   assert.equal(group.totalBytes, 1000);
+});
+
+test('a successful empty member read keeps the primary row after readiness is confirmed', () => {
+  const [group] = buildPage([row()], {
+    groupId: 'game-appid-440',
+    downloads: [],
+    ready: true
+  });
+
+  assert.deepEqual(group.downloads, [row().primaryDownload]);
 });

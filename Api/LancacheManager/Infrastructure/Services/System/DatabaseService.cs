@@ -51,6 +51,7 @@ public class DatabaseService
         "UserSessions",
         "UserPreferences",
         "IdentityAuditEntries",
+        "ScheduleExecutions",
         "Events",
         "EventDownloads",
         "PrefillSessions",
@@ -969,6 +970,17 @@ public class DatabaseService
                                 $"Cleared account audit records ({identityAuditCount:N0} rows)");
                             break;
 
+                        case "ScheduleExecutions":
+                            var scheduleExecutionsCount = await context.ScheduleExecutions.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {scheduleExecutionsCount:N0} schedule executions");
+                            deletedRows += scheduleExecutionsCount;
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "ScheduleExecutions", scheduleExecutionsCount,
+                                $"Cleared schedule run history ({scheduleExecutionsCount:N0} rows)");
+                            break;
+
                         case "ClientGroupMembers":
                             // Foreign key triggers are disabled for the bulk delete above, so the cascade
                             // from ClientGroups does not fire and the member rows need their own delete.
@@ -1349,6 +1361,7 @@ public class DatabaseService
             "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
             "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
             "IdentityAuditEntries" => await context.IdentityAuditEntries.CountAsync(cancellationToken),
+            "ScheduleExecutions" => await context.ScheduleExecutions.CountAsync(cancellationToken),
             "Events" => await context.Events.CountAsync(cancellationToken),
             "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
             "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),

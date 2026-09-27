@@ -71,7 +71,9 @@ public interface IServiceScheduleRegistry
     /// FollowUpQueued reports whether admission retained an additional run behind current work.
     /// Throws a conflict when the service is scheduled prefill and no prefill schedule is enabled.
     /// </summary>
-    Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(string serviceKey);
+    Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
+        string serviceKey,
+        ScheduleActor? actor = null);
 
     /// <summary>
     /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no
@@ -91,7 +93,8 @@ public interface IServiceScheduleRegistry
     /// with the single reason they all share, so the fan-out still triggers everything that can run
     /// rather than being blocked as a whole.
     /// </summary>
-    Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync();
+    Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync(
+        ScheduleActor? actor = null);
 
     void ResetToDefaults();
 

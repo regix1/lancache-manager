@@ -1,10 +1,12 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics.CodeAnalysis;
 
 namespace LancacheManager.Controllers;
 
@@ -21,6 +23,7 @@ public class ScheduledPrefillConfigController : ControllerBase
     private readonly IServiceScheduleRegistry _registry;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ScheduledPrefillService _scheduledPrefill;
+    private readonly ScheduleExecutionService _scheduleExecutions;
     private readonly ILogger<ScheduledPrefillConfigController> _logger;
 
     public ScheduledPrefillConfigController(
@@ -28,12 +31,14 @@ public class ScheduledPrefillConfigController : ControllerBase
         IServiceScheduleRegistry registry,
         IUnifiedOperationTracker operationTracker,
         ScheduledPrefillService scheduledPrefill,
+        ScheduleExecutionService scheduleExecutions,
         ILogger<ScheduledPrefillConfigController>? logger = null)
     {
         _stateService = stateService;
         _registry = registry;
         _operationTracker = operationTracker;
         _scheduledPrefill = scheduledPrefill;
+        _scheduleExecutions = scheduleExecutions;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ScheduledPrefillConfigController>.Instance;
     }
 
@@ -315,7 +320,8 @@ public class ScheduledPrefillConfigController : ControllerBase
     [HttpPost("services/{platform}/schedules/{scheduleId:guid}/run")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ConflictResponse), StatusCodes.Status409Conflict)]
-    public ActionResult RunService(PrefillPlatform platform, Guid scheduleId)
+    [SuppressMessage("Style", "IDE1006", Justification = "The existing API action name remains stable.")]
+    public async Task<ActionResult> RunService(PrefillPlatform platform, Guid scheduleId)
     {
         var schedule = _stateService.GetScheduledPrefillConfig()
             .GetSchedulesInRunOrder()
@@ -333,7 +339,10 @@ public class ScheduledPrefillConfigController : ControllerBase
                 $"Scheduled prefill for {platform} is already running"));
         }
 
-        var operationId = _scheduledPrefill.TriggerServiceRun(platform, scheduleId);
+        var actor = await _scheduleExecutions.ResolveActorAsync(
+            HttpContext.GetUserSession()?.AccountId,
+            HttpContext.RequestAborted);
+        var operationId = _scheduledPrefill.TriggerServiceRun(platform, scheduleId, actor);
         if (operationId is null)
         {
             return Conflict(ApiResponse.Conflict(

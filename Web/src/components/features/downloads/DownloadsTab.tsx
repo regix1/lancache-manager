@@ -53,6 +53,7 @@ const RetroView = lazy(() => import('./RetroView'));
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 import { ALL_ITEMS_PAGE_SIZE, useRetroDownloads } from './useRetroDownloads';
+import { useExpansionScroll } from './useExpansionScroll';
 import { useMockMode } from '@contexts/useMockMode';
 
 import type { Download, DownloadGroup } from '../../../types';
@@ -887,19 +888,21 @@ const DownloadsTab: React.FC = () => {
   );
 
   // A grouped row names its members but carries only the newest one, so the sessions of the group
-  // the reader opens are fetched on their own. Collapsing clears them; a refetch of the page
-  // refreshes them, so an open group's sessions stay as current as its header.
+  // the reader opens are fetched on their own. The closing disclosure retains them through its
+  // exit, then clears them; a refetch of the page refreshes an open group's sessions.
   const [expandedMembers, setExpandedMembers] = useState<{
     groupId: string;
     downloads: Download[];
+    ready: boolean;
   } | null>(null);
+  const expandRequestRef = useRef(0);
   // Why the last group expand failed. A new expand clears it; the collapse the failure causes
   // does not.
   const [expandError, setExpandError] = useState<string | null>(null);
 
   useEffect(() => {
+    const requestId = ++expandRequestRef.current;
     if (expandedItem === null) {
-      setExpandedMembers(null);
       return;
     }
     const row = serverPage.items.find((item) => item.id === expandedItem);
@@ -912,19 +915,28 @@ const DownloadsTab: React.FC = () => {
     if (mockMode) {
       setExpandedMembers({
         groupId: row.id,
-        downloads: row.primaryDownload ? [row.primaryDownload] : []
+        downloads: row.primaryDownload ? [row.primaryDownload] : [],
+        ready: true
       });
       return;
     }
 
     const controller = new AbortController();
     setExpandError(null);
+    setExpandedMembers((current) =>
+      current?.groupId === row.id && current.ready
+        ? current
+        : { groupId: row.id, downloads: [], ready: false }
+    );
     ApiService.getDownloadsByIds(row.downloadIds, controller.signal)
-      .then((downloads) => setExpandedMembers({ groupId: row.id, downloads }))
+      .then((downloads) => {
+        if (controller.signal.aborted || expandRequestRef.current !== requestId) return;
+        setExpandedMembers({ groupId: row.id, downloads, ready: true });
+      })
       .catch((err: unknown) => {
         // The effect's cleanup aborted this request when the page's rows changed; a newer request
         // owns the row now.
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || expandRequestRef.current !== requestId) return;
         notifyError(t('downloads.tab.errors.loadFailed'), err, {
           logLabel: '[DownloadsTab] Failed to load the sessions of the expanded group'
         });
@@ -986,6 +998,21 @@ const DownloadsTab: React.FC = () => {
     retroTimeParams.endTime,
     retroEventId
   ].join('|');
+
+  const membersReadyGroupId = expandedMembers?.ready
+    ? expandedMembers.groupId
+    : mockMode
+      ? expandedItem
+      : null;
+  const expandedMembersReady = expandedItem !== null && membersReadyGroupId === expandedItem;
+  const { cancelScroll, requestScroll } = useExpansionScroll({
+    contentRoot: nonRetroContentRef,
+    enabled: settings.enableScrollIntoView,
+    expandedItem,
+    membersReady: expandedMembersReady,
+    resetKey: `${activeTab}|${scrollResetKey}`,
+    view: settings.viewMode
+  });
 
   // Floor of 1: an empty result would otherwise report 0 pages and put the pager out of range of
   // its own clamp.
@@ -1089,16 +1116,20 @@ const DownloadsTab: React.FC = () => {
 
   // Every view keeps its previous rows on screen and fades while the next page is fetched, so the
   // page turns immediately and no artificial delay is paid before the request starts.
-  const handlePageChange = useCallback((newPage: number) => {
-    if (newPage === currentPageRef.current) return;
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      if (newPage === currentPageRef.current) return;
 
-    // The open group's members belong to the page being left, and the row that carries them is not
-    // on the next one. Collapsing here is also what keeps a newly mounted card from scrolling
-    // itself into view under the reader on the rare page that repeats the same group id.
-    setExpandedItem(null);
-    currentPageRef.current = newPage;
-    setCurrentPage(newPage);
-  }, []);
+      // The open group's members belong to the page being left, and the row that carries them is not
+      // on the next one. Collapsing here is also what keeps a newly mounted card from scrolling
+      // itself into view under the reader on the rare page that repeats the same group id.
+      cancelScroll();
+      setExpandedItem(null);
+      currentPageRef.current = newPage;
+      setCurrentPage(newPage);
+    },
+    [cancelScroll]
+  );
 
   // The one reader left of the row-level route. The views hold a page at a time now, so the rows
   // an export needs are no longer on hand and are fetched when the button is pressed. They arrive
@@ -1196,11 +1227,24 @@ const DownloadsTab: React.FC = () => {
     }
   };
 
-  // Stable across renders. The three views below are memoized and every other prop they take
-  // already is, so a handler rebuilt on each render was on its own enough to re-render all three
-  // of them - the two behind display:none included - every time anything on this page changed.
-  const handleItemClick = useCallback((id: string) => {
-    setExpandedItem((current) => (current === id ? null : id));
+  // The click owns scroll intent as well as expansion. It cancels or replaces existing movement
+  // before changing the expanded group, so later readiness cannot revive an older click.
+  const handleItemClick = useCallback(
+    (id: string) => {
+      if (expandedItem === id) {
+        cancelScroll();
+        setExpandedItem(null);
+        return;
+      }
+
+      requestScroll(id);
+      setExpandedItem(id);
+    },
+    [cancelScroll, expandedItem, requestScroll]
+  );
+
+  const handleItemExit = useCallback((id: string) => {
+    setExpandedMembers((current) => (current?.groupId === id ? null : current));
   }, []);
 
   // Loading state with skeleton loader. The page fetch only reports loading on its first run, so a
@@ -2007,10 +2051,11 @@ const DownloadsTab: React.FC = () => {
                 items={itemsToDisplay}
                 scrollResetKey={scrollResetKey}
                 expandedItem={expandedItem}
+                membersReadyGroupId={membersReadyGroupId}
                 onItemClick={handleItemClick}
+                onItemExit={handleItemExit}
                 aestheticMode={settings.aestheticMode}
                 groupByFrequency={settings.groupByFrequency}
-                enableScrollIntoView={settings.enableScrollIntoView}
                 showDatasourceLabels={showDatasourceLabels}
                 hasMultipleDatasources={hasMultipleDatasources}
                 detectionLookup={detectionLookup}
@@ -2024,11 +2069,12 @@ const DownloadsTab: React.FC = () => {
                 items={itemsToDisplay}
                 scrollResetKey={scrollResetKey}
                 expandedItem={expandedItem}
+                membersReadyGroupId={membersReadyGroupId}
                 onItemClick={handleItemClick}
+                onItemExit={handleItemExit}
                 aestheticMode={false}
                 fullHeightBanners={false}
                 groupByFrequency={false}
-                enableScrollIntoView={false}
                 showDatasourceLabels={showDatasourceLabels}
                 hasMultipleDatasources={hasMultipleDatasources}
                 cardGridLayout={true}
@@ -2047,11 +2093,12 @@ const DownloadsTab: React.FC = () => {
                 items={itemsToDisplay}
                 scrollResetKey={scrollResetKey}
                 expandedItem={expandedItem}
+                membersReadyGroupId={membersReadyGroupId}
                 onItemClick={handleItemClick}
+                onItemExit={handleItemExit}
                 aestheticMode={settings.aestheticMode}
                 fullHeightBanners={settings.fullHeightBanners}
                 groupByFrequency={settings.groupByFrequency}
-                enableScrollIntoView={settings.enableScrollIntoView}
                 showDatasourceLabels={showDatasourceLabels}
                 hasMultipleDatasources={hasMultipleDatasources}
                 cardGridLayout={false}

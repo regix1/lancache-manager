@@ -14,8 +14,18 @@ const component = findSoleNode(
   (node) =>
     ts.isVariableDeclaration(node) && node.name.getText(source) === 'PersistentContainerCard'
 );
+const sessionComponent = findSoleNode(
+  source,
+  'session card',
+  (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === 'SessionCard'
+);
 const compiled = transpile(
   `const PersistentContainerCard = ${component.initializer.getText(source)};`,
+  ts.ModuleKind.CommonJS,
+  { jsx: ts.JsxEmit.React, jsxFactory: 'h' }
+);
+const sessionCompiled = transpile(
+  `const SessionCard = ${sessionComponent.initializer.getText(source)};`,
   ts.ModuleKind.CommonJS,
   { jsx: ts.JsxEmit.React, jsxFactory: 'h' }
 );
@@ -72,6 +82,164 @@ const render = (props) =>
       children: children.flat().filter(Boolean)
     })
   )(props);
+
+const renderSession = (session) =>
+  new Function(
+    'useTranslation',
+    'useState',
+    'useActivityStatus',
+    'resolveServiceId',
+    'isAnonymousServiceId',
+    'serviceDisplayName',
+    'usePaginatedList',
+    'getStatusBadgeLabelKey',
+    'rowToggleHandlers',
+    'StatusDot',
+    'Badge',
+    'Button',
+    'ChevronDown',
+    'CollapsibleRegion',
+    'PrefillRuns',
+    'FormattedTimestamp',
+    'LoadingSpinner',
+    'Pagination',
+    'HistoryStatusBadge',
+    'formatBytes',
+    'cleanIpAddress',
+    'translateStageKeyMessage',
+    'RowActionsMenu',
+    'ActionMenuItem',
+    'ActionMenuDangerItem',
+    'ActionMenuDivider',
+    'StopCircle',
+    'Ban',
+    'XCircle',
+    'h',
+    `${sessionCompiled}\nreturn SessionCard;`
+  )(
+    () => ({
+      t: (key, values = {}) => (values.service ? `${key}:${values.service}` : key)
+    }),
+    () => [false, () => undefined],
+    () => ({ isActive: () => false }),
+    (platform) => {
+      const service = platform.toLowerCase();
+      return service === 'blizzard' ? 'battlenet' : service;
+    },
+    (service) => service === 'battlenet' || service === 'riot',
+    (service) =>
+      ({ xbox: 'Xbox', riot: 'Riot Games', battlenet: 'Battle.net' })[service] ?? service,
+    ({ items }) => ({ paginatedItems: items, totalPages: 1 }),
+    () => 'active',
+    () => ({}),
+    Symbol('dot'),
+    badge,
+    Symbol('button'),
+    Symbol('chevron'),
+    region,
+    runs,
+    timestamp,
+    Symbol('spinner'),
+    Symbol('pagination'),
+    Symbol('history-status'),
+    String,
+    String,
+    String,
+    Symbol('row-actions'),
+    Symbol('action'),
+    Symbol('danger'),
+    Symbol('divider'),
+    Symbol('stop'),
+    Symbol('ban'),
+    Symbol('error'),
+    (type, attributes, ...children) => ({
+      type,
+      props: attributes ?? {},
+      children: children.flat().filter(Boolean)
+    })
+  )({
+    session,
+    isLive: true,
+    isAdmin: false,
+    historyData: [],
+    isHistoryExpanded: false,
+    isLoadingHistory: false,
+    onToggleHistory: () => undefined,
+    historyPage: 1,
+    onHistoryPageChange: () => undefined
+  });
+
+test('session titles preserve account identity and anonymous service labels', () => {
+  const cases = [
+    {
+      platform: 'Xbox',
+      username: 'NamedXboxPlayer',
+      isPersistent: true,
+      authState: 'Authenticated',
+      title: 'NamedXboxPlayer',
+      badges: ['Xbox', 'management.prefillSessions.labels.persistentBadge']
+    },
+    {
+      platform: 'Xbox',
+      isPersistent: true,
+      authState: 'Authenticated',
+      title: 'management.prefillSessions.labels.authenticatedAccount:Xbox',
+      badges: ['Xbox', 'management.prefillSessions.labels.persistentBadge']
+    },
+    {
+      platform: 'Xbox',
+      isPersistent: true,
+      authState: 'NotAuthenticated',
+      title: 'management.prefillSessions.labels.notLoggedInSession',
+      badges: ['Xbox', 'management.prefillSessions.labels.persistentBadge']
+    },
+    {
+      platform: 'Riot',
+      authState: 'Authenticated',
+      title: 'management.prefillSessions.labels.anonymousAccount:Riot Games',
+      badges: ['Riot Games']
+    },
+    {
+      platform: 'BattleNet',
+      authState: 'Authenticated',
+      title: 'management.prefillSessions.labels.anonymousAccount:Battle.net',
+      badges: ['Battle.net']
+    },
+    {
+      platform: 'Riot',
+      accountUsername: 'RiotPlayer',
+      authState: 'Authenticated',
+      title: 'RiotPlayer',
+      badges: ['Riot Games']
+    },
+    {
+      platform: 'BattleNet',
+      username: 'BattlePlayer',
+      authState: 'Authenticated',
+      title: 'BattlePlayer',
+      badges: ['Battle.net']
+    }
+  ];
+
+  for (const entry of cases) {
+    const tree = renderSession({
+      id: `${entry.platform}-${entry.title}`,
+      status: 'Active',
+      createdAt: '2026-09-27T00:00:00Z',
+      isPrefilling: false,
+      ...entry
+    });
+    const title = walk(tree, 'span').find((node) =>
+      node.props.className?.includes('mgmt-row__title')
+    );
+    assert.equal(title.children[0], entry.title);
+    assert.deepEqual(
+      walk(tree, badge).map((node) => node.children[0]),
+      entry.badges
+    );
+    assert.notEqual(title.children[0], 'management.prefillSessions.labels.persistentContainer');
+  }
+});
 
 test('persistent session activity and schedule counts have separate owners', () => {
   const entries = [{ runId: 'first' }, { runId: 'second' }];

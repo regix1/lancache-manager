@@ -532,7 +532,8 @@ public sealed class CacheScanDetectionPhaseTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var schedules = new ServiceScheduleRegistry([], VisibleClientsStateService(),
-            DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>(), tracker);
+            DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>(),
+            ScheduleExecutionTestService.Create(), tracker);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         typeof(ServiceScheduleRegistry)
             .GetMethod(acknowledged ? "AcknowledgeRun" : "HoldRefusedRun", BindingFlags.Instance | BindingFlags.NonPublic)!

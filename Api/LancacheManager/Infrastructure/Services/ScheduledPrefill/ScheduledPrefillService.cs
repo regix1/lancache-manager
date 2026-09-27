@@ -162,7 +162,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// <see cref="ScheduledPrefillConfigDto.GetEffectivePersistenceMode"/>'s treatment of the same
     /// bad input. [29][49]
     /// </summary>
-    public Guid? TriggerServiceRun(PrefillPlatform serviceId, Guid scheduleId)
+    public Guid? TriggerServiceRun(
+        PrefillPlatform serviceId,
+        Guid scheduleId,
+        ScheduleActor? actor = null)
     {
         if (!Enum.IsDefined(serviceId))
         {
@@ -198,7 +201,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 ?? throw new InvalidOperationException("Scheduled prefill notification mode is required.");
             var state = new ScheduledPrefillServiceRunState(
                 serviceId, serviceConfig.ScheduleId, serviceConfig.ScheduleName,
-                new RunNotice(mode, RunTrigger.Manual));
+                new RunNotice(mode, RunTrigger.Manual, actor));
             cts = CancellationTokenSource.CreateLinkedTokenSource(_detachedRunLifetime.Token);
             var token = cts.Token;
             operationId = tracker.RegisterOperation(
@@ -341,7 +344,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             return;
         }
 
-        var bypassDueCheck = CurrentRunTrigger is RunTrigger.Manual or RunTrigger.RunAll;
+        var parentNotice = CurrentRunNotice;
+        var trigger = parentNotice.Trigger;
+        var bypassDueCheck = trigger is RunTrigger.Manual or RunTrigger.RunAll;
         var now = DateTime.UtcNow;
         var dueSchedules = new List<ScheduledPrefillServiceConfigDto>();
         foreach (var schedule in schedules)
@@ -387,13 +392,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             ?.Capabilities?.SupportsConcurrentPrefill == true);
         if (!capable)
         {
-            await RunDueServicesAsync(dueSchedules, config, stoppingToken, CurrentRunTrigger);
+            await RunDueServicesAsync(dueSchedules, config, stoppingToken, parentNotice);
             return;
         }
 
         var tickId = Guid.NewGuid();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var work = RunDueServicesAsync(dueSchedules, config, _detachedRunLifetime.Token, CurrentRunTrigger);
+        var work = RunDueServicesAsync(dueSchedules, config, _detachedRunLifetime.Token, parentNotice);
         _detachedRuns[tickId] = WatchTickAsync(work, tickId, ready.Task);
         ready.SetResult();
     }
@@ -431,8 +436,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         List<ScheduledPrefillServiceConfigDto> dueServices,
         ScheduledPrefillConfigDto config,
         CancellationToken stoppingToken,
-        RunTrigger trigger)
+        RunNotice parentNotice)
     {
+        var trigger = parentNotice.Trigger;
         _logger.LogInformation("[ScheduledPrefill] Starting run for {Count} due service(s)", dueServices.Count);
         using var scope = _scopeFactory.CreateScope();
         var tracker = scope.ServiceProvider.GetRequiredService<IUnifiedOperationTracker>();
@@ -470,7 +476,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 if (dueServices.Count == 0) return;
 
                 operationId = tracker.RegisterOperation(
-                    OperationType.ScheduledPrefill, "Scheduled Prefill", cts, new ScheduledPrefillOperationMetadata());
+                    OperationType.ScheduledPrefill,
+                    "Scheduled Prefill",
+                    cts,
+                    new ScheduledPrefillOperationMetadata(),
+                    notice: parentNotice);
                 var operationIdString = operationId.Value.ToString();
                 foreach (var dueService in dueServices)
                 {
@@ -482,7 +492,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         new RunNotice(dueService.NotificationMode ?? throw new InvalidOperationException(
                             $"Scheduled prefill service {dueService.ServiceId} has a null NotificationMode; "
                                 + "ScheduledPrefillConfigFactory.Validate must run before the scheduler reads it."),
-                            trigger));
+                            trigger,
+                            parentNotice.Actor,
+                            parentNotice.RestoredOrigin));
                     var serviceCts = CancellationTokenSource.CreateLinkedTokenSource(runToken);
                     var serviceToken = serviceCts.Token;
                     Guid serviceOperationId;
@@ -820,9 +832,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 var state = new ScheduledPrefillServiceRunState(platform, scheduleId,
                     savedSchedule.ScheduleName, status.NotificationMode switch
                     {
-                        "visible" => new RunNotice(NotificationMode.All, RunTrigger.Manual),
-                        "hidden" => new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled),
-                        _ => new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled)
+                        "visible" => new RunNotice(
+                            NotificationMode.All,
+                            RunTrigger.Manual,
+                            restoredOrigin: true),
+                        "hidden" => new RunNotice(
+                            NotificationMode.Hidden,
+                            RunTrigger.Scheduled,
+                            restoredOrigin: true),
+                        _ => new RunNotice(
+                            NotificationMode.Silent,
+                            RunTrigger.Scheduled,
+                            restoredOrigin: true)
                     });
                 var restored = false;
                 try

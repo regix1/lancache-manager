@@ -271,13 +271,11 @@ const SessionCard: React.FC<{
       ? t('management.prefillSessions.labels.anonymousAccount', {
           service: platformDisplayName
         })
-      : isPersistentSession
-        ? t('management.prefillSessions.labels.persistentContainer')
-        : isAuthenticated_
-          ? t('management.prefillSessions.labels.authenticatedAccount', {
-              service: platformDisplayName
-            })
-          : t('management.prefillSessions.labels.notLoggedInSession');
+      : isAuthenticated_
+        ? t('management.prefillSessions.labels.authenticatedAccount', {
+            service: platformDisplayName
+          })
+        : t('management.prefillSessions.labels.notLoggedInSession');
 
   const statusLabelKey = getStatusBadgeLabelKey(status);
   const sessionDotLabel = isPrefilling

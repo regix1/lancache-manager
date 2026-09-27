@@ -122,7 +122,8 @@ public sealed class GlobalNotificationDisplayModeTests : IDisposable
     {
         var state = StateTestMethods.CreateStateService(_root);
         var notifications = CreateNotifications();
-        var controller = new ScheduleController(CreateSchedules(state, notifications));
+        var controller = new ScheduleController(
+            CreateSchedules(state, notifications), ScheduleExecutionTestService.Create());
 
         Assert.IsType<NoContentResult>(await controller.SetGlobalNotificationDisplayModeAsync(NotificationDisplayMode.Full));
 
@@ -138,7 +139,8 @@ public sealed class GlobalNotificationDisplayModeTests : IDisposable
     public void TheGlobalDefaultReadsAsOneCamelCaseValue()
     {
         var state = StateTestMethods.CreateStateService(_root);
-        var controller = new ScheduleController(CreateSchedules(state, CreateNotifications()));
+        var controller = new ScheduleController(
+            CreateSchedules(state, CreateNotifications()), ScheduleExecutionTestService.Create());
 
         var body = Assert.IsType<OkObjectResult>(controller.GetGlobalNotificationDisplayMode().Result).Value;
 
@@ -156,7 +158,8 @@ public sealed class GlobalNotificationDisplayModeTests : IDisposable
         state.SetGlobalNotificationDisplayMode(NotificationDisplayMode.Full);
         schedules.SetNotificationDisplayMode("logRotation", NotificationDisplayMode.Full);
 
-        Assert.IsType<OkResult>(await new ScheduleController(schedules).ResetToDefaultsAsync());
+        Assert.IsType<OkResult>(await new ScheduleController(
+            schedules, ScheduleExecutionTestService.Create()).ResetToDefaultsAsync());
 
         Assert.Equal(NotificationDisplayMode.Condensed, state.GetGlobalNotificationDisplayMode());
         Assert.False(schedules.Get("logRotation")!.NotificationDisplayModeOverridden);
@@ -171,7 +174,8 @@ public sealed class GlobalNotificationDisplayModeTests : IDisposable
     {
         var state = StateTestMethods.CreateStateService(_root);
         var notifications = CreateNotifications();
-        var controller = new ScheduleController(CreateSchedules(state, notifications));
+        var controller = new ScheduleController(
+            CreateSchedules(state, notifications), ScheduleExecutionTestService.Create());
 
         Assert.IsType<NotFoundObjectResult>(await controller.ClearNotificationDisplayModeAsync("does-not-exist"));
         Assert.Empty(Sent(notifications, SignalREvents.SchedulesUpdated));
@@ -203,7 +207,8 @@ public sealed class GlobalNotificationDisplayModeTests : IDisposable
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
         var schedules =new ServiceScheduleRegistry(
-            [scheduled, configurable, prefill], state, (ISignalRNotificationService)(object)notifications, tracker);
+            [scheduled, configurable, prefill], state, (ISignalRNotificationService)(object)notifications,
+            ScheduleExecutionTestService.Create(), tracker);
 
         // The registry re-sends the schedules on process-wide run events that other test classes raise
         // under these same keys. Detached, so every send counted here is one this test caused.

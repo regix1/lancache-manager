@@ -36,6 +36,21 @@ const attributeOf = (name) =>
     (node) => ts.isJsxAttribute(node) && node.name.getText(normalView) === name
   ).initializer.expression.getText(normalView);
 
+const drawerContent = findSoleNode(
+  normalView,
+  'GridCardDrawerContent element',
+  (node) =>
+    ts.isJsxSelfClosingElement(node) && node.tagName.getText(normalView) === 'GridCardDrawerContent'
+);
+
+const drawerAttribute = (name) => {
+  const attribute = drawerContent.attributes.properties.find(
+    (property) => ts.isJsxAttribute(property) && property.name.getText(normalView) === name
+  );
+  assert.ok(attribute && ts.isJsxAttribute(attribute), `GridCardDrawerContent has ${name}`);
+  return attribute.initializer.expression.getText(normalView);
+};
+
 const group = (id, sessionCount) => ({
   id,
   name: 'Game',
@@ -75,16 +90,19 @@ test('clicking the card of the group already open leaves it open', () => {
 
 test('closing the drawer collapses the group it opened', () => {
   const asked = [];
+  const exited = [];
   const opened = [];
   bindLifted(`() => (${attributeOf('onClose')})`, {
     expandedItem: 'game-620',
     drawerGroupId: 'game-620',
     onItemClick: (id) => asked.push(id),
+    onItemExit: (id) => exited.push(id),
     setDrawerGroupId: (id) => opened.push(id)
   })()();
 
   assert.deepEqual(opened, [null], 'the drawer closes');
   assert.deepEqual(asked, ['game-620'], 'and the fetched sessions are dropped with it');
+  assert.deepEqual(exited, ['game-620'], 'the unmounted drawer releases its confirmed members');
 });
 
 test('the drawer reads its group out of the page rows, so fetched sessions reach it', () => {
@@ -131,4 +149,9 @@ test('a refetch that drops the open group off the page closes the drawer for goo
     'a group still on the page keeps its drawer open'
   );
   assert.deepEqual(closeWhenGroupLeaves(null, null), [], 'no drawer open, nothing to close');
+});
+
+test('switching drawer groups remounts the member controls and passes current readiness', () => {
+  assert.equal(drawerAttribute('key'), 'drawerItem.id');
+  assert.equal(drawerAttribute('membersReady'), 'membersReadyGroupId === drawerItem.id');
 });

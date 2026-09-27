@@ -21,6 +21,7 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Tooltip } from '@components/ui/Tooltip';
 import { GameImage } from '@components/common/GameImage';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useImageErrors } from '@hooks/useImageErrors';
@@ -84,12 +85,13 @@ interface NormalViewProps {
   /** Changes when the reader picks a different filter, sort, page size or page. Scroll resets on it. */
   scrollResetKey: string;
   expandedItem: string | null;
+  membersReadyGroupId: string | null;
   onItemClick: (id: string) => void;
+  onItemExit: (id: string) => void;
   sectionLabels?: NormalViewSectionLabels;
   aestheticMode?: boolean;
   fullHeightBanners?: boolean;
   groupByFrequency?: boolean;
-  enableScrollIntoView?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
   cardGridLayout?: boolean;
@@ -108,7 +110,9 @@ interface NormalViewProps {
 interface GroupCardProps {
   group: DownloadGroup;
   expandedItem: string | null;
+  membersReady: boolean;
   onItemClick: (id: string) => void;
+  onItemExit: (id: string) => void;
   aestheticMode: boolean;
   fullHeightBanners: boolean;
   imageErrors: Set<string>;
@@ -118,7 +122,6 @@ interface GroupCardProps {
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
   SESSIONS_PER_PAGE: number;
-  enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
   showCacheHitBar: boolean;
@@ -135,7 +138,9 @@ interface GroupCardProps {
 const GroupCard: React.FC<GroupCardProps> = ({
   group,
   expandedItem,
+  membersReady,
   onItemClick,
+  onItemExit,
   aestheticMode,
   fullHeightBanners,
   imageErrors,
@@ -145,7 +150,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   startHoldTimer,
   stopHoldTimer,
   SESSIONS_PER_PAGE: _SESSIONS_PER_PAGE,
-  enableScrollIntoView,
   showDatasourceLabels,
   hasMultipleDatasources,
   showCacheHitBar,
@@ -159,10 +163,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   // Held here rather than in IpDownloadGroup: the collapsed card unmounts the region and
   // would throw away which client rows the user had opened.
-  const { toggleIp, isIpExpanded } = useIpExpansion();
+  const { toggleIp, isIpExpanded } = useIpExpansion(group.downloads, membersReady);
   const isExpanded = expandedItem === group.id;
-  const cardRef = React.useRef<HTMLDivElement>(null);
-  const prevExpandedRef = React.useRef<boolean>(false);
   const {
     filters,
     updateFilter,
@@ -237,26 +239,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   // Render the name for resolved games and for the Unknown/Other bucket, whose
   // members have no real game name so the sentinel service drives it.
   const hasRealGameName = serviceLower === 'unknown' || group.hasRealGameName;
-
-  React.useEffect(() => {
-    if (!enableScrollIntoView) return;
-
-    const wasExpanded = prevExpandedRef.current;
-    prevExpandedRef.current = isExpanded;
-
-    if (isExpanded && !wasExpanded && cardRef.current) {
-      const timeoutId = setTimeout(() => {
-        if (!cardRef.current) return;
-        const rect = cardRef.current.getBoundingClientRect();
-        // Only scroll if the card is not fully visible in the viewport
-        if (rect.top < 0 || rect.bottom > window.innerHeight) {
-          const targetY = rect.top + window.scrollY - 16; // 16px buffer from top
-          window.scrollTo({ top: targetY, behavior: 'smooth' });
-        }
-      }, 300);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [isExpanded, enableScrollIntoView]);
 
   // Fetch associations when group is rendered (not just when expanded)
   // This allows us to show event badges at the group level
@@ -402,7 +384,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
   return (
     <div
-      ref={cardRef}
+      data-download-group-id={group.id}
       className={`dl-card${isExpanded ? ' dl-card-expanded' : ''}${
         fullHeightBanners ? ' dl-card-banner-lg' : ''
       }${isEvicted ? ' dl-card-evicted' : ''}`}
@@ -418,9 +400,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
       <CollapsibleRegion
         open={isExpanded}
+        onExitComplete={() => onItemExit(group.id)}
         contentClassName="border-t border-[var(--theme-primary)] bg-[var(--theme-card-bg)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
       >
-        <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>
+        <div
+          inert={!isExpanded}
+          onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}
+        >
           <div className="flex flex-col gap-6">
             {/* Stats Overview Section */}
             <div>
@@ -567,7 +553,16 @@ const GroupCard: React.FC<GroupCardProps> = ({
             </div>
 
             {/* Download Sessions List */}
-            {group.downloads.length > 0 &&
+            {!membersReady ? (
+              <div
+                className="flex items-center justify-center gap-2 py-6 text-sm text-[var(--theme-text-secondary)]"
+                role="status"
+                aria-live="polite"
+              >
+                <LoadingSpinner size="sm" inline />
+                <span>{t('common.loading')}</span>
+              </div>
+            ) : group.downloads.length > 0 ? (
               (() => {
                 const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
@@ -633,7 +628,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     />
                   </div>
                 );
-              })()}
+              })()
+            ) : null}
           </div>
         </div>
       </CollapsibleRegion>
@@ -654,7 +650,6 @@ interface GridCardProps {
   setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
-  enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
   availableImages: Set<string>;
@@ -673,7 +668,6 @@ const GridCard: React.FC<GridCardProps> = ({
   setGroupPages: _setGroupPages,
   startHoldTimer: _startHoldTimer,
   stopHoldTimer: _stopHoldTimer,
-  enableScrollIntoView: _enableScrollIntoView,
   showDatasourceLabels,
   hasMultipleDatasources,
   availableImages
@@ -845,6 +839,7 @@ const GridCard: React.FC<GridCardProps> = ({
 
 interface GridCardDrawerContentProps {
   group: DownloadGroup;
+  membersReady: boolean;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   showEventBadges: boolean;
@@ -865,6 +860,7 @@ interface GridCardDrawerContentProps {
 
 const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   group,
+  membersReady,
   imageErrors,
   handleImageError,
   showEventBadges,
@@ -891,7 +887,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     filteredCount,
     hasActiveFilters
   } = useSessionFilters(group.downloads);
-  const { toggleIp, isIpExpanded } = useIpExpansion();
+  const { toggleIp, isIpExpanded } = useIpExpansion(group.downloads, membersReady);
   const drawerContentRef = React.useRef<HTMLDivElement>(null);
   const drawerScrollRef = React.useRef<HTMLElement | null>(null);
 
@@ -1172,42 +1168,55 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
             </div>
           </div>
 
-          {group.downloads.length > 10 && (
-            <div className="mb-4">
-              <SessionFilterBar
-                filters={filters}
-                updateFilter={updateFilter}
-                resetFilters={resetFilters}
-                uniqueIps={uniqueIps}
-                totalCount={totalCount}
-                filteredCount={filteredCount}
-                hasActiveFilters={hasActiveFilters}
-              />
+          {!membersReady ? (
+            <div
+              className="flex items-center justify-center gap-2 py-6 text-sm text-[var(--theme-text-secondary)]"
+              role="status"
+              aria-live="polite"
+            >
+              <LoadingSpinner size="sm" inline />
+              <span>{t('common.loading')}</span>
             </div>
+          ) : (
+            <>
+              {group.downloads.length > 10 && (
+                <div className="mb-4">
+                  <SessionFilterBar
+                    filters={filters}
+                    updateFilter={updateFilter}
+                    resetFilters={resetFilters}
+                    uniqueIps={uniqueIps}
+                    totalCount={totalCount}
+                    filteredCount={filteredCount}
+                    hasActiveFilters={hasActiveFilters}
+                  />
+                </div>
+              )}
+
+              <IpDownloadGroup
+                ipGroups={ipGroups}
+                itemsPerPage={filters.itemsPerSession}
+                getAssociations={getAssociations}
+                showEventBadges={showEventBadges}
+                toggleIp={toggleIp}
+                isIpExpanded={isIpExpanded}
+              />
+
+              <Pagination
+                variant="group"
+                showCard={false}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+                holdToRepeat
+                onPointerHoldStart={handlePointerHoldStart}
+                onPointerHoldEnd={handlePointerHoldEnd}
+                onLostPointerCapture={stopHoldTimer}
+                previousLabel={t('downloads.tab.normal.pagination.previous')}
+                nextLabel={t('downloads.tab.normal.pagination.next')}
+              />
+            </>
           )}
-
-          <IpDownloadGroup
-            ipGroups={ipGroups}
-            itemsPerPage={filters.itemsPerSession}
-            getAssociations={getAssociations}
-            showEventBadges={showEventBadges}
-            toggleIp={toggleIp}
-            isIpExpanded={isIpExpanded}
-          />
-
-          <Pagination
-            variant="group"
-            showCard={false}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-            holdToRepeat
-            onPointerHoldStart={handlePointerHoldStart}
-            onPointerHoldEnd={handlePointerHoldEnd}
-            onLostPointerCapture={stopHoldTimer}
-            previousLabel={t('downloads.tab.normal.pagination.previous')}
-            nextLabel={t('downloads.tab.normal.pagination.next')}
-          />
         </div>
       )}
 
@@ -1220,12 +1229,13 @@ const NormalView: React.FC<NormalViewProps> = ({
   items,
   scrollResetKey,
   expandedItem,
+  membersReadyGroupId,
   onItemClick,
+  onItemExit,
   sectionLabels,
   aestheticMode = false,
   fullHeightBanners = false,
   groupByFrequency = true,
-  enableScrollIntoView = true,
   showDatasourceLabels = true,
   hasMultipleDatasources = false,
   cardGridLayout = false,
@@ -1421,7 +1431,9 @@ const NormalView: React.FC<NormalViewProps> = ({
     <GroupCard
       group={group}
       expandedItem={expandedItem}
+      membersReady={membersReadyGroupId === group.id}
       onItemClick={onItemClick}
+      onItemExit={onItemExit}
       aestheticMode={aestheticMode}
       fullHeightBanners={fullHeightBanners}
       imageErrors={imageErrors}
@@ -1431,7 +1443,6 @@ const NormalView: React.FC<NormalViewProps> = ({
       startHoldTimer={startHoldTimer}
       stopHoldTimer={stopHoldTimer}
       SESSIONS_PER_PAGE={SESSIONS_PER_PAGE}
-      enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
       showCacheHitBar={showCacheHitBar}
@@ -1481,7 +1492,6 @@ const NormalView: React.FC<NormalViewProps> = ({
           setGroupPages={setGroupPages}
           startHoldTimer={startHoldTimer}
           stopHoldTimer={stopHoldTimer}
-          enableScrollIntoView={false}
           showDatasourceLabels={showDatasourceLabels}
           hasMultipleDatasources={hasMultipleDatasources}
           availableImages={availableImages}
@@ -1495,6 +1505,7 @@ const NormalView: React.FC<NormalViewProps> = ({
         onClose={() => {
           if (expandedItem !== null && expandedItem === drawerGroupId) {
             onItemClick(expandedItem);
+            onItemExit(expandedItem);
           }
           setDrawerGroupId(null);
         }}
@@ -1509,7 +1520,9 @@ const NormalView: React.FC<NormalViewProps> = ({
       >
         {drawerItem && (
           <GridCardDrawerContent
+            key={drawerItem.id}
             group={drawerItem}
+            membersReady={membersReadyGroupId === drawerItem.id}
             imageErrors={imageErrors}
             handleImageError={handleImageError}
             showEventBadges={showEventBadges}

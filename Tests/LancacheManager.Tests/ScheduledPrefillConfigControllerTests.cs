@@ -277,7 +277,7 @@ public sealed class ScheduledPrefillConfigControllerTests
         test.Tracker.BeforeRegister = () => registrations++;
         var method = typeof(ScheduledPrefillService).GetMethod("RunDueServicesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         await (Task)method.Invoke(test.Runtime, [new List<ScheduledPrefillServiceConfigDto> { schedule }, stale,
-            CancellationToken.None, RunTrigger.Scheduled])!;
+            CancellationToken.None, new RunNotice(NotificationMode.All, RunTrigger.Scheduled)])!;
         Assert.Equal(0, registrations);
     }
 
@@ -385,7 +385,8 @@ public sealed class ScheduledPrefillConfigControllerTests
             Runtime = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
                 _services.GetRequiredService<IServiceScopeFactory>(), State);
             Controller = new ScheduledPrefillConfigController(State, (IServiceScheduleRegistry)Broadcast,
-                (IUnifiedOperationTracker)Tracker, Runtime, NullLogger<ScheduledPrefillConfigController>.Instance);
+                (IUnifiedOperationTracker)Tracker, Runtime, ScheduleExecutionTestService.Create(),
+                NullLogger<ScheduledPrefillConfigController>.Instance);
         }
 
         public void Dispose()

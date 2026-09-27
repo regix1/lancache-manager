@@ -141,7 +141,7 @@ public class CacheSizeScanNotificationFlagTests
         {
             _ = new ServiceScheduleRegistry([this], VisibleClientsStateService(),
                 CreateProxy<ISignalRNotificationService>((method, _) => method.ReturnType == typeof(Task) ? Task.CompletedTask : null),
-                tracker);
+                ScheduleExecutionTestService.Create(), tracker);
         }
 
         public async Task RunAsync(RunNotice notice)

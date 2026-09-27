@@ -554,6 +554,7 @@ public abstract partial class PrefillDaemonServiceBase
         lease.Validate();
         var availability = GetIntegrationLoginAvailability(accountId, lease.Caller);
         if (!availability.Available) IntegrationLease.Refuse(availability.Reason);
+        var integrationDisplayName = availability.Account;
         lock (session.PrefillLock)
         {
             ThrowIfLoginRevoked(session, loginId);
@@ -730,6 +731,13 @@ public abstract partial class PrefillDaemonServiceBase
             if (finalStatus?.Status == "logged-in")
             {
                 authenticated = true;
+                if (Platform == PrefillPlatform.Xbox
+                    && string.IsNullOrWhiteSpace(finalStatus.AccountDisplayName)
+                    && string.IsNullOrWhiteSpace(finalStatus.DisplayName)
+                    && !string.IsNullOrWhiteSpace(integrationDisplayName))
+                {
+                    finalStatus.AccountDisplayName = integrationDisplayName;
+                }
                 await OnStatusChangeAsync(session, finalStatus);
                 return null;
             }

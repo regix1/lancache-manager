@@ -436,7 +436,8 @@ public sealed class KeptEndingPerScheduleTests
         try
         {
             schedules = new ServiceScheduleRegistry([], CacheScanGateHarness.VisibleClientsStateService(),
-                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(), tracker,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                ScheduleExecutionTestService.Create(), tracker,
                 activityRegistry: null, cacheScanGate: gate);
         }
         finally

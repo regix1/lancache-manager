@@ -40,6 +40,23 @@ public class ScheduledBackgroundServiceManualRunTests
         Assert.Same(later, pendingDeferred);
     }
 
+    [Fact]
+    public void PendingRunAllPromotedToManualTakesTheManualActor()
+    {
+        using var service = new GatedManualRunProbeService(TimeSpan.FromHours(1));
+        var firstActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
+        var manualActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-now-user");
+        var pending = new RunNotice(NotificationMode.All, RunTrigger.RunAll, firstActor);
+        service.TriggerImmediateRun(pending);
+
+        var retained = service.TriggerImmediateRun(
+            new RunNotice(NotificationMode.Silent, RunTrigger.Manual, manualActor));
+
+        Assert.Same(pending, retained);
+        Assert.Equal(RunTrigger.Manual, retained.Trigger);
+        Assert.Same(manualActor, retained.Actor);
+    }
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
     [Fact]
@@ -210,15 +227,19 @@ public class ConfigurableScheduledServiceManualRunTests
     public async Task ManualRunAdmission_RejectsPendingStartingAndExecutingDuplicates()
     {
         using var service = new GatedConfigurableProbeService(TimeSpan.Zero, queueManualRuns: false);
-        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        var firstActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "first-user");
+        var secondActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "second-user");
+        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual, firstActor);
         var acknowledgments = 0;
         Assert.True(service.TryTriggerImmediateRun(first, out var retained, out var followUp,
             (_, _) => acknowledgments++));
         Assert.Same(first, retained);
         Assert.False(followUp);
-        Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual),
+        Assert.False(service.TryTriggerImmediateRun(new RunNotice(
+            NotificationMode.All, RunTrigger.Manual, secondActor),
             out retained, out followUp, (_, _) => acknowledgments++));
         Assert.Same(first, retained);
+        Assert.Same(firstActor, retained.Actor);
         Assert.False(followUp);
         Assert.True(service.TakePendingManualRun(out var consumed));
         service.TriggerImmediateRun();

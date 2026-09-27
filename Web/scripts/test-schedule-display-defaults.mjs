@@ -259,6 +259,12 @@ test('the page offers Default only on rows and clears an override through DELETE
   );
   assert.match(text, /options=\{getNotificationStyleOptions\(t\)\}/);
   assert.match(text, /value=\{defaultMode\}/);
+  assert.match(
+    text,
+    /content=\{`\$\{t\('management\.schedules\.defaultNotificationStyle'\)\}: \$\{t\('management\.schedules\.defaultNotificationStyleHelp'\)\}`\}/
+  );
+  assert.match(text, /triggerAriaLabel=\{t\('management\.schedules\.defaultNotificationStyle'\)\}/);
+  assert.doesNotMatch(text, /schedules-global-style-label/);
 });
 
 test('closing a kept run accepts 204 and 404 and rejects other responses', async () => {

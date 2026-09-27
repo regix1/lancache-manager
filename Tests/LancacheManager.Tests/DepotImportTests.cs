@@ -846,7 +846,8 @@ public sealed class DepotImportTests
             var storage = Get<SteamAuthStorageService>(State, "_steamAuthStorage");
             Service = new Probe(this, scopes, _steam, Pics, State, clients,
                 notifications, storage, tracker);
-            _schedules = new ServiceScheduleRegistry([Service], State, notifications, tracker);
+            _schedules = new ServiceScheduleRegistry(
+                [Service], State, notifications, ScheduleExecutionTestService.Create(), tracker);
         }
 
         public static async Task<Fixture> CreateAsync()

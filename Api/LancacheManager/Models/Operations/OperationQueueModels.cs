@@ -6,7 +6,11 @@ namespace LancacheManager.Models;
 /// The notice a run is admitted with: its schedule's notification mode and what started it. It is
 /// attached to the tracked operation at registration and alone decides how the run is drawn.
 /// </summary>
-public sealed class RunNotice(NotificationMode mode, RunTrigger trigger)
+public sealed class RunNotice(
+    NotificationMode mode,
+    RunTrigger trigger,
+    ScheduleActor? actor = null,
+    bool restoredOrigin = false)
 {
     private int _cancelled;
     private readonly object _lock = new();
@@ -21,6 +25,8 @@ public sealed class RunNotice(NotificationMode mode, RunTrigger trigger)
     public bool Cancelled => Volatile.Read(ref _cancelled) != 0;
     public NotificationMode Mode { get; } = mode;
     public RunTrigger Trigger { get; internal set; } = trigger;
+    public ScheduleActor? Actor { get; internal set; } = actor;
+    public bool RestoredOrigin { get; } = restoredOrigin;
     public bool ShowNotification => Mode.AllowsTrigger(Trigger);
     public bool HideNotification => Mode == NotificationMode.Hidden;
 

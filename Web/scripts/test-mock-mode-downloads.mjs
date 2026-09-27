@@ -187,6 +187,7 @@ test('mock mode opens a group from the row already on the page and asks the serv
     liftHookCallback(DOWNLOADS_TAB, 'useEffect', 'ApiService.getDownloadsByIds'),
     {
       expandedItem: row.id,
+      expandRequestRef: { current: 0 },
       serverPage: { items: [row] },
       mockMode: true,
       setExpandedMembers: (value) => members.push(value),
@@ -200,7 +201,7 @@ test('mock mode opens a group from the row already on the page and asks the serv
     }
   )();
 
-  assert.deepEqual(members, [{ groupId: row.id, downloads: [row.primaryDownload] }]);
+  assert.deepEqual(members, [{ groupId: row.id, downloads: [row.primaryDownload], ready: true }]);
   assert.deepEqual(errors, []);
   assert.equal(cleanup, undefined, 'no request started, so there is nothing to abort');
 });

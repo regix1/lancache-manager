@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }
     public DbSet<IdentityAuditEntry> IdentityAuditEntries { get; set; }
+    public DbSet<ScheduleExecution> ScheduleExecutions { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<EventDownload> EventDownloads { get; set; }
     public DbSet<ClientGroup> ClientGroups { get; set; }
@@ -260,6 +261,22 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<IdentityAuditEntry>()
             .HasIndex(e => e.PerformedAtUtc)
             .HasDatabaseName("IX_IdentityAuditEntries_PerformedAtUtc");
+
+        modelBuilder.Entity<ScheduleExecution>(execution =>
+        {
+            execution.Property(item => item.Status).HasConversion<string>();
+            execution.Property(item => item.Trigger).HasConversion<string>();
+            execution.Property(item => item.ActorKind).HasConversion<string>();
+            execution.Property(item => item.Platform).HasConversion<string>();
+
+            execution.HasIndex(item => item.OperationId)
+                .HasDatabaseName("IX_ScheduleExecutions_OperationId")
+                .IsUnique();
+
+            execution.HasIndex(item => new { item.StartedAt, item.Id })
+                .HasDatabaseName("IX_ScheduleExecutions_StartedAt_Id")
+                .IsDescending();
+        });
 
         // UserSession - persist SessionType enum as LOWERCASE string (existing rows use "admin"/"guest").
         modelBuilder.Entity<UserSession>()

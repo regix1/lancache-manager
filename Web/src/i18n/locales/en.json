@@ -3792,6 +3792,33 @@
       "defaultNotificationStyle": "Default notification style",
       "defaultNotificationStyleHelp": "How every notification appears, including removals and sign-ins, unless a service below picks its own style.",
       "defaultNotificationStyleFailed": "Failed to change the default notification style",
+      "history": {
+        "title": "Run history",
+        "waitingNote": "Run times include time spent waiting for other work.",
+        "fetchError": "Failed to load schedule history",
+        "empty": "No schedule runs have finished yet.",
+        "unknown": "Unknown",
+        "actors": {
+          "server": "Server"
+        },
+        "status": {
+          "completed": "Completed",
+          "failed": "Failed",
+          "cancelled": "Cancelled",
+          "skipped": "Skipped"
+        },
+        "triggers": {
+          "scheduled": "Scheduled",
+          "startup": "Startup",
+          "manual": "Run now",
+          "runAll": "Run all"
+        },
+        "durationSeconds": "{{value}} seconds",
+        "trigger": "Started by",
+        "platform": "Platform",
+        "completed": "Completed",
+        "items": "runs"
+      },
       "notificationStyleDefault": "Default ({{style}})",
       "notificationStyleDefaultDescription": "Follow the default notification style set at the top of this page.",
       "notificationStyle": {

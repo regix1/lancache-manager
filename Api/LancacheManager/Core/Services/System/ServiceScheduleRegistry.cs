@@ -104,7 +104,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private readonly Dictionary<string, string> _configurableServiceNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
+    private readonly ScheduleExecutionService _scheduleExecutions;
     private readonly IUnifiedOperationTracker? _tracker;
+    private readonly ILogger<ServiceScheduleRegistry> _logger;
 
     // Optional for the same reason as _tracker below: unit tests construct the registry directly.
     // When it is absent every schedule is allowed to run, which is the behaviour before this gate.
@@ -166,13 +168,23 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // The tracker is optional so existing unit tests that construct the registry without one keep
     // compiling; at runtime the DI container always supplies the registered singleton. GetRunStatus
     // reports "not running" when it is absent.
-    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, ISignalRNotificationService notifications, IUnifiedOperationTracker? tracker = null, IActivityRegistry? activityRegistry = null, CacheScanGate? cacheScanGate = null)
+    public ServiceScheduleRegistry(
+        IEnumerable<IHostedService> hostedServices,
+        IStateService stateService,
+        ISignalRNotificationService notifications,
+        ScheduleExecutionService scheduleExecutions,
+        IUnifiedOperationTracker? tracker = null,
+        IActivityRegistry? activityRegistry = null,
+        CacheScanGate? cacheScanGate = null,
+        ILogger<ServiceScheduleRegistry>? logger = null)
     {
         _stateService = stateService;
         _notifications = notifications;
+        _scheduleExecutions = scheduleExecutions;
         _tracker = tracker;
         _activityRegistry = activityRegistry;
         _cacheScanGate = cacheScanGate;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ServiceScheduleRegistry>.Instance;
         foreach (var service in hostedServices)
         {
             if (service is ScheduledBackgroundService scheduledService)
@@ -264,6 +276,24 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         // Subscribed only when the registry was given a tracker (see the constructor).
         var tracker = _tracker!;
+        var scheduleId = (operation.Metadata as ScheduledPrefillServiceRunState)?.ScheduleId;
+        ScheduleExecution? execution = null;
+        lock (operation)
+        {
+            if (IsScheduleOutcome(operation, scheduleId)
+                && operation.NextOperationId is null
+                && operation.Status.IsTerminal()
+                && operation.CompletedAt is not null
+                && TryFindScheduleKey(operation.Type, out var serviceKey))
+            {
+                execution = _scheduleExecutions.Capture(operation, serviceKey);
+            }
+        }
+        if (execution is not null)
+        {
+            QueueExecutionWrite(execution);
+        }
+
         if (_runStatusOperationTypes.ContainsValue(operation.Type))
         {
             NotifySchedulesChanged();
@@ -288,11 +318,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // under a parent, the prefill run-level container, a waiting record that handed its work on
         // and a mapping sign-in are not outcomes of a schedule; runs of no schedule keep one card
         // each. [51] [57] [70] [72]
-        var scheduleId = (operation.Metadata as ScheduledPrefillServiceRunState)?.ScheduleId;
-        if (_runStatusOperationTypes.ContainsValue(operation.Type)
-            && (operation.Type != OperationType.ScheduledPrefill || scheduleId is not null)
-            && (operation.ParentOperationId is null || scheduleId is not null)
-            && UnifiedOperationTracker.ReadIntegrationLogin(operation.Metadata) is null)
+        if (IsScheduleOutcome(operation, scheduleId))
         {
             lock (_keptEndingsLock)
             {
@@ -439,6 +465,30 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 reason: null,
                 SkippedBeforeStartStageKey);
         }
+    }
+
+    private static bool IsScheduleOutcome(OperationInfo operation, Guid? scheduleId)
+        => _runStatusOperationTypes.ContainsValue(operation.Type)
+            && (operation.Type != OperationType.ScheduledPrefill || scheduleId is not null)
+            && (operation.ParentOperationId is null || scheduleId is not null)
+            && UnifiedOperationTracker.ReadIntegrationLogin(operation.Metadata) is null;
+
+    private void QueueExecutionWrite(ScheduleExecution execution)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (await _scheduleExecutions.InsertAsync(execution))
+                {
+                    await BroadcastSchedulesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not finish schedule execution write {OperationId}", execution.OperationId);
+            }
+        });
     }
 
     /// <summary>
@@ -941,7 +991,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             var held = StartDeferredRuns(alreadyStarting: serviceKey);
             if (held is not null)
             {
-                if (notice.Trigger == RunTrigger.Manual) held.Trigger = RunTrigger.Manual;
+                if (notice.Trigger == RunTrigger.Manual)
+                {
+                    held.Trigger = RunTrigger.Manual;
+                    held.Actor = notice.Actor;
+                }
                 notice = held;
             }
 
@@ -1031,7 +1085,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             {
                 if (_deferredRuns.TryGetValue(serviceKey, out var held))
                 {
-                    if (notice.Trigger == RunTrigger.Manual) held.Notice.Trigger = RunTrigger.Manual;
+                    if (notice.Trigger == RunTrigger.Manual)
+                    {
+                        held.Notice.Trigger = RunTrigger.Manual;
+                        held.Notice.Actor = notice.Actor;
+                    }
                     notice = held.Notice;
                 }
                 _deferredRuns[serviceKey] = (Guid.Empty, notice);
@@ -1047,6 +1105,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             {
                 if (held.Notice.Trigger == RunTrigger.Manual || notice.Trigger != RunTrigger.Manual) return held.Notice;
                 held.Notice.Trigger = RunTrigger.Manual;
+                held.Notice.Actor = notice.Actor;
                 notice = held.Notice;
                 upgradedId = held.Id;
             }
@@ -1192,7 +1251,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         await _notifications.NotifyAllAsync(completeEvent, terminal);
     }
 
-    public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
+    public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
+        string serviceKey,
+        ScheduleActor? actor = null)
     {
         var loop = FindScheduleLoop(serviceKey);
         // A scheduled prefill with no schedule enabled has nothing to run, so the click is refused
@@ -1205,7 +1266,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             };
         }
 
-        var notice = new RunNotice(loop?.EffectiveNotificationMode ?? NotificationMode.All, RunTrigger.Manual);
+        var notice = new RunNotice(
+            loop?.EffectiveNotificationMode ?? NotificationMode.All,
+            RunTrigger.Manual,
+            actor);
         var runDenial = CheckScheduleRun(serviceKey, ref notice);
         if (runDenial is not null)
         {
@@ -1267,7 +1331,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         };
     }
 
-    public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync()
+    public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync(
+        ScheduleActor? actor = null)
     {
         var triggeredCount = 0;
         var alreadyRunningCount = 0;
@@ -1280,7 +1345,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         foreach (var (key, service) in _scheduledServices)
         {
             // Cache deferral and the service's atomic admission decision own separate counts.
-            var notice = new RunNotice(service.EffectiveNotificationMode, RunTrigger.RunAll);
+            var notice = new RunNotice(service.EffectiveNotificationMode, RunTrigger.RunAll, actor);
             var scheduledDenial = CheckScheduleRun(key, ref notice);
             if (scheduledDenial is not null)
             {
@@ -1312,7 +1377,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         foreach (var (key, service) in _configurableServices)
         {
-            var notice = new RunNotice(service.EffectiveNotificationMode, RunTrigger.RunAll);
+            var notice = new RunNotice(service.EffectiveNotificationMode, RunTrigger.RunAll, actor);
             var configurableDenial = CheckScheduleRun(key, ref notice);
             if (configurableDenial is not null)
             {

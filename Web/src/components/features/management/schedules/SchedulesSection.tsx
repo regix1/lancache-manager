@@ -57,6 +57,7 @@ import StatusDot from '@components/common/StatusDot';
 import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
 import type { ScheduledPrefillServiceId } from './scheduled-prefill/types';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from './scheduled-prefill/constants';
+import { ScheduleHistory } from './ScheduleHistory';
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
@@ -1914,23 +1915,21 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         <div className="schedules-section-actions">
           <div className="flex flex-wrap items-center gap-2 min-w-0 max-sm:flex-col max-sm:items-stretch">
             <Tooltip
-              content={t('management.schedules.defaultNotificationStyleHelp')}
+              content={`${t('management.schedules.defaultNotificationStyle')}: ${t('management.schedules.defaultNotificationStyleHelp')}`}
               position="bottom"
-              className="inline-flex flex-shrink-0"
+              className="schedule-default-style-control"
             >
-              <span className="schedule-detail-label">
-                {t('management.schedules.defaultNotificationStyle')}
-              </span>
+              <EnhancedDropdown
+                options={getNotificationStyleOptions(t)}
+                value={defaultMode}
+                onChange={handleDefaultNotificationDisplayModeChange}
+                disabled={!isAdmin || resetting || runningAll}
+                variant="button"
+                size="md"
+                className="w-full"
+                triggerAriaLabel={t('management.schedules.defaultNotificationStyle')}
+              />
             </Tooltip>
-            <EnhancedDropdown
-              options={getNotificationStyleOptions(t)}
-              value={defaultMode}
-              onChange={handleDefaultNotificationDisplayModeChange}
-              disabled={!isAdmin || resetting || runningAll}
-              variant="button"
-              size="md"
-              className="min-w-0 w-40 max-sm:w-full"
-            />
           </div>
           <Button
             variant="filled"
@@ -2016,6 +2015,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}
         />
       )}
+
+      <ScheduleHistory />
 
       <ConfirmationModal
         opened={runAllConfirmOpen}

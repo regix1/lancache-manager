@@ -857,6 +857,9 @@ builder.Services.AddDatabaseBackedHostedService<RustSpeedTrackerService>(databas
 // asks one question about client downloads.
 builder.Services.AddSingleton<CacheScanGate>();
 
+// Append-only schedule history uses its own pooled context for each terminal write and page read.
+builder.Services.AddSingleton<ScheduleExecutionService>();
+
 // Register GameDetectionService - runs scheduled game cache detection. Whether it
 // also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = false).
 builder.Services.AddDatabaseBackedHostedService<GameDetectionService>(databaseAvailable);

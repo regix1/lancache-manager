@@ -68,7 +68,10 @@ public abstract class ScheduledServiceBase : BackgroundService
             // A Run Now pressed while a Run All run is still pending makes that run a person's own, so it
             // draws the way a Run Now does, also on a schedule that takes no second run. [67] [103]
             if (_manualNotice is not null && notice.Trigger == RunTrigger.Manual && _manualNotice.Trigger != RunTrigger.Manual)
+            {
                 _manualNotice.Trigger = RunTrigger.Manual;
+                _manualNotice.Actor = notice.Actor;
+            }
             var busy = _startingNotice is not null || IsCurrentlyExecuting;
             if (!QueueManualRuns && (busy || _pendingManualRun != 0))
             {

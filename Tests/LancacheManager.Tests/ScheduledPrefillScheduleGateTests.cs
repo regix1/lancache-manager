@@ -334,7 +334,9 @@ public class ScheduledPrefillScheduleGateTests
             stateService = (IStateService)proxy;
         }
 
-        return new ServiceScheduleRegistry(new IHostedService[] { service }, stateService, notifications);
+        return new ServiceScheduleRegistry(
+            new IHostedService[] { service }, stateService, notifications,
+            ScheduleExecutionTestService.Create());
     }
 
     /// <summary>

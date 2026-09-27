@@ -81,7 +81,8 @@ public sealed class ScheduledPrefillRecoveryTests
         await Report(scheduler, notifications, run, "running", "Downloading Second", 50,
             new Dictionary<string, object?> { ["game"] = "Second" }, bytes: 50, totalBytes: 100);
         var controller = new ScheduledPrefillConfigController(
-            DispatchProxy.Create<IStateService, ScheduleState>(), null!, tracker, scheduler);
+            DispatchProxy.Create<IStateService, ScheduleState>(), null!, tracker, scheduler,
+            ScheduleExecutionTestService.Create());
         for (var index = 0; index < 3; index++)
         {
             var response = Assert.IsType<ScheduledPrefillRunStatusDto>(Assert.IsType<OkObjectResult>(controller.GetRunStatus().Result).Value);
@@ -564,6 +565,8 @@ public sealed class ScheduledPrefillRecoveryTests
         var display = Assert.IsType<ScheduledPrefillServiceRunState>(operation.Metadata);
         Assert.Equal(id, display.ScheduleId);
         Assert.Equal(NotificationMode.Silent, display.Notice.Mode);
+        Assert.True(display.Notice.RestoredOrigin);
+        Assert.Null(display.Notice.Actor);
         Assert.Same(display.Notice, operation.Notice);
         var cts = operation.CancellationTokenSource;
         Restore(scheduler, config);
@@ -662,6 +665,8 @@ public sealed class ScheduledPrefillRecoveryTests
             var display = Assert.IsType<ScheduledPrefillServiceRunState>(operation.Metadata);
             Assert.Equal(mode, display.Notice.Mode);
             Assert.Equal(trigger, display.Notice.Trigger);
+            Assert.True(display.Notice.RestoredOrigin);
+            Assert.Null(display.Notice.Actor);
             Assert.Same(display.Notice, operation.Notice);
             var row = Assert.Single(tracker.GetRuns().Runs, item => item.OperationId == daemonRun.PrefillRunId);
             Assert.Equal(visibility, row.Visibility);

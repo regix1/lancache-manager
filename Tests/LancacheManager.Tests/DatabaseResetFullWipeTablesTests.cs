@@ -44,6 +44,26 @@ public sealed class DatabaseResetFullWipeTablesTests
     }
 
     [Fact]
+    public void ScheduleHistoryHasCountDeleteAndReportArms()
+    {
+        var source = ReadSource("Infrastructure", "Services", "System", "DatabaseService.cs");
+
+        Assert.Contains(
+            "\"ScheduleExecutions\" => await context.ScheduleExecutions.CountAsync",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("case \"ScheduleExecutions\":", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "context.ScheduleExecutions.ExecuteDeleteAsync",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"ScheduleExecutions\", scheduleExecutionsCount",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ResetLocksDownloadsBeforeLogEntries()
     {
         var source = ReadSource("Infrastructure", "Services", "System", "DatabaseService.cs");

@@ -289,6 +289,7 @@ public sealed class EndpointAuthorizationContractTests
         "PrefillAdminController.ClearAllCache",
         "PrefillAdminController.ClearAppCache",
         "ScheduleController.GetAll",
+        "ScheduleController.GetHistory",
         "ScheduleController.GetByKey",
         "ScheduleController.GetRunStatus",
         "ScheduleController.SetInterval",

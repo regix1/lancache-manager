@@ -16,6 +16,7 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useImageErrors } from '@hooks/useImageErrors';
@@ -57,11 +58,12 @@ interface CompactViewProps {
   /** Changes when the reader picks a different filter, sort, page size or page. Scroll resets on it. */
   scrollResetKey: string;
   expandedItem: string | null;
+  membersReadyGroupId: string | null;
   onItemClick: (id: string) => void;
+  onItemExit: (id: string) => void;
   sectionLabels?: CompactViewSectionLabels;
   aestheticMode?: boolean;
   groupByFrequency?: boolean;
-  enableScrollIntoView?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
   detectionLookup?: Map<number, GameDetectionSummary> | null;
@@ -75,7 +77,9 @@ interface CompactViewProps {
 interface GroupRowProps {
   group: DownloadGroup;
   expandedItem: string | null;
+  membersReady: boolean;
   onItemClick: (id: string) => void;
+  onItemExit: (id: string) => void;
   aestheticMode: boolean;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
@@ -84,7 +88,6 @@ interface GroupRowProps {
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
   labels: CompactViewSectionLabels;
-  enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
   detectionLookup?: Map<number, GameDetectionSummary> | null;
@@ -98,7 +101,9 @@ interface GroupRowProps {
 const GroupRow: React.FC<GroupRowProps> = ({
   group,
   expandedItem,
+  membersReady,
   onItemClick,
+  onItemExit,
   aestheticMode,
   imageErrors,
   handleImageError,
@@ -106,7 +111,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
   setGroupPages,
   startHoldTimer,
   stopHoldTimer,
-  enableScrollIntoView,
   showDatasourceLabels,
   hasMultipleDatasources,
   detectionLookup,
@@ -115,9 +119,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
+  const detailsId = React.useId();
   const isExpanded = expandedItem === group.id;
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  const prevExpandedRef = React.useRef<boolean>(false);
 
   const {
     filters,
@@ -146,7 +149,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
     stopHoldTimer
   });
 
-  const { toggleIp, isIpExpanded } = useIpExpansion();
+  const { toggleIp, isIpExpanded } = useIpExpansion(group.downloads, membersReady);
 
   // Fetch associations when group is expanded
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
@@ -156,20 +159,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
       fetchAssociations(downloadIds);
     }
   }, [isExpanded, group.downloads, fetchAssociations, refreshVersion]);
-
-  React.useEffect(() => {
-    if (!enableScrollIntoView) return;
-
-    const wasExpanded = prevExpandedRef.current;
-    prevExpandedRef.current = isExpanded;
-
-    if (isExpanded && !wasExpanded && rowRef.current) {
-      const timeoutId = setTimeout(() => {
-        rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 250);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [isExpanded, enableScrollIntoView]);
 
   const availableImages = useAvailableGameImages();
   const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
@@ -215,7 +204,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
   return (
     <div
-      ref={rowRef}
+      data-download-group-id={group.id}
       className={`rounded-lg border ${
         isExpanded
           ? 'bg-[var(--theme-bg-secondary)] border-[var(--theme-primary)]'
@@ -225,6 +214,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
       <button
         type="button"
         onClick={() => onItemClick(group.id)}
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
         className={`w-full text-left px-3 py-3 focus:outline-none [-webkit-tap-highlight-color:transparent] ${
           isExpanded ? 'rounded-t-lg' : 'rounded-lg'
         }`}
@@ -352,9 +343,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
       <CollapsibleRegion
         open={isExpanded}
+        onExitComplete={() => onItemExit(group.id)}
         contentClassName="px-3 pb-3 pt-2 border-t border-[var(--theme-border-secondary)]"
       >
-        <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>
+        <div
+          id={detailsId}
+          inert={!isExpanded}
+          onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}
+        >
           {/* Compact layout: stacked on mobile, side-by-side on desktop */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Game image */}
@@ -431,209 +427,225 @@ const GroupRow: React.FC<GroupRowProps> = ({
               </div>
 
               {/* Sessions list */}
-              {(() => {
-                const excludedSessions = Math.max(0, group.downloads.length - group.count);
+              {!membersReady ? (
+                <div
+                  className="flex items-center justify-center gap-2 py-5 text-sm text-[var(--theme-text-secondary)]"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <LoadingSpinner size="sm" inline />
+                  <span>{t('common.loading')}</span>
+                </div>
+              ) : (
+                (() => {
+                  const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
-                return (
-                  <div>
-                    {/* Filter bar - only for groups with many sessions */}
-                    {group.downloads.length > 10 && (
-                      <div className="mb-2">
-                        <SessionFilterBar
-                          filters={filters}
-                          updateFilter={updateFilter}
-                          resetFilters={resetFilters}
-                          uniqueIps={uniqueIps}
-                          totalCount={totalCount}
-                          filteredCount={filteredCount}
-                          hasActiveFilters={hasActiveFilters}
+                  return (
+                    <div>
+                      {/* Filter bar - only for groups with many sessions */}
+                      {group.downloads.length > 10 && (
+                        <div className="mb-2">
+                          <SessionFilterBar
+                            filters={filters}
+                            updateFilter={updateFilter}
+                            resetFilters={resetFilters}
+                            uniqueIps={uniqueIps}
+                            totalCount={totalCount}
+                            filteredCount={filteredCount}
+                            hasActiveFilters={hasActiveFilters}
+                          />
+                        </div>
+                      )}
+
+                      {/* Sessions header with count and pagination */}
+                      <div className="flex flex-wrap items-center justify-between mb-1.5">
+                        <span className="text-[10px] uppercase tracking-wide font-semibold text-[var(--theme-text-muted)]">
+                          {t('downloads.tab.compact.labels.sessions', { count: group.count })}
+                          {excludedSessions > 0 && (
+                            <span className="ml-1 opacity-60">
+                              (
+                              {t('downloads.tab.compact.labels.excluded', {
+                                count: excludedSessions
+                              })}
+                              )
+                            </span>
+                          )}
+                        </span>
+                        {/* Inline pagination */}
+                        <Pagination
+                          variant="inline"
+                          showCard={false}
+                          currentPage={safePage}
+                          totalPages={totalFilteredPages}
+                          onPageChange={handlePageChange}
+                          holdToRepeat
+                          onPointerHoldStart={handlePointerHoldStart}
+                          onPointerHoldEnd={handlePointerHoldEnd}
+                          onLostPointerCapture={stopHoldTimer}
+                          previousLabel={t('downloads.tab.compact.pagination.previous')}
+                          nextLabel={t('downloads.tab.compact.pagination.next')}
                         />
                       </div>
-                    )}
 
-                    {/* Sessions header with count and pagination */}
-                    <div className="flex flex-wrap items-center justify-between mb-1.5">
-                      <span className="text-[10px] uppercase tracking-wide font-semibold text-[var(--theme-text-muted)]">
-                        {t('downloads.tab.compact.labels.sessions', { count: group.count })}
-                        {excludedSessions > 0 && (
-                          <span className="ml-1 opacity-60">
-                            (
-                            {t('downloads.tab.compact.labels.excluded', {
-                              count: excludedSessions
-                            })}
-                            )
-                          </span>
-                        )}
-                      </span>
-                      {/* Inline pagination */}
-                      <Pagination
-                        variant="inline"
-                        showCard={false}
-                        currentPage={safePage}
-                        totalPages={totalFilteredPages}
-                        onPageChange={handlePageChange}
-                        holdToRepeat
-                        onPointerHoldStart={handlePointerHoldStart}
-                        onPointerHoldEnd={handlePointerHoldEnd}
-                        onLostPointerCapture={stopHoldTimer}
-                        previousLabel={t('downloads.tab.compact.pagination.previous')}
-                        nextLabel={t('downloads.tab.compact.pagination.next')}
-                      />
-                    </div>
+                      {/* Collapsible IP groups */}
+                      <div className="rounded-md border border-[var(--theme-border-secondary)] overflow-hidden divide-y divide-[var(--theme-border-secondary)]">
+                        {Object.entries(ipGroups).map(([ip, ipDownloads]) => {
+                          const ipTotal = ipDownloads.reduce((s, d) => s + d.totalBytes, 0);
+                          const ipCacheHit = ipDownloads.reduce((s, d) => s + d.cacheHitBytes, 0);
+                          const expanded = isIpExpanded(ip, ipDownloads.length);
+                          const regionId = `${detailsId}-${encodeURIComponent(ip)}`;
 
-                    {/* Collapsible IP groups */}
-                    <div className="rounded-md border border-[var(--theme-border-secondary)] overflow-hidden divide-y divide-[var(--theme-border-secondary)]">
-                      {Object.entries(ipGroups).map(([ip, ipDownloads]) => {
-                        const ipTotal = ipDownloads.reduce((s, d) => s + d.totalBytes, 0);
-                        const ipCacheHit = ipDownloads.reduce((s, d) => s + d.cacheHitBytes, 0);
-                        const expanded = isIpExpanded(ip, ipDownloads.length);
-
-                        return (
-                          <div key={ip}>
-                            {/* IP header - clickable to toggle */}
-                            <button
-                              type="button"
-                              onClick={() => toggleIp(ip)}
-                              className="w-full text-left text-xs px-2.5 py-1.5 flex items-center justify-between bg-[var(--theme-bg-tertiary)]"
-                            >
-                              <div className="flex items-center gap-2">
-                                <ChevronRight
-                                  size={10}
-                                  className={`flex-shrink-0 text-[var(--theme-text-muted)] transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-                                />
-                                <ClientIpDisplay
-                                  clientIp={ip}
-                                  className="font-mono text-[var(--theme-text-primary)] text-[11px]"
-                                />
-                                <Badge
-                                  variant="neutral"
-                                  className="badge-count"
-                                  ariaLabel={t('downloads.tab.compact.labels.sessions', {
-                                    count: ipDownloads.length
-                                  })}
-                                >
-                                  {ipDownloads.length}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-3 text-[11px]">
-                                <span className="font-medium text-[var(--theme-text-primary)] font-mono">
-                                  {formatBytes(ipTotal)}
-                                </span>
-                                {ipCacheHit > 0 && (
-                                  <span className="font-medium text-[var(--theme-success-text)] font-mono">
-                                    {formatPercent((ipCacheHit / ipTotal) * 100)}
+                          return (
+                            <div key={ip}>
+                              {/* IP header - clickable to toggle */}
+                              <button
+                                type="button"
+                                onClick={() => toggleIp(ip, ipDownloads.length)}
+                                aria-expanded={expanded}
+                                aria-controls={regionId}
+                                className="w-full text-left text-xs px-2.5 py-1.5 flex items-center justify-between bg-[var(--theme-bg-tertiary)]"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <ChevronRight
+                                    size={10}
+                                    className={`flex-shrink-0 text-[var(--theme-text-muted)] transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                                  />
+                                  <ClientIpDisplay
+                                    clientIp={ip}
+                                    className="font-mono text-[var(--theme-text-primary)] text-[11px]"
+                                  />
+                                  <Badge
+                                    variant="neutral"
+                                    className="badge-count"
+                                    ariaLabel={t('downloads.tab.compact.labels.sessions', {
+                                      count: ipDownloads.length
+                                    })}
+                                  >
+                                    {ipDownloads.length}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px]">
+                                  <span className="font-medium text-[var(--theme-text-primary)] font-mono">
+                                    {formatBytes(ipTotal)}
                                   </span>
-                                )}
-                              </div>
-                            </button>
+                                  {ipCacheHit > 0 && (
+                                    <span className="font-medium text-[var(--theme-success-text)] font-mono">
+                                      {formatPercent((ipCacheHit / ipTotal) * 100)}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
 
-                            {/* Session rows - only when expanded */}
-                            <CollapsibleRegion open={expanded}>
-                              <IpSessionList
-                                ip={ip}
-                                items={ipDownloads}
-                                itemsPerPage={filters.itemsPerSession}
-                                className="divide-y divide-[var(--theme-border-secondary)]"
-                                renderItem={(download) => {
-                                  const totalBytes = download.totalBytes;
-                                  const cachePercent = cacheHitPercent(
-                                    download.cacheHitBytes,
-                                    totalBytes
-                                  );
-                                  const associations = getAssociations(download.id);
+                              {/* Session rows - only when expanded */}
+                              <CollapsibleRegion open={expanded}>
+                                <div id={regionId} inert={!expanded}>
+                                  <IpSessionList
+                                    ip={ip}
+                                    items={ipDownloads}
+                                    itemsPerPage={filters.itemsPerSession}
+                                    className="divide-y divide-[var(--theme-border-secondary)]"
+                                    renderItem={(download) => {
+                                      const totalBytes = download.totalBytes;
+                                      const cachePercent = cacheHitPercent(
+                                        download.cacheHitBytes,
+                                        totalBytes
+                                      );
+                                      const associations = getAssociations(download.id);
 
-                                  return (
-                                    <div
-                                      key={download.id}
-                                      className={`text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors${download.isEvicted ? ' opacity-60' : ''}`}
-                                    >
-                                      {/* Mobile: Stacked layout */}
-                                      <div className="sm:hidden">
-                                        <div className="flex items-center justify-between">
-                                          <ClientIpDisplay
-                                            clientIp={download.clientIp}
-                                            className="font-mono text-[var(--theme-text-primary)] text-[11px]"
-                                          />
-                                          <div className="flex items-center gap-2">
-                                            <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
-                                              {formatBytes(totalBytes)}
-                                            </span>
-                                            {download.cacheHitBytes > 0 ? (
-                                              <span className="font-semibold font-mono text-[var(--theme-success-text)]">
-                                                {formatPercent(cachePercent)}
-                                              </span>
-                                            ) : (
-                                              <span className="font-medium font-mono text-[var(--theme-text-muted)]">
-                                                -
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center justify-between mt-1">
-                                          <DownloadTimestamp
-                                            dateString={download.startTimeUtc}
-                                            className="text-[var(--theme-text-muted)]"
-                                          />
-                                          <div className="flex items-center gap-1">
-                                            {download.isEvicted && <EvictedBadge />}
-                                            {associations.events.length > 0 && (
-                                              <DownloadBadges
-                                                events={associations.events}
-                                                maxVisible={2}
-                                                size="sm"
+                                      return (
+                                        <div
+                                          key={download.id}
+                                          className={`text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors${download.isEvicted ? ' opacity-60' : ''}`}
+                                        >
+                                          {/* Mobile: Stacked layout */}
+                                          <div className="sm:hidden">
+                                            <div className="flex items-center justify-between">
+                                              <ClientIpDisplay
+                                                clientIp={download.clientIp}
+                                                className="font-mono text-[var(--theme-text-primary)] text-[11px]"
                                               />
-                                            )}
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
+                                                  {formatBytes(totalBytes)}
+                                                </span>
+                                                {download.cacheHitBytes > 0 ? (
+                                                  <span className="font-semibold font-mono text-[var(--theme-success-text)]">
+                                                    {formatPercent(cachePercent)}
+                                                  </span>
+                                                ) : (
+                                                  <span className="font-medium font-mono text-[var(--theme-text-muted)]">
+                                                    -
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center justify-between mt-1">
+                                              <DownloadTimestamp
+                                                dateString={download.startTimeUtc}
+                                                className="text-[var(--theme-text-muted)]"
+                                              />
+                                              <div className="flex items-center gap-1">
+                                                {download.isEvicted && <EvictedBadge />}
+                                                {associations.events.length > 0 && (
+                                                  <DownloadBadges
+                                                    events={associations.events}
+                                                    maxVisible={2}
+                                                    size="sm"
+                                                  />
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Desktop: Single row */}
+                                          <div className="hidden sm:flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                              <ClientIpDisplay
+                                                clientIp={download.clientIp}
+                                                className="font-mono text-[var(--theme-text-primary)] text-[11px]"
+                                              />
+                                              <DownloadTimestamp
+                                                dateString={download.startTimeUtc}
+                                                className="text-[var(--theme-text-muted)]"
+                                              />
+                                              {download.isEvicted && <EvictedBadge />}
+                                              {associations.events.length > 0 && (
+                                                <DownloadBadges
+                                                  events={associations.events}
+                                                  maxVisible={3}
+                                                  size="sm"
+                                                />
+                                              )}
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                              <span className="font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[60px]">
+                                                {formatBytes(totalBytes)}
+                                              </span>
+                                              {download.cacheHitBytes > 0 ? (
+                                                <span className="font-semibold font-mono text-right min-w-[36px] text-[var(--theme-success-text)]">
+                                                  {formatPercent(cachePercent)}
+                                                </span>
+                                              ) : (
+                                                <span className="font-medium font-mono text-right min-w-[36px] text-[var(--theme-text-muted)]">
+                                                  -
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
-
-                                      {/* Desktop: Single row */}
-                                      <div className="hidden sm:flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                          <ClientIpDisplay
-                                            clientIp={download.clientIp}
-                                            className="font-mono text-[var(--theme-text-primary)] text-[11px]"
-                                          />
-                                          <DownloadTimestamp
-                                            dateString={download.startTimeUtc}
-                                            className="text-[var(--theme-text-muted)]"
-                                          />
-                                          {download.isEvicted && <EvictedBadge />}
-                                          {associations.events.length > 0 && (
-                                            <DownloadBadges
-                                              events={associations.events}
-                                              maxVisible={3}
-                                              size="sm"
-                                            />
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                          <span className="font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[60px]">
-                                            {formatBytes(totalBytes)}
-                                          </span>
-                                          {download.cacheHitBytes > 0 ? (
-                                            <span className="font-semibold font-mono text-right min-w-[36px] text-[var(--theme-success-text)]">
-                                              {formatPercent(cachePercent)}
-                                            </span>
-                                          ) : (
-                                            <span className="font-medium font-mono text-right min-w-[36px] text-[var(--theme-text-muted)]">
-                                              -
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                }}
-                              />
-                            </CollapsibleRegion>
-                          </div>
-                        );
-                      })}
+                                      );
+                                    }}
+                                  />
+                                </div>
+                              </CollapsibleRegion>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()
+              )}
             </div>
           </div>
         </div>
@@ -646,11 +658,12 @@ const CompactView = React.memo(function CompactView({
   items,
   scrollResetKey,
   expandedItem,
+  membersReadyGroupId,
   onItemClick,
+  onItemExit,
   sectionLabels,
   aestheticMode = false,
   groupByFrequency = true,
-  enableScrollIntoView = true,
   showDatasourceLabels = true,
   hasMultipleDatasources = false,
   detectionLookup = null,
@@ -667,7 +680,9 @@ const CompactView = React.memo(function CompactView({
     <GroupRow
       group={group}
       expandedItem={expandedItem}
+      membersReady={membersReadyGroupId === group.id}
       onItemClick={onItemClick}
+      onItemExit={onItemExit}
       aestheticMode={aestheticMode}
       imageErrors={imageErrors}
       handleImageError={handleImageError}
@@ -676,7 +691,6 @@ const CompactView = React.memo(function CompactView({
       startHoldTimer={startHoldTimer}
       stopHoldTimer={stopHoldTimer}
       labels={labels}
-      enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
       detectionLookup={detectionLookup}

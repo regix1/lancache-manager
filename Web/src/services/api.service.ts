@@ -75,7 +75,8 @@ import type {
   NotificationMode,
   NotificationDisplayMode,
   GameDetectionScanMode,
-  ServiceScheduleInfo
+  ServiceScheduleInfo,
+  ScheduleExecutionResponse
 } from '../components/features/management/schedules/types';
 import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
 import type {
@@ -3327,6 +3328,22 @@ class ApiService {
       }
       throw error;
     }
+  }
+
+  static async getScheduleHistory(
+    page: number,
+    pageSize: number,
+    signal?: AbortSignal
+  ): Promise<ScheduleExecutionResponse> {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      pageSize: pageSize.toString()
+    });
+    const response = await fetch(
+      `${API_BASE}/system/schedules/history?${params}`,
+      this.getFetchOptions({ signal })
+    );
+    return await this.handleResponse<ScheduleExecutionResponse>(response);
   }
 
   static async updateSchedule(serviceKey: string, intervalHours: number): Promise<void> {

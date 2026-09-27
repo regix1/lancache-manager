@@ -46,15 +46,17 @@ public class ScheduledPrefillRunVisibilityTests
     {
         var recorder = (RecordingNotificationsProxy)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "saved-name");
 
-        var tracking = await RunTickAsync(BuildMixedConfig(steamMode, epicMode), lastRun: null, trigger, recorder, tracker);
+        var tracking = await RunTickAsync(
+            BuildMixedConfig(steamMode, epicMode), lastRun: null, trigger, recorder, tracker, actor);
 
         var operations = tracking.Registered.Select(id => tracker.GetOperation(id)!).ToList();
         var rows = tracker.GetRuns().Runs;
 
-        // The run-level container groups the tick's platforms; it has no notice and never becomes a row.
+        // The run-level container groups the tick's platforms and owns their provenance, but it never becomes a row.
         var container = Assert.Single(operations, operation => operation.Metadata is ScheduledPrefillOperationMetadata);
-        Assert.Null(container.Notice);
+        Assert.Same(actor, container.Notice?.Actor);
         Assert.DoesNotContain(rows, row => row.OperationId == container.Id);
 
         foreach (var (platform, mode) in new[] { (PrefillPlatform.Steam, steamMode), (PrefillPlatform.Epic, epicMode) })
@@ -65,6 +67,7 @@ public class ScheduledPrefillRunVisibilityTests
             Assert.Same(state.Notice, operation.Notice);
             Assert.Equal(mode, state.Notice.Mode);
             Assert.Equal(trigger, state.Notice.Trigger);
+            Assert.Same(actor, state.Notice.Actor);
             Assert.Contains(rows, row => row.OperationId == operation.Id);
         }
 
@@ -123,9 +126,12 @@ public class ScheduledPrefillRunVisibilityTests
             NullLogger<ScheduledPrefillService>.Instance,
             root.GetRequiredService<IServiceScopeFactory>(),
             stateService);
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "saved-name");
 
         var operationId = service.TriggerServiceRun(
-            PrefillPlatform.Steam, ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam));
+            PrefillPlatform.Steam,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
+            actor);
         await service.StopAsync(CancellationToken.None);
 
         var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(operationId!.Value));
@@ -133,6 +139,7 @@ public class ScheduledPrefillRunVisibilityTests
         Assert.Same(state.Notice, operation.Notice);
         Assert.Equal(steamMode, state.Notice.Mode);
         Assert.Equal(RunTrigger.Manual, state.Notice.Trigger);
+        Assert.Same(actor, state.Notice.Actor);
     }
 
     /// <summary>
@@ -144,7 +151,8 @@ public class ScheduledPrefillRunVisibilityTests
         DateTime? lastRun,
         RunTrigger trigger,
         RecordingNotificationsProxy recorder,
-        UnifiedOperationTracker tracker)
+        UnifiedOperationTracker tracker,
+        ScheduleActor? actor = null)
     {
         var trackerProxy = DispatchProxy.Create<IUnifiedOperationTracker, ScheduleTracker>();
         var tracking = (ScheduleTracker)(object)trackerProxy;
@@ -163,9 +171,7 @@ public class ScheduledPrefillRunVisibilityTests
             NullLogger<ScheduledPrefillService>.Instance,
             scopeProvider.GetRequiredService<IServiceScopeFactory>(),
             stateService);
-        typeof(ScheduledPrefillService)
-            .GetProperty("CurrentRunTrigger", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(service, trigger);
+        service.SelectRunNotice(new RunNotice(NotificationMode.All, trigger, actor));
 
         var executeWork = typeof(ScheduledPrefillService)
             .GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;

@@ -1,4 +1,5 @@
 import type { CustomSchedule } from './custom-schedule/types';
+import type { ScheduledPrefillServiceId } from './scheduled-prefill/types';
 
 export type NotificationMode = 'all' | 'manual' | 'silent' | 'hidden';
 
@@ -70,3 +71,45 @@ export interface ServiceScheduleInfo {
    */
   awaitingSignIn?: boolean | null;
 }
+
+type ScheduleExecutionStatus = 'completed' | 'failed' | 'cancelled' | 'skipped';
+type ScheduleExecutionTrigger = 'scheduled' | 'startup' | 'manual' | 'runAll';
+
+interface ScheduleExecutionFields {
+  id: number;
+  operationId: string;
+  serviceKey: string;
+  status: ScheduleExecutionStatus;
+  trigger: ScheduleExecutionTrigger | null;
+  startedAt: string;
+  completedAt: string;
+  detail: string | null;
+  scheduleId: string | null;
+  scheduleName: string | null;
+  platform: ScheduledPrefillServiceId | null;
+  workerStarted: boolean;
+}
+
+export type ScheduleExecution = ScheduleExecutionFields &
+  (
+    | {
+        actorKind: 'account';
+        accountId: string;
+        username: string;
+      }
+    | {
+        actorKind: 'server' | 'unknown';
+        accountId: null;
+        username: null;
+      }
+  );
+
+export interface ScheduleExecutionResponse {
+  items: ScheduleExecution[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export const SCHEDULE_HISTORY_PAGE_SIZE = 20;

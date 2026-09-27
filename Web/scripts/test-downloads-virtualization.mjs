@@ -404,3 +404,15 @@ test('the scroll reset key carries every choice the reader can make', () => {
     assert.ok(!key.includes(rowish), `scrollResetKey stays clear of ${rowish}`);
   }
 });
+
+test('page-owned expansion scrolling keeps virtual measurement refs and target ids together', () => {
+  const compactText = compactView.getFullText();
+  const normalText = normalView.getFullText();
+
+  assert.ok(compactText.includes('ref={rowVirtualizer.measureElement}'));
+  assert.ok(normalText.includes('ref={rowVirtualizer.measureElement}'));
+  assert.ok(compactText.includes('data-download-group-id={group.id}'));
+  assert.ok(normalText.includes('data-download-group-id={group.id}'));
+  assert.ok(!compactText.includes('scrollIntoView('), 'compact rows no longer own scrolling');
+  assert.ok(!normalText.includes('cardRef.current'), 'normal cards no longer own scrolling');
+});

@@ -62,6 +62,52 @@ public class ScheduleControllerNotificationModeTests
         Assert.Equal(followUpQueued, response.FollowUpQueued);
         Assert.Equal(Guid.Empty, response.OperationId);
         Assert.False(response.Queued);
+        Assert.Equal(ScheduleActorKind.Unknown, registry.LastActor?.Kind);
+    }
+
+    [Fact]
+    public async Task TriggerRunAsync_PassesTheResolvedAccountSnapshotToSchedules()
+    {
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "saved-name");
+        var schedules = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "logRotation" }
+        };
+        var controller = CreateController(schedules, ScheduleExecutionTestService.Create(actor));
+
+        await controller.TriggerRunAsync("logRotation");
+
+        Assert.Same(actor, schedules.LastActor);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_ReturnsTheTypedPageAndRejectsInvalidPaging()
+    {
+        var expected = new ScheduleExecutionResponse
+        {
+            Page = 2,
+            PageSize = 20,
+            TotalCount = 21,
+            TotalPages = 2
+        };
+        var controller = CreateController(
+            new FakeScheduleRegistry(), ScheduleExecutionTestService.Create(response: expected));
+
+        var ok = Assert.IsType<OkObjectResult>((await controller.GetHistoryAsync(2, 20)).Result);
+
+        Assert.Same(expected, ok.Value);
+        await Assert.ThrowsAsync<ValidationException>(() => controller.GetHistoryAsync(0, 20));
+        await Assert.ThrowsAsync<ValidationException>(() => controller.GetHistoryAsync(1, 101));
+    }
+
+    [Fact]
+    public void GetHistoryAction_CarriesAccountHolderPolicy()
+    {
+        var method = typeof(ScheduleController).GetMethod(nameof(ScheduleController.GetHistoryAsync));
+
+        Assert.Contains(
+            method!.GetCustomAttributes<AuthorizeAttribute>(),
+            attribute => attribute.Policy == "AccountHolder");
     }
 
     [Fact]
@@ -389,8 +435,9 @@ public class ScheduleControllerNotificationModeTests
             var state = StateTestMethods.CreateStateService(root);
             using var prefill = new NoPrefillScheduleEnabledProbe();
             var tracker = CreateTracker();
-            var controller = new ScheduleController(new ServiceScheduleRegistry(
-                [prefill], state, (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(), tracker));
+            var controller = CreateController(new ServiceScheduleRegistry(
+                [prefill], state, (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                ScheduleExecutionTestService.Create(), tracker));
 
             var context = new DefaultHttpContext();
             var body = new MemoryStream();
@@ -416,16 +463,23 @@ public class ScheduleControllerNotificationModeTests
         }
     }
 
-    private static ScheduleController CreateController(IServiceScheduleRegistry registry)
+    private static ScheduleController CreateController(
+        IServiceScheduleRegistry registry,
+        ScheduleExecutionService? executions = null)
     {
-        return new ScheduleController(registry);
+        return new ScheduleController(registry, executions ?? ScheduleExecutionTestService.Create())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
     }
 
     private static ServiceScheduleRegistry CreateRegistry(UnifiedOperationTracker tracker)
     {
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var stateService = (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>();
-        return new ServiceScheduleRegistry(Array.Empty<IHostedService>(), stateService, notifications, tracker);
+        return new ServiceScheduleRegistry(
+            Array.Empty<IHostedService>(), stateService, notifications,
+            ScheduleExecutionTestService.Create(), tracker);
     }
 
     private static UnifiedOperationTracker CreateTracker()
@@ -461,6 +515,7 @@ public class ScheduleControllerNotificationModeTests
         public bool ScanModeAccepted { get; set; } = true;
         public int SetScanModeCalls { get; private set; }
         public GameDetectionScanMode? LastScanModeSet { get; private set; }
+        public ScheduleActor? LastActor { get; private set; }
 
         public IReadOnlyList<ServiceScheduleInfo> GetAll() => Array.Empty<ServiceScheduleInfo>();
         public ServiceScheduleInfo? Get(string serviceKey) => InfoForGet;
@@ -487,10 +542,21 @@ public class ScheduleControllerNotificationModeTests
             return ScanModeAccepted;
         }
 
-        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(string serviceKey)
-            => Task.FromResult<(ScheduleRunStatus, string?, bool)>((RunStatus ?? new ScheduleRunStatus(), null, FollowUpQueued));
-        public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync()
-            => Task.FromResult<(int, int, int, string?, int)>((0, 2, 0, null, FollowUpCount));
+        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
+            string serviceKey,
+            ScheduleActor? actor = null)
+        {
+            LastActor = actor;
+            return Task.FromResult<(ScheduleRunStatus, string?, bool)>(
+                (RunStatus ?? new ScheduleRunStatus(), null, FollowUpQueued));
+        }
+
+        public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync(
+            ScheduleActor? actor = null)
+        {
+            LastActor = actor;
+            return Task.FromResult<(int, int, int, string?, int)>((0, 2, 0, null, FollowUpCount));
+        }
         public bool FollowUpQueued { get; set; }
         public int FollowUpCount { get; set; }
         public void ResetToDefaults() { }

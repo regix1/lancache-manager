@@ -3792,6 +3792,33 @@
       "defaultNotificationStyle": "默认通知样式",
       "defaultNotificationStyleHelp": "所有通知（包括删除和登录）的显示方式，除非下方的服务单独设置了样式。",
       "defaultNotificationStyleFailed": "更改默认通知样式失败",
+      "history": {
+        "title": "运行历史",
+        "waitingNote": "运行时长包括等待其他任务的时间。",
+        "fetchError": "无法加载计划运行历史",
+        "empty": "尚无已完成的计划运行。",
+        "unknown": "未知",
+        "actors": {
+          "server": "服务器"
+        },
+        "status": {
+          "completed": "已完成",
+          "failed": "失败",
+          "cancelled": "已取消",
+          "skipped": "已跳过"
+        },
+        "triggers": {
+          "scheduled": "计划运行",
+          "startup": "启动时",
+          "manual": "立即运行",
+          "runAll": "全部运行"
+        },
+        "durationSeconds": "{{value}} 秒",
+        "trigger": "触发方式",
+        "platform": "平台",
+        "completed": "完成时间",
+        "items": "次运行"
+      },
       "notificationStyleDefault": "默认（{{style}}）",
       "notificationStyleDefaultDescription": "使用本页顶部设置的默认通知样式。",
       "notificationStyle": {

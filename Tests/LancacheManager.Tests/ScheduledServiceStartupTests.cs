@@ -271,7 +271,8 @@ public class ScheduledServiceStartupTests
             _ => DefaultReturn(method.ReturnType)
         });
         var schedules = new ServiceScheduleRegistry(
-            [service], state, CreateDefaultProxy<ISignalRNotificationService>());
+            [service], state, CreateDefaultProxy<ISignalRNotificationService>(),
+            ScheduleExecutionTestService.Create());
 
         // The Schedules page shows the mode listed here for each service.
         Assert.Equal(NotificationMode.Hidden, ListedMode());

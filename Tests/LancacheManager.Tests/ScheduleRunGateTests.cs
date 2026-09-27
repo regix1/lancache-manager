@@ -9,6 +9,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,10 +37,13 @@ public class ScheduleRunGateTests
         using var service = new ConfigurableRunGateProbeService();
         var tracker = CreateRealTracker();
         var registry = CreateRegistry([service], CacheScanGateHarness.Idle(), tracker);
-        var first = await registry.TriggerRunAsync(service.ScheduleServiceKey);
+        var firstActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "first-user");
+        var duplicateActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "duplicate-user");
+        var first = await registry.TriggerRunAsync(service.ScheduleServiceKey, firstActor);
         Assert.False(first.Status.IsRunning);
         var duplicates = await Task.WhenAll(Enumerable.Range(0, 8)
-            .Select(_ => Task.Run(() => registry.TriggerRunAsync(service.ScheduleServiceKey))));
+            .Select(_ => Task.Run(() => registry.TriggerRunAsync(
+                service.ScheduleServiceKey, duplicateActor))));
         Assert.All(duplicates, duplicate =>
         {
             Assert.True(duplicate.Status.IsRunning);
@@ -47,7 +51,8 @@ public class ScheduleRunGateTests
             Assert.Null(duplicate.Status.OperationId);
         });
         Assert.True(service.TakePendingManualRun(out var notice));
-        var starting = await registry.TriggerAllAsync();
+        Assert.Same(firstActor, notice!.Actor);
+        var starting = await registry.TriggerAllAsync(duplicateActor);
         Assert.Equal(0, starting.TriggeredCount);
         Assert.Equal(1, starting.AlreadyRunningCount);
         Assert.Equal(0, starting.FollowUpCount);
@@ -59,7 +64,7 @@ public class ScheduleRunGateTests
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            var running = await registry.TriggerRunAsync(service.ScheduleServiceKey);
+            var running = await registry.TriggerRunAsync(service.ScheduleServiceKey, duplicateActor);
             Assert.True(running.Status.IsRunning);
             Assert.False(running.FollowUpQueued);
             Assert.Empty(tracker.GetActiveOperations());
@@ -310,7 +315,8 @@ public class ScheduleRunGateTests
         {
             var registry = new ServiceScheduleRegistry(
                 [service], CacheScanGateHarness.VisibleClientsStateService(),
-                CreateDefaultProxy<ISignalRNotificationService>(), tracker,
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(), tracker,
                 activityRegistry: null, cacheScanGate: CacheScanGateHarness.With(snapshot));
             await registry.TriggerRunAsync(EvictionKey);
             var held = Assert.Single(tracker.GetWaitingOperations());
@@ -461,7 +467,10 @@ public class ScheduleRunGateTests
         var tracker = CreateRealTracker();
         var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker, notifications);
-        var controller = new ScheduleController(registry);
+        var controller = new ScheduleController(registry, ScheduleExecutionTestService.Create())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
         var held = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
         Assert.Equal("skipped", held.Status);
         var holdRun = Assert.Single(tracker.GetWaitingOperations());
@@ -502,7 +511,10 @@ public class ScheduleRunGateTests
         tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker, notifications);
-        var controller = new ScheduleController(registry);
+        var controller = new ScheduleController(registry, ScheduleExecutionTestService.Create())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
         await controller.TriggerRunAsync(EvictionKey);
         Assert.Empty(tracker.GetWaitingOperations());
         Assert.True(service.TakePendingManualRun(out var first));
@@ -549,7 +561,7 @@ public class ScheduleRunGateTests
         try
         {
             _ = new ServiceScheduleRegistry([service], CacheScanGateHarness.VisibleClientsStateService(),
-                notifications, holdTracker, activityRegistry: null,
+                notifications, ScheduleExecutionTestService.Create(), holdTracker, activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, trigger));
             var held = Assert.Single(holdTracker.GetWaitingOperations());
@@ -744,6 +756,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 CreateRealTracker(),
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.GateOver(tracker));
@@ -853,6 +866,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 notifications,
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.With(snapshot));
@@ -887,6 +901,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
@@ -918,6 +933,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.With(snapshot));
@@ -966,6 +982,7 @@ public class ScheduleRunGateTests
                 [refused, asksLater],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 CreateRealTracker(),
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.With(snapshot));
@@ -1032,6 +1049,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
@@ -1067,6 +1085,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
@@ -1132,12 +1151,31 @@ public class ScheduleRunGateTests
         service.SetNotificationMode(mode);
         var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), CreateRealTracker());
 
-        await schedules.TriggerAllAsync();
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
+        await schedules.TriggerAllAsync(actor);
 
         Assert.True(service.TakePendingManualRun(out var admitted));
         Assert.Equal(RunTrigger.RunAll, admitted!.Trigger);
         Assert.Equal(mode, admitted.Mode);
         Assert.Equal(shown, admitted.ShowNotification);
+        Assert.Same(actor, admitted.Actor);
+    }
+
+    [Fact]
+    public async Task RunAllCopiesItsActorIntoFixedAndConfigurableAdmissions()
+    {
+        using var fixedService = new RunGateProbeService(EvictionKey);
+        using var configurableService = new ConfigurableRunGateProbeService();
+        var schedules = CreateRegistry(
+            [fixedService, configurableService], CacheScanGateHarness.Idle(), CreateRealTracker());
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
+
+        await schedules.TriggerAllAsync(actor);
+
+        Assert.True(fixedService.TakePendingManualRun(out var fixedNotice));
+        Assert.True(configurableService.TakePendingManualRun(out var configurableNotice));
+        Assert.Same(actor, fixedNotice!.Actor);
+        Assert.Same(actor, configurableNotice!.Actor);
     }
 
     [Fact]
@@ -1148,7 +1186,8 @@ public class ScheduleRunGateTests
         CacheScanGateHarness.MakeBusy(snapshot);
         var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), CreateRealTracker());
 
-        var (_, _, skippedCount, _, _) = await schedules.TriggerAllAsync();
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
+        var (_, _, skippedCount, _, _) = await schedules.TriggerAllAsync(actor);
         Assert.Equal(1, skippedCount);
         Assert.False(service.HasPendingRun);
 
@@ -1158,6 +1197,7 @@ public class ScheduleRunGateTests
         Assert.False(service.TakePendingDeferredRun());
         Assert.True(service.TakePendingManualRun(out var woken));
         Assert.Equal(RunTrigger.RunAll, woken!.Trigger);
+        Assert.Same(actor, woken.Actor);
     }
 
     // A Run Now pressed while the schedule's Run All run is still pending makes that run the
@@ -1176,16 +1216,20 @@ public class ScheduleRunGateTests
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            var (_, _, _, _, followUps) = await schedules.TriggerAllAsync();
+            var runAllActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
+            var manualActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-now-user");
+            var (_, _, _, _, followUps) = await schedules.TriggerAllAsync(runAllActor);
             Assert.Equal(1, followUps);
             var pending = Assert.Single(tracker.GetWaitingOperations());
             Assert.Equal(RunTrigger.RunAll, pending.Notice!.Trigger);
+            Assert.Same(runAllActor, pending.Notice.Actor);
             var before = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == pending.Id);
             Assert.Equal(RunVisibility.Background, before.Visibility);
 
-            await schedules.TriggerRunAsync(EvictionKey);
+            await schedules.TriggerRunAsync(EvictionKey, manualActor);
 
             Assert.Equal(RunTrigger.Manual, pending.Notice.Trigger);
+            Assert.Same(manualActor, pending.Notice.Actor);
             var after = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == pending.Id);
             Assert.Equal(RunVisibility.Card, after.Visibility);
             Assert.True(after.Revision > before.Revision);
@@ -1204,12 +1248,17 @@ public class ScheduleRunGateTests
     {
         using var service = new RunGateProbeService(EvictionKey, queueManualRuns: false);
         service.SetNotificationMode(NotificationMode.Manual);
-        Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.Manual, RunTrigger.RunAll), out var first, out _));
+        var runAllActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
+        var manualActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-now-user");
+        Assert.True(service.TryTriggerImmediateRun(
+            new RunNotice(NotificationMode.Manual, RunTrigger.RunAll, runAllActor), out var first, out _));
 
-        Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.Manual, RunTrigger.Manual), out var retained, out _));
+        Assert.False(service.TryTriggerImmediateRun(
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual, manualActor), out var retained, out _));
 
         Assert.Same(first, retained);
         Assert.Equal(RunTrigger.Manual, retained.Trigger);
+        Assert.Same(manualActor, retained.Actor);
         Assert.True(retained.ShowNotification);
     }
 
@@ -1231,6 +1280,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Downloading());
@@ -1308,6 +1358,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 registryNotifications,
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Idle());
@@ -1369,6 +1420,7 @@ public class ScheduleRunGateTests
                 [service],
                 CacheScanGateHarness.VisibleClientsStateService(),
                 notifications,
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Idle());
@@ -1552,6 +1604,7 @@ public class ScheduleRunGateTests
                 services,
                 CacheScanGateHarness.VisibleClientsStateService(),
                 notifications ?? CreateDefaultProxy<ISignalRNotificationService>(),
+                ScheduleExecutionTestService.Create(),
                 tracker,
                 activityRegistry: null,
                 cacheScanGate: gate);

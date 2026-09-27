@@ -1,5 +1,7 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services.Scheduling;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,10 +14,14 @@ namespace LancacheManager.Controllers;
 public class ScheduleController : ControllerBase
 {
     private readonly IServiceScheduleRegistry _registry;
+    private readonly ScheduleExecutionService _scheduleExecutions;
 
-    public ScheduleController(IServiceScheduleRegistry registry)
+    public ScheduleController(
+        IServiceScheduleRegistry registry,
+        ScheduleExecutionService scheduleExecutions)
     {
         _registry = registry;
+        _scheduleExecutions = scheduleExecutions;
     }
 
     /// <summary>
@@ -27,6 +33,28 @@ public class ScheduleController : ControllerBase
     public ActionResult<IReadOnlyList<ServiceScheduleInfo>> GetAll()
     {
         return Ok(_registry.GetAll());
+    }
+
+    /// <summary>
+    /// Returns one page of completed schedule runs, newest first.
+    /// </summary>
+    [HttpGet("history")]
+    [Authorize(Policy = "AccountHolder")]
+    [ProducesResponseType(typeof(ScheduleExecutionResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ScheduleExecutionResponse>> GetHistoryAsync(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (page < 1)
+        {
+            throw new ValidationException("Page must be at least 1.");
+        }
+        if (pageSize is < 1 or > 100)
+        {
+            throw new ValidationException("Page size must be between 1 and 100.");
+        }
+
+        return Ok(await _scheduleExecutions.GetPageAsync(page, pageSize, HttpContext.RequestAborted));
     }
 
     /// <summary>
@@ -278,7 +306,10 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        var (status, skippedReason, followUpQueued) = await _registry.TriggerRunAsync(serviceKey);
+        var actor = await _scheduleExecutions.ResolveActorAsync(
+            HttpContext.GetUserSession()?.AccountId,
+            HttpContext.RequestAborted);
+        var (status, skippedReason, followUpQueued) = await _registry.TriggerRunAsync(serviceKey, actor);
         if (skippedReason is not null)
         {
             // The run is retained until downloads finish; its waiting row is what the browser draws.
@@ -337,7 +368,11 @@ public class ScheduleController : ControllerBase
     [ProducesResponseType(typeof(TriggerAllResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, followUpCount) = await _registry.TriggerAllAsync();
+        var actor = await _scheduleExecutions.ResolveActorAsync(
+            HttpContext.GetUserSession()?.AccountId,
+            HttpContext.RequestAborted);
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, followUpCount) =
+            await _registry.TriggerAllAsync(actor);
         // As with the single-service run above, each woken service loop broadcasts its own run
         // start/end. A snapshot here would capture every service as not-yet-running and could race
         // those STARTs, so don't broadcast it.

@@ -8,6 +8,7 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -902,22 +903,22 @@ public class ScheduledPrefillServiceTests
     }
 
     [Fact]
-    public void RunService_ForDisabledSavedSetup_StartsExactRecord()
+    public async Task RunService_ForDisabledSavedSetup_StartsExactRecord()
     {
         var (controller, _) = CreateRunServiceController();
         var scheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
 
         Assert.IsType<AcceptedResult>(
-            controller.RunService(PrefillPlatform.Steam, scheduleId));
+            await controller.RunService(PrefillPlatform.Steam, scheduleId));
     }
 
     [Fact]
-    public void RunService_ForUnknownRecordReturnsNotFound()
+    public async Task RunService_ForUnknownRecordReturnsNotFound()
     {
         var (controller, _) = CreateRunServiceController();
 
         Assert.IsType<NotFoundResult>(
-            controller.RunService(PrefillPlatform.Steam, Guid.NewGuid()));
+            await controller.RunService(PrefillPlatform.Steam, Guid.NewGuid()));
     }
 
     [Fact]
@@ -1024,30 +1025,30 @@ public class ScheduledPrefillServiceTests
     // reason. [47]
 
     [Fact]
-    public void RunService_WhileADifferentPlatformRuns_StillStarts()
+    public async Task RunService_WhileADifferentPlatformRuns_StillStarts()
     {
         var (controller, active) = CreateRunServiceController();
         active.Add(RunLevelOperation());
 
         // A run in flight no longer holds this back, because the new run does not go through the
         // scheduling loop that run is occupying. This used to answer "queued". [49]
-        Assert.IsType<AcceptedResult>(controller.RunService(
+        Assert.IsType<AcceptedResult>(await controller.RunService(
             PrefillPlatform.BattleNet,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
     }
 
     [Fact]
-    public void RunService_WithNothingInFlight_Starts()
+    public async Task RunService_WithNothingInFlight_Starts()
     {
         var (controller, _) = CreateRunServiceController();
 
-        Assert.IsType<AcceptedResult>(controller.RunService(
+        Assert.IsType<AcceptedResult>(await controller.RunService(
             PrefillPlatform.BattleNet,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
     }
 
     [Fact]
-    public void RunService_ForAPlatformAlreadyRunning_Refuses()
+    public async Task RunService_ForAPlatformAlreadyRunning_Refuses()
     {
         var (controller, active) = CreateRunServiceController();
         active.Add(RunLevelOperation());
@@ -1062,7 +1063,7 @@ public class ScheduledPrefillServiceTests
                 "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual))
         });
 
-        Assert.IsType<ConflictObjectResult>(controller.RunService(
+        Assert.IsType<ConflictObjectResult>(await controller.RunService(
             PrefillPlatform.BattleNet,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
     }
@@ -1089,7 +1090,11 @@ public class ScheduledPrefillServiceTests
             (IStateService)state,
             (IServiceScheduleRegistry)DispatchProxy.Create<IServiceScheduleRegistry, NullReturningProxy>(),
             (IUnifiedOperationTracker)tracker,
-            runtime, NullLogger<ScheduledPrefillConfigController>.Instance);
+            runtime, ScheduleExecutionTestService.Create(),
+            NullLogger<ScheduledPrefillConfigController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
 
         return (controller, tracker.Active);
     }
