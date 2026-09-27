@@ -1538,6 +1538,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
                         outputJsonPath,
                         $"cache_purge_log_entries/{datasource.Name}");
+                    _stateService.ReduceLogPositionsAfterPurge(
+                        datasource.Name,
+                        report.LogLinesRemovedBeforePositionBySource,
+                        report.LogLinesRemovedBySource);
                     var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
                         reopenCheck,
                         report.LinesRemoved > 0,
@@ -1548,10 +1552,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         throw new InvalidOperationException(reopenResult.ErrorMessage!);
                     }
                     totalLinesRemoved += report.LinesRemoved;
-                    _stateService.ReduceLogPositionsAfterPurge(
-                        datasource.Name,
-                        report.LogLinesRemovedBeforePositionBySource,
-                        report.LogLinesRemovedBySource);
                     datasourcesProcessed++;
                     _logger.LogInformation(
                         "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",

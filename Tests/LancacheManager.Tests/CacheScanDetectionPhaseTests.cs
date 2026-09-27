@@ -1,5 +1,10 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using LancacheManager.Configuration;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -9,10 +14,14 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Tests.CacheScanGateHarness;
 
@@ -102,6 +111,257 @@ public sealed class CacheScanDetectionPhaseTests
         await Task.WhenAll(childTerminal.Task, scanTerminal.Task).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, terminals.Count(id => id == removalId));
         Assert.Equal(1, terminals.Count(id => id == scanId));
+    }
+
+    [Fact]
+    public async Task SaveRemoveRetriesReopenBeforeDeletingEvictedRowsAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        var target = Path.Combine(source.LogPath, "access.log");
+        await File.WriteAllLinesAsync(target,
+        [
+            "GET /remove HTTP/1.1",
+            "GET /keep HTTP/1.1"
+        ]);
+
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            var removed = new Download
+            {
+                Service = "steam",
+                ClientIp = "127.0.0.1",
+                Datasource = source.Name,
+                GameAppId = 123,
+                GameName = "Removed",
+                CacheHitBytes = 1,
+                IsEvicted = true,
+                StartTimeUtc = DateTime.UtcNow,
+                EndTimeUtc = DateTime.UtcNow
+            };
+            var kept = new Download
+            {
+                Service = "steam",
+                ClientIp = "127.0.0.2",
+                Datasource = source.Name,
+                GameAppId = 456,
+                GameName = "Kept",
+                CacheHitBytes = 1,
+                IsEvicted = false,
+                StartTimeUtc = DateTime.UtcNow,
+                EndTimeUtc = DateTime.UtcNow
+            };
+            seed.Downloads.AddRange(removed, kept);
+            await seed.SaveChangesAsync();
+            seed.LogEntries.AddRange(
+                new LogEntryRecord
+                {
+                    Timestamp = DateTime.UtcNow,
+                    ClientIp = removed.ClientIp,
+                    Service = removed.Service,
+                    Method = "GET",
+                    Url = "/remove",
+                    StatusCode = 200,
+                    Datasource = source.Name,
+                    DownloadId = removed.Id
+                },
+                new LogEntryRecord
+                {
+                    Timestamp = DateTime.UtcNow,
+                    ClientIp = kept.ClientIp,
+                    Service = kept.Service,
+                    Method = "GET",
+                    Url = "/keep",
+                    StatusCode = 200,
+                    Datasource = source.Name,
+                    DownloadId = kept.Id
+                });
+            seed.CachedGameDetections.AddRange(
+                new CachedGameDetection
+                {
+                    GameAppId = 123,
+                    GameName = "Removed",
+                    Service = "steam",
+                    IsEvicted = true
+                },
+                new CachedGameDetection
+                {
+                    GameAppId = 456,
+                    GameName = "Kept",
+                    Service = "steam",
+                    IsEvicted = false
+                });
+            seed.PrefillCachedApps.AddRange(
+                new PrefillCachedApp
+                {
+                    Platform = PrefillPlatform.Steam,
+                    AppId = "123",
+                    AppName = "Removed",
+                    CachedAtUtc = DateTime.UtcNow
+                },
+                new PrefillCachedApp
+                {
+                    Platform = PrefillPlatform.Steam,
+                    AppId = "456",
+                    AppName = "Kept",
+                    CachedAtUtc = DateTime.UtcNow
+                });
+            await seed.SaveChangesAsync();
+        }
+
+        ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access"] = 10 });
+        ctx.State.SetLogTotalLines(source.Name, 20);
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var paths = new TempDirPathResolver(ctx.Root) { DockerSocketAvailable = true };
+        var rust = new SaveRustProcessHelper(target, paths, tracker);
+        var nginx = new SaveNginxLogRotationService(source.LogPath, paths);
+        var capability = new DatasourceCapabilityService(ctx.Datasources);
+        var gate = Idle();
+        var configuration = new ConfigurationBuilder().Build();
+        var operationState = new OperationStateService(
+            NullLogger<OperationStateService>.Instance,
+            configuration,
+            ctx.State);
+        var detectionStore = new GameCacheDetectionDataService(
+            database.Factory,
+            NullLogger<GameCacheDetectionDataService>.Instance);
+        var detection = new GameCacheDetectionService(
+            NullLogger<GameCacheDetectionService>.Instance,
+            paths,
+            operationState,
+            database.Factory,
+            detectionStore,
+            evictedDetectionPreservationService: null!,
+            unknownGameResolutionService: null!,
+            rust,
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            ctx.Datasources,
+            capability,
+            tracker,
+            gate);
+        var registrations = new ServiceCollection();
+        registrations.AddScoped(_ => new AppDbContext(database.Options));
+        using var services = registrations.BuildServiceProvider();
+        var conflicts = new OperationConflictChecker(
+            tracker,
+            NullLogger<OperationConflictChecker>.Instance);
+        var queue = new OperationQueueService(
+            tracker,
+            conflicts,
+            NullLogger<OperationQueueService>.Instance);
+        var reconciliation = new CacheReconciliationService(
+            services,
+            NullLogger<CacheReconciliationService>.Instance,
+            configuration,
+            ctx.Datasources,
+            ctx.State,
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            tracker,
+            rust,
+            nginx,
+            paths,
+            detectionStore,
+            detection,
+            evictedDetectionPreservationService: null!,
+            queue,
+            new TestHostApplicationLifetime(),
+            capability,
+            gate);
+        await using var requestContext = new AppDbContext(database.Options);
+        var controller = new StatsController(
+            requestContext,
+            clientGroupsRepository: null!,
+            ctx.State,
+            Options.Create(new ApiOptions()),
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            reconciliation,
+            tracker,
+            conflicts,
+            queue,
+            capability,
+            clientHostnameService: null!,
+            eventsService: null!,
+            gate)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        var rustPath = paths.GetRustLogPurgePath();
+        var rustMarker = "save-remove-" + Guid.NewGuid().ToString("N");
+        var createdRustMarker = !File.Exists(rustPath);
+        if (createdRustMarker)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(rustPath)!);
+            await File.WriteAllTextAsync(rustPath, rustMarker);
+        }
+
+        try
+        {
+            async Task<Guid> SaveAsync()
+            {
+                var response = await controller.UpdateEvictionSettingsAsync(new UpdateEvictionSettingsRequest
+                {
+                    EvictedDataMode = EvictedDataMode.Remove.ToWireString()
+                });
+                var accepted = Assert.IsType<AcceptedResult>(response.Result);
+                Assert.Equal(StatusCodes.Status202Accepted, accepted.StatusCode);
+                var operationId = Assert.IsType<Guid>(
+                    accepted.Value!.GetType().GetProperty("operationId")!.GetValue(accepted.Value));
+                Assert.NotEqual(Guid.Empty, operationId);
+                Assert.Equal(EvictedDataMode.Remove.ToWireString(), ctx.State.GetEvictedDataMode());
+                return operationId;
+            }
+
+            var originalIdentity = NginxWriterProbe.ReadIdentity(target);
+            var firstId = await SaveAsync();
+            var first = await WaitForTerminalAsync(tracker, firstId);
+            Assert.Equal(OperationStatus.Failed, first.Status);
+            Assert.True(rust.Runs == 1, first.Message);
+            Assert.True(rust.PublicationCount == 1, rust.Arguments);
+            Assert.NotEqual(originalIdentity, NginxWriterProbe.ReadIdentity(target));
+            Assert.DoesNotContain("/remove", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
+            Assert.Contains("/keep", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
+            Assert.Equal(8, ctx.State.GetLogSourcePositions(source.Name)["access"]);
+            Assert.Equal(17, ctx.State.GetLogTotalLines(source.Name));
+            await AssertRemovalRowsAsync(database, removed: false);
+
+            var secondId = await SaveAsync();
+            var second = await WaitForTerminalAsync(tracker, secondId);
+            Assert.Equal(OperationStatus.Failed, second.Status);
+            Assert.Equal(8, ctx.State.GetLogSourcePositions(source.Name)["access"]);
+            Assert.Equal(17, ctx.State.GetLogTotalLines(source.Name));
+            await AssertRemovalRowsAsync(database, removed: false);
+
+            var thirdId = await SaveAsync();
+            var third = await WaitForTerminalAsync(tracker, thirdId);
+            Assert.Equal(OperationStatus.Completed, third.Status);
+            Assert.Equal(8, ctx.State.GetLogSourcePositions(source.Name)["access"]);
+            Assert.Equal(17, ctx.State.GetLogTotalLines(source.Name));
+            await AssertRemovalRowsAsync(database, removed: true);
+
+            Assert.Equal(3, rust.Runs);
+            Assert.Equal(3, nginx.SignalCalls);
+            foreach (var operationId in new[] { firstId, secondId, thirdId })
+            {
+                Assert.Equal(1, ctx.Notifications.Count(
+                    SignalREvents.EvictionRemovalStarted,
+                    value => value is EvictionRemovalStarted started && started.OperationId == operationId));
+                Assert.Equal(1, ctx.Notifications.Count(
+                    SignalREvents.EvictionRemovalComplete,
+                    value => value is EvictionRemovalComplete complete && complete.OperationId == operationId));
+            }
+            Assert.Equal(0, ctx.Notifications.Count(SignalREvents.EvictionScanStarted));
+        }
+        finally
+        {
+            if (createdRustMarker && File.Exists(rustPath))
+            {
+                Assert.Equal(rustMarker, await File.ReadAllTextAsync(rustPath));
+                File.Delete(rustPath);
+            }
+        }
     }
 
     [Fact]
@@ -570,6 +830,205 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Same(notice, tracker.GetOperation(row.OperationId)!.Notice);
     }
 
+    private static async Task<OperationInfo> WaitForTerminalAsync(
+        UnifiedOperationTracker tracker,
+        Guid operationId)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            var operation = tracker.GetOperation(operationId);
+            Assert.NotNull(operation);
+            if (operation.Status.IsTerminal())
+            {
+                return operation;
+            }
+
+            Assert.True(DateTime.UtcNow < deadline, $"Operation {operationId} did not reach a terminal state");
+            await Task.Delay(10);
+        }
+    }
+
+    private static async Task AssertRemovalRowsAsync(TestDatabase database, bool removed)
+    {
+        await using var context = new AppDbContext(database.Options);
+        Assert.Equal(removed ? 1 : 2, await context.Downloads.CountAsync());
+        Assert.Equal(removed ? 1 : 2, await context.LogEntries.CountAsync());
+        Assert.Equal(removed ? 1 : 2, await context.CachedGameDetections.CountAsync());
+        Assert.Equal(removed ? 1 : 2, await context.PrefillCachedApps.CountAsync());
+        Assert.True(await context.Downloads.AnyAsync(row => row.GameAppId == 456 && !row.IsEvicted));
+        Assert.True(await context.LogEntries.AnyAsync(row => row.Url == "/keep"));
+        Assert.True(await context.CachedGameDetections.AnyAsync(row => row.GameAppId == 456 && !row.IsEvicted));
+        Assert.True(await context.PrefillCachedApps.AnyAsync(row => row.AppId == "456"));
+        Assert.Equal(!removed, await context.Downloads.AnyAsync(row => row.GameAppId == 123 && row.IsEvicted));
+        Assert.Equal(!removed, await context.LogEntries.AnyAsync(row => row.Url == "/remove"));
+        Assert.Equal(!removed, await context.CachedGameDetections.AnyAsync(row => row.GameAppId == 123 && row.IsEvicted));
+        Assert.Equal(!removed, await context.PrefillCachedApps.AnyAsync(row => row.AppId == "123"));
+    }
+
+    private sealed class SaveRustProcessHelper : RustProcessHelper
+    {
+        private readonly string _target;
+
+        public SaveRustProcessHelper(
+            string target,
+            IPathResolver paths,
+            IUnifiedOperationTracker tracker)
+            : base(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                paths,
+                tracker)
+        {
+            _target = target;
+        }
+
+        public int Runs { get; private set; }
+        public int PublicationCount { get; private set; }
+        public string Arguments { get; private set; } = string.Empty;
+
+        public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo start,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal("cache_purge_log_entries", processLabel);
+            Assert.NotNull(operationId);
+            Runs++;
+            Arguments = start.Arguments;
+            var quoted = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
+                .Select(match => match.Groups[1].Value)
+                .ToArray();
+            Assert.True(quoted.Length >= 4, start.Arguments);
+            Assert.Equal(Path.GetFullPath(Path.GetDirectoryName(_target)!), Path.GetFullPath(quoted[0]));
+            Assert.True(File.Exists(quoted[1]));
+            Assert.EndsWith(".json", quoted[2], StringComparison.Ordinal);
+            var checkPath = start.Environment["LANCACHE_LOG_CHECK"];
+            var resultPath = start.Environment["LANCACHE_LOG_RESULT"];
+            Assert.False(string.IsNullOrWhiteSpace(checkPath));
+            Assert.False(string.IsNullOrWhiteSpace(resultPath));
+            Assert.True(File.Exists(checkPath));
+
+            if (Runs == 1)
+            {
+                var check = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                    await File.ReadAllTextAsync(checkPath, cancellationToken),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                var expected = Assert.Single(check!.Files);
+                Assert.Equal(Path.GetFullPath(_target), Path.GetFullPath(expected.TargetPath));
+                var temporaryPath = _target + ".published";
+                await File.WriteAllTextAsync(temporaryPath, "GET /keep HTTP/1.1\n", cancellationToken);
+                var temporaryIdentity = NginxWriterProbe.ReadIdentity(temporaryPath);
+                File.Move(temporaryPath, _target, overwrite: true);
+                var publishedIdentity = NginxWriterProbe.ReadIdentity(_target);
+                Assert.Equal(temporaryIdentity, publishedIdentity);
+                Assert.NotEqual(expected.OriginalIdentity, publishedIdentity);
+                PublicationCount++;
+                await File.WriteAllTextAsync(
+                    resultPath,
+                    JsonSerializer.Serialize(
+                        new NginxPublicationResult(
+                            true,
+                            new[]
+                            {
+                                new NginxPublicationRecord(
+                                    _target,
+                                    expected.OriginalIdentity,
+                                    temporaryIdentity,
+                                    publishedIdentity,
+                                    Changed: true,
+                                    Deleted: false)
+                            }),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                    cancellationToken);
+            }
+
+            var report = Runs == 1
+                ? """
+                  {"success":true,"lines_removed":3,"log_lines_removed_by_source":{"access":3},"log_lines_removed_before_position_by_source":{"access":2},"permission_errors":0,"error":null}
+                  """
+                : """
+                  {"success":true,"lines_removed":0,"log_lines_removed_by_source":{},"log_lines_removed_before_position_by_source":{},"permission_errors":0,"error":null}
+                  """;
+            await File.WriteAllTextAsync(quoted[2], report, cancellationToken);
+            return new ProcessExecutionResult { ExitCode = 0 };
+        }
+    }
+
+    private sealed class SaveNginxLogRotationService : NginxLogRotationService
+    {
+        private readonly string _logs;
+        private readonly Queue<ProcessCommandResult> _signals = new(
+        [
+            new ProcessCommandResult { ExitCode = 41, Error = "first reopen denied" },
+            new ProcessCommandResult { ExitCode = 42, Error = "second reopen denied" },
+            new ProcessCommandResult { ExitCode = 0 }
+        ]);
+
+        public SaveNginxLogRotationService(string logs, TempDirPathResolver paths)
+            : base(
+                NullLogger<NginxLogRotationService>.Instance,
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["NginxLogRotation:ContainerName"] = "writer"
+                }).Build(),
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                paths,
+                TimeProvider.System)
+        {
+            _logs = logs;
+        }
+
+        public int SignalCalls { get; private set; }
+        protected override bool CanProbeHostWriters => false;
+        protected override bool CanReplaceDockerLogs => true;
+
+        protected override Task<ProcessCommandResult> RunProcessAsync(
+            ProcessStartInfo start,
+            string label)
+        {
+            ProcessCommandResult result;
+            switch (label)
+            {
+                case "docker nginx writer list":
+                    result = new ProcessCommandResult { ExitCode = 0, Output = "writer\n" };
+                    break;
+                case "docker nginx mount inspection":
+                    result = new ProcessCommandResult { ExitCode = 0, Output = $"{_logs}|/logs\n" };
+                    break;
+                case "docker nginx writer identity":
+                    result = new ProcessCommandResult { ExitCode = 0, Output = "4242|saved\n" };
+                    break;
+                case "docker nginx writer ownership":
+                    result = new ProcessCommandResult { ExitCode = 0 };
+                    break;
+                case "docker nginx verified reopen":
+                    SignalCalls++;
+                    result = _signals.Dequeue();
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected nginx command: {label} {start.Arguments}");
+            }
+
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class TestHostApplicationLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _started = new();
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _stopped = new();
+
+        public CancellationToken ApplicationStarted => _started.Token;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => _stopped.Token;
+        public void StopApplication() => _stopping.Cancel();
+    }
+
     /// <summary>
     /// A real <see cref="GameCacheDetectionService"/> so the phase's start call registers a
     /// genuine detection operation, and an uninitialized <see cref="CacheReconciliationService"/>
@@ -588,6 +1047,7 @@ public sealed class CacheScanDetectionPhaseTests
         public StateService State { get; }
         public DatasourceService Datasources { get; }
         public CacheReconciliationService Scan => _scan;
+        public string Root => _root;
 
         public PhaseContext()
         {
@@ -730,10 +1190,13 @@ public sealed class CacheScanDetectionPhaseTests
 
         protected override string BasePath => _basePath;
         protected override string RustExecutableExtension => string.Empty;
+        public bool DockerSocketAvailable { get; init; }
 
-        public override string ResolvePath(string relativePath) => relativePath;
-        public override string NormalizePath(string path) => path;
-        public override bool IsDockerSocketAvailable() => false;
+        public override string ResolvePath(string relativePath) => Path.IsPathRooted(relativePath)
+            ? relativePath
+            : Path.Combine(_basePath, relativePath);
+        public override string NormalizePath(string path) => Path.GetFullPath(ResolvePath(path));
+        public override bool IsDockerSocketAvailable() => DockerSocketAvailable;
     }
 
     /// <summary>
@@ -958,6 +1421,15 @@ public sealed class CacheScanDetectionPhaseTests
                 }
 
                 await changed.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+
+        internal int Count(string eventName, Func<object?, bool>? matches = null)
+        {
+            lock (_sync)
+            {
+                return _sent.Count(item => item.Event == eventName &&
+                    (matches is null || matches(item.Payload)));
             }
         }
     }

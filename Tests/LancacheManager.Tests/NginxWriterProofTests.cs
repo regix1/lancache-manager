@@ -66,6 +66,44 @@ public sealed class NginxWriterProofTests : IDisposable
     }
 
     [Fact]
+    public async Task MixedCheck_InvalidHeldProofFailsValidationAndReleasesOnDisposeAsync()
+    {
+        var alpha = Path.Combine(_root, "mixed-alpha.log");
+        var beta = Path.Combine(_root, "mixed-beta.log");
+        await File.WriteAllTextAsync(alpha, "alpha");
+        await File.WriteAllTextAsync(beta, "beta");
+        var released = false;
+        var proof = new NginxHeldProof(
+            beta,
+            NginxWriterProbe.ReadIdentity(beta),
+            validate: () => false,
+            release: () => released = true);
+        var check = new NginxReopenCheck(
+            new[] { "alpha", "beta" },
+            new[] { alpha, beta },
+            new Dictionary<string, NginxFileIdentity>
+            {
+                [alpha] = NginxWriterProbe.ReadIdentity(alpha),
+                [beta] = proof.Identity
+            },
+            new[] { new NginxWriterIdentity(NginxWriterKind.Host, "host", 501, "start") },
+            NginxReopenRequirement.Required,
+            new[] { proof },
+            null,
+            null,
+            expectsPublication: false);
+        var service = CreateService();
+
+        var error = Assert.Throws<InvalidOperationException>(() => service.ValidateReopenCheck(check));
+
+        Assert.Contains(beta, error.Message, StringComparison.Ordinal);
+        Assert.False(released);
+        await check.DisposeAsync();
+        Assert.True(released);
+        Assert.False(proof.Validate());
+    }
+
+    [Fact]
     public void WindowsProof_BlocksWritableOpen()
     {
         if (!OperatingSystem.IsWindows())
@@ -193,6 +231,114 @@ public sealed class NginxWriterProofTests : IDisposable
                 () => paths.All(path => new FileInfo(path).Length > 0),
                 TimeSpan.FromSeconds(5)),
             "nginx did not append to every published log after the verified reopen");
+    }
+
+    [Fact]
+    public async Task NativeHostWriter_AlreadyUnlinkedLogReopensOnZeroChangeRetryAsync()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var path = Environment.GetEnvironmentVariable("LCM_EVICTION_REOPEN_NATIVE_LOG");
+        var portValue = Environment.GetEnvironmentVariable("LCM_EVICTION_REOPEN_NATIVE_PORT");
+        if (string.IsNullOrWhiteSpace(path) ||
+            !int.TryParse(portValue, out var port))
+        {
+            return;
+        }
+
+        Assert.True(File.Exists(path));
+        var replacement = path + ".reopen-new-" + Guid.NewGuid().ToString("N");
+        await File.WriteAllTextAsync(replacement, string.Empty);
+        File.Move(replacement, path, overwrite: true);
+        var source = new ResolvedDatasource
+        {
+            Name = "native-retry",
+            CachePath = _root,
+            ConfiguredLogPath = Path.GetDirectoryName(path)!,
+            LogPath = Path.GetDirectoryName(path)!,
+            LogFilePath = path,
+            Enabled = true,
+            CacheWritable = true,
+            LogsWritable = true
+        };
+        var service = CreateService();
+        await using var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { path },
+            expectsPublication: false);
+
+        Assert.Equal(NginxReopenRequirement.Required, check.Requirement);
+        Assert.Single(check.Writers);
+        var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(NginxReopenStatus.Succeeded, result.Status);
+        var requestMarker = "reopen-retry-" + Guid.NewGuid().ToString("N");
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        using var response = await client.GetAsync($"http://127.0.0.1:{port}/{requestMarker}");
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => File.ReadAllText(path).Contains(requestMarker, StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5)),
+            "nginx did not append the retry request to the current log after reopen");
+    }
+
+    [Fact]
+    public async Task NativeHostWriter_ProcessRootAliasReopensOnZeroChangeRetryAsync()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var path = Environment.GetEnvironmentVariable("LCM_EVICTION_REOPEN_ALIAS_LOG");
+        var portValue = Environment.GetEnvironmentVariable("LCM_EVICTION_REOPEN_ALIAS_PORT");
+        if (string.IsNullOrWhiteSpace(path) ||
+            !int.TryParse(portValue, out var port))
+        {
+            return;
+        }
+
+        Assert.True(File.Exists(path));
+        var replacement = path + ".reopen-new-" + Guid.NewGuid().ToString("N");
+        await File.WriteAllTextAsync(replacement, string.Empty);
+        File.Move(replacement, path, overwrite: true);
+        var source = new ResolvedDatasource
+        {
+            Name = "native-alias-retry",
+            CachePath = _root,
+            ConfiguredLogPath = Path.GetDirectoryName(path)!,
+            LogPath = Path.GetDirectoryName(path)!,
+            LogFilePath = path,
+            Enabled = true,
+            CacheWritable = true,
+            LogsWritable = true
+        };
+        var service = CreateService();
+        await using var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { path },
+            expectsPublication: false);
+
+        Assert.Equal(NginxReopenRequirement.Required, check.Requirement);
+        Assert.Single(check.Writers);
+        var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(NginxReopenStatus.Succeeded, result.Status);
+        var requestMarker = "alias-retry-" + Guid.NewGuid().ToString("N");
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        using var response = await client.GetAsync($"http://127.0.0.1:{port}/{requestMarker}");
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => File.ReadAllText(path).Contains(requestMarker, StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5)),
+            "nginx did not append the alias retry request to the current log after reopen");
     }
 
     [Fact]

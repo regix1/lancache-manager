@@ -42,10 +42,13 @@ public sealed class NginxLogRotationServiceTests
             ReplaceDockerLogs = false,
             ProbeHostWriters = false
         };
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "alpha\nbeta\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" });
-        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "C:\\unrelated|/logs\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "2|20\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
         var source = new ResolvedDatasource
         {
             Name = "alpha",
@@ -92,8 +95,10 @@ public sealed class NginxLogRotationServiceTests
             ReplaceDockerLogs = false,
             ProbeHostWriters = false
         };
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "alpha\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
         var source = new ResolvedDatasource
         {
             Name = "alpha",
@@ -389,6 +394,1157 @@ public sealed class NginxLogRotationServiceTests
     }
 
     [Fact]
+    public async Task PrepareReopenCheckAsync_AutoDiscoverySkipsForeignObserverAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-owned-writer-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = false,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "observer\nlancache-manager-writer\n"
+            },
+            "docker nginx mount inspection" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"{logs}|/logs\n"
+            },
+            "docker nginx writer identity" when command.Arguments.Contains("observer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "71|foreign\n" },
+            "docker nginx writer identity" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer ownership" when command.Arguments.Contains("observer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 4 },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx verified reopen" when command.Arguments.Contains("observer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 23, Error = "foreign writer" },
+            "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 0 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: false))
+        {
+            var result = await service.CompleteReopenCheckAsync(check, physicalChange: true);
+
+            var writer = Assert.Single(check.Writers);
+            Assert.Equal("lancache-manager-writer", writer.Name);
+            Assert.Equal(72, writer.ProcessId);
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.DoesNotContain(service.Commands, command =>
+                command.Label == "docker nginx verified reopen" &&
+                command.Arguments.Contains("observer", StringComparison.Ordinal));
+            Assert.Contains(service.Commands, command =>
+                command.Label == "docker nginx verified reopen" &&
+                command.Arguments.Contains("lancache-manager-writer", StringComparison.Ordinal));
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_DifferentMountDestinationsSelectsOwnedWriterAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-mapped-writer-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var identity = NginxWriterProbe.ReadIdentity(target);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "manager-observer\nruntime-manager\nwriter\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[101]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/fixture/logs|{logs}\n" },
+            "docker nginx mount inspection" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "/fixture/logs|/data/logs\n" },
+            "docker manager mount namespace" when command.ArgumentList.Contains("runtime-manager") =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[101]\n" },
+            "docker nginx file identity" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"{identity.First}|{identity.Second}\n"
+            },
+            "docker nginx writer identity" when command.Arguments.Contains("writer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "71|foreign\n" },
+            "docker nginx writer ownership" when command.Arguments.Contains("writer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 4 },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            "docker nginx verified reopen" when command.Arguments.Contains("writer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 23, Error = "foreign writer" },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: false))
+        {
+            var writer = Assert.Single(check.Writers);
+            Assert.Equal("writer", writer.Name);
+            Assert.Equal(NginxReopenRequirement.Required, check.Requirement);
+            var stat = Assert.Single(service.Commands, command =>
+                command.Label == "docker nginx file identity" &&
+                command.ArgumentList.Contains("writer"));
+            Assert.Equal("/data/logs/access.log", stat.ArgumentList[^1]);
+
+            var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.DoesNotContain(service.Commands, command =>
+                command.Label == "docker nginx verified reopen" &&
+                !command.Arguments.Contains("writer", StringComparison.Ordinal));
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_ExplicitWriterUsesManagerInventoryMountsAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-explicit-mapped-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var identity = NginxWriterProbe.ReadIdentity(target);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "writer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "runtime-manager\nwriter\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[102]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/fixture/logs|{logs}\n" },
+            "docker nginx mount inspection" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "/fixture/logs|/data/logs\n" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[102]\n" },
+            "docker nginx file identity" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"{identity.First}|{identity.Second}\n"
+            },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: false))
+        {
+            Assert.Equal("writer", Assert.Single(check.Writers).Name);
+        }
+        Assert.Contains(service.Commands, command => command.Label == "docker nginx writer list");
+        Assert.DoesNotContain(service.Commands, command =>
+            command.Label == "docker nginx writer identity" &&
+            command.Arguments.Contains("runtime-manager", StringComparison.Ordinal));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_NestedAndIndependentMountsPreserveSuffixesAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-nested-mounts-" + Guid.NewGuid().ToString("N"));
+        var alpha = Path.Combine(root, "alpha");
+        var serviceLogs = Path.Combine(alpha, "service");
+        var beta = Path.Combine(root, "beta");
+        Directory.CreateDirectory(serviceLogs);
+        Directory.CreateDirectory(beta);
+        var alphaTarget = Path.Combine(serviceLogs, "access.log");
+        var betaTarget = Path.Combine(beta, "access.log");
+        await File.WriteAllTextAsync(alphaTarget, "alpha");
+        await File.WriteAllTextAsync(betaTarget, "beta");
+        var alphaIdentity = NginxWriterProbe.ReadIdentity(alphaTarget);
+        var betaIdentity = NginxWriterProbe.ReadIdentity(betaTarget);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "writer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "runtime-manager\nwriter\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[103]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"/host/alpha|{alpha}\n/host/alpha-service|{serviceLogs}\n" +
+                        $"/var/lib/docker/volumes/beta/_data|{beta}\n"
+                },
+            "docker nginx mount inspection" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "/host/alpha|/data/alpha\n/host/alpha-service|/data/service\n" +
+                    "/var/lib/docker/volumes/beta/_data|/data/beta\n"
+            },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[103]\n" },
+            "docker nginx file identity" when command.ArgumentList[^1] == "/data/service/access.log" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{alphaIdentity.First}|{alphaIdentity.Second}\n"
+                },
+            "docker nginx file identity" when command.ArgumentList[^1] == "/data/beta/access.log" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{betaIdentity.First}|{betaIdentity.Second}\n"
+                },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "73|owned\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 0 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var sources = new[]
+        {
+            CreateDatasource("alpha", root, serviceLogs, alphaTarget),
+            CreateDatasource("beta", root, beta, betaTarget)
+        };
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            sources,
+            new[] { alphaTarget, betaTarget },
+            expectsPublication: false))
+        {
+            Assert.Equal("writer", Assert.Single(check.Writers).Name);
+            Assert.Empty(check.Proofs);
+            Assert.Equal(2, check.OriginalIdentities.Count);
+
+            var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+            Assert.True(result.Success, result.ErrorMessage);
+        }
+        var statPaths = service.Commands
+            .Where(command => command.Label == "docker nginx file identity")
+            .Select(command => command.ArgumentList[^1])
+            .ToList();
+        Assert.Equal(new[] { "/data/service/access.log", "/data/beta/access.log" }, statPaths);
+        Assert.Single(service.Commands, command => command.Label == "docker nginx writer identity");
+        Assert.Single(service.Commands, command => command.Label == "docker nginx writer ownership");
+        Assert.Single(service.Commands, command => command.Label == "docker nginx verified reopen");
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Theory]
+    [InlineData("stat-exit")]
+    [InlineData("stat-malformed")]
+    [InlineData("namespace")]
+    [InlineData("partial")]
+    [InlineData("different")]
+    public async Task PrepareReopenCheckAsync_PerFileCoverageDoesNotUseAnotherPathsWriterAsync(string mode)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-file-coverage-" + Guid.NewGuid().ToString("N"));
+        var alpha = Path.Combine(root, "alpha");
+        var beta = Path.Combine(root, "beta");
+        Directory.CreateDirectory(alpha);
+        Directory.CreateDirectory(beta);
+        var alphaTarget = Path.Combine(alpha, "access.log");
+        var betaTarget = Path.Combine(beta, "access.log");
+        await File.WriteAllTextAsync(alphaTarget, "alpha");
+        await File.WriteAllTextAsync(betaTarget, "beta");
+        var alphaIdentity = NginxWriterProbe.ReadIdentity(alphaTarget);
+        var betaIdentity = NginxWriterProbe.ReadIdentity(betaTarget);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "writer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = mode == "namespace" ? "manager-a\nmanager-b\nwriter\n" : "manager-a\nwriter\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[201]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("manager-a", StringComparison.Ordinal) =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = mode is "partial" or "namespace"
+                        ? $"/host/alpha|{alpha}\n"
+                        : $"/host/alpha|{alpha}\n/host/beta|{beta}\n"
+                },
+            "docker nginx mount inspection" when command.Arguments.Contains("manager-b", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/host/beta|{beta}\n" },
+            "docker nginx mount inspection" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "/host/alpha|/data/alpha\n/host/beta|/data/beta\n"
+            },
+            "docker manager mount namespace" when command.ArgumentList.Contains("manager-b") =>
+                new ProcessCommandResult { ExitCode = 17, Error = "beta namespace denied" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[201]\n" },
+            "docker nginx writer identity" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx file identity" when command.ArgumentList[^1] == "/data/alpha/access.log" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{alphaIdentity.First}|{alphaIdentity.Second}\n"
+                },
+            "docker nginx file identity" when mode == "stat-exit" =>
+                new ProcessCommandResult { ExitCode = 17, Error = "beta identity denied" },
+            "docker nginx file identity" when mode == "stat-malformed" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "not-an-identity\n" },
+            "docker nginx file identity" when mode == "different" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{betaIdentity.First}|{betaIdentity.Second + 1}\n"
+                },
+            "docker nginx file identity" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{betaIdentity.First}|{betaIdentity.Second}\n"
+                },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var sources = new[]
+        {
+            CreateDatasource("alpha", root, alpha, alphaTarget),
+            CreateDatasource("beta", root, beta, betaTarget)
+        };
+        NginxReopenCheck? check = null;
+        Exception? failure = null;
+        try
+        {
+            try
+            {
+                check = await service.PrepareReopenCheckAsync(
+                    sources,
+                    new[] { alphaTarget, betaTarget },
+                    expectsPublication: true);
+            }
+            catch (Exception error)
+            {
+                failure = error;
+            }
+
+            if (mode is "stat-exit" or "stat-malformed" or "namespace")
+            {
+                Assert.Null(check);
+                Assert.NotNull(failure);
+                if (mode == "stat-exit")
+                {
+                    Assert.Contains("beta identity denied", failure.Message, StringComparison.Ordinal);
+                }
+                else if (mode == "stat-malformed")
+                {
+                    Assert.Contains("invalid output", failure.Message, StringComparison.Ordinal);
+                }
+                else
+                {
+                    Assert.Contains("beta namespace denied", failure.Message, StringComparison.Ordinal);
+                }
+                Assert.Empty(Directory.GetFiles(root, "nginx_log_check_*.json", SearchOption.AllDirectories));
+                Assert.DoesNotContain(service.Commands, command => command.Label == "docker nginx verified reopen");
+            }
+            else
+            {
+                Assert.Null(failure);
+                Assert.NotNull(check);
+                Assert.Equal(NginxReopenRequirement.Required, check.Requirement);
+                Assert.Equal("writer", Assert.Single(check.Writers).Name);
+                var proof = Assert.Single(check.Proofs);
+                Assert.Equal(betaTarget, proof.Path);
+                Assert.True(proof.Validate());
+                Assert.Equal(2, check.OriginalIdentities.Count);
+                Assert.Equal(alphaIdentity, check.OriginalIdentities[alphaTarget]);
+                Assert.Equal(proof.Identity, check.OriginalIdentities[betaTarget]);
+                service.ValidateReopenCheck(check);
+                var publication = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                    await File.ReadAllTextAsync(check.CheckPath!),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                Assert.NotNull(publication);
+                Assert.True(publication.Valid);
+                Assert.Equal(
+                    new[] { alphaTarget, betaTarget }.Order(StringComparer.Ordinal),
+                    publication.Files.Select(file => file.TargetPath).Order(StringComparer.Ordinal));
+
+                await check.DisposeAsync();
+                check = null;
+                Assert.False(proof.Validate());
+            }
+
+            Assert.Single(service.Commands, command => command.Label == "docker nginx writer identity");
+            Assert.Single(service.Commands, command => command.Label == "docker nginx writer ownership");
+        }
+        finally
+        {
+            if (check is not null)
+            {
+                await check.DisposeAsync();
+            }
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_HostCoverageStaysWithItsSelectedPathAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-host-coverage-" + Guid.NewGuid().ToString("N"));
+        var alpha = Path.Combine(root, "alpha");
+        var beta = Path.Combine(root, "beta");
+        Directory.CreateDirectory(alpha);
+        Directory.CreateDirectory(beta);
+        var alphaTarget = Path.Combine(alpha, "access.log");
+        var betaTarget = Path.Combine(beta, "access.log");
+        await File.WriteAllTextAsync(alphaTarget, "alpha");
+        await File.WriteAllTextAsync(betaTarget, "beta");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = false, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "host nginx writer identity" when command.ArgumentList.Contains(alphaTarget) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "501|alpha-start\n" },
+            "host nginx writer identity" when command.ArgumentList.Contains(betaTarget) =>
+                new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var sources = new[]
+        {
+            CreateDatasource("alpha", root, alpha, alphaTarget),
+            CreateDatasource("beta", root, beta, betaTarget)
+        };
+        NginxHeldProof? proof = null;
+        try
+        {
+            await using (var check = await service.PrepareReopenCheckAsync(
+                sources,
+                new[] { alphaTarget, betaTarget },
+                expectsPublication: false))
+            {
+                Assert.Equal("host", Assert.Single(check.Writers).Name);
+                proof = Assert.Single(check.Proofs);
+                Assert.Equal(betaTarget, proof.Path);
+                Assert.Equal(2, check.OriginalIdentities.Count);
+                service.ValidateReopenCheck(check);
+            }
+
+            Assert.NotNull(proof);
+            Assert.False(proof.Validate());
+            var probes = service.Commands.Where(command => command.Label == "host nginx writer identity").ToList();
+            Assert.Equal(2, probes.Count);
+            Assert.All(probes, command => Assert.Equal(6, command.ArgumentList.Length));
+            Assert.Single(probes, command => command.ArgumentList.Contains(alphaTarget));
+            Assert.Single(probes, command => command.ArgumentList.Contains(betaTarget));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_SeparateFilesRetainSeparateWritersAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-separate-writers-" + Guid.NewGuid().ToString("N"));
+        var alpha = Path.Combine(root, "alpha");
+        var beta = Path.Combine(root, "beta");
+        Directory.CreateDirectory(alpha);
+        Directory.CreateDirectory(beta);
+        var alphaTarget = Path.Combine(alpha, "access.log");
+        var betaTarget = Path.Combine(beta, "access.log");
+        await File.WriteAllTextAsync(alphaTarget, "alpha");
+        await File.WriteAllTextAsync(betaTarget, "beta");
+        var alphaIdentity = NginxWriterProbe.ReadIdentity(alphaTarget);
+        var betaIdentity = NginxWriterProbe.ReadIdentity(betaTarget);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "runtime-manager\nwriter-a\nwriter-b\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[202]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"/host/alpha|{alpha}\n/host/beta|{beta}\n"
+                },
+            "docker nginx mount inspection" when command.Arguments.Contains("writer-a", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "/host/alpha|/data/alpha\n" },
+            "docker nginx mount inspection" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "/host/beta|/data/beta\n" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[202]\n" },
+            "docker nginx writer identity" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 1 },
+            "docker nginx writer identity" when command.Arguments.Contains("writer-a", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "71|alpha-start\n" },
+            "docker nginx writer identity" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "72|beta-start\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx file identity" when command.ArgumentList[^1] == "/data/alpha/access.log" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{alphaIdentity.First}|{alphaIdentity.Second}\n"
+                },
+            "docker nginx file identity" =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{betaIdentity.First}|{betaIdentity.Second}\n"
+                },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 0 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var sources = new[]
+        {
+            CreateDatasource("alpha", root, alpha, alphaTarget),
+            CreateDatasource("beta", root, beta, betaTarget)
+        };
+        try
+        {
+            await using var check = await service.PrepareReopenCheckAsync(
+                sources,
+                new[] { alphaTarget, betaTarget },
+                expectsPublication: false);
+
+            Assert.Equal(new[] { "writer-a", "writer-b" }, check.Writers.Select(writer => writer.Name));
+            Assert.Empty(check.Proofs);
+            Assert.Equal(2, check.OriginalIdentities.Count);
+            var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal(2, service.Commands.Count(command => command.Label == "docker nginx writer ownership"));
+            Assert.Equal(2, service.Commands.Count(command => command.Label == "docker nginx verified reopen"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_DisappearingUncoveredFileRejectsMixedPreparationAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-missing-proof-" + Guid.NewGuid().ToString("N"));
+        var alpha = Path.Combine(root, "alpha");
+        var beta = Path.Combine(root, "beta");
+        Directory.CreateDirectory(alpha);
+        Directory.CreateDirectory(beta);
+        var alphaTarget = Path.Combine(alpha, "access.log");
+        var betaTarget = Path.Combine(beta, "access.log");
+        await File.WriteAllTextAsync(alphaTarget, "alpha");
+        await File.WriteAllTextAsync(betaTarget, "beta");
+        var alphaIdentity = NginxWriterProbe.ReadIdentity(alphaTarget);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "writer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "runtime-manager\nwriter\n" },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[203]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/host/alpha|{alpha}\n" },
+            "docker nginx mount inspection" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "/host/alpha|/data/alpha\n" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[203]\n" },
+            "docker nginx writer identity" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "71|alpha-start\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx file identity" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"{alphaIdentity.First}|{alphaIdentity.Second}\n"
+            },
+            "host nginx writer identity" when command.ArgumentList.Contains(betaTarget) => DeleteBeta(),
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var sources = new[]
+        {
+            CreateDatasource("alpha", root, alpha, alphaTarget),
+            CreateDatasource("beta", root, beta, betaTarget)
+        };
+        try
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.PrepareReopenCheckAsync(
+                    sources,
+                    new[] { alphaTarget, betaTarget },
+                    expectsPublication: true));
+
+            Assert.Contains(Path.GetFileName(betaTarget), error.Message, StringComparison.Ordinal);
+            Assert.Empty(Directory.GetFiles(root, "nginx_log_check_*.json", SearchOption.AllDirectories));
+            Assert.DoesNotContain(service.Commands, command => command.Label == "docker nginx verified reopen");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        ProcessCommandResult DeleteBeta()
+        {
+            File.Delete(betaTarget);
+            return new ProcessCommandResult { ExitCode = 1 };
+        }
+    }
+
+    [Theory]
+    [InlineData(0, "", "")]
+    [InlineData(0, "not-a-namespace", "")]
+    [InlineData(9, "", "namespace denied")]
+    public async Task PrepareReopenCheckAsync_InvalidManagerNamespaceDoesNotClaimNoWriterAsync(
+        int exitCode,
+        string namespaceValue,
+        string errorText)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-namespace-failure-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "runtime-manager\n" },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[104]\n" },
+            "docker nginx mount inspection" =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/fixture/logs|{logs}\n" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = exitCode, Output = namespaceValue, Error = errorText },
+            "docker nginx file identity" => new ProcessCommandResult { ExitCode = 0, Output = "0|0\n" },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true));
+
+        Assert.Contains("docker manager mount namespace", error.Message, StringComparison.Ordinal);
+        Assert.Contains($"exit code {exitCode}", error.Message, StringComparison.Ordinal);
+        if (!string.IsNullOrEmpty(errorText))
+        {
+            Assert.Contains(errorText, error.Message, StringComparison.Ordinal);
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Theory]
+    [InlineData(0, "")]
+    [InlineData(0, "not-an-identity")]
+    [InlineData(11, "")]
+    public async Task PrepareReopenCheckAsync_InvalidWriterFileIdentityDoesNotClaimNoWriterAsync(
+        int exitCode,
+        string identityValue)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-file-identity-failure-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "runtime-manager\nwriter\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[105]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/fixture/logs|{logs}\n" },
+            "docker nginx mount inspection" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "/fixture/logs|/data/logs\n" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[105]\n" },
+            "docker nginx file identity" when command.ArgumentList.Contains("runtime-manager") =>
+                new ProcessCommandResult { ExitCode = 0, Output = "0|0\n" },
+            "docker nginx file identity" => new ProcessCommandResult
+            {
+                ExitCode = exitCode,
+                Output = identityValue,
+                Error = exitCode == 0 ? string.Empty : "stat denied"
+            },
+            "docker nginx writer identity" when command.Arguments.Contains("writer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true));
+
+        Assert.Contains("docker nginx file identity", error.Message, StringComparison.Ordinal);
+        Assert.Contains($"exit code {exitCode}", error.Message, StringComparison.Ordinal);
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_ForeignSameDestinationDoesNotSelectWriterAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-foreign-file-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var identity = NginxWriterProbe.ReadIdentity(target);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "runtime-manager\nwriter\n"
+            },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[106]\n" },
+            "docker nginx mount inspection" when command.Arguments.Contains("runtime-manager", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = $"/host/right|{logs}\n" },
+            "docker nginx mount inspection" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"/host/foreign|{logs}\n/host/right-old|/data/logs-old\n"
+            },
+            "docker manager mount namespace" when command.ArgumentList.Contains("runtime-manager") =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[106]\n" },
+            "docker manager mount namespace" =>
+                new ProcessCommandResult { ExitCode = 0, Output = "mnt:[206]\n" },
+            "docker nginx file identity" when command.ArgumentList.Contains("runtime-manager") =>
+                new ProcessCommandResult
+                {
+                    ExitCode = 0,
+                    Output = $"{identity.First}|{identity.Second}\n"
+                },
+            "docker nginx file identity" => new ProcessCommandResult { ExitCode = 0, Output = "0|0\n" },
+            "docker nginx writer identity" when command.Arguments.Contains("writer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "71|foreign\n" },
+            "docker nginx writer ownership" when command.Arguments.Contains("writer", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 4 },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: false))
+        {
+            Assert.Empty(check.Writers);
+            Assert.Equal(NginxReopenRequirement.NotRequired, check.Requirement);
+        }
+        Assert.DoesNotContain(service.Commands, command => command.Label == "docker nginx verified reopen");
+        Assert.DoesNotContain(service.Commands, command =>
+            command.Label == "docker nginx file identity" &&
+            command.ArgumentList[^1].StartsWith("/data/logs-old", StringComparison.Ordinal));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_FailedWriterListDoesNotClaimNoWriterAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-writer-list-failure-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var target = Path.Combine(root, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" =>
+                new ProcessCommandResult { ExitCode = 12, Error = "list denied" },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[107]\n" },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, root, target);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true));
+
+        Assert.Contains("docker nginx writer list", error.Message, StringComparison.Ordinal);
+        Assert.Contains("exit code 12", error.Message, StringComparison.Ordinal);
+        Assert.Contains("list denied", error.Message, StringComparison.Ordinal);
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_HostWriterPassesSelectedIdentityArgumentsAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-host-identity-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var target = Path.Combine(root, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var identity = NginxWriterProbe.ReadIdentity(target);
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = false, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command =>
+        {
+            Assert.Equal("host nginx writer identity", command.Label);
+            Assert.Contains("/proc/$pid/root", command.ArgumentList[1], StringComparison.Ordinal);
+            Assert.DoesNotContain("readlink -f", command.ArgumentList[1], StringComparison.Ordinal);
+            Assert.Equal(target, command.ArgumentList[^3]);
+            Assert.Equal(identity.First.ToString(), command.ArgumentList[^2]);
+            Assert.Equal(identity.Second.ToString(), command.ArgumentList[^1]);
+            return new ProcessCommandResult { ExitCode = 0, Output = "81|host-owned\n" };
+        };
+        var source = CreateDatasource("default", root, root, target);
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: false))
+        {
+            var writer = Assert.Single(check.Writers);
+            Assert.Equal(NginxWriterKind.Host, writer.Kind);
+            Assert.Equal(81, writer.ProcessId);
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_ForeignCandidateDoesNotHideOwnedCandidateAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-candidates-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "writer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = false,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "writer\n" },
+            "docker nginx mount inspection" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"{logs}|/logs\n"
+            },
+            "docker nginx writer identity" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = "71|foreign\n72|owned\n"
+            },
+            "docker nginx writer ownership" when command.Arguments.Contains("/proc/71/", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 4 },
+            "docker nginx writer ownership" when command.Arguments.Contains("/proc/72/", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx verified reopen" when command.Arguments.Contains("kill -USR1 72", StringComparison.Ordinal) =>
+                new ProcessCommandResult { ExitCode = 0 },
+            "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 23, Error = "foreign writer" },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        await using (var check = await service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: false))
+        {
+            var result = await service.CompleteReopenCheckAsync(check, physicalChange: true);
+
+            Assert.Equal(72, Assert.Single(check.Writers).ProcessId);
+            Assert.True(result.Success, result.ErrorMessage);
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_ConfiguredForeignObserverFailsBeforePublicationAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-explicit-observer-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "observer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = false,
+            ReplaceDockerLogs = true
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "observer\n" },
+            "docker nginx mount inspection" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"{logs}|/logs\n"
+            },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "71|foreign\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 4 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true));
+
+        Assert.Contains("could not be verified", error.Message, StringComparison.Ordinal);
+        var operations = Path.Combine(root, "operations");
+        Assert.True(!Directory.Exists(operations) ||
+            !Directory.EnumerateFiles(operations, "nginx_log_*").Any());
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task CompleteReopenCheckAsync_RequiredZeroChangeSignalsWriterAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        await using var check = CreateRequiredCheck("writer");
+
+        var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(NginxReopenStatus.Succeeded, result.Status);
+        Assert.Equal(NginxReopenRequirement.Required, result.Requirement);
+        Assert.False(result.PartialPhysicalEffects);
+        Assert.Equal("docker nginx verified reopen", Assert.Single(service.Commands).Label);
+    }
+
+    [Fact]
+    public async Task CompleteReopenCheckAsync_RequiredZeroChangeFailureRetainsProcessDetailsAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.ProcessResults.Enqueue(new ProcessCommandResult
+        {
+            ExitCode = 17,
+            Error = "  kill: Operation not permitted  \n"
+        });
+        await using var check = CreateRequiredCheck("writer");
+
+        var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+        Assert.False(result.Success);
+        Assert.Equal(NginxReopenStatus.Failed, result.Status);
+        Assert.Equal(NginxReopenRequirement.Required, result.Requirement);
+        Assert.False(result.PartialPhysicalEffects);
+        Assert.Contains("writer", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("exit code 17", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("kill: Operation not permitted", result.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CompleteReopenCheckAsync_NoWriterZeroChangeRemainsNotRequiredAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        await using var check = new NginxReopenCheck(
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            new Dictionary<string, NginxFileIdentity>(),
+            Array.Empty<NginxWriterIdentity>(),
+            NginxReopenRequirement.NotRequired,
+            Array.Empty<NginxHeldProof>(),
+            null,
+            null,
+            expectsPublication: false);
+
+        var result = await service.CompleteReopenCheckAsync(check, physicalChange: false);
+
+        Assert.True(result.Success);
+        Assert.Equal(NginxReopenStatus.NotRequired, result.Status);
+        Assert.Equal(NginxReopenRequirement.NotRequired, result.Requirement);
+        Assert.False(result.PartialPhysicalEffects);
+        Assert.Empty(service.Commands);
+    }
+
+    [Fact]
     public async Task ReopenNginxLogsAsync_NoContainer_SignalsHostWithExpectedCommandAsync()
     {
         var logger = new CapturingLogger<NginxLogRotationService>();
@@ -503,6 +1659,7 @@ public sealed class NginxLogRotationServiceTests
         service.DetectionResult = ("lancache-monolithic", null);
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|5678\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
         var result = await service.ReopenNginxLogsAsync();
 
@@ -515,6 +1672,13 @@ public sealed class NginxLogRotationServiceTests
                 Assert.Equal("docker nginx writer identity", invocation.Label);
                 Assert.Equal("docker", invocation.FileName);
                 Assert.Contains("exec lancache-monolithic sh -c", invocation.Arguments, StringComparison.Ordinal);
+                Assert.Empty(invocation.ArgumentList);
+            },
+            invocation =>
+            {
+                Assert.Equal("docker nginx writer ownership", invocation.Label);
+                Assert.Equal("docker", invocation.FileName);
+                Assert.Contains("/proc/1/ns/mnt", invocation.Arguments, StringComparison.Ordinal);
                 Assert.Empty(invocation.ArgumentList);
             },
             invocation =>
@@ -622,6 +1786,33 @@ public sealed class NginxLogRotationServiceTests
         }
     }
 
+    private static ResolvedDatasource CreateDatasource(
+        string name,
+        string cache,
+        string logs,
+        string target) => new()
+        {
+            Name = name,
+            CachePath = cache,
+            ConfiguredLogPath = logs,
+            LogPath = logs,
+            LogFilePath = target,
+            Enabled = true,
+            CacheWritable = true,
+            LogsWritable = true
+        };
+
+    private static NginxReopenCheck CreateRequiredCheck(string writer) => new(
+        Array.Empty<string>(),
+        Array.Empty<string>(),
+        new Dictionary<string, NginxFileIdentity>(),
+        new[] { new NginxWriterIdentity(NginxWriterKind.Docker, writer, 71, "start") },
+        NginxReopenRequirement.Required,
+        Array.Empty<NginxHeldProof>(),
+        null,
+        null,
+        expectsPublication: false);
+
     private sealed class TestNginxLogRotationService : NginxLogRotationService
     {
         public TestNginxLogRotationService(
@@ -638,6 +1829,7 @@ public sealed class NginxLogRotationServiceTests
         public int DetectionCalls { get; private set; }
         public Queue<ProcessCommandResult> ProcessResults { get; } = new();
         public List<CommandInvocation> Commands { get; } = [];
+        public Func<CommandInvocation, ProcessCommandResult>? OnCommand { get; set; }
         public bool ProbeHostWriters { get; set; } = true;
         public bool ReplaceDockerLogs { get; set; } = true;
         protected override bool CanProbeHostWriters => ProbeHostWriters;
@@ -653,15 +1845,16 @@ public sealed class NginxLogRotationServiceTests
             ProcessStartInfo startInfo,
             string label)
         {
-            Commands.Add(new CommandInvocation(
+            var command = new CommandInvocation(
                 label,
                 startInfo.FileName,
                 startInfo.Arguments,
                 startInfo.ArgumentList.ToArray(),
                 startInfo.RedirectStandardOutput,
                 startInfo.RedirectStandardError,
-                startInfo.UseShellExecute));
-            return Task.FromResult(ProcessResults.Dequeue());
+                startInfo.UseShellExecute);
+            Commands.Add(command);
+            return Task.FromResult(OnCommand?.Invoke(command) ?? ProcessResults.Dequeue());
         }
     }
 
