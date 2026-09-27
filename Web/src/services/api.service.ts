@@ -76,7 +76,8 @@ import type {
   NotificationDisplayMode,
   GameDetectionScanMode,
   ServiceScheduleInfo,
-  ScheduleExecutionResponse
+  ScheduleExecutionResponse,
+  ScheduleHistoryQuery
 } from '../components/features/management/schedules/types';
 import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
 import type {
@@ -3331,14 +3332,16 @@ class ApiService {
   }
 
   static async getScheduleHistory(
-    page: number,
-    pageSize: number,
+    query: ScheduleHistoryQuery,
     signal?: AbortSignal
   ): Promise<ScheduleExecutionResponse> {
     const params = new URLSearchParams({
-      page: page.toString(),
-      pageSize: pageSize.toString()
+      page: query.page.toString(),
+      pageSize: query.pageSize.toString()
     });
+    if (query.search.trim().length > 0) params.set('search', query.search.trim());
+    if (query.serviceKey.length > 0) params.set('serviceKey', query.serviceKey);
+    if (query.status.length > 0) params.set('status', query.status);
     const response = await fetch(
       `${API_BASE}/system/schedules/history?${params}`,
       this.getFetchOptions({ signal })

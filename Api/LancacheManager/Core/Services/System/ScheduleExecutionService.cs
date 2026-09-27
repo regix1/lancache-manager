@@ -111,25 +111,53 @@ public class ScheduleExecutionService
     public virtual async Task<ScheduleExecutionResponse> GetPageAsync(
         int page,
         int pageSize,
+        string? serviceKey = null,
+        OperationStatus? status = null,
+        string? search = null,
         CancellationToken cancellationToken = default)
     {
         await using var context = await _dbContextSource.CreateDbContextAsync(cancellationToken);
         var query = context.ScheduleExecutions.AsNoTracking();
+        var selectedService = string.IsNullOrWhiteSpace(serviceKey) ? null : serviceKey.Trim();
+        var text = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
+
+        if (selectedService is not null)
+        {
+            query = query.Where(execution => execution.ServiceKey == selectedService);
+        }
+        if (status.HasValue)
+        {
+            query = query.Where(execution => execution.Status == status.Value);
+        }
+        if (text is not null)
+        {
+            var operationIdMatch = Guid.TryParse(text, out var operationId);
+            query = query.Where(execution =>
+                (execution.ScheduleName != null && execution.ScheduleName.ToLower().Contains(text))
+                || (execution.Username != null && execution.Username.ToLower().Contains(text))
+                || execution.ServiceKey.ToLower().Contains(text)
+                || (operationIdMatch && execution.OperationId == operationId));
+        }
+
         var totalCount = await query.CountAsync(cancellationToken);
+        var totalPages = totalCount == 0
+            ? 0
+            : (int)Math.Ceiling(totalCount / (double)pageSize);
+        var returnedPage = totalPages == 0 ? 1 : Math.Clamp(page, 1, totalPages);
         var items = await query
             .OrderByDescending(execution => execution.StartedAt)
             .ThenByDescending(execution => execution.Id)
-            .Skip((page - 1) * pageSize)
+            .Skip((returnedPage - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
 
         return new ScheduleExecutionResponse
         {
             Items = items,
-            Page = page,
+            Page = returnedPage,
             PageSize = pageSize,
             TotalCount = totalCount,
-            TotalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize)
+            TotalPages = totalPages
         };
     }
 }

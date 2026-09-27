@@ -43,7 +43,10 @@ public class ScheduleController : ControllerBase
     [ProducesResponseType(typeof(ScheduleExecutionResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ScheduleExecutionResponse>> GetHistoryAsync(
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? serviceKey = null,
+        [FromQuery] OperationStatus? status = null,
+        [FromQuery] string? search = null)
     {
         if (page < 1)
         {
@@ -53,8 +56,22 @@ public class ScheduleController : ControllerBase
         {
             throw new ValidationException("Page size must be between 1 and 100.");
         }
+        if (status.HasValue
+            && status.Value is not (OperationStatus.Completed
+                or OperationStatus.Failed
+                or OperationStatus.Cancelled
+                or OperationStatus.Skipped))
+        {
+            throw new ValidationException("Status must be completed, failed, cancelled, or skipped.");
+        }
 
-        return Ok(await _scheduleExecutions.GetPageAsync(page, pageSize, HttpContext.RequestAborted));
+        return Ok(await _scheduleExecutions.GetPageAsync(
+            page,
+            pageSize,
+            serviceKey,
+            status,
+            search,
+            HttpContext.RequestAborted));
     }
 
     /// <summary>

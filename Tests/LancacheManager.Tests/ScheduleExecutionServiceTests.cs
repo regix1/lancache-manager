@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
@@ -6,11 +8,14 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
+[Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class ScheduleExecutionServiceTests
 {
     [Fact]
@@ -95,6 +100,294 @@ public sealed class ScheduleExecutionServiceTests
                 .ThenByDescending(item => item.Id)
                 .Select(item => item.OperationId)
                 .ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task GetPageFiltersSearchesAndClampsPostgreSqlResults()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new ScheduleExecutionService(
+            database.Factory,
+            NullLogger<ScheduleExecutionService>.Instance);
+        var startedAt = new DateTime(2026, 9, 27, 12, 0, 0, DateTimeKind.Utc);
+        var statuses = new[]
+        {
+            OperationStatus.Completed,
+            OperationStatus.Failed,
+            OperationStatus.Cancelled,
+            OperationStatus.Skipped
+        };
+        var rows = Enumerable.Range(0, 123)
+            .Select(index => new ScheduleExecution
+            {
+                OperationId = Guid.NewGuid(),
+                ServiceKey = (index % 3) switch
+                {
+                    0 => "logRotation",
+                    1 => "cacheSizeScan",
+                    _ => "scheduledPrefill"
+                },
+                Status = statuses[index % statuses.Length],
+                Trigger = RunTrigger.Scheduled,
+                ActorKind = index % 2 == 0 ? ScheduleActorKind.Server : ScheduleActorKind.Unknown,
+                Username = index % 5 == 0 ? null : $"owner-{index}",
+                StartedAt = startedAt,
+                CompletedAt = startedAt.AddSeconds(5),
+                Detail = statuses[index % statuses.Length] == OperationStatus.Completed
+                    ? null
+                    : $"terminal detail {index}",
+                ScheduleName = index % 7 == 0 ? null : $"Schedule {index}",
+                Platform = index % 3 == 2 ? PrefillPlatform.Steam : null,
+                WorkerStarted = true
+            })
+            .ToList();
+        rows[5].Username = "literal%_owner";
+        rows[6].ScheduleName = "Quarterly MiXeD Cache";
+        rows[7].ScheduleName = "not-a-guid result";
+        rows[8].ServiceKey = "scheduledPrefill";
+        rows[8].Status = OperationStatus.Failed;
+        rows[8].ScheduleName = "Combined Needle";
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            context.ScheduleExecutions.AddRange(rows);
+            await context.SaveChangesAsync();
+        }
+
+        var page20 = await service.GetPageAsync(1, 20);
+        var page50 = await service.GetPageAsync(1, 50);
+        var page100 = await service.GetPageAsync(1, 100);
+        Assert.Equal((123, 7, 20), (page20.TotalCount, page20.TotalPages, page20.Items.Count));
+        Assert.Equal((123, 3, 50), (page50.TotalCount, page50.TotalPages, page50.Items.Count));
+        Assert.Equal((123, 2, 100), (page100.TotalCount, page100.TotalPages, page100.Items.Count));
+
+        var secondPage = await service.GetPageAsync(2, 50);
+        var thirdPage = await service.GetPageAsync(3, 50);
+        var orderedIds = rows
+            .OrderByDescending(row => row.StartedAt)
+            .ThenByDescending(row => row.Id)
+            .Select(row => row.OperationId)
+            .ToArray();
+        Assert.Equal(orderedIds[..50], page50.Items.Select(row => row.OperationId));
+        Assert.Equal(orderedIds[50..100], secondPage.Items.Select(row => row.OperationId));
+        Assert.Equal(orderedIds[100..], thirdPage.Items.Select(row => row.OperationId));
+        Assert.Empty(page50.Items.Select(row => row.OperationId)
+            .Intersect(secondPage.Items.Select(row => row.OperationId)));
+
+        var selectedService = await service.GetPageAsync(1, 100, serviceKey: " scheduledPrefill ");
+        Assert.Equal(rows.Count(row => row.ServiceKey == "scheduledPrefill"), selectedService.TotalCount);
+        Assert.All(selectedService.Items, row => Assert.Equal("scheduledPrefill", row.ServiceKey));
+        Assert.Equal(0, (await service.GetPageAsync(
+            1,
+            100,
+            serviceKey: "ScheduledPrefill")).TotalCount);
+
+        foreach (var status in statuses)
+        {
+            var selectedStatus = await service.GetPageAsync(1, 100, status: status);
+            Assert.Equal(rows.Count(row => row.Status == status), selectedStatus.TotalCount);
+            Assert.All(selectedStatus.Items, row => Assert.Equal(status, row.Status));
+        }
+
+        var mixedCase = await service.GetPageAsync(1, 100, search: "mIxEd CaChE");
+        Assert.Equal(rows[6].OperationId, Assert.Single(mixedCase.Items).OperationId);
+        var literal = await service.GetPageAsync(1, 100, search: "%_");
+        Assert.Equal(rows[5].OperationId, Assert.Single(literal.Items).OperationId);
+        var serviceText = await service.GetPageAsync(1, 100, search: "LOGROTATION");
+        Assert.Equal(rows.Count(row => row.ServiceKey == "logRotation"), serviceText.TotalCount);
+        var operationId = await service.GetPageAsync(
+            1,
+            100,
+            search: rows[9].OperationId.ToString().ToUpperInvariant());
+        Assert.Equal(rows[9].OperationId, Assert.Single(operationId.Items).OperationId);
+        var ordinaryText = await service.GetPageAsync(1, 100, search: "NOT-A-GUID");
+        Assert.Equal(rows[7].OperationId, Assert.Single(ordinaryText.Items).OperationId);
+
+        var combined = await service.GetPageAsync(
+            int.MaxValue,
+            20,
+            serviceKey: " scheduledPrefill ",
+            status: OperationStatus.Failed,
+            search: " combined needle ");
+        Assert.Equal(1, combined.Page);
+        Assert.Equal(1, combined.TotalPages);
+        Assert.Equal(rows[8].OperationId, Assert.Single(combined.Items).OperationId);
+
+        var empty = await service.GetPageAsync(1, 20, serviceKey: "", search: "");
+        var whitespace = await service.GetPageAsync(1, 20, serviceKey: " 	 ", search: " 	 ");
+        Assert.Equal(123, empty.TotalCount);
+        Assert.Equal(123, whitespace.TotalCount);
+
+        var beyondLast = await service.GetPageAsync(int.MaxValue, 20);
+        Assert.Equal(7, beyondLast.Page);
+        Assert.Equal(3, beyondLast.Items.Count);
+        var noMatches = await service.GetPageAsync(
+            int.MaxValue,
+            20,
+            serviceKey: "missing-service");
+        Assert.Equal(1, noMatches.Page);
+        Assert.Equal(0, noMatches.TotalPages);
+        Assert.Equal(0, noMatches.TotalCount);
+        Assert.Empty(noMatches.Items);
+    }
+
+    [Fact]
+    public async Task HistoryEndpointUsesMvcJsonAndCanonicalErrors()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var anonymous = host.Application.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var denied = await anonymous.GetAsync("/api/system/schedules/history");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+
+        using var client = await host.CreateAdminClientAsync();
+        var contexts = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using (var context = await contexts.CreateDbContextAsync())
+        {
+            await context.ScheduleExecutions.ExecuteDeleteAsync();
+            context.ScheduleExecutions.AddRange(
+                new ScheduleExecution
+                {
+                    OperationId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                    ServiceKey = "logRotation",
+                    Status = OperationStatus.Completed,
+                    Trigger = RunTrigger.Scheduled,
+                    ActorKind = ScheduleActorKind.Server,
+                    StartedAt = new DateTime(2026, 9, 27, 13, 0, 0, DateTimeKind.Utc),
+                    CompletedAt = new DateTime(2026, 9, 27, 13, 0, 5, DateTimeKind.Utc),
+                    WorkerStarted = true
+                },
+                new ScheduleExecution
+                {
+                    OperationId = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                    ServiceKey = "cacheSizeScan",
+                    Status = OperationStatus.Skipped,
+                    Trigger = RunTrigger.Startup,
+                    ActorKind = ScheduleActorKind.Server,
+                    StartedAt = new DateTime(2026, 9, 27, 13, 1, 0, DateTimeKind.Utc),
+                    CompletedAt = new DateTime(2026, 9, 27, 13, 1, 1, DateTimeKind.Utc),
+                    WorkerStarted = false
+                },
+                new ScheduleExecution
+                {
+                    OperationId = Guid.Parse("33333333-3333-3333-3333-333333333333"),
+                    ServiceKey = "databaseBackup",
+                    Status = OperationStatus.Failed,
+                    ActorKind = ScheduleActorKind.Unknown,
+                    StartedAt = new DateTime(2026, 9, 27, 13, 2, 0, DateTimeKind.Utc),
+                    CompletedAt = new DateTime(2026, 9, 27, 13, 2, 8, DateTimeKind.Utc),
+                    Detail = "The database did not answer before the backup deadline.",
+                    WorkerStarted = true
+                },
+                new ScheduleExecution
+                {
+                    OperationId = Guid.Parse("44444444-4444-4444-4444-444444444444"),
+                    ServiceKey = "scheduledPrefill",
+                    Status = OperationStatus.Cancelled,
+                    Trigger = RunTrigger.Manual,
+                    ActorKind = ScheduleActorKind.Account,
+                    AccountId = Guid.Parse("55555555-5555-5555-5555-555555555555"),
+                    Username = "history-owner",
+                    StartedAt = new DateTime(2026, 9, 27, 13, 3, 0, DateTimeKind.Utc),
+                    CompletedAt = new DateTime(2026, 9, 27, 13, 3, 9, DateTimeKind.Utc),
+                    Detail = "Cancelled after the active download stopped.",
+                    ScheduleId = Guid.Parse("66666666-6666-6666-6666-666666666666"),
+                    ScheduleName = "Nightly",
+                    Platform = PrefillPlatform.Steam,
+                    WorkerStarted = true
+                });
+            await context.SaveChangesAsync();
+        }
+
+        try
+        {
+            using var response = await client.GetAsync(
+                "/api/system/schedules/history?page=1&pageSize=100");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var raw = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(raw);
+            var root = document.RootElement;
+            Assert.Equal(1, root.GetProperty("page").GetInt32());
+            Assert.Equal(100, root.GetProperty("pageSize").GetInt32());
+            Assert.Equal(4, root.GetProperty("totalCount").GetInt32());
+            Assert.Equal(1, root.GetProperty("totalPages").GetInt32());
+            var items = root.GetProperty("items").EnumerateArray().ToArray();
+            Assert.Equal(4, items.Length);
+
+            var prefill = items.Single(item =>
+                item.GetProperty("serviceKey").GetString() == "scheduledPrefill");
+            Assert.Equal("cancelled", prefill.GetProperty("status").GetString());
+            Assert.Equal("manual", prefill.GetProperty("trigger").GetString());
+            Assert.Equal("account", prefill.GetProperty("actorKind").GetString());
+            Assert.Equal("history-owner", prefill.GetProperty("username").GetString());
+            Assert.Equal("Nightly", prefill.GetProperty("scheduleName").GetString());
+            Assert.Equal("Steam", prefill.GetProperty("platform").GetString());
+            Assert.Equal(
+                "Cancelled after the active download stopped.",
+                prefill.GetProperty("detail").GetString());
+
+            var ordinary = items.Single(item =>
+                item.GetProperty("serviceKey").GetString() == "logRotation");
+            Assert.Equal("completed", ordinary.GetProperty("status").GetString());
+            Assert.Equal("scheduled", ordinary.GetProperty("trigger").GetString());
+            Assert.Equal("server", ordinary.GetProperty("actorKind").GetString());
+            Assert.False(ordinary.TryGetProperty("username", out _));
+            Assert.False(ordinary.TryGetProperty("detail", out _));
+            Assert.False(ordinary.TryGetProperty("scheduleName", out _));
+            Assert.False(ordinary.TryGetProperty("platform", out _));
+
+            var unknown = items.Single(item =>
+                item.GetProperty("serviceKey").GetString() == "databaseBackup");
+            Assert.Equal("failed", unknown.GetProperty("status").GetString());
+            Assert.Equal("unknown", unknown.GetProperty("actorKind").GetString());
+            Assert.False(unknown.TryGetProperty("trigger", out _));
+            Assert.False(unknown.TryGetProperty("username", out _));
+            Assert.Equal(
+                "The database did not answer before the backup deadline.",
+                unknown.GetProperty("detail").GetString());
+
+            using var filtered = await client.GetAsync(
+                "/api/system/schedules/history?serviceKey=scheduledPrefill&status=cancelled&search=HISTORY-OWNER");
+            Assert.Equal(HttpStatusCode.OK, filtered.StatusCode);
+            using var filteredDocument = JsonDocument.Parse(await filtered.Content.ReadAsStringAsync());
+            Assert.Equal(
+                "44444444-4444-4444-4444-444444444444",
+                filteredDocument.RootElement
+                    .GetProperty("items")[0]
+                    .GetProperty("operationId")
+                    .GetString());
+
+            var invalidRequests = new Dictionary<string, string>
+            {
+                ["/api/system/schedules/history?page=0"] = "Page must be at least 1.",
+                ["/api/system/schedules/history?pageSize=101"] =
+                    "Page size must be between 1 and 100.",
+                ["/api/system/schedules/history?status=running"] =
+                    "Status must be completed, failed, cancelled, or skipped."
+            };
+            foreach (var (path, message) in invalidRequests)
+            {
+                using var invalid = await client.GetAsync(path);
+                Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+                using var invalidDocument = JsonDocument.Parse(await invalid.Content.ReadAsStringAsync());
+                Assert.Equal(message, invalidDocument.RootElement.GetProperty("error").GetString());
+                Assert.Equal(400, invalidDocument.RootElement.GetProperty("statusCode").GetInt32());
+            }
+
+            using var invalidStatus = await client.GetAsync(
+                "/api/system/schedules/history?status=not-a-status");
+            Assert.Equal(HttpStatusCode.BadRequest, invalidStatus.StatusCode);
+            using var bindingDocument = JsonDocument.Parse(
+                await invalidStatus.Content.ReadAsStringAsync());
+            Assert.True(bindingDocument.RootElement
+                .GetProperty("errors")
+                .TryGetProperty("status", out _));
+        }
+        finally
+        {
+            await using var context = await contexts.CreateDbContextAsync();
+            await context.ScheduleExecutions.ExecuteDeleteAsync();
+        }
     }
 
     [Fact]
@@ -326,6 +619,9 @@ internal static class ScheduleExecutionTestService
         public override Task<ScheduleExecutionResponse> GetPageAsync(
             int page,
             int pageSize,
+            string? serviceKey = null,
+            OperationStatus? status = null,
+            string? search = null,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_response ?? new ScheduleExecutionResponse
             {

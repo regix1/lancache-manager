@@ -3797,6 +3797,9 @@
         "waitingNote": "运行时长包括等待其他任务的时间。",
         "fetchError": "无法加载计划运行历史",
         "empty": "尚无已完成的计划运行。",
+        "searchPlaceholder": "搜索名称、用户、服务或运行 ID",
+        "noMatches": "没有符合搜索条件或筛选条件的运行。",
+        "pageSize": "每页运行数",
         "unknown": "未知",
         "actors": {
           "server": "服务器"

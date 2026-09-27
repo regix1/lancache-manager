@@ -72,7 +72,7 @@ export interface ServiceScheduleInfo {
   awaitingSignIn?: boolean | null;
 }
 
-type ScheduleExecutionStatus = 'completed' | 'failed' | 'cancelled' | 'skipped';
+export type ScheduleExecutionStatus = 'completed' | 'failed' | 'cancelled' | 'skipped';
 type ScheduleExecutionTrigger = 'scheduled' | 'startup' | 'manual' | 'runAll';
 
 interface ScheduleExecutionFields {
@@ -80,13 +80,13 @@ interface ScheduleExecutionFields {
   operationId: string;
   serviceKey: string;
   status: ScheduleExecutionStatus;
-  trigger: ScheduleExecutionTrigger | null;
+  trigger?: ScheduleExecutionTrigger | null;
   startedAt: string;
   completedAt: string;
-  detail: string | null;
-  scheduleId: string | null;
-  scheduleName: string | null;
-  platform: ScheduledPrefillServiceId | null;
+  detail?: string | null;
+  scheduleId?: string | null;
+  scheduleName?: string | null;
+  platform?: ScheduledPrefillServiceId | null;
   workerStarted: boolean;
 }
 
@@ -99,10 +99,18 @@ export type ScheduleExecution = ScheduleExecutionFields &
       }
     | {
         actorKind: 'server' | 'unknown';
-        accountId: null;
-        username: null;
+        accountId?: null;
+        username?: null;
       }
   );
+
+export interface ScheduleHistoryQuery {
+  page: number;
+  pageSize: 20 | 50 | 100;
+  search: string;
+  serviceKey: string;
+  status: ScheduleExecutionStatus | '';
+}
 
 export interface ScheduleExecutionResponse {
   items: ScheduleExecution[];

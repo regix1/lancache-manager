@@ -3797,6 +3797,9 @@
         "waitingNote": "Run times include time spent waiting for other work.",
         "fetchError": "Failed to load schedule history",
         "empty": "No schedule runs have finished yet.",
+        "searchPlaceholder": "Search names, users, services, or run IDs",
+        "noMatches": "No runs match your search or filters.",
+        "pageSize": "Runs per page",
         "unknown": "Unknown",
         "actors": {
           "server": "Server"

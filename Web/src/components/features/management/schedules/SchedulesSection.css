@@ -2034,11 +2034,35 @@
   min-width: 0;
 }
 
+.schedule-history-content,
+.schedule-history-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
 .schedule-history-note {
-  margin: 0 0 0.75rem;
+  margin: 0;
   color: var(--theme-text-muted);
   font-size: 0.8125rem;
   line-height: 1.4;
+}
+
+.schedule-history-search-row,
+.schedule-history-filter-row {
+  min-width: 0;
+}
+
+.schedule-history-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.schedule-history-filter {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .schedule-history-list {
@@ -2055,7 +2079,7 @@
   gap: 0.5rem 0.75rem;
   align-items: center;
   min-width: 0;
-  padding: 0.75rem 0;
+  padding: 0.75rem;
   cursor: pointer;
 }
 
@@ -2067,7 +2091,7 @@
 
 @media (hover: hover) and (pointer: fine) {
   .schedule-history-summary:hover {
-    background: var(--theme-bg-tertiary);
+    background: var(--theme-bg-secondary-on-tertiary);
   }
 }
 
@@ -2104,18 +2128,11 @@
   white-space: nowrap;
 }
 
-.schedule-history-detail {
-  padding: 0 0 0.875rem;
-}
-
 .schedule-history-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.625rem;
   margin: 0;
-  padding: 0.75rem;
-  background: var(--theme-bg-tertiary);
-  border-radius: var(--theme-border-radius-inner);
 }
 
 .schedule-history-fields > div {
@@ -2138,11 +2155,8 @@
 }
 
 .schedule-history-terminal-detail {
-  margin: 0.625rem 0 0;
-  padding: 0.75rem;
+  margin: 0.75rem 0 0;
   color: var(--theme-text-secondary);
-  background: var(--theme-bg-tertiary);
-  border-radius: var(--theme-border-radius-inner);
   font-size: 0.8125rem;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -2150,13 +2164,23 @@
 }
 
 .schedule-history-pagination {
-  margin-top: 0.75rem;
+  margin: 0;
 }
 
 @media (min-width: 40rem) {
   .schedule-default-style-control {
     width: 10rem;
     flex-shrink: 0;
+  }
+
+  .schedule-history-filter--service,
+  .schedule-history-filter--status {
+    flex: 1 1 12rem;
+  }
+
+  .schedule-history-filter--size {
+    flex: 0 1 10.5rem;
+    min-width: 10.5rem;
   }
 
   .schedule-history-summary {
@@ -2175,6 +2199,17 @@
 }
 
 @media (max-width: 639px) {
+  .schedule-history-search-row .themed-input,
+  .schedule-history-filter .ed-trigger {
+    min-height: 2.75rem;
+  }
+
+  .schedule-history-search-row .search-input-clear {
+    right: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
   .scheduled-prefill-persistent-card__login-help,
   .scheduled-prefill-persistent-card__login-help > span,
   .scheduled-prefill-persistent-card__login-help button,
