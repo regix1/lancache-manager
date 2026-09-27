@@ -1,4 +1,3 @@
-using System.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Data;
@@ -218,11 +217,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         };
 
     /// <summary>
-    /// Removes database records for services that no longer exist in log files.
-    /// This cleans up orphaned data left behind when log entries were removed but database wasn't updated.
-    /// Returns 0 both when nothing was orphaned AND when the cleanup pass fails (logged as an
-    /// error) - this is one best-effort pass among the periodic cleanup cycle's several
-    /// independent steps, so a failure here does not abort the others.
+    /// Reports database services absent from the current log scan without deleting retained
+    /// downloads or log observations. Returns 0 when no candidate exists or the diagnostic pass
+    /// fails, because this remains one best-effort step in the periodic cleanup cycle.
     /// </summary>
     private async Task<int> CleanupOrphanedServicesAsync(AppDbContext context, CancellationToken stoppingToken)
     {
@@ -245,25 +242,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                 return 0;
             }
 
-            // Use a transaction to ensure consistency between querying and deleting
-            // This prevents race conditions where data changes between queries
-            // Wrap in execution strategy so EF Core can replay the transaction on transient failures
-            var strategy = context.Database.CreateExecutionStrategy();
-            return await strategy.ExecuteAsync(async () =>
-            {
-                await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, stoppingToken);
-                try
-                {
-                    var orphansRemoved = await CleanupOrphanedServicesCoreAsync(context, logServiceNames, _logger, stoppingToken);
-                    await transaction.CommitAsync(stoppingToken);
-                    return orphansRemoved;
-                }
-                catch
-                {
-                    await transaction.RollbackAsync(stoppingToken);
-                    throw;
-                }
-            });
+            return await CleanupOrphanedServicesCoreAsync(context, logServiceNames, _logger, stoppingToken);
         }
         catch (Exception ex)
         {
@@ -273,12 +252,8 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Detects orphaned services and removes their data (LogEntries / Downloads)
-    /// inside the caller's transaction. Returns the number of orphaned services removed. Child
-    /// LogEntries are re-pointed off the Downloads being removed (by DownloadId) BEFORE the parent
-    /// Downloads are deleted, so the FK_LogEntries_Downloads_DownloadId constraint is never violated.
-    /// Extracted as an internal seam so the orphan detection and FK-safe deletion can be unit tested
-    /// directly. Exceptions propagate to the caller, which owns the transaction and rolls back.
+    /// Detects services absent from the current log scan without changing retained observation
+    /// history. Returns the number of diagnostic orphan candidates.
     /// </summary>
     internal static async Task<int> CleanupOrphanedServicesCoreAsync(
         AppDbContext context,
@@ -286,7 +261,8 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         ILogger logger,
         CancellationToken stoppingToken)
     {
-        // Get unique services from Downloads table (within the caller's transaction)
+        // Downloads retain retry URLs and attribution after log files rotate or partial physical
+        // work completes, so a missing current log name is diagnostic evidence only.
         var dbServices = await context.Downloads
             .Select(d => d.Service.ToLower())
             .Distinct()
@@ -297,67 +273,14 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
         var orphanedServices = ComputeOrphanedServices(dbServices, logServiceNames);
 
-        // SAFETY CHECK: Don't delete if most services would be removed
-        // This protects against edge cases where log scanning returns partial results
-        if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
-        {
-            logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
-            return 0;
-        }
-
         if (orphanedServices.Count == 0)
         {
             logger.LogInformation("No orphaned services found");
             return 0;
         }
 
-        logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
+        logger.LogWarning("Found {Count} services absent from current logs; retained their observation history: {Services}",
             orphanedServices.Count, string.Join(", ", orphanedServices));
-
-        var totalDeleted = 0;
-
-        foreach (var service in orphanedServices)
-        {
-            var serviceLower = service.ToLowerInvariant();
-
-            // Re-point child LogEntries off the Downloads being removed BEFORE deleting the parents.
-            // LogEntries reference Downloads via DownloadId (FK_LogEntries_Downloads_DownloadId, NO
-            // ACTION), and a service's cache LogEntries can be stored under a DIFFERENT Service name
-            // than its Downloads (cache-split identities such as xbox -> wsus). Matching children by
-            // Service name alone misses those rows, so deleting the parent Downloads would violate the
-            // FK. Nullify by DownloadId instead, mirroring DatabaseService's reset path.
-            var downloadIds = await context.Downloads
-                .Where(d => d.Service.ToLower() == serviceLower)
-                .Select(d => d.Id)
-                .ToListAsync(stoppingToken);
-
-            if (downloadIds.Count > 0)
-            {
-                await context.LogEntries
-                    .Where(le => le.DownloadId != null && downloadIds.Contains(le.DownloadId.Value))
-                    .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (long?)null), stoppingToken);
-            }
-
-            // Delete LogEntries recorded under this service name
-            var logEntriesDeleted = await context.LogEntries
-                .Where(le => le.Service.ToLower() == serviceLower)
-                .ExecuteDeleteAsync(stoppingToken);
-
-            // Delete Downloads (children already re-pointed above, so the FK is satisfied)
-            var downloadsDeleted = await context.Downloads
-                .Where(d => d.Service.ToLower() == serviceLower)
-                .ExecuteDeleteAsync(stoppingToken);
-
-            var serviceTotal = logEntriesDeleted + downloadsDeleted;
-            totalDeleted += serviceTotal;
-
-            logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries",
-                service, downloadsDeleted, logEntriesDeleted);
-        }
-
-        logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
-            totalDeleted, orphanedServices.Count);
-
         return orphanedServices.Count;
     }
 
@@ -392,15 +315,16 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Normalizes datasource mappings for downloads.
+    /// Normalizes datasource mappings for downloads and log history.
     /// Fixes issues like:
     /// - Null or empty datasource values
     /// - Inconsistent casing (e.g., "default" vs "Default")
-    /// - Datasource names that don't match any configured datasource
+    /// Unknown names are retained because disabled and retired datasource history stays readable.
     /// Returns 0 both when nothing needed normalizing AND when the pass fails (logged as an
     /// error) - this is one best-effort pass among the periodic cleanup cycle's several
     /// independent steps, so a failure here does not abort the others.
-    /// All invalid entries are remapped to the default datasource.
+    /// Null/empty download values use the default. Configured names in both tables use the
+    /// configured casing so ingestion and cleanup share one exact datasource identity.
     /// </summary>
     private async Task<int> NormalizeDatasourceMappingsAsync(AppDbContext context, CancellationToken stoppingToken)
     {
@@ -408,7 +332,6 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         {
             _logger.LogInformation("Checking for datasource mapping inconsistencies...");
 
-            // Get configured datasources
             var datasources = _datasourceService.GetDatasources();
             var defaultDatasource = _datasourceService.GetDefaultDatasource();
 
@@ -424,87 +347,16 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             _logger.LogInformation("Valid datasources: {Datasources}, Default: {Default}",
                 string.Join(", ", validNames), defaultName);
 
-            // Get all unique datasource values currently in the database
-            var currentDatasources = await context.Downloads
-                .Select(d => d.Datasource)
-                .Distinct()
-                .ToListAsync(stoppingToken);
-
-            _logger.LogInformation("Current datasource values in database: {Values}",
-                string.Join(", ", currentDatasources.Select(d => d ?? "(null)")));
-
-            var totalUpdated = 0;
-
-            // Process each unique datasource value
-            foreach (var datasourceValue in currentDatasources)
-            {
-                // Check if this datasource value needs normalization
-                bool needsNormalization = false;
-                string reason = "";
-
-                if (string.IsNullOrEmpty(datasourceValue))
-                {
-                    needsNormalization = true;
-                    reason = "null or empty";
-                }
-                else if (!validNames.Contains(datasourceValue))
-                {
-                    needsNormalization = true;
-                    reason = $"not a valid datasource name";
-                }
-                else if (datasourceValue != validNames.First(n => n.Equals(datasourceValue, StringComparison.OrdinalIgnoreCase)))
-                {
-                    // Case mismatch - normalize to the exact configured name
-                    needsNormalization = true;
-                    reason = "case mismatch";
-                }
-
-                if (needsNormalization)
-                {
-                    // Determine the correct normalized name
-                    string normalizedName;
-                    if (!string.IsNullOrEmpty(datasourceValue) && validNames.Contains(datasourceValue))
-                    {
-                        // It's a valid name but wrong case - use the exact configured name
-                        normalizedName = validNames.First(n => n.Equals(datasourceValue, StringComparison.OrdinalIgnoreCase));
-                    }
-                    else
-                    {
-                        // Invalid or missing - use default
-                        normalizedName = defaultName;
-                    }
-
-                    _logger.LogInformation("Normalizing datasource '{Old}' -> '{New}' (reason: {Reason})",
-                        datasourceValue ?? "(null)", normalizedName, reason);
-
-                    // Update all downloads with this datasource value
-                    int updated;
-                    if (string.IsNullOrEmpty(datasourceValue))
-                    {
-                        updated = await context.Downloads
-                            .Where(d => d.Datasource == null || d.Datasource == "")
-                            .ExecuteUpdateAsync(
-                                s => s.SetProperty(d => d.Datasource, normalizedName),
-                                stoppingToken);
-                    }
-                    else
-                    {
-                        updated = await context.Downloads
-                            .Where(d => d.Datasource == datasourceValue)
-                            .ExecuteUpdateAsync(
-                                s => s.SetProperty(d => d.Datasource, normalizedName),
-                                stoppingToken);
-                    }
-
-                    totalUpdated += updated;
-                    _logger.LogInformation("Updated {Count} downloads from '{Old}' to '{New}'",
-                        updated, datasourceValue ?? "(null)", normalizedName);
-                }
-            }
+            var totalUpdated = await NormalizeDatasourceMappingsCoreAsync(
+                context,
+                validNames,
+                defaultName,
+                _logger,
+                stoppingToken);
 
             if (totalUpdated > 0)
             {
-                _logger.LogInformation("Datasource normalization complete: updated {Total} downloads", totalUpdated);
+                _logger.LogInformation("Datasource normalization complete: updated {Total} rows", totalUpdated);
             }
             else
             {
@@ -518,6 +370,108 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             _logger.LogError(ex, "Error normalizing datasource mappings");
             return 0;
         }
+    }
+
+    internal static async Task<int> NormalizeDatasourceMappingsCoreAsync(
+        AppDbContext context,
+        IReadOnlyCollection<string> validNames,
+        string defaultName,
+        ILogger logger,
+        CancellationToken stoppingToken)
+    {
+        var execution = context.Database.CreateExecutionStrategy();
+        return await execution.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
+
+            await context.Database.ExecuteSqlRawAsync(
+                "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                stoppingToken);
+            await context.Database.ExecuteSqlRawAsync(
+                "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                stoppingToken);
+
+            var downloadNames = await context.Downloads
+                .Select(download => download.Datasource)
+                .Distinct()
+                .ToListAsync(stoppingToken);
+            var logNames = await context.LogEntries
+                .Select(entry => entry.Datasource)
+                .Distinct()
+                .ToListAsync(stoppingToken);
+            var updated = 0;
+
+            foreach (var currentName in downloadNames)
+            {
+                var normalizedName = NormalizeDatasourceName(currentName, validNames, defaultName);
+                if (string.Equals(currentName, normalizedName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var downloadCount = string.IsNullOrEmpty(currentName)
+                    ? await context.Downloads
+                        .Where(download => download.Datasource == null || download.Datasource == "")
+                        .ExecuteUpdateAsync(
+                            setters => setters.SetProperty(download => download.Datasource, normalizedName),
+                            stoppingToken)
+                    : await context.Downloads
+                        .Where(download => download.Datasource == currentName)
+                        .ExecuteUpdateAsync(
+                            setters => setters.SetProperty(download => download.Datasource, normalizedName),
+                            stoppingToken);
+
+                updated += downloadCount;
+                logger.LogInformation(
+                    "Normalized {Count} downloads to datasource {Datasource}",
+                    downloadCount,
+                    normalizedName);
+            }
+
+            foreach (var currentName in logNames)
+            {
+                if (string.IsNullOrEmpty(currentName))
+                {
+                    continue;
+                }
+
+                var normalizedName = validNames.FirstOrDefault(
+                    name => name.Equals(currentName, StringComparison.OrdinalIgnoreCase));
+                if (normalizedName == null || string.Equals(currentName, normalizedName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var logCount = await context.LogEntries
+                    .Where(entry => entry.Datasource == currentName)
+                    .ExecuteUpdateAsync(
+                        setters => setters.SetProperty(entry => entry.Datasource, normalizedName),
+                        stoppingToken);
+
+                updated += logCount;
+                logger.LogInformation(
+                    "Normalized {Count} log entries to datasource {Datasource}",
+                    logCount,
+                    normalizedName);
+            }
+
+            await transaction.CommitAsync(stoppingToken);
+            return updated;
+        });
+    }
+
+    internal static string NormalizeDatasourceName(
+        string? datasourceName,
+        IReadOnlyCollection<string> validNames,
+        string defaultName)
+    {
+        if (string.IsNullOrEmpty(datasourceName))
+        {
+            return defaultName;
+        }
+
+        return validNames.FirstOrDefault(
+            name => name.Equals(datasourceName, StringComparison.OrdinalIgnoreCase)) ?? datasourceName;
     }
 
     /// <summary>

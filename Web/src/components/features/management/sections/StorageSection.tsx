@@ -82,7 +82,6 @@ import type { GameCacheInfo, ServiceCacheInfo, OrphanedDownloadGroup } from '../
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { getNginxReopenGate, getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
-import { resolveDatasources } from '@utils/datasources';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
@@ -136,7 +135,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     reload: reloadPermissions
   } = useDirectoryPermissionsContext();
   const { config } = useConfig();
-  const datasources = resolveDatasources(config);
+  const datasources = config.dataSources;
   const [isRechecking, setIsRechecking] = useState(false);
 
   // Eviction Settings State

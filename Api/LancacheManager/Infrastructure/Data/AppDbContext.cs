@@ -134,7 +134,7 @@ public class AppDbContext : DbContext
 
         // Composite index for efficient duplicate detection during reprocessing
         modelBuilder.Entity<LogEntryRecord>()
-            .HasIndex(l => new { l.ClientIp, l.Service, l.Timestamp, l.Url, l.BytesServed })
+            .HasIndex(l => new { l.ClientIp, l.Service, l.Timestamp, l.Url, l.BytesServed, l.Datasource })
             .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
         // Datasource index for multi-datasource filtering

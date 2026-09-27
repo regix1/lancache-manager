@@ -1,4 +1,5 @@
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,7 @@ public partial class CacheManagementService
         {
             _logger.LogInformation("[ServiceRemoval] Starting service cache removal for '{Service}'", serviceName);
 
+            _datasourceService.RefreshPermissions();
             var rustBinaryPath = _pathResolver.GetRustServiceRemoverPath();
             var executionPlan = PrepareRemovalExecutionPlan(
                 "[ServiceRemoval]",
@@ -43,6 +45,24 @@ public partial class CacheManagementService
                 "service_removal",
                 serviceName,
                 requireWritableLogs: true);
+            if (executionPlan.RunnableDatasources.Count == 0)
+            {
+                throw new InvalidOperationException("No enabled datasource can run this removal");
+            }
+            if (executionPlan.DatasourcesSkipped > 0)
+            {
+                throw new InvalidOperationException(
+                    "Every enabled datasource must pass root and permission preflight before removal");
+            }
+            var removalSelection = new RemovalSelection(
+                executionPlan.RunnableDatasources.Select(execution => execution.Datasource.Name).ToList(),
+                RemovalKind.Service,
+                Service: serviceName.ToLowerInvariant());
+            await ValidateRemovalSelectionAsync(removalSelection, cancellationToken);
+            await using var reopenChecks = await _nginxLogRotationService.PrepareReopenChecksAsync(
+                executionPlan.RunnableDatasources.Select(execution => execution.Datasource).ToList(),
+                expectsPublication: true,
+                cancellationToken);
             var aggregatedReport = new ServiceCacheRemovalReport
             {
                 ServiceName = serviceName
@@ -52,15 +72,26 @@ public partial class CacheManagementService
             foreach (var execution in executionPlan.RunnableDatasources)
             {
                 var datasource = execution.Datasource;
+                await using var reopenCheck = reopenChecks.Take(datasource.Name) ??
+                    await _nginxLogRotationService.PrepareReopenCheckAsync(
+                        new[] { datasource },
+                        NginxLogRotationService.GetAffectedLogPaths(datasource),
+                        expectsPublication: true,
+                        cancellationToken);
+                _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
 
-                var dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgressData, ServiceCacheRemovalReport>(
+                ServiceCacheRemovalReport dsReport;
+                try
+                {
+                    dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgress, ServiceCacheRemovalReport>(
                     "[ServiceRemoval]",
                     execution,
                     () =>
                     {
                         var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"");
+                        NginxLogRotationService.AttachPublicationCheck(reopenCheck, startInfo);
                         _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                             datasource.Name, rustBinaryPath, startInfo.Arguments);
                         return startInfo;
@@ -113,6 +144,29 @@ public partial class CacheManagementService
                             return report;
                         }
                     });
+                }
+                catch (Exception error)
+                {
+                    await _nginxLogRotationService.InvalidateReopenCheckAsync(reopenCheck, CancellationToken.None);
+                    var reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                        reopenCheck,
+                        physicalChange: true,
+                        CancellationToken.None);
+                    if (!reopen.Success)
+                    {
+                        throw new AggregateException(error, new IOException(reopen.ErrorMessage!));
+                    }
+                    throw;
+                }
+
+                var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                    reopenCheck,
+                    dsReport.LogEntriesRemoved > 0,
+                    cancellationToken);
+                if (!reopenResult.Success)
+                {
+                    throw new IOException(reopenResult.ErrorMessage!);
+                }
 
                 // Send final progress update from the report
                 if (onProgress != null)
@@ -136,6 +190,9 @@ public partial class CacheManagementService
                 // Clean up progress file for this datasource
                 await _rustProcessHelper.DeleteTempFileAsync(execution.ProgressJsonPath);
             }
+
+            var cleanup = await CleanupRemovalAsync(removalSelection, cancellationToken);
+            aggregatedReport.DatabaseEntriesDeleted = cleanup.DownloadsDeleted + cleanup.LogEntriesDeleted;
 
             _logger.LogInformation(
                 "[ServiceRemoval] Completed for service '{Service}': {Processed} datasource(s) processed, {Skipped} skipped. " +
@@ -184,9 +241,6 @@ public partial class CacheManagementService
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsAsync();
-
-            // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-            await _nginxLogRotationService.ReopenNginxLogsAsync();
 
             return aggregatedReport;
         }

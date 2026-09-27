@@ -27,7 +27,14 @@ public partial class CacheManagementService
         {
             var allCachePaths = SelectFullScanCachePaths(
                 _datasourceService.GetDatasources(),
-                _pathResolver.GetCacheDirectory());
+                _pathResolver.GetCacheDirectory(),
+                _datasourceService.Origin);
+            if (allCachePaths.Count == 0)
+            {
+                _logger.LogWarning("Detection usage baseline capture skipped because no datasource is enabled");
+                return;
+            }
+
             var usedBytesByMount = OperatingSystemDetector.IsWindows
                 ? null
                 : GetCacheMountUsage(allCachePaths);

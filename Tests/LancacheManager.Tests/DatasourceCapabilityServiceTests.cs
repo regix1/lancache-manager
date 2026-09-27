@@ -6,10 +6,10 @@ namespace LancacheManager.Tests;
 public class DatasourceCapabilityServiceTests
 {
     [Theory]
-    [InlineData("access.log", CacheKeyScheme.SupportedMonolithic, true, true, true, true, true, true)]
-    [InlineData("steam-access.log", CacheKeyScheme.ObservedBareMetal, true, false, true, true, false, true)]
-    [InlineData("access.log,steam-access.log", CacheKeyScheme.Mixed, true, false, false, false, false, false)]
-    [InlineData("", CacheKeyScheme.Unknown, false, false, false, false, true, false)]
+    [InlineData("access.log", CacheKeyScheme.SupportedMonolithic, true, true, true, true, true)]
+    [InlineData("steam-access.log", CacheKeyScheme.ObservedBareMetal, true, false, true, true, true)]
+    [InlineData("access.log,steam-access.log", CacheKeyScheme.Mixed, true, false, false, false, false)]
+    [InlineData("", CacheKeyScheme.Unknown, false, false, false, false, false)]
     public void GetCapabilities_UsesCurrentLogEvidence(
         string sourceFiles,
         CacheKeyScheme expectedScheme,
@@ -17,7 +17,6 @@ public class DatasourceCapabilityServiceTests
         bool expectedCanRewriteAllActiveLogs,
         bool expectedCanInspectCacheStructure,
         bool expectedCanMapLogicalObjects,
-        bool expectedCanSignalLogReopen,
         bool expectedCanTrackLiveSpeed)
     {
         var (logPath, datasource, service) = CreateSubject(sourceFiles);
@@ -32,7 +31,6 @@ public class DatasourceCapabilityServiceTests
             Assert.Equal(expectedCanInspectCacheStructure, capabilities.CanInspectCacheStructure);
             Assert.True(capabilities.CanClearWholeCacheRoot);
             Assert.Equal(expectedCanMapLogicalObjects, capabilities.CanMapLogicalObjects);
-            Assert.Equal(expectedCanSignalLogReopen, capabilities.CanSignalLogReopen);
             Assert.Equal(expectedCanTrackLiveSpeed, capabilities.CanTrackLiveSpeed);
         }
         finally

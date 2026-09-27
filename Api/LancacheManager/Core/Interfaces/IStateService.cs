@@ -35,6 +35,7 @@ public interface IStateService
     // --stem-positions argument. Null when no positions exist; caller deletes the file.
     Task<string?> WriteStemPositionsTempFileAsync(string datasourceName);
     void ClearLogSourcePositions(string datasourceName, IEnumerable<string> stems);
+    void ClearLogProcessingPositions();
     // Per-datasource ingestion diagnostics (typed counters + missing-source warning)
     LogIngestDiagnostics? GetLogIngestDiagnostics(string datasourceName);
     void SetLogIngestDiagnostics(string datasourceName, LogIngestDiagnostics diagnostics);

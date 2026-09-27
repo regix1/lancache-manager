@@ -1886,9 +1886,12 @@
     },
     "nginxReopen": {
       "alertTitle": "更改后无法重新打开 nginx 日志",
+      "windowsDockerUnsupported": "此实现不支持原生 Windows Manager 修改由 Docker 写入进程占用的日志。请在挂载相同日志路径的 Linux 环境中运行 Manager，或使用静态日志源。",
       "grantSignalPrivilege": "管理器可以看到宿主机上的 nginx，但向其发送信号时被拒绝。请确认没有通过 cap_drop 移除 CAP_KILL（Docker 默认授予），并确认宿主机上的 AppArmor 或用户命名空间重映射没有阻止容器向宿主机进程发送信号。",
       "enablePidHost": "nginx 似乎在宿主机上运行，请使用 pid: host 运行管理器，以便在日志更改后向 nginx 发送信号。Docker 默认授予 CAP_KILL，请勿将其移除。",
-      "dockerUnavailable": "nginx 似乎在容器中运行，请将 /var/run/docker.sock 挂载到管理器，使其能在日志更改后重新打开 nginx 日志。"
+      "dockerUnavailable": "nginx 似乎在容器中运行，请将 /var/run/docker.sock 挂载到管理器，使其能在日志更改后重新打开 nginx 日志。",
+      "writerUnknown": "LANCache Manager 无法验证日志写入进程。更改这些日志前，请检查写入进程的访问权限。",
+      "checkOnAction": "LANCache Manager 将在更改这些日志前检查日志写入进程。"
     },
     "directoryNotice": {
       "cacheReadOnlyTitle": "缓存目录为只读",
@@ -2771,6 +2774,7 @@
       "modal": {
         "deleteFromDatasource": "这将永久删除 {{datasource}} 缓存中的所有缓存游戏文件。清除后游戏需要重新下载内容。",
         "deleteFromAll": "这将永久删除所有数据源中的所有缓存游戏文件。清除后游戏需要重新下载内容。",
+        "datasourceGone": "{{datasource}} 已不再配置，因此不会删除任何内容。请关闭此对话框并检查数据源设置。",
         "clearSummary": "请先停止所有活跃下载。下载历史记录和设置会保留，但缓存文件无法恢复。",
         "deleteDatasourceCache": "删除 {{datasource}} 缓存",
         "deleteAllCaches": "删除所有缓存"
@@ -3040,6 +3044,10 @@
       "title": "游戏缓存检测与移除",
       "titleShort": "游戏缓存",
       "subtitle": "扫描缓存以查找游戏以及未匹配到具体游戏的服务级文件",
+      "removalScope": {
+        "allSources": "每个项目都会从包含它的所有数据源中移除。",
+        "filtered": "列表已按 {{datasource}} 筛选，但每个项目都会从包含它的所有数据源中移除，而不仅限于 {{datasource}}。"
+      },
       "quick": "快速扫描",
       "fullScanButton": "全面扫描",
       "skippedBeforeStart": "本次运行在开始前被拒绝，将在下一个计划时间再次运行。",
@@ -3140,6 +3148,7 @@
       "title": "日志处理",
       "summary": "将新的 access.log 记录读入下载历史数据库。",
       "loadingDatasources": "正在加载数据源...",
+      "noActiveDatasources": "没有启用的数据源。请在管理器的数据源配置中启用一个，然后重启 LANCache Manager。",
       "reposition": "重新定位",
       "layout": {
         "bareMetal": "裸机",
@@ -7369,6 +7378,7 @@
       "initializing": "正在初始化缓存清理...",
       "starting": "开始删除缓存...",
       "progress": "正在清理缓存 ({{processed}}/{{totalDirs}}) - {{activeCount}} 个活跃",
+      "forDatasource": "{{datasource}}：{{message}}",
       "cancelled": "缓存清理已取消",
       "error": {
         "dirNotFound": "缓存目录不存在: {{cachePath}}",
@@ -7761,6 +7771,7 @@
     "logProcessing": {
       "starting": "开始日志处理...",
       "progress": "处理中: {{mbProcessed}} MB / {{mbTotal}} MB",
+      "progressSource": "{{datasourceName}}：处理中：{{mbProcessed}} MB / {{mbTotal}} MB",
       "complete": "处理完成",
       "completedEntries": "成功处理了 {{entriesProcessed}} 条条目",
       "completedDetail": "在 {{elapsed}} 分钟内从 {{linesProcessed}} 行中成功处理了 {{entriesProcessed}} 条条目。",

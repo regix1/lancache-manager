@@ -283,7 +283,7 @@ public sealed partial class CacheFileCountContractTests
         var service = NewServiceForCountState(tracker, notifications);
         var owner = typeof(CacheManagementService).GetField("_cacheSizeScanId", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var report = typeof(CacheManagementService).GetMethod("ReportProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var progressType = typeof(CacheManagementService).GetNestedType("CacheSizeScanProgressData", BindingFlags.NonPublic)!;
+        var progressType = typeof(CacheManagementService).GetNestedType("CacheScanProgress", BindingFlags.NonPublic)!;
         var first = tracker.RegisterOperation(OperationType.CacheSizeScan, "first", new CancellationTokenSource());
         owner.SetValue(service, first);
         await (Task)report.Invoke(service, [first, JsonSerializer.Deserialize(

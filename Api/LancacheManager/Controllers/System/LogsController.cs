@@ -254,6 +254,8 @@ public class LogsController : ControllerBase
             return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
+        datasourceName = datasource.Name;
+
         return await ResetPositionCoreAsync(
             datasourceName,
             request?.Position,
@@ -344,6 +346,8 @@ public class LogsController : ControllerBase
         {
             return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
+
+        datasourceName = datasource.Name;
 
         await _logProcessingStartLock.WaitAsync(cancellationToken);
         try
@@ -530,6 +534,8 @@ public class LogsController : ControllerBase
             return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
+        datasourceName = datasource.Name;
+
         if (!datasource.LogsWritable)
         {
             return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
@@ -609,6 +615,8 @@ public class LogsController : ControllerBase
             return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
+        datasourceName = datasource.Name;
+
         if (!datasource.LogsWritable)
         {
             return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
@@ -632,12 +640,49 @@ public class LogsController : ControllerBase
                 Context = new Dictionary<string, object?> { ["path"] = accessLogPath }
             });
         }
-
-        // C# retains authorization, datasource/read-only validation, state, and nginx
-        // orchestration. Rust performs only the validated leaf mutation.
-        var deletion = await _rustProcessHelper.DeleteLogFileAsync(
-            deleteTarget,
+        var affectedPaths = hasPerServiceSources
+            ? NginxLogRotationService.GetAffectedLogPaths(datasource)
+            : new[] { accessLogPath };
+        await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
+            new[] { datasource },
+            affectedPaths,
+            expectsPublication: false,
             cancellationToken);
+
+        LogFileDeletionResult deletion;
+        _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+        try
+        {
+            deletion = await _rustProcessHelper.DeleteLogFileAsync(
+                deleteTarget,
+                cancellationToken);
+        }
+        catch (Exception error)
+        {
+            await _nginxLogRotationService.InvalidateReopenCheckAsync(
+                reopenCheck,
+                CancellationToken.None);
+            var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                reopenCheck,
+                physicalChange: true,
+                CancellationToken.None);
+            if (!failedReopen.Success)
+            {
+                throw new AggregateException(
+                    error,
+                    new IOException(failedReopen.ErrorMessage!));
+            }
+            throw;
+        }
+
+        var rotationResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+            reopenCheck,
+            physicalChange: true,
+            cancellationToken);
+        if (!rotationResult.Success)
+        {
+            throw new IOException(rotationResult.ErrorMessage!);
+        }
 
         _stateRepository.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateRepository.SetLogPosition(datasourceName, 0);
@@ -648,13 +693,6 @@ public class LogsController : ControllerBase
             datasourceName,
             deleteTarget,
             deletion.BytesDeleted);
-
-        // Reopening nginx remains best-effort after a successful deletion.
-        var rotationResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
-        if (!rotationResult.Success)
-        {
-            _logger.LogWarning("Failed to signal nginx to reopen logs: {Error}", rotationResult.ErrorMessage);
-        }
 
         return Ok(new MessageResponse
         {

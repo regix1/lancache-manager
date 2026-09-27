@@ -403,7 +403,7 @@ struct Processor {
     /// lancache-tagged `wsus` traffic over opaque /filestreamingservice/files/<GUID> URLs;
     /// a stored XboxCdnPattern.UrlFragment match canonicalizes the Download to Service='xbox'
     /// + GameName=title + XboxProductId=id at ingest. Reloaded periodically (the tables fill as
-    /// daemons contribute fragments). Empty until the first wsus line triggers a load.
+    ///   daemons contribute fragments). Empty until the first wsus line triggers a load.
     xbox_patterns: Vec<(String, String, String)>,
     /// Last time `xbox_patterns` was loaded; throttles reloads to once per `XBOX_PATTERN_RELOAD`.
     last_xbox_pattern_load: Option<Instant>,
@@ -432,6 +432,7 @@ enum FileProcessingOutcome {
 }
 
 impl Processor {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         pool: PgPool,
         log_dir: PathBuf,
@@ -1149,7 +1150,7 @@ impl Processor {
                 "_nodepot".to_string()
             };
             let key = format!("{}_{}{}", entry.client_ip, entry.service, depot_suffix);
-            grouped.entry(key).or_insert_with(Vec::new).push(entry);
+            grouped.entry(key).or_default().push(entry);
         }
 
         // Process each group (Downloads, stats, session tracking)
@@ -1395,7 +1396,7 @@ impl Processor {
         // Duplicate detection - skip on fresh database for maximum speed
         let (new_entries, skipped): (Vec<&LogEntry>, usize) = if self.skip_dedup {
             // Fresh database - all entries are new, no dedup needed
-            (entries.iter().map(|e| *e).collect(), 0)
+            (entries.to_vec(), 0)
         } else {
             // Bulk duplicate detection - single query for the whole group
             let mut check_client_ips: Vec<&str> = Vec::with_capacity(entries.len());
@@ -1416,7 +1417,8 @@ impl Processor {
             let existing_rows = sqlx::query(
                 r#"SELECT "ClientIp", "Service", "Timestamp", "Url", "BytesServed"
                    FROM "LogEntries"
-                   WHERE ("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
+                   WHERE "Datasource" = $6
+                   AND ("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
                    IN (SELECT * FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[]))"#
             )
             .bind(&check_client_ips)
@@ -1424,6 +1426,7 @@ impl Processor {
             .bind(&check_timestamps)
             .bind(&check_urls)
             .bind(&check_bytes)
+            .bind(&self.datasource_name)
             .fetch_all(&mut **tx)
             .await?;
 
@@ -1554,8 +1557,7 @@ impl Processor {
                     Some((app_id, app_name)) => {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
-                            let game_display =
-                                app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
+                            let game_display = app_name.as_deref().unwrap_or("Unknown");
                             eprintln!(
                                 "Mapped depot {} -> App {} ({})",
                                 depot_id, app_id, game_display
@@ -1654,10 +1656,11 @@ impl Processor {
             // download-side identity service so an Xbox session deactivates prior `xbox` sessions
             // (not unrelated generic `wsus` Windows Update sessions for the same client).
             sqlx::query(
-                "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"IsActive\" = true"
+                "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"Datasource\" = $3 AND \"IsActive\" = true"
             )
             .bind(client_ip)
             .bind(download_service)
+            .bind(&self.datasource_name)
             .execute(&mut **tx)
             .await?;
 
@@ -1702,44 +1705,47 @@ impl Processor {
                 // UPDATE name it in this batch. Keying on download_service (not the raw wsus service)
                 // is what keeps Xbox sessions from colliding with generic Windows Update rows.
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) AND \"Datasource\" = $4 ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(download_service)
                 .bind(xbox_title)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
             } else if let Some(depot_id) = primary_depot_id {
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(depot_id as i64)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
             } else if service.to_lowercase().contains("epic") {
                 // For Epic services, match by URL path prefix to find the correct game session
-                if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u))
-                {
+                if let Some(path_prefix) = last_url.and_then(Self::extract_epic_path_prefix) {
                     let like_pattern = format!("{}%", path_prefix);
                     sqlx::query(
-                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                     )
                     .bind(client_ip)
                     .bind(service)
                     .bind(&like_pattern)
+                    .bind(&self.datasource_name)
                     .fetch_optional(&mut **tx)
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
                 } else {
                     sqlx::query(
-                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                     )
                     .bind(client_ip)
                     .bind(service)
+                    .bind(&self.datasource_name)
                     .fetch_optional(&mut **tx)
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
@@ -1758,11 +1764,12 @@ impl Processor {
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("riot game_name expected but was None"))?;
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) AND \"Datasource\" = $4 ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(resolved_name)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1772,11 +1779,12 @@ impl Processor {
                 // title's multiple CDN paths (configs + data + patch) attach to ONE
                 // session instead of splitting per CDN path.
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"GameName\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"GameName\" = $3 AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(resolved_name)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1789,11 +1797,12 @@ impl Processor {
                 // LOWER(LastUrl) LIKE <lowercased-pattern> to avoid spawning a duplicate session.
                 let like_pattern = format!("%/tpr/{}/%", product);
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND LOWER(\"LastUrl\") LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND LOWER(\"LastUrl\") LIKE $3 AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(&like_pattern)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1807,19 +1816,21 @@ impl Processor {
                 // kept in separate session-key groups (_riot:<host>); they only converge
                 // here across batches, which is acceptable for the rare unmapped-host case.
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
             } else {
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
+                .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1863,7 +1874,7 @@ impl Processor {
             // row gets its product id named in this batch (same pattern as GameName).
             if !is_new {
                 sqlx::query(
-                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = $4, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10"
+                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = $4, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10 AND \"Datasource\" = $11"
                 )
                 .bind(last_utc_dt)
                 .bind(total_hit_bytes)
@@ -1875,6 +1886,7 @@ impl Processor {
                 .bind(&game_image_url)
                 .bind(&xbox_product_id)
                 .bind(download_id)
+                .bind(&self.datasource_name)
                 .execute(&mut **tx)
                 .await?;
             }
@@ -2606,7 +2618,11 @@ mod xbox_fragment_guard_tests {
         );
         assert_eq!(
             kept,
-            Some((frag, "Halo Infinite".to_string(), "9NBLGGH537DL".to_string()))
+            Some((
+                frag,
+                "Halo Infinite".to_string(),
+                "9NBLGGH537DL".to_string()
+            ))
         );
     }
 

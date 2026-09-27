@@ -340,14 +340,19 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       apiEndpoint: '/api/logs/process/status',
       isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing,
       createNotification: (data: LogProcessingStatusResponse) => ({
-        message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
+        message: formatLogProcessingRecoveryMessage(
+          data.mbProcessed,
+          data.mbTotal,
+          data.datasourceName
+        ),
         detailMessage: formatLogProcessingRecoveryDetailMessage(data.entriesProcessed),
         progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
         details: {
           operationId: data.operationId,
           mbProcessed: data.mbProcessed,
           mbTotal: data.mbTotal,
-          entriesProcessed: data.entriesProcessed
+          entriesProcessed: data.entriesProcessed,
+          datasourceName: data.datasourceName ?? undefined
         }
       })
     } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
@@ -827,20 +832,28 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         data.isProcessing && Boolean(data.operations?.length),
       createNotification: (data: CacheOperationsResponse) => {
         const activeOp = data.operations?.[0];
+        const base = activeOp?.stageKey
+          ? translateRecoveryStage(
+              activeOp.stageKey,
+              activeOp.context,
+              'signalr.cacheClear.starting'
+            )
+          : (activeOp?.statusMessage ?? i18n.t('signalr.cacheClear.starting'));
+        const message = activeOp?.datasourceName
+          ? i18n.t('signalr.cacheClear.forDatasource', {
+              datasource: activeOp.datasourceName,
+              message: base
+            })
+          : base;
         return {
-          message: activeOp?.stageKey
-            ? translateRecoveryStage(
-                activeOp.stageKey,
-                activeOp.context,
-                'signalr.cacheClear.starting'
-              )
-            : (activeOp?.statusMessage ?? i18n.t('signalr.cacheClear.starting')),
+          message,
           progress: activeOp?.percentComplete ?? 0,
           details: {
             operationId: activeOp?.operationId ?? activeOp?.id,
             filesDeleted: activeOp?.filesDeleted ?? 0,
             directoriesProcessed: activeOp?.directoriesProcessed ?? 0,
-            bytesDeleted: activeOp?.bytesDeleted ?? 0
+            bytesDeleted: activeOp?.bytesDeleted ?? 0,
+            datasourceName: activeOp?.datasourceName ?? undefined
           }
         };
       }
@@ -865,11 +878,20 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         operationId: event.operationId,
         filesDeleted: event.filesDeleted,
         directoriesProcessed: event.directoriesProcessed,
-        bytesDeleted: event.bytesDeleted
+        bytesDeleted: event.bytesDeleted,
+        datasourceName: event.datasourceName
       })
     },
     complete: {
-      getSuccessMessage: (event: CacheClearCompleteEvent) => formatCacheClearCompleteMessage(event),
+      getSuccessMessage: (event: CacheClearCompleteEvent, existing) => {
+        const message = formatCacheClearCompleteMessage(event);
+        return existing?.details?.datasourceName
+          ? i18n.t('signalr.cacheClear.forDatasource', {
+              datasource: existing.details.datasourceName,
+              message
+            })
+          : message;
+      },
       getSuccessDetails: (event: CacheClearCompleteEvent, existing) => ({
         ...existing?.details,
         filesDeleted: event.filesDeleted,

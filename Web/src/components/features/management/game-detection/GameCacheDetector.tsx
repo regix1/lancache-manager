@@ -82,7 +82,6 @@ import {
 } from './cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo, UnmappedService } from '../../../../types';
 import { isCardDiskActionBlocked } from '@utils/cardDirectoryNotice';
-import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { sessionStore } from '@utils/storage';
 import { translateRecoveryStage } from '@utils/stageKeyMessage';
@@ -182,7 +181,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [countFailed, setCountFailed] = useState(false);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
-  const datasources = resolveDatasources(config);
+  const datasources = config.dataSources;
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
 
   // Accordion state for Services, Games, and Evicted Games sections
@@ -241,6 +240,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         (s) => !s.datasources.length || s.datasources.includes(selectedDatasource)
       )
     : activeServices;
+  const removalScopeNote = selectedDatasource
+    ? t('management.gameDetection.removalScope.filtered', { datasource: selectedDatasource })
+    : datasources.length > 1
+      ? t('management.gameDetection.removalScope.allSources')
+      : null;
 
   // Auto-collapse sections only on the empty→populated transition (fresh scan or
   // initial load). This avoids overriding the user's manual toggle when subsequent
@@ -1397,6 +1401,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               'This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.'
           })}
         </p>
+        {removalScopeNote && <p className="text-themed-secondary">{removalScopeNote}</p>}
         <Alert color="yellow" icon={null}>
           <p className="text-sm">
             {t('management.sections.data.gameCacheRemoveAllConfirmWarning')}
@@ -1418,6 +1423,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         <p className="text-themed-secondary">
           {t('management.batchSelect.confirmBodyCacheFiles', { count: selectedCombinedCount })}
         </p>
+        {removalScopeNote && <p className="text-themed-secondary">{removalScopeNote}</p>}
       </ConfirmationModal>
     </>
   );

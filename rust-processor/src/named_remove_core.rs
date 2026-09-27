@@ -11,7 +11,7 @@
 //! Steam and Epic bins). This module owns only the name-keyed HEAD: the DB queries
 //! that map `(service, game_name)` to URLs and the DB-row delete.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use serde_json::json;
 use sqlx::PgPool;
@@ -19,8 +19,8 @@ use sqlx::Row;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::db;
 use crate::cache_utils;
+use crate::db;
 use crate::progress_events::ProgressReporter;
 use crate::removal_core::{self, ProgressCadence, RemovalReport, RemovalStageKeys};
 
@@ -62,6 +62,14 @@ struct Args {
     /// actually reach, not a detection scan's older snapshot.
     #[arg(long = "count-only")]
     count_only: bool,
+
+    /// Canonical datasource whose history may be deleted by a standalone run.
+    #[arg(long)]
+    datasource: Option<String>,
+
+    /// Keep database history for manager-coordinated multi-datasource removal.
+    #[arg(long = "skip-db-delete")]
+    skip_db_delete: bool,
 }
 
 /// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`)
@@ -133,8 +141,7 @@ fn normalize_service(service: &str) -> String {
 /// Blizzard, Riot and Xbox removal paid for the table twice and merged the second result into the
 /// first, changing nothing. Its comment defended it against constraining `le."Service"` - which
 /// this query never did either.
-const PRIMARY_URL_QUERY: &str =
-    "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
+const PRIMARY_URL_QUERY: &str = "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
          FROM \"LogEntries\" le
          INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
          WHERE d.\"GameName\" = $1
@@ -156,10 +163,10 @@ async fn get_named_game_urls_from_db(
 
     // Primary join: URLs whose Download is the named game.
     let rows = sqlx::query(PRIMARY_URL_QUERY)
-    .bind(game_name)
-    .bind(service)
-    .fetch_all(pool)
-    .await?;
+        .bind(game_name)
+        .bind(service)
+        .fetch_all(pool)
+        .await?;
 
     let mut url_data: HashMap<String, (String, i64)> = HashMap::new();
 
@@ -192,22 +199,56 @@ async fn delete_named_game_from_database(
     pool: &PgPool,
     service: &str,
     game_name: &str,
+    datasource: &str,
 ) -> Result<(u64, u64)> {
-    eprintln!("Deleting database records for named game '{}/{}'...", service, game_name);
+    eprintln!(
+        "Deleting database records for named game '{}/{}'...",
+        service, game_name
+    );
 
-    // First, delete LogEntries that reference these downloads (foreign key constraint)
+    let mut transaction = pool.begin().await?;
+    sqlx::query("LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE d.\"GameName\" = $1 AND d.\"GameAppId\" IS NULL
+               AND d.\"EpicAppId\" IS NULL AND LOWER(d.\"Service\") = $2
+               AND d.\"Datasource\" = $3 AND le.\"Datasource\" <> $3
+         )",
+    )
+    .bind(game_name)
+    .bind(service)
+    .bind(datasource)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected named-game history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+
     let log_result = sqlx::query(
-        "DELETE FROM \"LogEntries\" WHERE \"DownloadId\" IN (
+        "DELETE FROM \"LogEntries\" le WHERE le.\"Datasource\" = $3 AND le.\"DownloadId\" IN (
              SELECT \"Id\" FROM \"Downloads\"
              WHERE \"GameName\" = $1
                AND \"GameAppId\" IS NULL
                AND \"EpicAppId\" IS NULL
                AND LOWER(\"Service\") = $2
-         )"
+               AND \"Datasource\" = $3
+         )",
     )
     .bind(game_name)
     .bind(service)
-    .execute(pool)
+    .bind(datasource)
+    .execute(&mut *transaction)
     .await?;
     let log_entries_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_entries_deleted);
@@ -218,16 +259,51 @@ async fn delete_named_game_from_database(
          WHERE \"GameName\" = $1
            AND \"GameAppId\" IS NULL
            AND \"EpicAppId\" IS NULL
-           AND LOWER(\"Service\") = $2"
+           AND LOWER(\"Service\") = $2
+           AND \"Datasource\" = $3",
     )
     .bind(game_name)
     .bind(service)
-    .execute(pool)
+    .bind(datasource)
+    .execute(&mut *transaction)
     .await?;
     let downloads_deleted = downloads_result.rows_affected();
     eprintln!("  Deleted {} download records", downloads_deleted);
 
+    transaction.commit().await?;
     Ok((log_entries_deleted, downloads_deleted))
+}
+
+async fn validate_named_game_selection(
+    pool: &PgPool,
+    service: &str,
+    game_name: &str,
+    datasource: &str,
+) -> Result<()> {
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE d.\"GameName\" = $1
+               AND LOWER(d.\"Service\") = $2
+               AND d.\"GameAppId\" IS NULL
+               AND d.\"EpicAppId\" IS NULL
+               AND d.\"Datasource\" = $3
+               AND le.\"Datasource\" <> $3
+         )",
+    )
+    .bind(game_name)
+    .bind(service)
+    .bind(datasource)
+    .fetch_one(pool)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected named-game history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+    Ok(())
 }
 
 /// Entry point for the name-keyed removal bins. `service` is the lowercased owning
@@ -240,7 +316,9 @@ async fn delete_named_game_from_database(
 /// `removal_core`.
 pub async fn run(service: &str) -> Result<()> {
     let args = Args::parse();
-    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(&args.key_scheme));
+    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
+        &args.key_scheme,
+    ));
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
@@ -252,149 +330,219 @@ pub async fn run(service: &str) -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
 
+    if !args.count_only && !args.skip_db_delete && args.datasource.is_none() {
+        anyhow::bail!("--datasource is required when database deletion is enabled")
+    }
+
     // Whole removal routed through the single failure funnel: the wrapper bins
     // (cache_blizzard_remove / cache_riot_remove / cache_xbox_remove) just `await` this
     // function as their whole `main` body, so finish_or_exit here is what turns a
     // `?`-propagated failure into the structured stdout `failed` event for all three -
     // not only the one hand-checked permission-error abort below.
     let result: Result<()> = async {
-    eprintln!("Named Game Cache Removal");
-    eprintln!("  Log directory: {}", log_dir.display());
-    eprintln!("  Cache directory: {}", cache_dir.display());
-    eprintln!("  Service: {}", service);
-    eprintln!("  Game name: {}", game_name);
+        eprintln!("Named Game Cache Removal");
+        eprintln!("  Log directory: {}", log_dir.display());
+        eprintln!("  Cache directory: {}", cache_dir.display());
+        eprintln!("  Service: {}", service);
+        eprintln!("  Game name: {}", game_name);
 
-    // Per-game Riot removal works the same on bare-metal as on monolithic: the game -> URL
-    // mapping is materialized in the database at ingest (the CDN host names the game, the
-    // rows record its URLs), so removal targets that game's URLs by joining GameName -> URLs
-    // and computing the per-URL cache key. The cache key need not encode the host. Bundles
-    // shared byte-for-byte across Riot titles are a rare content-dedup case that affects
-    // monolithic identically; the bare-metal KEY-header verification only ever prevents a
-    // wrong delete, never causes one.
-    if !log_dir.exists() {
-        let msg = format!("Log directory not found: {}", log_dir.display());
-        anyhow::bail!("{}", msg);
-    }
+        // Per-game Riot removal works the same on bare-metal as on monolithic: the game -> URL
+        // mapping is materialized in the database at ingest (the CDN host names the game, the
+        // rows record its URLs), so removal targets that game's URLs by joining GameName -> URLs
+        // and computing the per-URL cache key. The cache key need not encode the host. Bundles
+        // shared byte-for-byte across Riot titles are a rare content-dedup case that affects
+        // monolithic identically; the bare-metal KEY-header verification only ever prevents a
+        // wrong delete, never causes one.
+        if !log_dir.exists() {
+            let msg = format!("Log directory not found: {}", log_dir.display());
+            anyhow::bail!("{}", msg);
+        }
 
-    if !cache_dir.exists() {
-        let msg = format!("Cache directory not found: {}", cache_dir.display());
-        anyhow::bail!("{}", msg);
-    }
+        if !cache_dir.exists() {
+            let msg = format!("Cache directory not found: {}", cache_dir.display());
+            anyhow::bail!("{}", msg);
+        }
 
-    let pool = db::create_pool().await?;
+        let pool = db::create_pool().await?;
 
-    // A count run must not announce itself as a removal: the whole point of the number is that
-    // the user can trust what the confirmation says.
-    let starting_stage_key = if args.count_only {
-        "signalr.gameRemove.counting.starting"
-    } else {
-        NAMED_GAME_REMOVE_STARTING_KEY
-    };
-    removal_core::write_progress(&progress_path, &reporter, "starting", starting_stage_key, starting_context(game_name, &service), 0.0, 0, 0)?;
-
-    // Query database for URLs
-    removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
-    let url_data = get_named_game_urls_from_db(&pool, &service, game_name).await?;
-
-    // A count run stops here. It walks the same list a removal would walk, reports how many of
-    // those files exist on disk, and returns before the cache sweep, the access.log purge and
-    // the database delete below are reachable. A game with no URLs reports zero rather than
-    // taking the no-URL exit, so the confirmation always has a number.
-    if args.count_only {
-        let collection_progress = removal_core::CollectionProgress {
-            progress_path: &progress_path,
-            reporter: &reporter,
-            stage_key: "signalr.gameRemove.counting.progress",
+        // A count run must not announce itself as a removal: the whole point of the number is that
+        // the user can trust what the confirmation says.
+        let starting_stage_key = if args.count_only {
+            "signalr.gameRemove.counting.starting"
+        } else {
+            NAMED_GAME_REMOVE_STARTING_KEY
         };
-        let cache_files_found = removal_core::count_cache_files(
-            &cache_dir,
-            &url_data,
-            &output_json,
-            game_name,
-            cache_utils::active_key_scheme(),
-            removal_core::SliceReach::SweepKeyHeaders,
-            &collection_progress,
+        removal_core::write_progress(
+            &progress_path,
+            &reporter,
+            "starting",
+            starting_stage_key,
+            starting_context(game_name, &service),
+            0.0,
+            0,
+            0,
         )?;
-        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.counting.complete", json!({ "files": cache_files_found, "gameName": game_name }), 100.0, cache_files_found, cache_files_found)?;
-        return Ok(());
+
+        // Query database for URLs
+        removal_core::write_progress(
+            &progress_path,
+            &reporter,
+            "querying_database",
+            "signalr.gameRemove.db.querying",
+            json!({}),
+            5.0,
+            0,
+            0,
+        )?;
+        let url_data = get_named_game_urls_from_db(&pool, &service, game_name).await?;
+
+        // A count run stops here. It walks the same list a removal would walk, reports how many of
+        // those files exist on disk, and returns before the cache sweep, the access.log purge and
+        // the database delete below are reachable. A game with no URLs reports zero rather than
+        // taking the no-URL exit, so the confirmation always has a number.
+        if args.count_only {
+            let collection_progress = removal_core::CollectionProgress {
+                progress_path: &progress_path,
+                reporter: &reporter,
+                stage_key: "signalr.gameRemove.counting.progress",
+            };
+            let cache_files_found = removal_core::count_cache_files(
+                &cache_dir,
+                &url_data,
+                &output_json,
+                game_name,
+                cache_utils::active_key_scheme(),
+                removal_core::SliceReach::SweepKeyHeaders,
+                &collection_progress,
+            )?;
+            removal_core::write_progress(
+                &progress_path,
+                &reporter,
+                "completed",
+                "signalr.gameRemove.counting.complete",
+                json!({ "files": cache_files_found, "gameName": game_name }),
+                100.0,
+                cache_files_found,
+                cache_files_found,
+            )?;
+            return Ok(());
+        }
+
+        if url_data.is_empty() {
+            eprintln!("No URLs found for named game '{}/{}'", service, game_name);
+
+            RemovalReport::from_tail(game_name, &removal_core::RemovalTail::default())
+                .write(&output_json)?;
+
+            removal_core::write_progress(
+                &progress_path,
+                &reporter,
+                "completed",
+                "signalr.gameRemove.noUrls",
+                json!({}),
+                100.0,
+                0,
+                0,
+            )?;
+            return Ok(());
+        }
+
+        eprintln!(
+            "Found {} unique URLs for '{}/{}'",
+            url_data.len(),
+            service,
+            game_name
+        );
+
+        if !args.skip_db_delete {
+            validate_named_game_selection(
+                &pool,
+                &service,
+                game_name,
+                args.datasource
+                    .as_deref()
+                    .context("datasource missing after validation")?,
+            )
+            .await?;
+        }
+
+        // Steps 1-4 (cache delete, dir cleanup, verification gate, log purge, permission gate)
+        // are the URL-scoped sequence shared with the Epic bin.
+        let lifecycle = removal_core::RemovalLifecycleKeys {
+            cache_removing: "signalr.gameRemove.cache.removing",
+            dirs_cleaning: "signalr.gameRemove.dirs.cleaning",
+            logs_removing: "signalr.gameRemove.logs.removing",
+            db_deleting: "signalr.gameRemove.db.deleting",
+        };
+        let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
+            RemovalReport::from_tail(game_name, tail).write(&output_json)
+        };
+        let Some(tail) = removal_core::run_url_removal_steps(
+            &cache_dir,
+            &log_dir,
+            &url_data,
+            &progress_path,
+            &reporter,
+            &NAMED_STAGE_KEYS,
+            &lifecycle,
+            ProgressCadence::OnPercentAdvance,
+            // Blizzard TACT archives, Riot bundles and Xbox payloads are range-served, so a slice
+            // can sit behind an eviction hole the forward walk cannot cross.
+            removal_core::SliceReach::SweepKeyHeaders,
+            args.stem_positions.as_deref(),
+            &write_failure_report,
+        )?
+        else {
+            // Cancellation confirmed during the cache sweep - partial dirs cleaned, exit 0.
+            return Ok(());
+        };
+
+        if !args.skip_db_delete {
+            delete_named_game_from_database(
+                &pool,
+                &service,
+                game_name,
+                args.datasource
+                    .as_deref()
+                    .context("datasource missing after validation")?,
+            )
+            .await?;
+        }
+
+        // Write final report
+        let report = RemovalReport::from_tail(game_name, &tail);
+        report.write(&output_json)?;
+
+        removal_core::write_progress(
+            &progress_path,
+            &reporter,
+            "completed",
+            NAMED_GAME_REMOVE_COMPLETE_KEY,
+            complete_context(
+                game_name,
+                &service,
+                report.cache_files_deleted,
+                report.total_bytes_freed as f64 / 1_073_741_824.0,
+                report.log_entries_removed,
+            ),
+            100.0,
+            0,
+            0,
+        )?;
+
+        eprintln!("\n=== Removal Summary ===");
+        eprintln!("Cache files deleted: {}", report.cache_files_deleted);
+        eprintln!(
+            "Space freed: {:.2} MB",
+            report.total_bytes_freed as f64 / 1_048_576.0
+        );
+        eprintln!("Empty directories removed: {}", report.empty_dirs_removed);
+        eprintln!("Log entries removed: {}", report.log_entries_removed);
+        eprintln!("Report saved to: {}", output_json.display());
+
+        Ok(())
     }
-
-    if url_data.is_empty() {
-        eprintln!("No URLs found for named game '{}/{}'", service, game_name);
-
-        RemovalReport::from_tail(game_name, &removal_core::RemovalTail::default())
-            .write(&output_json)?;
-
-        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
-        return Ok(());
-    }
-
-    eprintln!("Found {} unique URLs for '{}/{}'", url_data.len(), service, game_name);
-
-    // Steps 1-4 (cache delete, dir cleanup, verification gate, log purge, permission gate)
-    // are the URL-scoped sequence shared with the Epic bin.
-    let lifecycle = removal_core::RemovalLifecycleKeys {
-        cache_removing: "signalr.gameRemove.cache.removing",
-        dirs_cleaning: "signalr.gameRemove.dirs.cleaning",
-        logs_removing: "signalr.gameRemove.logs.removing",
-        db_deleting: "signalr.gameRemove.db.deleting",
-    };
-    let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
-        RemovalReport::from_tail(game_name, tail).write(&output_json)
-    };
-    let Some(tail) = removal_core::run_url_removal_steps(
-        &cache_dir,
-        &log_dir,
-        &url_data,
-        &progress_path,
-        &reporter,
-        &NAMED_STAGE_KEYS,
-        &lifecycle,
-        ProgressCadence::OnPercentAdvance,
-        // Blizzard TACT archives, Riot bundles and Xbox payloads are range-served, so a slice
-        // can sit behind an eviction hole the forward walk cannot cross.
-        removal_core::SliceReach::SweepKeyHeaders,
-        args.stem_positions.as_deref(),
-        &write_failure_report,
-    )?
-    else {
-        // Cancellation confirmed during the cache sweep - partial dirs cleaned, exit 0.
-        return Ok(());
-    };
-
-    // Step 5: Delete database records
-    let (_log_records, _download_records) = delete_named_game_from_database(&pool, &service, game_name).await?;
-
-    // Write final report
-    let report = RemovalReport::from_tail(game_name, &tail);
-    report.write(&output_json)?;
-
-    removal_core::write_progress(
-        &progress_path,
-        &reporter,
-        "completed",
-        NAMED_GAME_REMOVE_COMPLETE_KEY,
-        complete_context(
-            game_name,
-            &service,
-            report.cache_files_deleted,
-            report.total_bytes_freed as f64 / 1_073_741_824.0,
-            report.log_entries_removed,
-        ),
-        100.0,
-        0,
-        0,
-    )?;
-
-    eprintln!("\n=== Removal Summary ===");
-    eprintln!("Cache files deleted: {}", report.cache_files_deleted);
-    eprintln!("Space freed: {:.2} MB", report.total_bytes_freed as f64 / 1_048_576.0);
-    eprintln!("Empty directories removed: {}", report.empty_dirs_removed);
-    eprintln!("Log entries removed: {}", report.log_entries_removed);
-    eprintln!("Report saved to: {}", output_json.display());
-
-    Ok(())
-    }.await;
+    .await;
     crate::progress_events::finish_or_exit(&reporter, "signalr.gameRemove.error.fatal", result);
     Ok(())
 }
@@ -449,8 +597,14 @@ mod tests {
     /// `(AppID {{gameAppId}})` into — the placeholder bug this fix removes).
     #[test]
     fn named_stage_keys_are_the_appid_free_family() {
-        assert_eq!(NAMED_GAME_REMOVE_STARTING_KEY, "signalr.namedRemove.starting");
-        assert_eq!(NAMED_GAME_REMOVE_COMPLETE_KEY, "signalr.namedRemove.complete");
+        assert_eq!(
+            NAMED_GAME_REMOVE_STARTING_KEY,
+            "signalr.namedRemove.starting"
+        );
+        assert_eq!(
+            NAMED_GAME_REMOVE_COMPLETE_KEY,
+            "signalr.namedRemove.complete"
+        );
     }
 
     /// `starting_context` must carry `gameName` and must NEVER carry `gameAppId` — named
@@ -458,19 +612,34 @@ mod tests {
     #[test]
     fn starting_context_has_game_name_and_no_game_app_id() {
         let ctx = starting_context("Diablo IV", "blizzard");
-        assert_eq!(ctx.get("gameName").and_then(|v| v.as_str()), Some("Diablo IV"));
-        assert_eq!(ctx.get("service").and_then(|v| v.as_str()), Some("blizzard"));
-        assert!(ctx.get("gameAppId").is_none(), "named context must not carry gameAppId");
+        assert_eq!(
+            ctx.get("gameName").and_then(|v| v.as_str()),
+            Some("Diablo IV")
+        );
+        assert_eq!(
+            ctx.get("service").and_then(|v| v.as_str()),
+            Some("blizzard")
+        );
+        assert!(
+            ctx.get("gameAppId").is_none(),
+            "named context must not carry gameAppId"
+        );
     }
 
     /// `complete_context` carries the same no-`gameAppId` contract plus the removal totals.
     #[test]
     fn complete_context_has_game_name_and_no_game_app_id() {
         let ctx = complete_context("Halo Infinite", "xbox", 11, 0.0094, 42);
-        assert_eq!(ctx.get("gameName").and_then(|v| v.as_str()), Some("Halo Infinite"));
+        assert_eq!(
+            ctx.get("gameName").and_then(|v| v.as_str()),
+            Some("Halo Infinite")
+        );
         assert_eq!(ctx.get("service").and_then(|v| v.as_str()), Some("xbox"));
         assert_eq!(ctx.get("files").and_then(|v| v.as_u64()), Some(11));
         assert_eq!(ctx.get("logEntries").and_then(|v| v.as_u64()), Some(42));
-        assert!(ctx.get("gameAppId").is_none(), "named context must not carry gameAppId");
+        assert!(
+            ctx.get("gameAppId").is_none(),
+            "named context must not carry gameAppId"
+        );
     }
 }

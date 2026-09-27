@@ -105,7 +105,7 @@ public class SystemController : ControllerBase
         var datasourceDtos = await Task.WhenAll(datasources.Select(async ds =>
         {
             var capabilities = _capabilityService.GetCapabilities(ds);
-            var nginxReopen = await _nginxLogRotationService.GetNginxReopenAvailabilityAsync(ds.Layout);
+            var nginxReopen = await _nginxLogRotationService.GetNginxReopenAvailabilityAsync(ds);
             var cacheSize = cacheSizeResolutions.GetValueOrDefault(ds.Name)
                 ?? (cacheSizeOverrides.TryGetValue(ds.Name, out var storedOverride) && storedOverride > 0
                     ? new DatasourceCacheSizeResolution(ds.Name, storedOverride, storedOverride, CacheSizeSource.Manual)
@@ -129,6 +129,8 @@ public class SystemController : ControllerBase
                 CanMapLogicalObjects = capabilities.CanMapLogicalObjects,
                 CanClearWholeCacheRoot = capabilities.CanClearWholeCacheRoot,
                 NginxReopenAvailable = nginxReopen.Available,
+                NginxReopenRequirement = nginxReopen.Requirement,
+                NginxReopenCheckOnAction = nginxReopen.CheckOnAction,
                 NginxReopenHint = nginxReopen.Hint == NginxReopenHint.None
                     ? null
                     : nginxReopen.Hint

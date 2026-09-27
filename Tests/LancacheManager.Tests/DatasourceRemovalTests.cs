@@ -1,0 +1,552 @@
+using System.Diagnostics;
+using System.Reflection;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Platform;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
+
+namespace LancacheManager.Tests;
+
+public sealed class DatasourceRemovalTests
+{
+    [Theory]
+    [InlineData("riot")]
+    [InlineData("blizzard")]
+    [InlineData("xbox")]
+    public async Task NamedSelection_IsolatesServiceGameAndDatasourceAsync(string service)
+    {
+        await using var context = CreateContext();
+        var selected = DownloadRow(service, "Shared title", "Alpha");
+        context.Downloads.AddRange(
+            selected,
+            DownloadRow(service, "Shared title", "Beta"),
+            DownloadRow("other", "Shared title", "Alpha"),
+            DownloadRow(service, "Other title", "Alpha"),
+            DownloadRow(service, "Shared title", "Alpha", gameAppId: 10),
+            DownloadRow(service, "Shared title", "Alpha", epicAppId: "epic-id"));
+        await context.SaveChangesAsync();
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Named,
+            GameName: "Shared title",
+            Service: service);
+
+        var matches = await CacheManagementService.SelectRemovalDownloads(context, selection)
+            .Select(download => download.Id)
+            .ToListAsync();
+
+        Assert.Equal(new[] { selected.Id }, matches);
+    }
+
+    [Fact]
+    public async Task Validation_RejectsDifferentlyAttributedChildAsync()
+    {
+        await using var context = CreateContext();
+        var download = DownloadRow("riot", "Scoped title", "Alpha");
+        context.Downloads.Add(download);
+        await context.SaveChangesAsync();
+        context.LogEntries.Add(LogRow(download.Id, "riot", "Beta"));
+        await context.SaveChangesAsync();
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Named,
+            GameName: "Scoped title",
+            Service: "riot");
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            CacheManagementService.ValidateRemovalSelectionAsync(
+                context,
+                selection,
+                CancellationToken.None));
+
+        Assert.Contains("different datasource", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Validation_AcceptsMatchingChildAsync()
+    {
+        await using var context = CreateContext();
+        var download = DownloadRow("xbox", "Scoped title", "Alpha");
+        context.Downloads.Add(download);
+        await context.SaveChangesAsync();
+        context.LogEntries.Add(LogRow(download.Id, "xbox", "Alpha"));
+        await context.SaveChangesAsync();
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Named,
+            GameName: "Scoped title",
+            Service: "xbox");
+
+        await CacheManagementService.ValidateRemovalSelectionAsync(
+            context,
+            selection,
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ProductionCleanup_Postgres_PreservesUnselectedRowsAsync()
+    {
+        var schema = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_SCHEMA");
+        if (string.IsNullOrWhiteSpace(schema))
+        {
+            return;
+        }
+
+        await using var context = CreatePostgresContext(schema, "ds-impl-a-removal");
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Service,
+            Service: "steam");
+
+        var result = await CacheManagementService.CleanupRemovalAsync(
+            context,
+            selection,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.DownloadsDeleted);
+        Assert.Equal(1, result.LogEntriesDeleted);
+        Assert.False(await context.Downloads.AnyAsync(row => row.Datasource.ToLower() == "alpha"));
+        Assert.False(await context.LogEntries.AnyAsync(row => row.Datasource.ToLower() == "alpha"));
+        Assert.Equal(1, await context.Downloads.CountAsync(row => row.Datasource.ToLower() == "beta"));
+        Assert.Equal(1, await context.LogEntries.CountAsync(row => row.Datasource.ToLower() == "beta"));
+    }
+
+    [Fact]
+    public async Task ProductionCleanup_Postgres_RejectsMismatchedChildAsync()
+    {
+        var schema = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_DENIAL_SCHEMA");
+        if (string.IsNullOrWhiteSpace(schema))
+        {
+            return;
+        }
+
+        await using var context = CreatePostgresContext(schema, "ds-impl-a-denial");
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Service,
+            Service: "steam");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            CacheManagementService.CleanupRemovalAsync(
+                context,
+                selection,
+                CancellationToken.None));
+
+        Assert.Equal(2, await context.Downloads.CountAsync());
+        Assert.Equal(2, await context.LogEntries.CountAsync());
+        Assert.Equal(2, await context.LogEntries.CountAsync(row => row.DownloadId != null));
+    }
+
+    [Fact]
+    public async Task ProductionCleanup_Postgres_RollsBackWhenParentDeleteFailsAsync()
+    {
+        var schema = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_ROLLBACK_SCHEMA");
+        if (string.IsNullOrWhiteSpace(schema))
+        {
+            return;
+        }
+
+        await using var context = CreatePostgresContext(schema, "ds-impl-a-rollback");
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE OR REPLACE FUNCTION reject_target_download_delete() RETURNS trigger AS $$
+            BEGIN
+                IF OLD."Datasource" = 'Alpha' THEN
+                    RAISE EXCEPTION 'forced parent delete failure';
+                END IF;
+                RETURN OLD;
+            END;
+            $$ LANGUAGE plpgsql;
+            DROP TRIGGER IF EXISTS reject_target_download_delete ON "Downloads";
+            CREATE TRIGGER reject_target_download_delete BEFORE DELETE ON "Downloads"
+            FOR EACH ROW EXECUTE FUNCTION reject_target_download_delete();
+            """);
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Service,
+            Service: "steam");
+
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            CacheManagementService.CleanupRemovalAsync(
+                context,
+                selection,
+                CancellationToken.None));
+
+        Assert.Equal(2, await context.Downloads.CountAsync());
+        Assert.Equal(2, await context.LogEntries.CountAsync());
+        Assert.Equal(2, await context.LogEntries.CountAsync(row => row.DownloadId != null));
+    }
+
+    [Fact]
+    public async Task ProductionResetAndCleanup_Postgres_CompleteWithoutDeadlockAsync()
+    {
+        var schema = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_RESET_SCHEMA");
+        if (string.IsNullOrWhiteSpace(schema))
+        {
+            return;
+        }
+
+        var resetOptions = CreatePostgresOptions(schema, "ds-impl-a-reset");
+        var removalOptions = CreatePostgresOptions(schema, "ds-impl-a-reset-removal");
+        await using var resetContext = new AppDbContext(resetOptions);
+        await using var removalContext = new AppDbContext(removalOptions);
+        await resetContext.Database.ExecuteSqlRawAsync(
+            """
+            CREATE OR REPLACE FUNCTION pause_target_download_delete() RETURNS trigger AS $$
+            BEGIN
+                PERFORM pg_sleep(2);
+                RETURN OLD;
+            END;
+            $$ LANGUAGE plpgsql;
+            DROP TRIGGER IF EXISTS pause_target_download_delete ON "Downloads";
+            CREATE TRIGGER pause_target_download_delete BEFORE DELETE ON "Downloads"
+            FOR EACH ROW EXECUTE FUNCTION pause_target_download_delete();
+            """);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var resetLogger = new CapturingLogger<DatabaseService>();
+        var resetRoot = Path.Combine(
+            Path.GetTempPath(),
+            "ds-impl-a-reset-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(resetRoot);
+        var service = new DatabaseService(
+            resetContext,
+            notifications,
+            resetLogger,
+            new RemovalPathResolver(resetRoot),
+            new TestDbContextFactory(resetOptions),
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            tracker);
+        var operationId = tracker.RegisterOperation(
+            OperationType.DatabaseReset,
+            "reset",
+            new CancellationTokenSource());
+        var method = typeof(DatabaseService).GetMethod(
+            "DoResetAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var resetTask = (Task)method.Invoke(
+            service,
+            [operationId, new List<string> { "Downloads" }, false, CancellationToken.None])!;
+        await WaitForPostgresSleepAsync();
+        var selection = new RemovalSelection(
+            new[] { "alpha" },
+            RemovalKind.Service,
+            Service: "steam");
+
+        var cleanupTask = CacheManagementService.CleanupRemovalAsync(
+            removalContext,
+            selection,
+            CancellationToken.None);
+        await Task.WhenAll(resetTask, cleanupTask);
+        var cleanup = await cleanupTask;
+
+        Assert.True(
+            tracker.GetOperation(operationId)!.Status == OperationStatus.Completed,
+            string.Join(Environment.NewLine, resetLogger.Entries.Select(entry =>
+                entry.Exception is null ? entry.Message : entry.Message + ": " + entry.Exception)));
+        Assert.Equal(0, cleanup.DownloadsDeleted);
+        Assert.Equal(0, cleanup.LogEntriesDeleted);
+        Assert.Equal(0, await removalContext.Downloads.CountAsync());
+        Assert.Equal(2, await removalContext.LogEntries.CountAsync());
+        Assert.Equal(0, await removalContext.LogEntries.CountAsync(row => row.DownloadId != null));
+        Directory.Delete(resetRoot, recursive: true);
+    }
+
+    [Fact]
+    public async Task CacheClear_PartialChildFailure_ReconcilesOnlyCompletedDatasourceAsync()
+    {
+        var schema = Environment.GetEnvironmentVariable("DS_IMPL_CACHE_CLEAR_SCHEMA");
+        var binary = Environment.GetEnvironmentVariable("DS_IMPL_CACHE_CLEAR_BINARY");
+        if (string.IsNullOrWhiteSpace(schema) || string.IsNullOrWhiteSpace(binary))
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "ds-impl-a-cache-clear-" + Guid.NewGuid().ToString("N"));
+        var alphaCache = Path.Combine(root, "alpha", "cache");
+        var betaCache = Path.Combine(root, "beta", "cache");
+        var alphaFile = Path.Combine(alphaCache, "aa", "alpha.bin");
+        var betaFile = Path.Combine(betaCache, "bb", "beta.bin");
+        Directory.CreateDirectory(Path.GetDirectoryName(alphaFile)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(betaFile)!);
+        await File.WriteAllTextAsync(alphaFile, "alpha");
+        await File.WriteAllTextAsync(betaFile, "beta");
+        var alphaLogs = Path.Combine(root, "alpha", "logs");
+        var betaLogs = Path.Combine(root, "beta", "logs");
+        Directory.CreateDirectory(alphaLogs);
+        Directory.CreateDirectory(betaLogs);
+
+        var options = CreatePostgresOptions(schema, "ds-impl-a-cache-clear");
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.ExecuteSqlRawAsync(
+                "UPDATE \"Downloads\" SET \"CacheHitBytes\" = 4096, \"IsActive\" = FALSE, \"IsEvicted\" = FALSE");
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "Alpha",
+                ["LanCache:DataSources:0:CachePath"] = alphaCache,
+                ["LanCache:DataSources:0:LogPath"] = alphaLogs,
+                ["LanCache:DataSources:0:Enabled"] = "true",
+                ["LanCache:DataSources:1:Name"] = "Beta",
+                ["LanCache:DataSources:1:CachePath"] = betaCache,
+                ["LanCache:DataSources:1:LogPath"] = betaLogs,
+                ["LanCache:DataSources:1:Enabled"] = "true"
+            })
+            .Build();
+        var pathResolver = DispatchProxy.Create<IPathResolver, CacheClearPathResolverProxy>();
+        var pathState = (CacheClearPathResolverProxy)(object)pathResolver;
+        pathState.Root = root;
+        pathState.Binary = binary;
+        var datasources = new DatasourceService(
+            configuration,
+            pathResolver,
+            NullLogger<DatasourceService>.Instance);
+        var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(
+            processManager,
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+        var state = new StateService(
+            NullLogger<StateService>.Instance,
+            pathResolver,
+            null!,
+            null!);
+        var contexts = new TestDbContextFactory(options);
+        var rust = new CacheClearFailureProcessHelper(
+            NullLogger<RustProcessHelper>.Instance,
+            processManager,
+            pathResolver,
+            tracker);
+        var service = new CacheClearingService(
+            NullLogger<CacheClearingService>.Instance,
+            notifications,
+            configuration,
+            pathResolver,
+            state,
+            rust,
+            datasources,
+            tracker,
+            contexts,
+            null!);
+
+        var operationId = Assert.IsType<Guid>(await service.StartCacheClearAsync());
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            if (tracker.GetOperation(operationId)?.Status.IsTerminal() == true)
+            {
+                break;
+            }
+            await Task.Delay(100);
+        }
+
+        var operation = tracker.GetOperation(operationId);
+        Assert.NotNull(operation);
+        Assert.Equal(OperationStatus.Failed, operation.Status);
+        Assert.Contains("after clearing Alpha", operation.Message, StringComparison.Ordinal);
+        Assert.Equal(2, rust.ExecutionCount);
+        Assert.False(File.Exists(alphaFile));
+        Assert.True(File.Exists(betaFile));
+        await using (var verify = new AppDbContext(options))
+        {
+            Assert.True(await verify.Downloads
+                .Where(download => download.Datasource.ToLower() == "alpha")
+                .AllAsync(download => download.IsEvicted));
+            Assert.True(await verify.Downloads
+                .Where(download => download.Datasource.ToLower() == "beta")
+                .AllAsync(download => !download.IsEvicted));
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    private static AppDbContext CreateContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase("ds-impl-a-removal-" + Guid.NewGuid().ToString("N"))
+            .Options;
+        return new AppDbContext(options);
+    }
+
+    private static AppDbContext CreatePostgresContext(string schema, string applicationName)
+    {
+        return new AppDbContext(CreatePostgresOptions(schema, applicationName));
+    }
+
+    private static DbContextOptions<AppDbContext> CreatePostgresOptions(
+        string schema,
+        string applicationName)
+    {
+        var connection = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_CONNECTION")
+            ?? throw new InvalidOperationException("The PostgreSQL test connection is missing");
+        var settings = new NpgsqlConnectionStringBuilder(connection)
+        {
+            SearchPath = schema + ",public",
+            ApplicationName = applicationName
+        };
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(settings.ConnectionString)
+            .Options;
+        return options;
+    }
+
+    private static async Task WaitForPostgresSleepAsync()
+    {
+        var connection = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_CONNECTION")
+            ?? throw new InvalidOperationException("The PostgreSQL test connection is missing");
+        await using var database = new NpgsqlConnection(connection);
+        await database.OpenAsync();
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            await using var command = new NpgsqlCommand(
+                "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'ds-impl-a-reset' AND wait_event = 'PgSleep'",
+                database);
+            if (Convert.ToInt32(await command.ExecuteScalarAsync()) > 0)
+            {
+                return;
+            }
+            await Task.Delay(100);
+        }
+        throw new TimeoutException("The database reset did not reach the delete barrier");
+    }
+
+    private static Download DownloadRow(
+        string service,
+        string gameName,
+        string datasource,
+        long? gameAppId = null,
+        string? epicAppId = null) => new()
+    {
+        Service = service,
+        GameName = gameName,
+        Datasource = datasource,
+        GameAppId = gameAppId,
+        EpicAppId = epicAppId,
+        ClientIp = "10.0.0.5",
+        StartTimeUtc = DateTime.UtcNow.AddMinutes(-1),
+        EndTimeUtc = DateTime.UtcNow
+    };
+
+    private static LogEntryRecord LogRow(long downloadId, string service, string datasource) => new()
+    {
+        DownloadId = downloadId,
+        Service = service,
+        Datasource = datasource,
+        ClientIp = "10.0.0.5",
+        Timestamp = DateTime.UtcNow,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    private sealed class RemovalPathResolver(string root) : PathResolverBase(NullLogger.Instance)
+    {
+        protected override string BasePath => root;
+        protected override string RustExecutableExtension => string.Empty;
+        public override string ResolvePath(string relativePath) => relativePath;
+        public override string NormalizePath(string path) => path;
+        public override bool IsDockerSocketAvailable() => false;
+    }
+
+    private sealed class CacheClearFailureProcessHelper : RustProcessHelper
+    {
+        public CacheClearFailureProcessHelper(
+            ILogger<RustProcessHelper> logger,
+            ProcessManager processManager,
+            IPathResolver pathResolver,
+            IUnifiedOperationTracker operationTracker)
+            : base(logger, processManager, pathResolver, operationTracker)
+        {
+        }
+
+        public int ExecutionCount { get; private set; }
+
+        public override Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo process,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            ExecutionCount++;
+            if (ExecutionCount == 2)
+            {
+                throw new InvalidOperationException("Injected Beta cache-clear child failure");
+            }
+            return base.ExecuteTrackedProcessWithProgressEventsAsync(
+                process,
+                operationId,
+                cancellationToken,
+                onProgressEvent,
+                processLabel);
+        }
+    }
+
+    private class CacheClearPathResolverProxy : DispatchProxy
+    {
+        public string Root { get; set; } = string.Empty;
+        public string Binary { get; set; } = string.Empty;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            ArgumentNullException.ThrowIfNull(targetMethod);
+            if (targetMethod.Name == nameof(IPathResolver.GetRustCacheCleanerPath))
+            {
+                return Binary;
+            }
+            if (targetMethod.Name == nameof(IPathResolver.GetOperationsDirectory))
+            {
+                var path = Path.Combine(Root, "operations");
+                Directory.CreateDirectory(path);
+                return path;
+            }
+            if (targetMethod.Name == nameof(IPathResolver.GetStateDirectory))
+            {
+                var path = Path.Combine(Root, "state");
+                Directory.CreateDirectory(path);
+                return path;
+            }
+            if (targetMethod.Name == nameof(IPathResolver.ResolvePath))
+            {
+                var path = Assert.IsType<string>(args![0]);
+                return Path.IsPathRooted(path) ? path : Path.Combine(Root, path);
+            }
+            if (targetMethod.Name == nameof(IPathResolver.NormalizePath))
+            {
+                return Assert.IsType<string>(args![0]);
+            }
+            if (targetMethod.Name == nameof(IPathResolver.IsDockerSocketAvailable))
+            {
+                return false;
+            }
+            if (targetMethod.Name == nameof(IPathResolver.IsDirectoryWritable))
+            {
+                return true;
+            }
+            if (targetMethod.ReturnType == typeof(string))
+            {
+                return Path.Combine(Root, targetMethod.Name);
+            }
+            if (targetMethod.ReturnType == typeof(bool))
+            {
+                return false;
+            }
+            return null;
+        }
+    }
+}

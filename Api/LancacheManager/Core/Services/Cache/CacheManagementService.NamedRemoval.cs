@@ -50,6 +50,11 @@ public partial class CacheManagementService
                 targetDescription: $"named game '{service}' / '{gameName}'",
                 rustProcessName: Path.GetFileNameWithoutExtension(rustBinaryPath),
                 outputReadLabel: "NamedGameRemoval",
+                removalSelection: new RemovalSelection(
+                    Array.Empty<string>(),
+                    RemovalKind.Named,
+                    GameName: gameName,
+                    Service: service.ToLowerInvariant()),
                 aggregatedReport: new GameCacheRemovalReport { GameAppId = 0, GameName = gameName },
                 cancellationToken: cancellationToken,
                 onProgress: onProgress,

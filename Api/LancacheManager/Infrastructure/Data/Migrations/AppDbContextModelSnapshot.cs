@@ -849,7 +849,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("Timestamp")
                         .HasDatabaseName("IX_LogEntries_Timestamp");
 
-                    b.HasIndex("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
+                    b.HasIndex("ClientIp", "Service", "Timestamp", "Url", "BytesServed", "Datasource")
                         .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
                     b.ToTable("LogEntries");

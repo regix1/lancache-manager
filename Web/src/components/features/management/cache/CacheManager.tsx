@@ -31,7 +31,6 @@ import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@compon
 import { EmptyState } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount, formatRelativeTime } from '@utils/formatters';
-import { resolveDatasources } from '@utils/datasources';
 import type { CacheClearCompleteEvent } from '@contexts/SignalRContext/types';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
@@ -231,6 +230,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     if (cacheOperationInProgressRef.current) {
       return;
     }
+    if (clearingTargetMissing) return;
     cacheOperationInProgressRef.current = true;
 
     setActionLoading(true);
@@ -252,7 +252,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
-  const datasources = resolveDatasources(config);
+  const datasources = config.dataSources;
+  const clearingTarget =
+    clearingDatasource === null
+      ? null
+      : (datasources.find((ds) => ds.name === clearingDatasource) ?? null);
+  const clearingTargetMissing = clearingDatasource !== null && clearingTarget === null;
   const directoryNoticeConditions = {
     cacheWrite: true,
     cacheRead: false,
@@ -509,6 +514,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
             {/* Datasource list */}
             <div className="space-y-3">
+              {datasources.length === 0 && (
+                <EmptyState
+                  variant="text"
+                  title={t('management.datasources.noActiveDatasources')}
+                />
+              )}
               {datasources.map((ds) => (
                 <DatasourceListItem
                   key={ds.name}
@@ -516,7 +527,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   path={ds.cachePath}
                   isExpanded={expandedDatasources.has(ds.name)}
                   onToggle={() => toggleExpanded(ds.name)}
-                  enabled={ds.enabled && ds.cacheWritable}
+                  enabled={ds.enabled}
                 >
                   {/* Expanded content */}
                   <div className="pt-3 flex justify-end">
@@ -588,12 +599,19 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             : t('management.cache.modal.deleteAllCaches')
         }
         loading={actionLoading}
+        confirmDisabled={clearingTargetMissing}
       >
-        {clearingDatasource ? (
+        {clearingTargetMissing ? (
+          <Alert color="red" icon={null}>
+            <p className="text-sm">
+              {t('management.cache.modal.datasourceGone', { datasource: clearingDatasource })}
+            </p>
+          </Alert>
+        ) : clearingTarget ? (
           <p className="text-themed-secondary">
             {t('management.cache.modal.deleteFromDatasource', {
-              datasource: clearingDatasource,
-              path: datasources.find((ds) => ds.name === clearingDatasource)?.cachePath || 'unknown'
+              datasource: clearingTarget.name,
+              path: clearingTarget.cachePath
             })}
           </p>
         ) : (
@@ -615,9 +633,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </>
         )}
 
-        <Alert color="yellow" icon={null}>
-          <p className="text-sm">{t('management.cache.modal.clearSummary')}</p>
-        </Alert>
+        {!clearingTargetMissing && (
+          <Alert color="yellow" icon={null}>
+            <p className="text-sm">{t('management.cache.modal.clearSummary')}</p>
+          </Alert>
+        )}
       </ConfirmationModal>
     </>
   );

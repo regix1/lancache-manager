@@ -14,6 +14,7 @@ use lancache_processor::cancel;
 use lancache_processor::content_scan;
 use lancache_processor::log_discovery;
 use lancache_processor::log_layout;
+use lancache_processor::log_purge;
 use lancache_processor::log_reader;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
@@ -68,6 +69,7 @@ struct ProgressData {
 }
 
 impl ProgressData {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         is_processing: bool,
         percent_complete: f64,
@@ -995,7 +997,7 @@ fn remove_service_from_logs(
     // Monolithic files keep their stem so removals can be split at each stem's saved read
     // position. Files stay in series order (oldest -> newest) within each source, which is
     // what makes the running series offset meaningful.
-    let log_files: Vec<(LogFile, String)> = sources
+    let mut log_files: Vec<(LogFile, String)> = sources
         .iter()
         .filter(|s| s.kind == SourceKind::Monolithic)
         .flat_map(|s| {
@@ -1026,6 +1028,8 @@ fn remove_service_from_logs(
     let mut permission_errors: usize = 0;
     let mut deleted_files: usize = 0;
     let mut deletion_failures: usize = 0;
+    let mut rewrite_failures: usize = 0;
+    let tagged_files = log_files.len();
 
     for source in &delete_sources {
         for log_file in &source.files {
@@ -1096,12 +1100,39 @@ fn remove_service_from_logs(
         }
     }
 
+    if !log_files.is_empty() {
+        total_lines_processed += log_files
+            .iter()
+            .filter_map(|(log_file, _)| {
+                let mut bytes = 0;
+                count_complete_records_in_file(
+                    &log_file.path,
+                    &mut bytes,
+                    &|| false,
+                    &mut |_, _| Ok(()),
+                )
+                .ok()
+                .map(|outcome| outcome.lines)
+            })
+            .sum::<u64>();
+        let outcome = log_purge::remove_all_log_entries_for_service(
+            Path::new(log_path),
+            &service_lower,
+            stem_positions,
+        )?;
+        total_lines_removed += outcome.lines_removed;
+        permission_errors += outcome.permission_errors;
+        rewrite_failures += outcome.other_errors;
+        removed_by_stem.extend(outcome.lines_removed_by_stem);
+        removed_before_by_stem.extend(outcome.lines_removed_before_position_by_stem);
+        log_files.clear();
+    }
+
     // Process each log file
     for (file_index, (log_file, stem)) in log_files.iter().enumerate() {
         // None = no positions supplied -> every removed line counts as already read (the
         // replay-safe fallback). Some(0) = stem never ingested -> nothing counts.
-        let stem_position: Option<u64> =
-            stem_positions.map(|m| m.get(stem).copied().unwrap_or(0));
+        let stem_position: Option<u64> = stem_positions.map(|m| m.get(stem).copied().unwrap_or(0));
         let series_offset: u64 = series_offsets.get(stem).copied().unwrap_or(0);
         // Cooperative cancel: check between file iterations (each file uses NamedTempFile+rename, so
         // stopping between files is safe — completed files are already atomically rewritten)
@@ -1114,7 +1145,7 @@ fn remove_service_from_logs(
             let elapsed = start_time.elapsed();
             let progress = ProgressData::new(
                 false,
-                if log_files.len() > 0 {
+                if !log_files.is_empty() {
                     (file_index as f64 / log_files.len() as f64) * 100.0
                 } else {
                     0.0
@@ -1386,19 +1417,14 @@ fn remove_service_from_logs(
                 return Ok((lines_processed, lines_removed, removed_before));
             }
 
-            // Atomically replace original with filtered version
-            // persist() uses rename which can fail on Windows if file is locked
             let temp_path = temp_file.into_temp_path();
-
-            if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                // Fallback: copy + delete (works even if target is locked by file watcher)
-                eprintln!(
-                    "    persist() failed ({}), using copy fallback...",
-                    persist_err
-                );
-                fs::copy(&persist_err.path, &log_file.path)?;
-                fs::remove_file(&persist_err.path).ok();
-            }
+            let kept_path = temp_path.keep()?;
+            std::fs::rename(&kept_path, &log_file.path).with_context(|| {
+                format!(
+                    "failed to atomically publish rewritten log {}",
+                    log_file.path.display()
+                )
+            })?;
 
             Ok((lines_processed, lines_removed, removed_before))
         })();
@@ -1464,7 +1490,7 @@ fn remove_service_from_logs(
             error_msg.clone(),
             total_lines_processed,
             total_lines_removed,
-            log_files.len() + deleted_files,
+            tagged_files + deleted_files,
             None,
             ds_name,
         )
@@ -1474,11 +1500,12 @@ fn remove_service_from_logs(
         anyhow::bail!("{}", error_msg);
     }
 
-    if deletion_failures > 0 {
+    if deletion_failures + rewrite_failures > 0 {
         let error_msg = format!(
             "FAILED: {} log file(s) for {} could not be deleted, so the removal is incomplete. \
             The remaining files were left in place and their positions were not cleared.",
-            deletion_failures, service_to_remove
+            deletion_failures + rewrite_failures,
+            service_to_remove
         );
         eprintln!("\n{}", error_msg);
 
@@ -1489,7 +1516,7 @@ fn remove_service_from_logs(
             error_msg.clone(),
             total_lines_processed,
             total_lines_removed,
-            log_files.len() + deleted_files,
+            tagged_files + deleted_files,
             None,
             ds_name,
         );
@@ -1498,7 +1525,7 @@ fn remove_service_from_logs(
         anyhow::bail!("{}", error_msg);
     }
 
-    let files_touched = log_files.len() + deleted_files;
+    let files_touched = tagged_files + deleted_files;
     eprintln!("\nLog filtering completed!");
     eprintln!("  Files processed: {}", files_touched);
     eprintln!("  Lines processed: {}", total_lines_processed);
@@ -1558,11 +1585,18 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
     for log_file in &log_files {
         // A log whose timestamp cannot be read is no proof the cache is still fresh,
         // so treat it like a newer log and regenerate instead of serving stale counts.
-        let log_metadata = fs::metadata(&log_file.path)
-            .with_context(|| format!("Cannot check {} against the progress file", log_file.path.display()))?;
-        let log_modified = log_metadata
-            .modified()
-            .with_context(|| format!("Cannot read the modified time of {}", log_file.path.display()))?;
+        let log_metadata = fs::metadata(&log_file.path).with_context(|| {
+            format!(
+                "Cannot check {} against the progress file",
+                log_file.path.display()
+            )
+        })?;
+        let log_modified = log_metadata.modified().with_context(|| {
+            format!(
+                "Cannot read the modified time of {}",
+                log_file.path.display()
+            )
+        })?;
         if log_modified > progress_modified {
             return Err(anyhow::anyhow!(
                 "Log file {} is newer than progress file",
@@ -1852,10 +1886,11 @@ fn run(
 
             // Read-only: this never writes progress events or touches live monitor offsets. Its
             // one output is the candidate JSON the C# host reads back and re-validates.
-            let output = content_scan::scan_directory(Path::new(log_path), max_tail_bytes, max_samples)
-                .context("Content scan failed")?;
-            let json =
-                serde_json::to_string(&output).context("Failed to serialize content scan output")?;
+            let output =
+                content_scan::scan_directory(Path::new(log_path), max_tail_bytes, max_samples)
+                    .context("Content scan failed")?;
+            let json = serde_json::to_string(&output)
+                .context("Failed to serialize content scan output")?;
             std::fs::write(output_path, json).with_context(|| {
                 format!(
                     "Failed to write content scan output: {}",
@@ -1886,20 +1921,19 @@ fn main() -> anyhow::Result<()> {
     } else {
         false
     };
-    let stem_positions: Option<HashMap<String, u64>> = if let Some(position) =
-        args.iter().position(|arg| arg == "--stem-positions")
-    {
-        args.remove(position);
-        if position < args.len() {
-            let path = args.remove(position);
-            lancache_processor::log_purge::read_stem_positions(&path)
+    let stem_positions: Option<HashMap<String, u64>> =
+        if let Some(position) = args.iter().position(|arg| arg == "--stem-positions") {
+            args.remove(position);
+            if position < args.len() {
+                let path = args.remove(position);
+                lancache_processor::log_purge::read_stem_positions(&path)
+            } else {
+                eprintln!("Warning: --stem-positions given without a path; ignoring");
+                None
+            }
         } else {
-            eprintln!("Warning: --stem-positions given without a path; ignoring");
             None
-        }
-    } else {
-        None
-    };
+        };
     let reporter = ProgressReporter::new(progress_enabled);
     let failure_stage_key = match args.get(1).map(String::as_str) {
         Some("remove") => "signalr.logRemoval.error.fatal",
@@ -2241,7 +2275,10 @@ mod tests {
 
         // The readable source's count survives; only the unreadable source is truncated.
         assert_eq!(result.source_line_counts.get("steam-access.log"), Some(&2));
-        assert_eq!(result.source_line_counts.get("blizzard-access.log"), Some(&0));
+        assert_eq!(
+            result.source_line_counts.get("blizzard-access.log"),
+            Some(&0)
+        );
         assert_eq!(result.lines_processed, 2);
         assert!(!result.cancelled);
         // Exactly one source hit an unreadable member, so the total is partial.

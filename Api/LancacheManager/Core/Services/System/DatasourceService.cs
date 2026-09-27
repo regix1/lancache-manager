@@ -27,6 +27,8 @@ public class DatasourceService
     private readonly ILogger<DatasourceService> _logger;
     private readonly List<ResolvedDatasource> _datasources;
 
+    internal DatasourceOrigin Origin { get; private set; }
+
     public DatasourceService(
         IConfiguration configuration,
         IPathResolver pathResolver,
@@ -52,6 +54,7 @@ public class DatasourceService
 
         if (datasourceConfigs != null && datasourceConfigs.Count > 0)
         {
+            Origin = DatasourceOrigin.Explicit;
             // Explicit configuration takes highest priority
             _logger.LogInformation("Loading {Count} datasource(s) from explicit configuration", datasourceConfigs.Count);
 
@@ -62,12 +65,38 @@ public class DatasourceService
                         "Datasource name must contain only letters, digits, dots, hyphens, and underscores.",
                         nameof(config.Name));
 
-                var resolved = ResolveDatasource(config);
+                var resolved = ResolveDatasource(config, Origin);
                 if (resolved != null)
                 {
                     _datasources.Add(resolved);
                     _logger.LogInformation("Loaded datasource '{Name}': Cache={CachePath}, Logs={LogPath}",
                         resolved.Name, resolved.CachePath, resolved.LogPath);
+                }
+            }
+
+            for (var leftIndex = 0; leftIndex < _datasources.Count; leftIndex++)
+            {
+                var left = _datasources[leftIndex];
+                for (var rightIndex = leftIndex + 1; rightIndex < _datasources.Count; rightIndex++)
+                {
+                    var right = _datasources[rightIndex];
+                    if (left.Name.Equals(right.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ArgumentException(
+                            $"Datasource names '{left.Name}' and '{right.Name}' must be unique without regard to case.");
+                    }
+
+                    if (PathsOverlap(left.CachePath, right.CachePath))
+                    {
+                        throw new ArgumentException(
+                            $"Datasources '{left.Name}' and '{right.Name}' have equal or nested cache roots.");
+                    }
+
+                    if (PathsOverlap(left.ConfiguredLogPath, right.ConfiguredLogPath))
+                    {
+                        throw new ArgumentException(
+                            $"Datasources '{left.Name}' and '{right.Name}' have equal or nested log roots.");
+                    }
                 }
             }
         }
@@ -81,11 +110,12 @@ public class DatasourceService
                 var discovered = DiscoverDatasources();
                 if (discovered.Count > 0)
                 {
+                    Origin = DatasourceOrigin.Discovery;
                     _logger.LogInformation("Auto-discovered {Count} datasource(s)", discovered.Count);
 
                     foreach (var config in discovered)
                     {
-                        var resolved = ResolveDatasource(config);
+                        var resolved = ResolveDatasource(config, Origin);
                         if (resolved != null)
                         {
                             _datasources.Add(resolved);
@@ -103,6 +133,7 @@ public class DatasourceService
             // Fall back to legacy single-path configuration if no datasources loaded
             if (_datasources.Count == 0)
             {
+                Origin = DatasourceOrigin.Legacy;
                 _logger.LogInformation("Using legacy single-path configuration");
 
                 var legacyConfig = new DatasourceConfig
@@ -118,7 +149,7 @@ public class DatasourceService
                 legacyConfig.CachePath = !string.IsNullOrEmpty(configCachePath) ? configCachePath : "cache";
                 legacyConfig.LogPath = !string.IsNullOrEmpty(configLogPath) ? configLogPath : "logs";
 
-                var resolved = ResolveDatasource(legacyConfig);
+                var resolved = ResolveDatasource(legacyConfig, Origin);
                 if (resolved != null)
                 {
                     _datasources.Add(resolved);
@@ -518,7 +549,7 @@ public class DatasourceService
     /// Returns null when resolution fails; the failure is always logged as an error before
     /// returning, so callers that skip a null result are not silently swallowing it.
     /// </summary>
-    private ResolvedDatasource? ResolveDatasource(DatasourceConfig config)
+    private ResolvedDatasource? ResolveDatasource(DatasourceConfig config, DatasourceOrigin origin)
     {
         var schemeOverride = DatasourceSchemeOverrideValues.Parse(
             config.SchemeOverride,
@@ -536,6 +567,12 @@ public class DatasourceService
                 logDir = Path.GetDirectoryName(logPath) ?? logPath;
             }
 
+            if (origin == DatasourceOrigin.Legacy)
+            {
+                Directory.CreateDirectory(cachePath);
+                Directory.CreateDirectory(logDir);
+            }
+
             var datasource = new ResolvedDatasource
             {
                 Name = config.Name,
@@ -544,8 +581,9 @@ public class DatasourceService
                 LogPath = logDir,
                 LogFilePath = Path.Combine(logDir, "access.log"),
                 Enabled = config.Enabled,
+                Origin = origin,
                 SchemeOverride = schemeOverride,
-                CacheWritable = _pathResolver.IsDirectoryWritable(cachePath)
+                CacheWritable = Directory.Exists(cachePath) && _pathResolver.IsDirectoryWritable(cachePath)
             };
             // RefreshLogSources performs the bare-metal <logs> -> <logs>/http descent from
             // the configured root; doing it per refresh (not once here) means an http/
@@ -554,7 +592,8 @@ public class DatasourceService
             // actually writes positions against, not a parent mount whose ownership or mode
             // differs from the resolved http/ child.
             datasource.RefreshLogSources();
-            datasource.LogsWritable = _pathResolver.IsDirectoryWritable(datasource.LogPath);
+            datasource.LogsWritable = Directory.Exists(datasource.LogPath)
+                && _pathResolver.IsDirectoryWritable(datasource.LogPath);
             return datasource;
         }
         catch (Exception ex)
@@ -623,6 +662,8 @@ public class DatasourceService
         return _datasources.Select(d =>
         {
             d.RefreshLogSources();
+            d.CacheWritable = Directory.Exists(d.CachePath) && _pathResolver.IsDirectoryWritable(d.CachePath);
+            d.LogsWritable = Directory.Exists(d.LogPath) && _pathResolver.IsDirectoryWritable(d.LogPath);
             return new DatasourceInfo
             {
                 Name = d.Name,
@@ -646,13 +687,32 @@ public class DatasourceService
     {
         foreach (var ds in _datasources)
         {
-            ds.CacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath);
+            ds.CacheWritable = Directory.Exists(ds.CachePath) && _pathResolver.IsDirectoryWritable(ds.CachePath);
             // Re-run the <logs> -> <logs>/http descent before probing writability so
             // LogsWritable is measured against the resolved LogPath rather than a parent
             // mount whose permissions differ from the http/ child that holds the sources.
             ds.RefreshLogSources();
-            ds.LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath);
+            ds.LogsWritable = Directory.Exists(ds.LogPath) && _pathResolver.IsDirectoryWritable(ds.LogPath);
         }
+    }
+
+    private static bool PathsOverlap(string left, string right)
+    {
+        var leftPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(left));
+        var rightPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(right));
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var leftPrefix = Path.EndsInDirectorySeparator(leftPath)
+            ? leftPath
+            : leftPath + Path.DirectorySeparatorChar;
+        var rightPrefix = Path.EndsInDirectorySeparator(rightPath)
+            ? rightPath
+            : rightPath + Path.DirectorySeparatorChar;
+
+        return leftPath.Equals(rightPath, comparison)
+            || leftPath.StartsWith(rightPrefix, comparison)
+            || rightPath.StartsWith(leftPrefix, comparison);
     }
 
     /// <summary>
@@ -664,107 +724,4 @@ public class DatasourceService
     /// Get the count of configured datasources.
     /// </summary>
     public int DatasourceCount => _datasources.Count;
-}
-
-/// <summary>
-/// A datasource with resolved absolute paths.
-/// </summary>
-public class ResolvedDatasource
-{
-    /// <summary>
-    /// Unique name/identifier for this datasource.
-    /// </summary>
-    public string Name { get; set; } = "default";
-
-    /// <summary>
-    /// Resolved absolute path to the cache directory.
-    /// </summary>
-    public string CachePath { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Resolved absolute path to the logs directory.
-    /// </summary>
-    public string LogPath { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Full path to the access.log file.
-    /// </summary>
-    public string LogFilePath { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Whether this datasource is enabled.
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// Configured cache-key scheme selection. Auto keeps the inferred log topology.
-    /// </summary>
-    public DatasourceSchemeOverride SchemeOverride { get; set; } = DatasourceSchemeOverride.Auto;
-
-    /// <summary>
-    /// Whether the cache directory is writable.
-    /// </summary>
-    public bool CacheWritable { get; set; }
-
-    /// <summary>
-    /// Whether the logs directory is writable.
-    /// </summary>
-    public bool LogsWritable { get; set; }
-
-    /// <summary>
-    /// Presentation-only source layout: monolithic | bare_metal | mixed. Derived from the
-    /// stems on disk at the last refresh; never drives capability decisions by itself.
-    /// </summary>
-    public string Layout { get; set; } = LogSourceLayout.LayoutMonolithic;
-
-    /// <summary>
-    /// Logical source stems present at the last refresh (access.log, steam-access.log, ...).
-    /// </summary>
-    public IReadOnlyList<string> LogSourceStems { get; set; } = Array.Empty<string>();
-
-    /// <summary>
-    /// Current (non-rotated) file paths for every source stem at the last refresh.
-    /// LogFilePath above stays the legacy access.log path.
-    /// </summary>
-    public IReadOnlyList<string> LogFilePaths { get; set; } = Array.Empty<string>();
-
-    private readonly object _refreshLock = new();
-
-    /// <summary>
-    /// The log directory exactly as configured, BEFORE any bare-metal http/ descent.
-    /// Descent re-resolves from here on every refresh so the chosen directory never
-    /// freezes on a stale answer.
-    /// </summary>
-    public string ConfiguredLogPath { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Re-enumerates the source stems on disk, re-running the http/ descent from the
-    /// configured root first. Cheap (one or two directory listings); called at resolve
-    /// time and by consumers that need current sources (live monitor, API infos).
-    /// Serialized so concurrent refreshes from different singleton services cannot
-    /// interleave their writes; all properties are always derived from ONE listing.
-    /// </summary>
-    public void RefreshLogSources()
-    {
-        lock (_refreshLock)
-        {
-            var root = string.IsNullOrEmpty(ConfiguredLogPath) ? LogPath : ConfiguredLogPath;
-            var resolvedDir = LogSourceLayout.ResolveAccessLogDirectory(root);
-            if (!string.Equals(resolvedDir, LogPath, StringComparison.Ordinal))
-            {
-                LogPath = resolvedDir;
-                LogFilePath = Path.Combine(resolvedDir, "access.log");
-            }
-
-            var stems = LogSourceLayout.EnumerateStems(LogPath)
-                .OrderBy(s => s, StringComparer.Ordinal)
-                .ToList();
-            LogSourceStems = stems;
-            Layout = LogSourceLayout.DeriveLayout(stems);
-            LogFilePaths = stems
-                .Select(stem => Path.Combine(LogPath, stem))
-                .Where(File.Exists)
-                .ToList();
-        }
-    }
 }

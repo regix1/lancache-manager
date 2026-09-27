@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -13,14 +15,106 @@ namespace LancacheManager.Tests;
 
 public sealed class NginxLogRotationServiceTests
 {
-    private const string HostSignalCommand =
-        "pid=$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
-        "pgrep -f 'nginx[:] master' | head -1); if [ -z \"$pid\" ]; then exit 3; fi; " +
-        "kill -USR1 \"$pid\"";
     private const string HostProbeCommand =
         "pid=$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
         "pgrep -f 'nginx[:] master' | head -1); if [ -z \"$pid\" ]; then exit 3; fi; " +
         "printf 'nginx-pid-visible\\n'; kill -0 \"$pid\"";
+
+    [Fact]
+    public async Task PrepareReopenCheckAsync_UnsupportedMappedDockerWriter_DeniesBeforePublicationAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ds-impl-a-docker-denial-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["NginxLogRotation:ContainerName"] = "alpha,beta"
+        }).Build();
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ReplaceDockerLogs = false,
+            ProbeHostWriters = false
+        };
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "C:\\unrelated|/logs\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "2|20\n" });
+        var source = new ResolvedDatasource
+        {
+            Name = "alpha",
+            CachePath = root,
+            ConfiguredLogPath = logs,
+            LogPath = logs,
+            LogFilePath = target,
+            Enabled = true,
+            CacheWritable = true,
+            LogsWritable = true
+        };
+
+        var error = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true));
+
+        Assert.Equal("management.nginxReopen.windowsDockerUnsupported", error.StageKey);
+        Assert.Equal("line", await File.ReadAllTextAsync(target));
+        var operations = Path.Combine(root, "operations");
+        Assert.True(!Directory.Exists(operations) ||
+            !Directory.EnumerateFiles(operations, "nginx_log_*").Any());
+        Assert.DoesNotContain(service.Commands, command => command.Label.Contains("signal", StringComparison.Ordinal));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_UnsupportedMappedDockerWriter_ReturnsLinuxHintAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ds-impl-a-docker-advisory-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["NginxLogRotation:ContainerName"] = "alpha"
+        }).Build();
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ReplaceDockerLogs = false,
+            ProbeHostWriters = false
+        };
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
+        var source = new ResolvedDatasource
+        {
+            Name = "alpha",
+            CachePath = root,
+            ConfiguredLogPath = logs,
+            LogPath = logs,
+            LogFilePath = target,
+            Enabled = true,
+            CacheWritable = true,
+            LogsWritable = true
+        };
+
+        var result = await service.GetNginxReopenAvailabilityAsync(source);
+
+        Assert.False(result.Available);
+        Assert.Equal(NginxReopenRequirement.Required, result.Requirement);
+        Assert.False(result.CheckOnAction);
+        Assert.Equal(NginxReopenHint.UseLinuxManager, result.Hint);
+        Assert.Equal("line", await File.ReadAllTextAsync(target));
+        Directory.Delete(root, recursive: true);
+    }
 
     [Fact]
     public async Task CanReopenNginxAsync_ContainerizedNginxWithBareMetalLogs_ReturnsTrueAsync()
@@ -278,6 +372,8 @@ public sealed class NginxLogRotationServiceTests
         var unavailableJson = JsonSerializer.Serialize(new DatasourceInfoDto
         {
             NginxReopenAvailable = false,
+            NginxReopenRequirement = NginxReopenRequirement.Unknown,
+            NginxReopenCheckOnAction = true,
             NginxReopenHint = NginxReopenHint.GrantSignalPrivilege
         }, options);
         var availableJson = JsonSerializer.Serialize(new DatasourceInfoDto
@@ -287,6 +383,8 @@ public sealed class NginxLogRotationServiceTests
         }, options);
 
         Assert.Contains("\"nginxReopenHint\":\"grantSignalPrivilege\"", unavailableJson, StringComparison.Ordinal);
+        Assert.Contains("\"nginxReopenRequirement\":\"unknown\"", unavailableJson, StringComparison.Ordinal);
+        Assert.Contains("\"nginxReopenCheckOnAction\":true", unavailableJson, StringComparison.Ordinal);
         Assert.Contains("\"nginxReopenHint\":null", availableJson, StringComparison.Ordinal);
     }
 
@@ -296,23 +394,28 @@ public sealed class NginxLogRotationServiceTests
         var logger = new CapturingLogger<NginxLogRotationService>();
         var service = CreateService(logger);
         service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
         var result = await service.ReopenNginxLogsAsync();
 
         Assert.True(result.Success);
         Assert.Equal(1, service.DetectionCalls);
-        var invocation = Assert.Single(service.Commands);
-        Assert.Equal("host nginx log reopen", invocation.Label);
-        Assert.Equal("sh", invocation.FileName);
-        Assert.Equal(new[] { "-c", HostSignalCommand }, invocation.ArgumentList);
-        Assert.True(invocation.RedirectStandardOutput);
-        Assert.True(invocation.RedirectStandardError);
-        Assert.False(invocation.UseShellExecute);
-        Assert.Single(
-            logger.Entries,
-            entry => entry.Level == LogLevel.Information &&
-                     entry.Message.Contains("host nginx master process", StringComparison.Ordinal));
+        Assert.Collection(
+            service.Commands,
+            identity =>
+            {
+                Assert.Equal("host nginx writer identity", identity.Label);
+                Assert.Equal("sh", identity.FileName);
+                Assert.Contains("nginx[:] master", identity.ArgumentList[1], StringComparison.Ordinal);
+            },
+            signal =>
+            {
+                Assert.Equal("host nginx verified reopen", signal.Label);
+                Assert.Equal("sh", signal.FileName);
+                Assert.Contains("/proc/42/stat", signal.ArgumentList[1], StringComparison.Ordinal);
+                Assert.Contains("kill -USR1 42", signal.ArgumentList[1], StringComparison.Ordinal);
+            });
         Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Warning);
     }
 
@@ -322,6 +425,7 @@ public sealed class NginxLogRotationServiceTests
         var service = CreateService(new CapturingLogger<NginxLogRotationService>());
         service.DetectionResult = (null, "No container with nginx found");
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
         var available = await service.CanReopenNginxAsync();
@@ -329,11 +433,11 @@ public sealed class NginxLogRotationServiceTests
 
         Assert.True(available);
         Assert.True(reopenResult.Success);
-        Assert.Equal(2, service.Commands.Count);
-        foreach (var invocation in service.Commands)
+        Assert.Equal(3, service.Commands.Count);
+        foreach (var invocation in service.Commands.Take(2))
         {
             Assert.Equal("sh", invocation.FileName);
-            Assert.Equal(2, invocation.ArgumentList.Length);
+            Assert.True(invocation.ArgumentList.Length >= 2);
             Assert.Contains("nginx[:] master", invocation.ArgumentList[1], StringComparison.Ordinal);
             Assert.DoesNotContain("nginx: master", invocation.ArgumentList[1], StringComparison.Ordinal);
         }
@@ -381,22 +485,14 @@ public sealed class NginxLogRotationServiceTests
         Assert.False(first.Success);
         Assert.False(second.Success);
         Assert.True(first.DockerSocketMissing);
-        Assert.Contains("Failed to signal host nginx", first.ErrorMessage, StringComparison.Ordinal);
-        Assert.Contains("Operation not permitted", first.ErrorMessage, StringComparison.Ordinal);
-        var warning = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
-        Assert.Contains("pid: host", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("root is not required", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("CAP_KILL", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("logrotate", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("nginx -s reopen", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("Failed to reopen nginx writer", first.ErrorMessage, StringComparison.Ordinal);
         Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
 
         timeProvider.Advance(TimeSpan.FromMinutes(5));
         var third = await service.ReopenNginxLogsAsync();
 
         Assert.False(third.Success);
-        Assert.Equal(2, logger.Entries.Count(entry => entry.Level == LogLevel.Warning));
-        Assert.Equal(3, service.Commands.Count);
+        Assert.Equal(6, service.Commands.Count);
     }
 
     [Fact]
@@ -405,7 +501,7 @@ public sealed class NginxLogRotationServiceTests
         var logger = new CapturingLogger<NginxLogRotationService>();
         var service = CreateService(logger);
         service.DetectionResult = ("lancache-monolithic", null);
-        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|5678\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
         var result = await service.ReopenNginxLogsAsync();
@@ -416,19 +512,17 @@ public sealed class NginxLogRotationServiceTests
             service.Commands,
             invocation =>
             {
-                Assert.Equal("docker kill", invocation.Label);
+                Assert.Equal("docker nginx writer identity", invocation.Label);
                 Assert.Equal("docker", invocation.FileName);
-                Assert.Equal("kill --signal=USR1 lancache-monolithic", invocation.Arguments);
+                Assert.Contains("exec lancache-monolithic sh -c", invocation.Arguments, StringComparison.Ordinal);
                 Assert.Empty(invocation.ArgumentList);
             },
             invocation =>
             {
-                Assert.Equal("docker exec", invocation.Label);
+                Assert.Equal("docker nginx verified reopen", invocation.Label);
                 Assert.Equal("docker", invocation.FileName);
-                Assert.Equal(
-                    "exec lancache-monolithic sh -c \"kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null || " +
-                    "pgrep -f 'nginx[:] master' | head -1)\"",
-                    invocation.Arguments);
+                Assert.Contains("/proc/1/stat", invocation.Arguments, StringComparison.Ordinal);
+                Assert.Contains("kill -USR1 1", invocation.Arguments, StringComparison.Ordinal);
                 Assert.Empty(invocation.ArgumentList);
             });
     }
@@ -517,6 +611,11 @@ public sealed class NginxLogRotationServiceTests
         {
             service.ProcessResults.Enqueue(new ProcessCommandResult
             {
+                ExitCode = 0,
+                Output = "42|1234\n"
+            });
+            service.ProcessResults.Enqueue(new ProcessCommandResult
+            {
                 ExitCode = 1,
                 Error = "kill: Operation not permitted"
             });
@@ -539,6 +638,10 @@ public sealed class NginxLogRotationServiceTests
         public int DetectionCalls { get; private set; }
         public Queue<ProcessCommandResult> ProcessResults { get; } = new();
         public List<CommandInvocation> Commands { get; } = [];
+        public bool ProbeHostWriters { get; set; } = true;
+        public bool ReplaceDockerLogs { get; set; } = true;
+        protected override bool CanProbeHostWriters => ProbeHostWriters;
+        protected override bool CanReplaceDockerLogs => ReplaceDockerLogs;
 
         protected override Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync()
         {
@@ -596,9 +699,10 @@ public sealed class NginxLogRotationServiceTests
 
     private sealed class TestPathResolver(ILogger logger) : PathResolverBase(logger)
     {
-        protected override string BasePath => "/test";
+        protected override string BasePath => Root;
         protected override string RustExecutableExtension => string.Empty;
         public bool DockerSocketAvailable { get; init; }
+        public string Root { get; init; } = "/test";
 
         public override string ResolvePath(string relativePath) => relativePath;
         public override string NormalizePath(string path) => path;

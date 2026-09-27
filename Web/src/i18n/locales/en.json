@@ -1886,9 +1886,12 @@
     },
     "nginxReopen": {
       "alertTitle": "Cannot reopen nginx logs after changes",
+      "windowsDockerUnsupported": "This manager cannot safely change logs held by a Docker writer while running natively on Windows. Run the manager in a Linux environment with the same log mounts, or use a static log source.",
       "grantSignalPrivilege": "The manager can see host nginx but was denied permission to signal it. Check that CAP_KILL was not removed with cap_drop (Docker grants it by default), and that AppArmor or user-namespace remapping is not blocking signals from containers to host processes.",
       "enablePidHost": "Nginx appears to run on the host, so run the manager with pid: host so it can signal nginx after log changes. CAP_KILL is granted by default; do not drop it.",
-      "dockerUnavailable": "Nginx appears to run in a container, so mount /var/run/docker.sock into the manager to reopen nginx logs after log changes."
+      "dockerUnavailable": "Nginx appears to run in a container, so mount /var/run/docker.sock into the manager to reopen nginx logs after log changes.",
+      "writerUnknown": "LANCache Manager could not verify the log writer. Check access to the writer before changing these logs.",
+      "checkOnAction": "LANCache Manager will check the log writer before changing these logs."
     },
     "directoryNotice": {
       "cacheReadOnlyTitle": "Cache directory is read-only",
@@ -2771,6 +2774,7 @@
       "modal": {
         "deleteFromDatasource": "This will permanently delete all cached game files from the {{datasource}} cache. Games will need to redownload content after clearing.",
         "deleteFromAll": "This will permanently delete all cached game files from all datasources. Games will need to redownload content after clearing.",
+        "datasourceGone": "{{datasource}} is no longer configured, so nothing will be deleted. Close this dialog and check your datasource settings.",
         "clearSummary": "Stop any active downloads first. Download history and settings are kept, but the cached files cannot be recovered.",
         "deleteDatasourceCache": "Delete {{datasource}} Cache",
         "deleteAllCaches": "Delete All Caches"
@@ -3040,6 +3044,10 @@
       "title": "Game Cache Detection and Removal",
       "titleShort": "Game Cache",
       "subtitle": "Scan cache to find games and service-level files that were not matched to a game",
+      "removalScope": {
+        "allSources": "Each item is removed from every datasource that contains it.",
+        "filtered": "The list is filtered to {{datasource}}, but each item is removed from every datasource that contains it, not only {{datasource}}."
+      },
       "quick": "Quick Scan",
       "fullScanButton": "Full Scan",
       "skippedBeforeStart": "This run was refused before it started, so it will go again at its next scheduled time.",
@@ -3140,6 +3148,7 @@
       "title": "Log Processing",
       "summary": "Reads new access.log entries into the download history database.",
       "loadingDatasources": "Loading datasources...",
+      "noActiveDatasources": "No datasources are enabled. Enable one in the manager’s datasource configuration, then restart LANCache Manager.",
       "reposition": "Reposition",
       "layout": {
         "bareMetal": "Bare metal",
@@ -7403,6 +7412,7 @@
       "initializing": "Initializing cache clear...",
       "starting": "Starting cache deletion...",
       "progress": "Clearing cache ({{processed}}/{{totalDirs}}) - {{activeCount}} active",
+      "forDatasource": "{{datasource}}: {{message}}",
       "cancelled": "Cache clear cancelled",
       "error": {
         "dirNotFound": "Cache directory does not exist: {{cachePath}}",
@@ -7795,6 +7805,7 @@
     "logProcessing": {
       "starting": "Starting log processing...",
       "progress": "Processing: {{mbProcessed}} MB of {{mbTotal}} MB",
+      "progressSource": "{{datasourceName}}: Processing: {{mbProcessed}} MB of {{mbTotal}} MB",
       "complete": "Processing complete",
       "completedEntries": "Successfully processed {{entriesProcessed}} entries",
       "completedDetail": "Successfully processed {{entriesProcessed}} entries from {{linesProcessed}} lines in {{elapsed}} minutes.",

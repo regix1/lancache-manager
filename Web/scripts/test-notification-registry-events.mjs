@@ -47,6 +47,39 @@ const CLOSED_EVENT_LIST = [
 const I18N_STUB = moduleUrl(`export default { t: (key) => key, exists: () => false };`);
 const i18nStub = { t: (key) => key };
 const modules = await loadNotificationModules(I18N_STUB);
+const localizedModules = new Map();
+const loadLocalizedModules = async (locale) => {
+  if (localizedModules.has(locale)) return localizedModules.get(locale);
+  const messages =
+    locale === 'zh'
+      ? {
+          'signalr.logProcessing.progress': '处理中: {{mbProcessed}} MB / {{mbTotal}} MB',
+          'signalr.logProcessing.progressSource':
+            '{{datasourceName}}：处理中：{{mbProcessed}} MB / {{mbTotal}} MB',
+          'signalr.logProcessing.recoveryDetail': '已处理 {{entriesProcessed}} 条条目',
+          'signalr.cacheClear.starting': '开始删除缓存...',
+          'signalr.cacheClear.forDatasource': '{{datasource}}：{{message}}'
+        }
+      : {
+          'signalr.logProcessing.progress': 'Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
+          'signalr.logProcessing.progressSource':
+            '{{datasourceName}}: Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
+          'signalr.logProcessing.recoveryDetail': '{{entriesProcessed}} entries processed',
+          'signalr.cacheClear.starting': 'Starting cache deletion...',
+          'signalr.cacheClear.forDatasource': '{{datasource}}: {{message}}'
+        };
+  const i18n = moduleUrl(`
+    const messages = ${JSON.stringify(messages)};
+    export default {
+      exists: (key) => Object.hasOwn(messages, key),
+      t: (key, context = {}) => (messages[key] ?? key).replace(/{{(\\w+)}}/g, (token, name) =>
+        context[name] === undefined ? token : String(context[name]))
+    };
+  `);
+  const loaded = await loadNotificationModules(i18n);
+  localizedModules.set(locale, loaded);
+  return loaded;
+};
 const {
   AUTO_DISMISS_DELAY_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
@@ -880,6 +913,127 @@ test('required cache and import summaries remain intact without optional stage k
       stageKey: 'signalr.cacheClear.complete'
     }),
     'signalr.cacheClear.complete'
+  );
+});
+
+test('log processing recovery follows the canonical active datasource in both locales', async () => {
+  for (const locale of ['en', 'zh']) {
+    const localized = await loadLocalizedModules(locale);
+    const entry = localized.NOTIFICATION_REGISTRY.find(
+      (candidate) => candidate.type === 'log_processing'
+    );
+    assert.ok(entry?.recovery?.kind === 'simple');
+
+    const alpha = entry.recovery.createNotification({
+      isProcessing: true,
+      percentComplete: 20,
+      mbProcessed: 1,
+      mbTotal: 5,
+      entriesProcessed: 3,
+      totalLines: 0,
+      operationId: 'logs-1',
+      datasourceName: 'alpha'
+    });
+    assert.equal(alpha.details.datasourceName, 'alpha');
+    assert.equal(
+      alpha.message,
+      locale === 'zh' ? 'alpha：处理中：1.0 MB / 5.0 MB' : 'alpha: Processing: 1.0 MB of 5.0 MB'
+    );
+
+    const beta = entry.recovery.createNotification({
+      isProcessing: true,
+      percentComplete: 40,
+      mbProcessed: 2,
+      mbTotal: 5,
+      entriesProcessed: 6,
+      totalLines: 0,
+      operationId: 'logs-1',
+      datasourceName: 'beta'
+    });
+    assert.equal(beta.details.datasourceName, 'beta');
+    assert.match(beta.message, /^beta[:：]/);
+
+    for (const datasourceName of [null, undefined]) {
+      const betweenChildren = entry.recovery.createNotification({
+        isProcessing: true,
+        percentComplete: 50,
+        mbProcessed: 2.5,
+        mbTotal: 5,
+        entriesProcessed: 8,
+        totalLines: 0,
+        operationId: 'logs-1',
+        datasourceName
+      });
+      assert.equal(betweenChildren.details.datasourceName, undefined);
+      assert.doesNotMatch(betweenChildren.message, /alpha|beta/);
+      assert.equal(
+        betweenChildren.message,
+        locale === 'zh' ? '处理中: 2.5 MB / 5.0 MB' : 'Processing: 2.5 MB of 5.0 MB'
+      );
+    }
+
+    assert.equal(
+      entry.recovery.isProcessing({
+        isProcessing: false,
+        percentComplete: 100,
+        mbProcessed: 5,
+        mbTotal: 5,
+        entriesProcessed: 12,
+        totalLines: 0,
+        datasourceName: null
+      }),
+      false
+    );
+  }
+});
+
+test('cache clear live, recovered, and completed messages retain datasource scope', async () => {
+  const localized = await loadLocalizedModules('en');
+  const entry = localized.NOTIFICATION_REGISTRY.find(
+    (candidate) => candidate.type === 'cache_clearing'
+  );
+  assert.ok(entry?.recovery?.kind === 'simple');
+
+  const recovered = entry.recovery.createNotification({
+    isProcessing: true,
+    operations: [
+      {
+        operationId: 'cache-1',
+        statusMessage: 'Clearing cache',
+        percentComplete: 25,
+        filesDeleted: 3,
+        directoriesProcessed: 4,
+        bytesDeleted: 5,
+        datasourceName: 'steam'
+      }
+    ]
+  });
+  assert.equal(recovered.details.datasourceName, 'steam');
+  assert.equal(recovered.message, 'steam: Clearing cache');
+
+  assert.equal(
+    localized.formatCacheClearProgressMessage({
+      statusMessage: 'Clearing cache',
+      datasourceName: 'steam'
+    }),
+    'steam: Clearing cache'
+  );
+  assert.equal(
+    localized.formatCacheClearProgressMessage({ statusMessage: 'Clearing cache' }),
+    'Clearing cache'
+  );
+
+  const success = entry.complete.getSuccessMessage(
+    { success: true, message: 'Removed 3 files' },
+    { details: { datasourceName: 'steam' } }
+  );
+  assert.equal(success, 'steam: Removed 3 files');
+  assert.equal(
+    entry.complete.getSuccessMessage(
+      { success: true, message: 'Removed 3 files' },
+      { details: {} }
+    ),
+    'Removed 3 files'
   );
 });
 

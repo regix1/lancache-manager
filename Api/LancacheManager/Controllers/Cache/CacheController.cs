@@ -263,11 +263,11 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearAllCacheAsync(CancellationToken cancellationToken)
     {
-        // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
-        var defaultDatasource = _datasourceService.GetDefaultDatasource();
-        var cacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable();
-
-        if (!cacheWritable)
+        _datasourceService.RefreshPermissions();
+        var datasources = _datasourceService.GetDatasources().Where(source => source.Enabled).ToList();
+        var blockedDatasource = datasources.FirstOrDefault(source =>
+            !Directory.Exists(source.CachePath) || !source.CacheWritable);
+        if (datasources.Count == 0 || blockedDatasource is not null)
         {
             var errorMessage = "Cannot clear cache: cache directory is read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
@@ -334,6 +334,7 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearDatasourceCacheAsync(string name, CancellationToken cancellationToken)
     {
+        _datasourceService.RefreshPermissions();
         var datasource = _datasourceService.GetDatasources()
             .FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
@@ -342,8 +343,9 @@ public class CacheController : ControllerBase
             return NotFound(ApiResponse.NotFound($"Datasource '{name}'"));
         }
 
-        // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
-        if (!datasource.CacheWritable)
+        name = datasource.Name;
+
+        if (!Directory.Exists(datasource.CachePath) || !datasource.CacheWritable)
         {
             var errorMessage = $"Cannot clear cache for datasource '{name}': cache directory is read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
@@ -1030,8 +1032,21 @@ public class CacheController : ControllerBase
                 string.Join(", ", selections.Select(selection => selection.Service)));
             _cacheService.InvalidateCachedScan();
 
+            var logDatasources = selections
+                .Where(selection => selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
+                .SelectMany(selection => ResolveDatasourcesForSelection(selection, currentDatasources))
+                .DistinctBy(datasource => datasource.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var preparedReopenChecks = logDatasources.Count > 0
+                ? await _nginxLogRotationService.PrepareReopenChecksAsync(
+                    logDatasources,
+                    expectsPublication: true,
+                    CancellationToken.None)
+                : null;
+
             _ = Task.Run(async () =>
             {
+                await using var batchReopenChecks = preparedReopenChecks;
                 var pauseLogs = RequiresLogMutation(selections);
                 try
                 {
@@ -1050,7 +1065,11 @@ public class CacheController : ControllerBase
                         var serviceDatasources = ResolveDatasourcesForSelection(selection, currentDatasources);
                         try
                         {
-                            await RunCorruptionRemovalCoreAsync(selection, serviceDatasources, bulk: bulkState);
+                            await RunCorruptionRemovalCoreAsync(
+                                selection,
+                                serviceDatasources,
+                                bulk: bulkState,
+                                preparedReopenChecks: batchReopenChecks);
                         }
                         catch (OperationCanceledException)
                         {
@@ -1502,7 +1521,8 @@ public class CacheController : ControllerBase
         CorruptionRemovalSelection selection,
         List<ResolvedDatasource> datasources,
         Action<Guid>? onRegistered = null,
-        BulkCorruptionRemovalState? bulk = null)
+        BulkCorruptionRemovalState? bulk = null,
+        NginxReopenChecks? preparedReopenChecks = null)
     {
         // Execution-time revalidation: this core can run from queue promotion long after
         // the endpoint's check, and it deletes cache files located via the key recipe.
@@ -1644,6 +1664,14 @@ public class CacheController : ControllerBase
                 datasources.Count, service);
             bool allSucceeded = true;
             string? lastError = null;
+            var rewritesLogs = selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss;
+            await using var localReopenChecks = rewritesLogs && preparedReopenChecks is null
+                ? await _nginxLogRotationService.PrepareReopenChecksAsync(
+                    datasources,
+                    expectsPublication: true,
+                    cancellationToken)
+                : null;
+            var reopenChecks = preparedReopenChecks ?? localReopenChecks;
 
             var datasourceCount = datasources.Count;
             for (var datasourceIndex = 0; datasourceIndex < datasourceCount; datasourceIndex++)
@@ -1666,8 +1694,31 @@ public class CacheController : ControllerBase
                     datasource.Name, logsPath, cachePath);
 
                 string? stemPositionsPath = null;
+                NginxReopenCheck? reopenCheck = null;
+                var childStarted = false;
+                var reopenCompleted = false;
                 try
                 {
+                    var affectedLogPaths = rewritesLogs
+                        ? NginxLogRotationService.GetAffectedLogPaths(datasource)
+                        : Array.Empty<string>();
+                    reopenCheck = rewritesLogs && reopenChecks is not null
+                        ? reopenChecks.Take(datasource.Name) ??
+                            await _nginxLogRotationService.PrepareReopenCheckAsync(
+                                new[] { datasource },
+                                affectedLogPaths,
+                                expectsPublication: true,
+                                cancellationToken)
+                        : await _nginxLogRotationService.PrepareReopenCheckAsync(
+                            new[] { datasource },
+                            affectedLogPaths,
+                            expectsPublication: false,
+                            cancellationToken);
+                    if (rewritesLogs)
+                    {
+                        _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+                    }
+
                     var evidence = new CorruptionRemovalEvidence
                     {
                         ContractVersion = selection.ContractVersion,
@@ -1703,6 +1754,7 @@ public class CacheController : ControllerBase
                         ? null
                         : await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
 
+                    childStarted = true;
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
                         selection.DetectionMethod == CorruptionDetectionMethod.Structural
                             ? "remove-structural"
@@ -1776,7 +1828,9 @@ public class CacheController : ControllerBase
                                     overallPercent,
                                     context,
                                     detectionMethod.ToWireString()));
-                        });
+                        },
+                        configureProcess: process =>
+                            NginxLogRotationService.AttachPublicationCheck(reopenCheck, process));
 
                     // Harvest this datasource's outcome numbers from the final checkpoint
                     // before the finally below deletes the file. Both Rust remove flows persist
@@ -1788,6 +1842,19 @@ public class CacheController : ControllerBase
                         {
                             throw new InvalidDataException(
                                 "Corruption removal exited without a completed outcome checkpoint");
+                        }
+
+                        var logLinesRemoved = selection.DetectionMethod == CorruptionDetectionMethod.Structural
+                            ? 0
+                            : ReadContextCount(finalProgress.Context, "logLines");
+                        var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                            reopenCheck,
+                            logLinesRemoved > 0,
+                            cancellationToken);
+                        reopenCompleted = true;
+                        if (!reopenResult.Success)
+                        {
+                            throw new IOException(reopenResult.ErrorMessage!);
                         }
 
                         if (selection.DetectionMethod == CorruptionDetectionMethod.Structural)
@@ -1805,7 +1872,7 @@ public class CacheController : ControllerBase
                         {
                             totals.UrlsRemoved += ReadContextCount(finalProgress.Context, "count");
                             totals.FilesDeleted += ReadContextCount(finalProgress.Context, "files");
-                            totals.LogLinesRemoved += ReadContextCount(finalProgress.Context, "logLines");
+                            totals.LogLinesRemoved += logLinesRemoved;
                             totals.DownloadsDeleted += ReadContextCount(finalProgress.Context, "downloads");
                             totals.LogEntriesDeleted += ReadContextCount(finalProgress.Context, "logEntries");
                             // This purge rewrote the access log; pull the saved ingestion
@@ -1834,6 +1901,18 @@ public class CacheController : ControllerBase
                     }
                     else
                     {
+                        var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                            reopenCheck,
+                            selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss,
+                            CancellationToken.None);
+                        reopenCompleted = true;
+                        if (!reopenResult.Success)
+                        {
+                            throw new AggregateException(
+                                new InvalidOperationException(result.Error),
+                                new IOException(reopenResult.ErrorMessage!));
+                        }
+
                         _logger.LogError("[CorruptionRemoval] Failed for service {Service} on datasource '{Datasource}': {Error}",
                             service, datasource.Name, result.Error);
                         allSucceeded = false;
@@ -1853,8 +1932,30 @@ public class CacheController : ControllerBase
                         }
                     }
                 }
+                catch (Exception error)
+                {
+                    if (reopenCheck is not null && childStarted && !reopenCompleted)
+                    {
+                        var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                            reopenCheck,
+                            selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss,
+                            CancellationToken.None);
+                        reopenCompleted = true;
+                        if (!reopenResult.Success)
+                        {
+                            throw new AggregateException(
+                                error,
+                                new IOException(reopenResult.ErrorMessage!));
+                        }
+                    }
+                    throw;
+                }
                 finally
                 {
+                    if (reopenCheck is not null)
+                    {
+                        await reopenCheck.DisposeAsync();
+                    }
                     await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
                     await _rustProcessHelper.DeleteTempFileAsync(evidenceFilePath);
                     if (stemPositionsPath != null)
@@ -1871,7 +1972,6 @@ public class CacheController : ControllerBase
                 if (selection.HasRepeatedMissEvidence)
                 {
                     // Repeated-MISS removal rewrites access.log and its database projections.
-                    await _nginxLogRotationService.ReopenNginxLogsAsync();
                     await _cacheService.InvalidateServiceCountsAsync();
                 }
 

@@ -486,7 +486,7 @@ public partial class RustProcessHelper
     /// only changes what C# reads live, replacing the up-to-<see cref="DefaultProgressPollMs"/>ms
     /// poll delay with an event-driven reaction to each line Rust actually emits.
     /// </summary>
-    public Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+    public virtual Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
         ProcessStartInfo startInfo,
         Guid? operationId,
         CancellationToken cancellationToken,
@@ -1068,7 +1068,8 @@ public partial class RustProcessHelper
         string? stemPositionsFile = null,
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
-        Func<RustProgressEvent, Task>? onProgressEvent = null) =>
+        Func<RustProgressEvent, Task>? onProgressEvent = null,
+        Action<ProcessStartInfo>? configureProcess = null) =>
         RunCorruptionManagerCommandAsync(
             command,
             logsPath,
@@ -1080,7 +1081,8 @@ public partial class RustProcessHelper
             stemPositionsFile,
             cancellationToken,
             operationId,
-            onProgressEvent);
+            onProgressEvent,
+            configureProcess);
 
     private async Task<RustExecutionResult> RunCorruptionManagerCommandAsync(
         string command,
@@ -1093,7 +1095,8 @@ public partial class RustProcessHelper
         string? stemPositionsFile,
         CancellationToken cancellationToken,
         Guid? operationId,
-        Func<RustProgressEvent, Task>? onProgressEvent)
+        Func<RustProgressEvent, Task>? onProgressEvent,
+        Action<ProcessStartInfo>? configureProcess)
     {
         // D-rust-4: the Rust `remove` command's only data sink is its progress_json file, which the
         // CALLER monitors on a 500ms poll loop (CacheController). Previously that same caller path was
@@ -1131,6 +1134,7 @@ public partial class RustProcessHelper
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
+            configureProcess?.Invoke(startInfo);
             var result = await ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
                 operationId,

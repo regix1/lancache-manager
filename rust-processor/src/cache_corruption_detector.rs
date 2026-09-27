@@ -1511,7 +1511,7 @@ mod tests {
                 Some("bytes=0-1048575"),
             ));
             lines.push(log_line(
-                scan_start() + Duration::seconds(i as i64 + 1),
+                scan_start() + Duration::seconds(i + 1),
                 "GET",
                 206,
                 "MISS",
@@ -2106,8 +2106,12 @@ mod tests {
             observed_range: ObservedByteRange::NoRange,
         };
         assert_eq!(
-            compare_observation_sequences(&interner, &[observation.clone()], &[observation])
-                .unwrap(),
+            compare_observation_sequences(
+                &interner,
+                std::slice::from_ref(&observation),
+                std::slice::from_ref(&observation),
+            )
+            .unwrap(),
             Ordering::Equal
         );
     }

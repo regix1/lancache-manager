@@ -112,14 +112,26 @@ public sealed class LogSourceLayoutParityTests
             regionStart: "private ResolvedDatasource? ResolveDatasource",
             regionEnd: "public IReadOnlyList<ResolvedDatasource> GetDatasources",
             first: "datasource.RefreshLogSources();",
-            second: "datasource.LogsWritable = _pathResolver.IsDirectoryWritable(datasource.LogPath)");
+            second: "datasource.LogsWritable = Directory.Exists(datasource.LogPath)");
+        AssertOrderedWithin(
+            source,
+            regionStart: "private ResolvedDatasource? ResolveDatasource",
+            regionEnd: "public IReadOnlyList<ResolvedDatasource> GetDatasources",
+            first: "datasource.LogsWritable = Directory.Exists(datasource.LogPath)",
+            second: "_pathResolver.IsDirectoryWritable(datasource.LogPath)");
 
         AssertOrderedWithin(
             source,
             regionStart: "public void RefreshPermissions",
             regionEnd: "public bool HasMultipleDatasources",
             first: "ds.RefreshLogSources();",
-            second: "ds.LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath)");
+            second: "ds.LogsWritable = Directory.Exists(ds.LogPath)");
+        AssertOrderedWithin(
+            source,
+            regionStart: "public void RefreshPermissions",
+            regionEnd: "public bool HasMultipleDatasources",
+            first: "ds.LogsWritable = Directory.Exists(ds.LogPath)",
+            second: "_pathResolver.IsDirectoryWritable(ds.LogPath)");
     }
 
     private static void AssertOrderedWithin(

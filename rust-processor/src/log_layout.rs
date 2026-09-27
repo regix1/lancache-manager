@@ -98,7 +98,9 @@ const BARE_METAL_SOURCE_PREFIXES: [&str; 6] = [
 /// True when `prefix` is one of the recognized bare-metal source filenames (case-insensitive).
 fn is_recognized_bare_metal_prefix(prefix: &str) -> bool {
     let lower = prefix.to_ascii_lowercase();
-    BARE_METAL_SOURCE_PREFIXES.iter().any(|known| *known == lower)
+    BARE_METAL_SOURCE_PREFIXES
+        .iter()
+        .any(|known| *known == lower)
 }
 
 /// Map a per-service filename prefix (the part before `-access.log`) to the manager's

@@ -1,9 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
-use sqlx::PgPool;
-use sqlx::Row;
 use serde::Serialize;
 use serde_json::json;
+use sqlx::PgPool;
+use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
@@ -62,6 +62,14 @@ struct Args {
     /// actually reach, not a detection scan's older snapshot.
     #[arg(long = "count-only")]
     count_only: bool,
+
+    /// Canonical datasource whose history may be deleted by a standalone run.
+    #[arg(long)]
+    datasource: Option<String>,
+
+    /// Keep database history for manager-coordinated multi-datasource removal.
+    #[arg(long = "skip-db-delete")]
+    skip_db_delete: bool,
 }
 
 /// Steam removal stage keys (`signalr.gameRemove.*`). Only the per-file cache progress
@@ -94,7 +102,7 @@ struct RemovalReport {
 /// access-log and database rows must remain available for a corrected retry.
 async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String> {
     let row = sqlx::query(
-        "SELECT DISTINCT \"GameName\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 LIMIT 1"
+        "SELECT DISTINCT \"GameName\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 LIMIT 1",
     )
     .bind(game_app_id as i64)
     .fetch_optional(pool)
@@ -149,7 +157,7 @@ async fn get_game_urls_from_db(
          FROM \"LogEntries\" le
          INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
          WHERE sdm.\"AppId\" = $1 AND le.\"Url\" IS NOT NULL
-           AND le.\"DepotId\" = ANY($2)"
+           AND le.\"DepotId\" = ANY($2)",
     )
     .bind(game_app_id as i64)
     .bind(&safe_depots)
@@ -168,9 +176,7 @@ async fn get_game_urls_from_db(
         // Lowercase service name to match cache file format (same as detector)
         let service_lower = service.to_lowercase();
 
-        let url_map = service_urls
-            .entry(service_lower.clone())
-            .or_insert_with(HashMap::new);
+        let url_map = service_urls.entry(service_lower.clone()).or_default();
 
         let entry = url_map
             .entry(url.clone())
@@ -194,7 +200,7 @@ async fn get_game_urls_from_db(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
          FROM \"LogEntries\" le
          INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
-         WHERE d.\"GameAppId\" = $1 AND le.\"Url\" IS NOT NULL"
+         WHERE d.\"GameAppId\" = $1 AND le.\"Url\" IS NOT NULL",
     )
     .bind(game_app_id as i64)
     .fetch_all(pool)
@@ -207,9 +213,7 @@ async fn get_game_urls_from_db(
         let bytes_served: i64 = row.get("BytesServed");
         let service_lower = service.to_lowercase();
 
-        let url_map = service_urls
-            .entry(service_lower.clone())
-            .or_insert_with(HashMap::new);
+        let url_map = service_urls.entry(service_lower.clone()).or_default();
 
         let entry = url_map
             .entry(url.clone())
@@ -231,20 +235,24 @@ async fn get_game_urls_from_db(
         }
     }
 
-    eprintln!("  Found {} unique URLs for game AppID {}", url_data.len(), game_app_id);
+    eprintln!(
+        "  Found {} unique URLs for game AppID {}",
+        url_data.len(),
+        game_app_id
+    );
     Ok(url_data)
 }
 
 async fn get_game_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u32>> {
     // Get depot IDs from SteamDepotMappings for mapped games
-    let mapped_rows = sqlx::query(
-        "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" = $1"
-    )
-    .bind(game_app_id as i64)
-    .fetch_all(pool)
-    .await?;
+    let mapped_rows =
+        sqlx::query("SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" = $1")
+            .bind(game_app_id as i64)
+            .fetch_all(pool)
+            .await?;
 
-    let mut depot_ids: HashSet<u32> = mapped_rows.iter()
+    let mut depot_ids: HashSet<u32> = mapped_rows
+        .iter()
         .map(|r| r.get::<i64, _>("DepotId") as u32)
         .collect();
 
@@ -291,7 +299,7 @@ async fn get_shared_depot_ids(
     // Depots mapped to a DIFFERENT AppId in SteamDepotMappings.
     let mapping_rows = sqlx::query(
         "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\"
-         WHERE \"DepotId\" = ANY($2) AND \"AppId\" <> $1"
+         WHERE \"DepotId\" = ANY($2) AND \"AppId\" <> $1",
     )
     .bind(game_app_id as i64)
     .bind(&claimed)
@@ -306,7 +314,7 @@ async fn get_shared_depot_ids(
     // Depots that another game's Downloads rows carry (GameAppId set and != this game).
     let download_rows = sqlx::query(
         "SELECT DISTINCT \"DepotId\" FROM \"Downloads\"
-         WHERE \"DepotId\" = ANY($2) AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1"
+         WHERE \"DepotId\" = ANY($2) AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1",
     )
     .bind(game_app_id as i64)
     .bind(&claimed)
@@ -328,28 +336,91 @@ fn compute_safe_depot_ids(valid: &HashSet<u32>, shared: &HashSet<u32>) -> HashSe
     valid.difference(shared).copied().collect()
 }
 
-async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u64> {
-    eprintln!("Deleting database records for game AppID {}...", game_app_id);
+async fn delete_game_from_database(
+    pool: &PgPool,
+    game_app_id: u32,
+    datasource: &str,
+) -> Result<u64> {
+    eprintln!(
+        "Deleting database records for game AppID {}...",
+        game_app_id
+    );
 
-    // First, delete LogEntries that reference these downloads (foreign key constraint)
-    let log_result = sqlx::query(
-        "DELETE FROM \"LogEntries\" WHERE \"DownloadId\" IN (SELECT \"Id\" FROM \"Downloads\" WHERE \"GameAppId\" = $1)"
+    let mut transaction = pool.begin().await?;
+    sqlx::query("LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE d.\"GameAppId\" = $1 AND d.\"Datasource\" = $2
+               AND le.\"Datasource\" <> $2
+         )",
     )
     .bind(game_app_id as i64)
-    .execute(pool)
+    .bind(datasource)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected Steam history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+
+    let log_result = sqlx::query(
+        "DELETE FROM \"LogEntries\" le
+         WHERE le.\"Datasource\" = $2 AND le.\"DownloadId\" IN (
+             SELECT \"Id\" FROM \"Downloads\"
+             WHERE \"GameAppId\" = $1 AND \"Datasource\" = $2
+         )",
+    )
+    .bind(game_app_id as i64)
+    .bind(datasource)
+    .execute(&mut *transaction)
     .await?;
     let log_entries_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_entries_deleted);
 
     // Now safe to delete the downloads
-    let downloads_result = sqlx::query("DELETE FROM \"Downloads\" WHERE \"GameAppId\" = $1")
-        .bind(game_app_id as i64)
-        .execute(pool)
-        .await?;
+    let downloads_result =
+        sqlx::query("DELETE FROM \"Downloads\" WHERE \"GameAppId\" = $1 AND \"Datasource\" = $2")
+            .bind(game_app_id as i64)
+            .bind(datasource)
+            .execute(&mut *transaction)
+            .await?;
     let downloads_deleted = downloads_result.rows_affected();
 
     eprintln!("  Deleted {} download records", downloads_deleted);
+    transaction.commit().await?;
     Ok(downloads_deleted)
+}
+
+async fn validate_game_selection(pool: &PgPool, game_app_id: u32, datasource: &str) -> Result<()> {
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE d.\"GameAppId\" = $1 AND d.\"Datasource\" = $2
+               AND le.\"Datasource\" <> $2
+         )",
+    )
+    .bind(game_app_id as i64)
+    .bind(datasource)
+    .fetch_one(pool)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected Steam history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -366,6 +437,10 @@ async fn main() -> Result<()> {
     let output_json = PathBuf::from(&args.output_json);
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
+
+    if !args.count_only && !args.skip_db_delete && args.datasource.is_none() {
+        anyhow::bail!("--datasource is required when database deletion is enabled")
+    }
 
     // Whole removal routed through the single failure funnel; the permission-error abort
     // below now just `bail!`s with context instead of also hand-emitting `failed`, so
@@ -495,6 +570,17 @@ async fn main() -> Result<()> {
     }
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
+
+    if !args.skip_db_delete {
+        validate_game_selection(
+            &pool,
+            game_app_id,
+            args.datasource
+                .as_deref()
+                .context("datasource missing after validation")?,
+        )
+        .await?;
+    }
 
     // File-probe + directory cleanup phase. The disk is the only authority on what is
     // still cached: a Downloads row flagged IsEvicted records what a past scan saw, and
@@ -637,14 +723,22 @@ async fn main() -> Result<()> {
         anyhow::bail!("{}", error_msg);
     }
 
-    // Delete database records for this game (only if no permission errors)
-    removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
-    eprintln!("\nRemoving database records...");
-    let _db_records_deleted = delete_game_from_database(&pool, game_app_id).await?;
+    if !args.skip_db_delete {
+        removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+        eprintln!("\nRemoving database records...");
+        delete_game_from_database(
+            &pool,
+            game_app_id,
+            args.datasource
+                .as_deref()
+                .context("datasource missing after validation")?,
+        )
+        .await?;
+    }
 
     // Collect all depot IDs
     let mut all_depot_ids: HashSet<u32> = HashSet::new();
-    for (_url, (_service, _bytes, depot_ids)) in &url_data {
+    for (_service, _bytes, depot_ids) in url_data.values() {
         all_depot_ids.extend(depot_ids.iter());
     }
 
@@ -692,8 +786,14 @@ mod tests {
         let valid = set(&[1, 2]); // A's depots: D1, D2
         let shared = set(&[2]); // D2 also belongs to another app/game
         let safe = compute_safe_depot_ids(&valid, &shared);
-        assert!(safe.contains(&1), "exclusively-owned depot D1 must be purged");
-        assert!(!safe.contains(&2), "shared depot D2 must be excluded from the log purge");
+        assert!(
+            safe.contains(&1),
+            "exclusively-owned depot D1 must be purged"
+        );
+        assert!(
+            !safe.contains(&2),
+            "shared depot D2 must be excluded from the log purge"
+        );
         assert_eq!(safe.len(), 1);
     }
 
@@ -702,7 +802,10 @@ mod tests {
         let valid = set(&[10, 11, 12]);
         let shared = HashSet::new();
         let safe = compute_safe_depot_ids(&valid, &shared);
-        assert_eq!(safe, valid, "with no shared depots, all owned depots are safe");
+        assert_eq!(
+            safe, valid,
+            "with no shared depots, all owned depots are safe"
+        );
     }
 
     #[test]
@@ -710,7 +813,10 @@ mod tests {
         let valid = set(&[5, 6]);
         let shared = set(&[5, 6, 99]); // superset is fine
         let safe = compute_safe_depot_ids(&valid, &shared);
-        assert!(safe.is_empty(), "every owned depot also shared → nothing safe to purge");
+        assert!(
+            safe.is_empty(),
+            "every owned depot also shared → nothing safe to purge"
+        );
     }
 
     /// Licences the narrowed `get_shared_depot_ids` query. It used to read every depot belonging to
@@ -766,5 +872,4 @@ mod tests {
         let safe = compute_safe_depot_ids(&valid, &shared);
         assert!(safe.is_empty());
     }
-
 }

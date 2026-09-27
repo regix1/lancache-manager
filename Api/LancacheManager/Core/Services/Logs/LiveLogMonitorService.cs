@@ -41,7 +41,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     // Configuration - optimized for real-time updates with minimal latency
     private readonly long _minFileSizeIncrease = 10_000; // 10 KB minimum increase to trigger processing (very responsive)
     internal const long MaxConcurrentCorruptionIngestionBytes = 4 * 1024 * 1024;
-    private DateTime _lastProcessTime = DateTime.MinValue;
+    private readonly Dictionary<string, DateTime> _lastProcessTime = new();
     private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
 
     // Time half of the size-or-time flush pair: pending growth below the 10 KB threshold is
@@ -327,7 +327,8 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             // must exceed nginx's own access_log buffering (lancache ships buffer=128k
             // flush=5s, so a line can sit inside nginx up to 5s); anything shorter burns
             // ingest runs racing a buffer that has not flushed yet.
-            var timeSinceLastProcess = (DateTime.UtcNow - _lastProcessTime).TotalSeconds;
+            var now = DateTime.UtcNow;
+            var timeSinceLastProcess = SecondsSinceLastProcess(_lastProcessTime, datasource.Name, now);
             var trickleFlushDue = sizeIncrease > 0
                 && timeSinceLastProcess >= MaxSecondsBeforeTrickleFlush;
             if (sizeIncrease >= _minFileSizeIncrease || trickleFlushDue)
@@ -376,7 +377,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
                 // Start processing
                 _isProcessing = true;
-                _lastProcessTime = DateTime.UtcNow;
+                _lastProcessTime[datasource.Name] = now;
 
                 try
                 {
@@ -445,6 +446,17 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             _logger.LogError(ex, "Error checking log file size for datasource '{Name}'", datasource.Name);
             _isProcessing = false;
         }
+    }
+
+    internal static double SecondsSinceLastProcess(
+        IReadOnlyDictionary<string, DateTime> lastProcessTimes,
+        string datasourceName,
+        DateTime now)
+    {
+        var lastProcessTime = lastProcessTimes.TryGetValue(datasourceName, out var recorded)
+            ? recorded
+            : DateTime.MinValue;
+        return (now - lastProcessTime).TotalSeconds;
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+using LancacheManager.Infrastructure.Services;
+
 namespace LancacheManager.Core.Services;
 
 public partial class CacheManagementService
@@ -35,6 +37,7 @@ public partial class CacheManagementService
         string targetDescription,
         string rustProcessName,
         string outputReadLabel,
+        RemovalSelection removalSelection,
         GameCacheRemovalReport aggregatedReport,
         CancellationToken cancellationToken,
         Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress,
@@ -43,6 +46,7 @@ public partial class CacheManagementService
     {
         _logger.LogInformation("{LogTag} Starting removal for {Target}", logTag, targetDescription);
 
+        _datasourceService.RefreshPermissions();
         var executionPlan = PrepareRemovalExecutionPlan(
             logTag,
             rustBinaryPath,
@@ -50,58 +54,112 @@ public partial class CacheManagementService
             planName,
             planName + "_progress",
             target,
-            requireWritableLogs: false);
+            requireWritableLogs: true);
+        if (executionPlan.RunnableDatasources.Count == 0)
+        {
+            throw new InvalidOperationException("No enabled datasource can run this removal");
+        }
+        if (executionPlan.DatasourcesSkipped > 0)
+        {
+            throw new InvalidOperationException(
+                "Every enabled datasource must pass root and permission preflight before removal");
+        }
+
+        removalSelection = removalSelection with
+        {
+            DatasourceNames = executionPlan.RunnableDatasources
+                .Select(execution => execution.Datasource.Name)
+                .ToList()
+        };
+        await ValidateRemovalSelectionAsync(removalSelection, cancellationToken);
+        await using var reopenChecks = await _nginxLogRotationService.PrepareReopenChecksAsync(
+            executionPlan.RunnableDatasources.Select(execution => execution.Datasource).ToList(),
+            expectsPublication: true,
+            cancellationToken);
 
         int datasourcesProcessed = 0;
         foreach (var execution in executionPlan.RunnableDatasources)
         {
             var datasource = execution.Datasource;
+            await using var reopenCheck = reopenChecks.Take(datasource.Name) ??
+                await _nginxLogRotationService.PrepareReopenCheckAsync(
+                    new[] { datasource },
+                    NginxLogRotationService.GetAffectedLogPaths(datasource),
+                    expectsPublication: true,
+                    cancellationToken);
+            _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
 
-            var dsReport = await RunRustRemovalProcessAsync<GameRemovalProgressData, GameCacheRemovalReport>(
-                logTag,
-                execution,
-                () =>
-                {
-                    var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                        rustBinaryPath,
-                        $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{target}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
-                    _logger.LogInformation("{LogTag} Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                        logTag, datasource.Name, rustBinaryPath, startInfo.Arguments);
-                    return startInfo;
-                },
-                rustProcessName,
-                cancellationToken,
-                operationId,
-                async progressData =>
-                {
-                    if (onProgress != null)
+            GameCacheRemovalReport dsReport;
+            try
+            {
+                dsReport = await RunRustRemovalProcessAsync<GameRemovalProgress, GameCacheRemovalReport>(
+                    logTag,
+                    execution,
+                    () =>
                     {
-                        var scaledProgress = ScaleRemovalProgress(
-                            execution.ExecutionIndex,
-                            execution.TotalConfiguredDatasources,
-                            progressData.PercentComplete);
-                        await onProgress(
-                            scaledProgress,
-                            progressData.StageKey,
-                            progressData.Context,
-                            progressData.FilesProcessed,
-                            0);
-                    }
-                },
-                async result =>
+                        var process = _rustProcessHelper.CreateProcessStartInfo(
+                            rustBinaryPath,
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{target}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"");
+                        NginxLogRotationService.AttachPublicationCheck(reopenCheck, process);
+                        _logger.LogInformation("{LogTag} Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                            logTag, datasource.Name, rustBinaryPath, process.Arguments);
+                        return process;
+                    },
+                    rustProcessName,
+                    cancellationToken,
+                    operationId,
+                    async progress =>
+                    {
+                        if (onProgress != null)
+                        {
+                            var scaledProgress = ScaleRemovalProgress(
+                                execution.ExecutionIndex,
+                                execution.TotalConfiguredDatasources,
+                                progress.PercentComplete);
+                            await onProgress(
+                                scaledProgress,
+                                progress.StageKey,
+                                progress.Context,
+                                progress.FilesProcessed,
+                                0);
+                        }
+                    },
+                    async result =>
+                    {
+                        var report = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(
+                            result.OutputJsonPath,
+                            outputReadLabel);
+                        _stateService.ReduceLogPositionsAfterPurge(
+                            datasource.Name,
+                            report.LogLinesRemovedBeforePositionBySource,
+                            report.LogLinesRemovedBySource);
+                        return report;
+                    });
+            }
+            catch (Exception error)
+            {
+                await _nginxLogRotationService.InvalidateReopenCheckAsync(reopenCheck, CancellationToken.None);
+                var reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                    reopenCheck,
+                    physicalChange: true,
+                    CancellationToken.None);
+                if (!reopen.Success)
                 {
-                    var report = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(
-                        result.OutputJsonPath,
-                        outputReadLabel);
-                    // Runs on failed exits too (the binaries write the report on their
-                    // abort paths): the purge already shortened the log, so the saved
-                    // positions must come back regardless of how the run ended.
-                    _stateService.ReduceLogPositionsAfterPurge(
-                        datasource.Name,
-                        report.LogLinesRemovedBeforePositionBySource,
-                        report.LogLinesRemovedBySource);
-                    return report;
-                });
+                    throw new AggregateException(
+                        error,
+                        new IOException(reopen.ErrorMessage!));
+                }
+                throw;
+            }
+
+            var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                reopenCheck,
+                dsReport.LogEntriesRemoved > 0,
+                cancellationToken);
+            if (!reopenResult.Success)
+            {
+                throw new IOException(reopenResult.ErrorMessage!);
+            }
 
             if (onProgress != null)
             {
@@ -137,6 +195,8 @@ public partial class CacheManagementService
                 logTag, datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, targetDescription);
         }
 
+        await CleanupRemovalAsync(removalSelection, cancellationToken);
+
         _logger.LogInformation(
             "{LogTag} Completed for {Target}: {Processed} datasource(s) processed, {Skipped} skipped. " +
             "Total: {Files} files removed, {Bytes} bytes freed",
@@ -159,7 +219,5 @@ public partial class CacheManagementService
         // Invalidate service counts cache since logs were modified
         await InvalidateServiceCountsAsync();
 
-        // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-        await _nginxLogRotationService.ReopenNginxLogsAsync();
     }
 }

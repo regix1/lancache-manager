@@ -189,6 +189,7 @@ pub struct Inspection {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum InspectionOutcome {
     Consistent,
     Proven(StructuralEvidence),
@@ -391,7 +392,10 @@ impl ConcurrencyLimiter {
         {
             // Two counters behind the lock, neither left half-written by a panic, so a
             // poisoned lock is recovered rather than silently dropping the new limit.
-            let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             state.limit = limit;
             self.current_limit.store(limit, Ordering::Relaxed);
         }
@@ -403,7 +407,10 @@ impl ConcurrencyLimiter {
     fn acquire(&self, stop: &AtomicBool) -> Option<ConcurrencyPermit<'_>> {
         // `None` here means "the pipeline is stopping" and retires the worker, so a
         // poisoned lock must be recovered rather than quietly ending the scan early.
-        let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         loop {
             if stop.load(Ordering::Acquire) || cancel::is_cancelled() {
                 return None;
@@ -867,7 +874,7 @@ fn parse_http_headers(bytes: &[u8]) -> std::result::Result<HttpMetadata, SkipRea
     let chunked = transfer_encoding.as_deref().is_some_and(|value| {
         value
             .split(|byte| *byte == b',')
-            .last()
+            .next_back()
             .is_some_and(|coding| trim_ascii(coding) == b"chunked")
     });
     if transfer_encoding.is_some() && !chunked {
@@ -1885,9 +1892,7 @@ fn update_progress(
     };
     let percent = if status == "completed" {
         100.0
-    } else if counting {
-        0.0
-    } else if total == 0 {
+    } else if counting || total == 0 {
         0.0
     } else {
         (processed as f64 / total as f64 * 100.0).min(99.9)
@@ -3131,6 +3136,7 @@ fn revalidate_for_removal_with_layout(
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum RemovalDisposition {
     Missing,
     Healed,
@@ -3510,7 +3516,7 @@ mod tests {
         let mut reached = limiter.limit();
         for _ in 0..12 {
             now = now.saturating_add(CONCURRENCY_WINDOW.max(Duration::from_secs(30)));
-            completed += (limiter.limit() * 200) as usize;
+            completed += limiter.limit() * 200;
             if let Some(limit) = controller.observe(now, completed) {
                 limiter.set_limit(limit);
             }

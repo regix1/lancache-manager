@@ -24,6 +24,7 @@ export interface LogProcessingStatusResponse {
   mbProcessed: number;
   mbTotal: number;
   entriesProcessed: number;
+  datasourceName?: string | null;
   /** Final line count; 0 while running (the Rust line-count pre-pass was removed). */
   totalLines: number;
   stageKey?: string;
@@ -43,6 +44,7 @@ interface CacheOperationProgressItem {
   filesDeleted: number;
   directoriesProcessed: number;
   bytesDeleted: number;
+  datasourceName?: string | null;
 }
 
 export interface CacheOperationsResponse {

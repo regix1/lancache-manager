@@ -412,7 +412,17 @@ public class DatabaseService
                 using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
                 try
                 {
-                // Delete tables based on selection
+                    if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("LogEntries"))
+                    {
+                        await context.Database.ExecuteSqlRawAsync(
+                            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                            cancellationToken);
+                        await context.Database.ExecuteSqlRawAsync(
+                            "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                            cancellationToken);
+                    }
+
+                    // Delete tables based on selection
                 // PRIORITY ORDER:
                 // 1. UserSessions - ALWAYS FIRST to immediately invalidate all sessions
                 // 2. UserPreferences - Must be deleted before UserSessions FK cascade
@@ -1082,6 +1092,11 @@ public class DatabaseService
                 await context.Database.ExecuteSqlRawAsync("SET session_replication_role = DEFAULT;");
             }
             }); // end deleteStrategy.ExecuteAsync
+
+            if (tablesToClear.Contains("LogEntries"))
+            {
+                _stateRepository.ClearLogProcessingPositions();
+            }
 
             // Broadcast preference reset event AFTER all database operations complete
             // Note: UserSessionsCleared is now broadcast IMMEDIATELY after UserSessions deletion (not here)

@@ -23,11 +23,10 @@ import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
-import { LoadingState } from '@components/ui/ManagerCard';
+import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { formatBytes, formatCount } from '@utils/formatters';
-import { resolveDatasources } from '@utils/datasources';
 import type { DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
@@ -44,6 +43,8 @@ interface DatasourcesManagerProps {
 interface CacheSizeSaveState {
   name: string;
   action: 'save' | 'reset';
+  cachePath: string;
+  logsPath: string;
 }
 
 // Fetch log positions
@@ -83,44 +84,107 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const [cacheSizeDraft, setCacheSizeDraft] = useState<Record<string, string>>({});
   const [cacheSizeSaving, setCacheSizeSaving] = useState<CacheSizeSaveState | null>(null);
   const [cacheSizeError, setCacheSizeError] = useState<Record<string, string | undefined>>({});
+  const cacheSizeSaveRequestRef = useRef(0);
+  const cacheSizeSaveAllowedRef = useRef(isAdmin && !mockMode);
+  const configRef = useRef(config);
+  cacheSizeSaveAllowedRef.current = isAdmin && !mockMode;
+  configRef.current = config;
+
+  useEffect(
+    () => () => {
+      cacheSizeSaveRequestRef.current += 1;
+    },
+    []
+  );
+  useEffect(() => {
+    if (cacheSizeSaving === null) return;
+    const currentSource = config.dataSources.find(
+      (datasource) => datasource.name === cacheSizeSaving.name
+    );
+    if (
+      isAdmin &&
+      !mockMode &&
+      currentSource?.cachePath === cacheSizeSaving.cachePath &&
+      currentSource?.logsPath === cacheSizeSaving.logsPath
+    ) {
+      return;
+    }
+    cacheSizeSaveRequestRef.current += 1;
+    setCacheSizeSaving(null);
+  }, [cacheSizeSaving, config.dataSources, isAdmin, mockMode]);
 
   const saveCacheSize = async (name: string, raw: string, action: CacheSizeSaveState['action']) => {
     // Single save at a time: a second row's Enter must not steal the saving owner.
-    if (cacheSizeSaving !== null) return;
-    setCacheSizeSaving({ name, action });
+    if (cacheSizeSaving !== null || !isAdmin || mockMode) return;
+    const source = config.dataSources.find((datasource) => datasource.name === name);
+    if (!source) return;
+
+    const request = ++cacheSizeSaveRequestRef.current;
+    const cachePath = source.cachePath;
+    const logsPath = source.logsPath;
+    const saveCurrent = (): boolean => {
+      const currentSource = configRef.current.dataSources.find(
+        (datasource) => datasource.name === name
+      );
+      return (
+        request === cacheSizeSaveRequestRef.current &&
+        cacheSizeSaveAllowedRef.current &&
+        currentSource?.cachePath === cachePath &&
+        currentSource?.logsPath === logsPath
+      );
+    };
+
+    setCacheSizeSaving({ name, action, cachePath, logsPath });
     setCacheSizeError((prev) => ({ ...prev, [name]: undefined }));
     try {
       const result = await ApiService.setDatasourceCacheSize(name, raw.length > 0 ? raw : null);
-      setCacheSizeDraft((prev) => ({ ...prev, [name]: '' }));
-      // Apply the endpoint's authoritative result to this row immediately so it updates even if the
-      // config refresh below fails (the config provider keeps its last-good config silently on error).
-      updateConfig({
-        dataSources: config.dataSources.map((ds) =>
-          ds.name === name
-            ? {
-                ...ds,
-                cacheSizeOverrideBytes: result.cacheSizeOverrideBytes,
-                resolvedCacheSizeBytes: result.resolvedCacheSizeBytes,
-                cacheSizeSource: result.cacheSizeSource
-              }
-            : ds
-        )
+      if (!saveCurrent()) return;
+      updateConfig((current) => {
+        const currentSource = current.dataSources.find((datasource) => datasource.name === name);
+        if (
+          request !== cacheSizeSaveRequestRef.current ||
+          !cacheSizeSaveAllowedRef.current ||
+          currentSource?.cachePath !== cachePath ||
+          currentSource?.logsPath !== logsPath
+        ) {
+          return null;
+        }
+
+        return {
+          dataSources: current.dataSources.map((datasource) =>
+            datasource.name === name
+              ? {
+                  ...datasource,
+                  cacheSizeOverrideBytes: result.cacheSizeOverrideBytes,
+                  resolvedCacheSizeBytes: result.resolvedCacheSizeBytes,
+                  cacheSizeSource: result.cacheSizeSource
+                }
+              : datasource
+          )
+        };
       });
+      if (!saveCurrent()) return;
+      setCacheSizeDraft((prev) => ({ ...prev, [name]: '' }));
       onSuccess?.(
         action === 'reset'
           ? t('management.datasources.cacheSize.resetDone')
           : t('management.datasources.cacheSize.saved')
       );
       // Reconcile with the server: refresh the datasource config and the dashboard cache total.
+      if (!saveCurrent()) return;
       await refreshConfig();
+      if (!saveCurrent()) return;
       onDataRefresh?.();
     } catch (err: unknown) {
+      if (!saveCurrent()) return;
       setCacheSizeError((prev) => ({
         ...prev,
         [name]: getErrorMessage(err)
       }));
     } finally {
-      setCacheSizeSaving(null);
+      if (saveCurrent()) {
+        setCacheSizeSaving(null);
+      }
     }
   };
 
@@ -293,7 +357,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     });
   };
 
-  const datasources = resolveDatasources(config);
+  const datasources = config.dataSources;
 
   const hasMultiple = datasources.length > 1;
 
@@ -398,6 +462,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                 retryLabel={t('common.retry')}
                 onRetry={() => void loadData()}
               />
+            )}
+
+            {datasources.length === 0 && !loadError && (
+              <EmptyState variant="text" title={t('management.datasources.noActiveDatasources')} />
             )}
 
             {datasources.map((ds: DatasourceInfo) => {

@@ -565,6 +565,23 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// Clears every saved log-processing checkpoint after the LogEntries table is reset.
+    /// Disabled and retired datasource keys are included because they are not present in the
+    /// active configuration list.
+    /// </summary>
+    public void ClearLogProcessingPositions()
+    {
+        UpdateState(state =>
+        {
+            state.LogProcessing.Position = 0;
+            state.LogProcessing.DatasourcePositions.Clear();
+            state.LogProcessing.DatasourceTotalLines.Clear();
+            state.LogProcessing.DatasourceSourcePositions.Clear();
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
+    /// <summary>
     /// Gets the persisted ingestion diagnostics for a datasource, or null.
     /// </summary>
     public LogIngestDiagnostics? GetLogIngestDiagnostics(string datasourceName)

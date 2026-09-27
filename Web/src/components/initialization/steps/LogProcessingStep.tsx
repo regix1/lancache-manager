@@ -25,7 +25,6 @@ import { useConfig } from '@contexts/useConfig';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
 import { formatCount } from '@utils/formatters';
-import { resolveDatasources } from '@utils/datasources';
 
 interface LogProcessingStepProps {
   onComplete: () => void;
@@ -430,7 +429,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     }
   };
 
-  const datasources = resolveDatasources(config);
+  const datasources = config.dataSources;
 
   const hasMultiple = datasources.length > 1;
   const progressPercent = progress?.progress || 0;

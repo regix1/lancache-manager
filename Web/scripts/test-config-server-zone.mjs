@@ -67,6 +67,7 @@ const loadWithServerZone = async (timeZone) => {
   const order = [];
   const failures = [];
   await runLoad({
+    configRequestRef: { current: 0 },
     setError: (failure) => failures.push(failure),
     window: { setTimeout: () => 0, clearTimeout: (id) => id },
     CONFIG_TIMEOUT_MS: 8000,

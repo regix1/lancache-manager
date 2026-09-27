@@ -171,6 +171,7 @@ public class CacheClearingService : ScheduledBackgroundService
     private async Task RunCacheClearAsync(Guid operationId, string? datasourceName,
         Action<CacheClearComplete> publish)
     {
+        var clearedDatasourceNames = new List<string>();
         try
         {
             _logger.LogInformation($"Executing cache clear operation {operationId}");
@@ -185,44 +186,10 @@ public class CacheClearingService : ScheduledBackgroundService
             _operationTracker.UpdateProgress(operationId, 0, "Checking permissions...");
             await ReportProgressAsync(operationId);
 
-            // Get datasources to clear (filtered by name if specified)
+            _datasourceService.RefreshPermissions();
             var allDatasources = _datasourceService.GetDatasources()
                 .Where(ds => ds.Enabled && !string.IsNullOrEmpty(ds.CachePath))
                 .ToList();
-
-            // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
-            var writableDatasources = allDatasources
-                .Where(ds => ds.CacheWritable)
-                .ToList();
-
-            if (writableDatasources.Count == 0 && allDatasources.Count > 0)
-            {
-                var errorMessage = "Cannot clear cache: all cache directories are read-only. " +
-                    "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                    $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-                _logger.LogWarning("[CacheClear] Permission check failed: {Error}", errorMessage);
-
-                // Mark operation as complete (failed) in unified tracker.
-                // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
-                if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
-
-                await ReportProgressAsync(operationId);
-
-                SaveOperationToState(operationId);
-
-                return;
-            }
-
-            // Log if some datasources are read-only (partial operation warning)
-            var readOnlyCount = allDatasources.Count - writableDatasources.Count;
-            if (readOnlyCount > 0)
-            {
-                _logger.LogWarning(
-                    "[CacheClear] {ReadOnlyCount} of {TotalCount} datasources are read-only and will be skipped",
-                    readOnlyCount, allDatasources.Count);
-            }
 
             List<ResolvedDatasource> datasources;
             if (!string.IsNullOrEmpty(datasourceName))
@@ -250,19 +217,31 @@ public class CacheClearingService : ScheduledBackgroundService
             }
             else
             {
-                // Clear all datasources
                 datasources = allDatasources;
-
-                if (!datasources.Any())
-                {
-                    // Fallback to default cache path
-                    datasources = new List<ResolvedDatasource>
-                    {
-                        new ResolvedDatasource { Name = "default", CachePath = _cachePath, Enabled = true }
-                    };
-                }
-
                 _logger.LogInformation($"Cache clear will process {datasources.Count} datasource(s)");
+            }
+
+            if (datasources.Count == 0)
+            {
+                var errorMessage = "No enabled datasource is configured for cache clearing";
+                _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
+                await ReportProgressAsync(operationId);
+                SaveOperationToState(operationId);
+                return;
+            }
+
+            var blockedDatasource = datasources.FirstOrDefault(datasource =>
+                !Directory.Exists(datasource.CachePath) || !datasource.CacheWritable);
+            if (blockedDatasource is not null)
+            {
+                var errorMessage =
+                    $"Datasource '{blockedDatasource.Name}' cache root is missing or read-only";
+                _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
+                await ReportProgressAsync(operationId);
+                SaveOperationToState(operationId);
+                return;
             }
 
             // Collect all valid cache paths with their directory counts
@@ -370,12 +349,17 @@ public class CacheClearingService : ScheduledBackgroundService
             for (var dsIndex = 0; dsIndex < validCachePaths.Count; dsIndex++)
             {
                 var (dsName, cachePath, dirCount) = validCachePaths[dsIndex];
+                _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                {
+                    ((CacheClearingMetrics)meta).DatasourceName = dsName;
+                });
 
                 // Already-empty root: nothing for the Rust cleaner to delete. The datasource
                 // stays in validCachePaths so the reconciliation after this loop covers it.
                 if (dirCount == 0)
                 {
                     _logger.LogInformation($"Datasource {dsName} cache already empty; skipping Rust cleaner ({dsIndex + 1}/{validCachePaths.Count})");
+                    clearedDatasourceNames.Add(dsName);
                     continue;
                 }
 
@@ -517,6 +501,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 await _rustProcessHelper.DeleteTempFileAsync(progressFile);
                 _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
+                clearedDatasourceNames.Add(dsName);
             }
 
             var datasourceNames = string.Join(", ", validCachePaths.Select(p => p.Name));
@@ -679,10 +664,34 @@ public class CacheClearingService : ScheduledBackgroundService
                 _logger.LogError(ex, "Error in cache clear operation {OperationId}", operationId);
             }
 
+            if (clearedDatasourceNames.Count > 0)
+            {
+                try
+                {
+                    await using var dbContext = await _dbContextFactory.CreateDbContextAsync(
+                        CancellationToken.None);
+                    await ReconcileSuccessfulCacheClearAsync(
+                        dbContext,
+                        clearedDatasourceNames,
+                        CancellationToken.None);
+                }
+                catch (Exception reconciliationError)
+                {
+                    _logger.LogError(
+                        reconciliationError,
+                        "Cache clear failed after physical deletion and reconciliation also failed for {Datasources}",
+                        string.Join(", ", clearedDatasourceNames));
+                }
+            }
+
+            var failureMessage = clearedDatasourceNames.Count > 0
+                ? $"Cache clear failed after clearing {string.Join(", ", clearedDatasourceNames)}: {ex.Message}"
+                : $"Cache clear failed: {ex.Message}";
+
             // Mark operation as complete (failed) in unified tracker.
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
             // which reads this error string from OperationTerminalInfo.Error.
-            _operationTracker.CompleteOperation(operationId, success: false, error: $"Cache clear failed: {ex.Message}");
+            _operationTracker.CompleteOperation(operationId, success: false, error: failureMessage);
             if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
             await ReportProgressAsync(operationId);
@@ -994,6 +1003,7 @@ public class CacheClearingService : ScheduledBackgroundService
                         PercentComplete = current.PercentComplete,
                         Status = current.Status,
                         StageKey = metrics?.CurrentStageKey,
+                        DatasourceName = metrics?.DatasourceName,
                         Context = metrics?.CurrentContext == null ? null : new Dictionary<string, object?>(metrics.CurrentContext),
                         DirectoriesProcessed = metrics?.DirectoriesProcessed ?? 0,
                         TotalDirectories = metrics?.TotalDirectories ?? 0,
@@ -1065,7 +1075,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 Progress = (int)operation.PercentComplete,
                 StartTime = operation.StartedAt,
                 EndTime = operation.CompletedAt,
-                Error = operation.Status == OperationStatus.Failed ? operation.Message : null
+                Error = operation.Status == OperationStatus.Failed ? operation.Message : null,
+                DatasourceName = (operation.Metadata as CacheClearingMetrics)?.DatasourceName
             };
 
             _stateService.UpdateCacheClearOperations(operations =>
@@ -1097,7 +1108,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 Progress = (int)op.PercentComplete,
                 StartTime = op.StartedAt,
                 EndTime = op.CompletedAt,
-                Error = op.Status == OperationStatus.Failed ? op.Message : null
+                Error = op.Status == OperationStatus.Failed ? op.Message : null,
+                DatasourceName = (op.Metadata as CacheClearingMetrics)?.DatasourceName
             }).ToList();
 
             _stateService.UpdateCacheClearOperations(operations =>
@@ -1135,6 +1147,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     StartTime = stateOp.StartTime,
                     EndTime = stateOp.EndTime,
                     Error = stateOp.Error,
+                    DatasourceName = stateOp.DatasourceName,
                     PercentComplete = stateOp.Progress
                 };
             }
@@ -1156,6 +1169,7 @@ public class CacheClearingService : ScheduledBackgroundService
             BytesDeleted = metrics?.BytesDeleted ?? 0,
             FilesDeleted = metrics?.FilesDeleted ?? 0,
             Error = operation.Status == OperationStatus.Failed ? operation.Message : null,
+            DatasourceName = metrics?.DatasourceName,
             PercentComplete = operation.PercentComplete
         };
     }
@@ -1181,6 +1195,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     BytesDeleted = metrics?.BytesDeleted ?? 0,
                     FilesDeleted = metrics?.FilesDeleted ?? 0,
                     Error = op.Status == OperationStatus.Failed ? op.Message : null,
+                    DatasourceName = metrics?.DatasourceName,
                     PercentComplete = op.PercentComplete
                 };
             }).ToList();
@@ -1213,6 +1228,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     BytesDeleted = metrics?.BytesDeleted ?? 0,
                     FilesDeleted = metrics?.FilesDeleted ?? 0,
                     Error = op.Status == OperationStatus.Failed ? op.Message : null,
+                    DatasourceName = metrics?.DatasourceName,
                     PercentComplete = op.PercentComplete
                 };
             }).ToList();
@@ -1228,6 +1244,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 StartTime = op.StartTime,
                 EndTime = op.EndTime,
                 Error = op.Error,
+                DatasourceName = op.DatasourceName,
                 PercentComplete = op.Progress
             }).ToList();
 

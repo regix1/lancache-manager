@@ -101,6 +101,7 @@ export interface UnifiedNotification {
     mbTotal?: number;
     entriesProcessed?: number;
     estimatedTime?: string;
+    datasourceName?: string;
 
     // For cache_clearing
     filesDeleted?: number;

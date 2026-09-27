@@ -953,10 +953,12 @@ impl StructuralState {
             .execute(&mut self.connection),
         )?;
         self.runtime.block_on(
-            sqlx::query("DELETE FROM structural_namespaces WHERE scope = $1 AND namespace_hash != $2")
-                .bind(&self.scope)
-                .bind(&self.namespace_hash)
-                .execute(&mut self.connection),
+            sqlx::query(
+                "DELETE FROM structural_namespaces WHERE scope = $1 AND namespace_hash != $2",
+            )
+            .bind(&self.scope)
+            .bind(&self.namespace_hash)
+            .execute(&mut self.connection),
         )?;
         Ok(())
     }
@@ -999,8 +1001,8 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
         sqlx::query_scalar("SELECT version FROM structural_state_version LIMIT 1")
             .fetch_optional(&mut *transaction)
             .await?;
-    let stale_version = stored_version
-        .filter(|version| *version != i64::from(STRUCTURAL_STATE_FORMAT_VERSION));
+    let stale_version =
+        stored_version.filter(|version| *version != i64::from(STRUCTURAL_STATE_FORMAT_VERSION));
     if let Some(version) = stale_version {
         eprintln!(
             "WARNING: discarding structural scan state written for schema version {version}; \
@@ -1478,8 +1480,7 @@ mod tests {
     fn full_never_resumes_abandoned_full_staging() {
         let _env = db::lock_test_env();
         let scope = unique_scope("full-no-resume");
-        let mut first =
-            StructuralState::open(namespace(&scope), StructuralScanMode::Full).unwrap();
+        let mut first = StructuralState::open(namespace(&scope), StructuralScanMode::Full).unwrap();
         first
             .record_success(1, fingerprint(1), SuccessfulOutcome::Consistent)
             .unwrap();

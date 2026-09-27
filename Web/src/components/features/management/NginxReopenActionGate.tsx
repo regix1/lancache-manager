@@ -16,7 +16,7 @@ export const NginxReopenActionGate: React.FC<NginxReopenActionGateProps> = ({
   className = 'inline-flex',
   children
 }) => {
-  if (available) {
+  if (available && tooltip.length === 0) {
     return <>{children}</>;
   }
 

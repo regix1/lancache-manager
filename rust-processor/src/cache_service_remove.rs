@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use serde::Serialize;
 use serde_json::json;
@@ -59,8 +59,15 @@ struct Args {
     /// actually reach, not a detection scan's older snapshot.
     #[arg(long = "count-only")]
     count_only: bool,
-}
 
+    /// Canonical datasource whose history may be deleted by a standalone run.
+    #[arg(long)]
+    datasource: Option<String>,
+
+    /// Keep database history for manager-coordinated multi-datasource removal.
+    #[arg(long = "skip-db-delete")]
+    skip_db_delete: bool,
+}
 
 #[derive(Debug, Serialize)]
 struct RemovalReport {
@@ -112,7 +119,6 @@ fn cache_candidate_verified_for_deletion(
         }
     }
 }
-
 
 /// Returns each unique URL for the service along with the max BytesServed observed for it,
 /// mirroring cache_steam_remove's (url, total_bytes) shape so the cache probe can derive a
@@ -391,28 +397,92 @@ fn remove_cache_files_for_service(
     )
 }
 
-async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u64> {
+async fn delete_service_from_database(
+    pool: &PgPool,
+    service: &str,
+    datasource: &str,
+) -> Result<u64> {
     eprintln!("Deleting database records for service '{}'...", service);
 
     let service_lower = service.to_lowercase();
 
-    // First delete LogEntries
-    let log_result = sqlx::query("DELETE FROM \"LogEntries\" WHERE LOWER(\"Service\") = $1")
-        .bind(&service_lower)
-        .execute(pool)
+    let mut transaction = pool.begin().await?;
+    sqlx::query("LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
         .await?;
+    sqlx::query("LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE LOWER(d.\"Service\") = $1 AND d.\"Datasource\" = $2
+               AND le.\"Datasource\" <> $2
+         )",
+    )
+    .bind(&service_lower)
+    .bind(datasource)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected service history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+
+    let log_result = sqlx::query(
+        "DELETE FROM \"LogEntries\" le
+         WHERE le.\"Datasource\" = $2 AND le.\"DownloadId\" IN (
+             SELECT \"Id\" FROM \"Downloads\"
+             WHERE LOWER(\"Service\") = $1 AND \"Datasource\" = $2
+         )",
+    )
+    .bind(&service_lower)
+    .bind(datasource)
+    .execute(&mut *transaction)
+    .await?;
     let log_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_deleted);
 
     // Then delete Downloads
-    let downloads_result = sqlx::query("DELETE FROM \"Downloads\" WHERE LOWER(\"Service\") = $1")
-        .bind(&service_lower)
-        .execute(pool)
-        .await?;
+    let downloads_result = sqlx::query(
+        "DELETE FROM \"Downloads\" WHERE LOWER(\"Service\") = $1 AND \"Datasource\" = $2",
+    )
+    .bind(&service_lower)
+    .bind(datasource)
+    .execute(&mut *transaction)
+    .await?;
     let downloads_deleted = downloads_result.rows_affected();
     eprintln!("  Deleted {} download records", downloads_deleted);
 
+    transaction.commit().await?;
     Ok(log_deleted + downloads_deleted)
+}
+
+async fn validate_service_selection(pool: &PgPool, service: &str, datasource: &str) -> Result<()> {
+    let service_lower = service.to_lowercase();
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE LOWER(d.\"Service\") = $1 AND d.\"Datasource\" = $2
+               AND le.\"Datasource\" <> $2
+         )",
+    )
+    .bind(&service_lower)
+    .bind(datasource)
+    .fetch_one(pool)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected service history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -428,6 +498,10 @@ async fn main() -> Result<()> {
     let service = &args.service;
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
+
+    if !args.count_only && !args.skip_db_delete && args.datasource.is_none() {
+        anyhow::bail!("--datasource is required when database deletion is enabled")
+    }
 
     // Whole removal routed through the single failure funnel; the permission-error abort
     // below now just `bail!`s with context instead of hand-emitting `failed` +
@@ -488,6 +562,16 @@ async fn main() -> Result<()> {
 
     // Step 2: Remove cache files
     let url_count = urls.len();
+    if !args.skip_db_delete {
+        validate_service_selection(
+            &pool,
+            service,
+            args.datasource
+                .as_deref()
+                .context("datasource missing after validation")?,
+        )
+        .await?;
+    }
     removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
     let (
         cache_files_deleted,
@@ -570,9 +654,19 @@ async fn main() -> Result<()> {
         anyhow::bail!("{}", error_msg);
     }
 
-    // Step 4: Delete database records (only if no permission errors)
-    removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
-    let database_entries_deleted = delete_service_from_database(&pool, service).await?;
+    let database_entries_deleted = if args.skip_db_delete {
+        0
+    } else {
+        removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
+        delete_service_from_database(
+            &pool,
+            service,
+            args.datasource
+                .as_deref()
+                .context("datasource missing after validation")?,
+        )
+        .await?
+    };
 
     // Success report for the C# host. The stderr summary below stays as its fallback parse,
     // but only this JSON carries the per-stem purge counts the position adjustment needs.
@@ -680,7 +774,9 @@ mod tests {
     #[test]
     fn verification_skips_write_a_partial_report_and_block_log_and_database_removal() {
         assert!(removal_core::ensure_cache_deletions_verified(0).is_ok());
-        let error = removal_core::ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        let error = removal_core::ensure_cache_deletions_verified(2)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("2 file(s)"));
         assert!(error.contains("access logs, and database records were left intact"));
 
@@ -733,7 +829,10 @@ mod tests {
                 cache_utils::CacheKeyScheme::Monolithic,
             );
 
-        assert_eq!((deleted, permission_errors, verification_skips), (counted, 0, 0));
+        assert_eq!(
+            (deleted, permission_errors, verification_skips),
+            (counted, 0, 0)
+        );
         assert!(!no_range.exists());
         assert!(!noslice.exists());
     }

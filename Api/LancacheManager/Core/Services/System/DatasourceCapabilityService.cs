@@ -69,7 +69,6 @@ public class DatasourceCapabilityService
             CanInspectCacheStructure = canUseObjectScopedDiskFeatures,
             CanClearWholeCacheRoot = true,
             CanMapLogicalObjects = canUseObjectScopedDiskFeatures,
-            CanSignalLogReopen = !hasPerService,
             // The speed tracker discovers and tails BOTH layouts (the monolithic cachelog and
             // the per-service bare-metal http-detailed files), so any datasource with a single
             // trustworthy layout can be tracked. Unknown/Mixed evidence has no reliable service

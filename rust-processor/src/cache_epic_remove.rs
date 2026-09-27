@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
+use serde_json::json;
 use sqlx::PgPool;
 use sqlx::Row;
-use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -57,6 +57,14 @@ struct Args {
     /// actually reach, not a detection scan's older snapshot.
     #[arg(long = "count-only")]
     count_only: bool,
+
+    /// Canonical datasource whose history may be deleted by a standalone run.
+    #[arg(long)]
+    datasource: Option<String>,
+
+    /// Keep database history for manager-coordinated multi-datasource removal.
+    #[arg(long = "skip-db-delete")]
+    skip_db_delete: bool,
 }
 
 /// Epic removal stage keys (`signalr.epicRemove.*`). Only the per-file cache progress
@@ -74,8 +82,7 @@ const EPIC_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
 /// `LOWER(le."Service") = 'epicgames'` on top. Its comment said it caught rows with no DownloadId,
 /// but requiring `DownloadId IN (...)` excludes exactly those. Every Epic removal read the table
 /// twice for nothing.
-const PRIMARY_URL_QUERY: &str =
-    "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
+const PRIMARY_URL_QUERY: &str = "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
          FROM \"LogEntries\" le
          INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
          WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL";
@@ -83,14 +90,17 @@ const PRIMARY_URL_QUERY: &str =
 /// Query the database for all URLs associated with an Epic game.
 /// Joins LogEntries with Downloads via DownloadId to find URLs for the specific game.
 /// Returns: HashMap<URL, (service_lowercase, max_bytes_served)>
-async fn get_epic_game_urls_from_db(pool: &PgPool, game_name: &str) -> Result<HashMap<String, (String, i64)>> {
+async fn get_epic_game_urls_from_db(
+    pool: &PgPool,
+    game_name: &str,
+) -> Result<HashMap<String, (String, i64)>> {
     eprintln!("Querying database for Epic game URLs...");
 
     // Query LogEntries joined with Downloads to find all URLs for this Epic game
     let rows = sqlx::query(PRIMARY_URL_QUERY)
-    .bind(game_name)
-    .fetch_all(pool)
-    .await?;
+        .bind(game_name)
+        .fetch_all(pool)
+        .await?;
 
     let mut url_data: HashMap<String, (String, i64)> = HashMap::new();
 
@@ -108,37 +118,102 @@ async fn get_epic_game_urls_from_db(pool: &PgPool, game_name: &str) -> Result<Ha
         entry.1 = entry.1.max(bytes_served);
     }
 
-    eprintln!("  Found {} unique URLs for Epic game '{}'", url_data.len(), game_name);
+    eprintln!(
+        "  Found {} unique URLs for Epic game '{}'",
+        url_data.len(),
+        game_name
+    );
     Ok(url_data)
 }
 
 /// Delete database records for the Epic game (LogEntries + Downloads).
-async fn delete_epic_game_from_database(pool: &PgPool, game_name: &str) -> Result<(u64, u64)> {
+async fn delete_epic_game_from_database(
+    pool: &PgPool,
+    game_name: &str,
+    datasource: &str,
+) -> Result<(u64, u64)> {
     eprintln!("Deleting database records for Epic game '{}'...", game_name);
 
-    // First, delete LogEntries that reference these downloads (foreign key constraint)
-    let log_result = sqlx::query(
-        "DELETE FROM \"LogEntries\" WHERE \"DownloadId\" IN (
-             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
-         )"
+    let mut transaction = pool.begin().await?;
+    sqlx::query("LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *transaction)
+        .await?;
+
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL
+               AND d.\"Datasource\" = $2 AND le.\"Datasource\" <> $2
+         )",
     )
     .bind(game_name)
-    .execute(pool)
+    .bind(datasource)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected Epic history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+
+    let log_result = sqlx::query(
+        "DELETE FROM \"LogEntries\" le WHERE le.\"Datasource\" = $2 AND le.\"DownloadId\" IN (
+             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1
+               AND \"EpicAppId\" IS NOT NULL AND \"Datasource\" = $2
+         )",
+    )
+    .bind(game_name)
+    .bind(datasource)
+    .execute(&mut *transaction)
     .await?;
     let log_entries_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_entries_deleted);
 
     // Now safe to delete the downloads
     let downloads_result = sqlx::query(
-        "DELETE FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL"
+        "DELETE FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
+           AND \"Datasource\" = $2",
     )
     .bind(game_name)
-    .execute(pool)
+    .bind(datasource)
+    .execute(&mut *transaction)
     .await?;
     let downloads_deleted = downloads_result.rows_affected();
     eprintln!("  Deleted {} download records", downloads_deleted);
 
+    transaction.commit().await?;
     Ok((log_entries_deleted, downloads_deleted))
+}
+
+async fn validate_epic_game_selection(
+    pool: &PgPool,
+    game_name: &str,
+    datasource: &str,
+) -> Result<()> {
+    let mismatched_child: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM \"LogEntries\" le
+             INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+             WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL
+               AND d.\"Datasource\" = $2 AND le.\"Datasource\" <> $2
+         )",
+    )
+    .bind(game_name)
+    .bind(datasource)
+    .fetch_one(pool)
+    .await?;
+    if mismatched_child {
+        anyhow::bail!(
+            "selected Epic history has a differently attributed log entry for datasource '{}'",
+            datasource
+        )
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -155,6 +230,10 @@ async fn main() -> Result<()> {
     let output_json = PathBuf::from(&args.output_json);
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
+
+    if !args.count_only && !args.skip_db_delete && args.datasource.is_none() {
+        anyhow::bail!("--datasource is required when database deletion is enabled")
+    }
 
     // Whole removal routed through the single failure funnel; the permission-error abort
     // below now just `bail!`s with context instead of also hand-emitting `failed`, so
@@ -225,6 +304,17 @@ async fn main() -> Result<()> {
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
 
+    if !args.skip_db_delete {
+        validate_epic_game_selection(
+            &pool,
+            game_name,
+            args.datasource
+                .as_deref()
+                .context("datasource missing after validation")?,
+        )
+        .await?;
+    }
+
     // Steps 1-4 (cache delete, dir cleanup, verification gate, log purge, permission gate)
     // are the URL-scoped sequence shared with the name-keyed bins.
     let lifecycle = removal_core::RemovalLifecycleKeys {
@@ -255,8 +345,16 @@ async fn main() -> Result<()> {
         return Ok(());
     };
 
-    // Step 5: Delete database records
-    let (_log_records, _download_records) = delete_epic_game_from_database(&pool, game_name).await?;
+    if !args.skip_db_delete {
+        delete_epic_game_from_database(
+            &pool,
+            game_name,
+            args.datasource
+                .as_deref()
+                .context("datasource missing after validation")?,
+        )
+        .await?;
+    }
 
     // Write final report
     let report = RemovalReport::from_tail(game_name, &tail);

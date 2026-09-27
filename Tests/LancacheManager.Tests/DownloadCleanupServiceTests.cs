@@ -3,30 +3,13 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Coverage for the orphaned-service cleanup FK crash and the Xbox data-loss guard.
-///
-/// Root cause (see DownloadCleanupService.CleanupOrphanedServicesCoreAsync): the cleanup classified
-/// any <c>Downloads.Service</c> absent from the log-file service names as orphaned and deleted its
-/// children by Service NAME before deleting the Downloads. Xbox uses a cache-split identity -
-/// <c>Downloads.Service='xbox'</c> but its cache LogEntries live under <c>'wsus'</c> - so (1) 'xbox'
-/// was always flagged orphaned, and (2) the by-name child delete missed the 'wsus' LogEntries that
-/// reference the xbox Downloads via <c>DownloadId</c>, so deleting the parent Downloads violated
-/// <c>FK_LogEntries_Downloads_DownloadId</c> (NO ACTION) - PostgreSQL 23503.
-///
-/// The fix: (a) nullify child LogEntries by <c>DownloadId</c> (not by Service name) before deleting
-/// the parents, and (b) treat a cache-split service as in-use when its alias appears in the logs so
-/// Xbox is never flagged orphaned.
-///
-/// The pure classification tests exercise the data-loss guard with no provider. The integration
-/// tests run the real ExecuteUpdate/ExecuteDelete cleanup against a real PostgreSQL database - the
-/// only way to reproduce the FK crash, since the InMemory provider neither supports
-/// ExecuteUpdate/ExecuteDelete nor enforces foreign keys. On the PRE-FIX code these
-/// integration tests throw the FK violation (the cleanup) / delete the xbox Download (data loss);
-/// post-fix they complete cleanly and Xbox survives.
+/// Covers diagnostic orphan classification, cache-split aliases, retained observation history,
+/// datasource attribution normalization, and empty game identity repair.
 /// </summary>
 public class DownloadCleanupServiceTests
 {
@@ -95,7 +78,7 @@ public class DownloadCleanupServiceTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Integration - real cleanup against PostgreSQL with foreign keys enforced
+    // Integration - diagnostic orphan scans against PostgreSQL
     // ---------------------------------------------------------------------------------------------
 
     [Fact]
@@ -125,9 +108,6 @@ public class DownloadCleanupServiceTests
 
         await using (var run = new AppDbContext(options))
         {
-            // PRE-FIX: 'xbox' is flagged orphaned and the parent Downloads delete throws the FK
-            // violation (the wsus child is not matched by Service name). POST-FIX: the wsus alias
-            // marks xbox in-use, so nothing is removed and no exception is thrown.
             var removed = await DownloadCleanupService.CleanupOrphanedServicesCoreAsync(
                 run, logServices, NullLogger.Instance, CancellationToken.None);
 
@@ -147,7 +127,7 @@ public class DownloadCleanupServiceTests
     }
 
     [Fact]
-    public async Task Cleanup_OrphanWithCrossServiceChild_NullifiesFkBeforeDelete_NoViolation()
+    public async Task Cleanup_OrphanWithCrossServiceChild_NoViolation()
     {
         await using var database = await TestDatabase.CreateAsync();
         var options = database.Options;
@@ -162,9 +142,6 @@ public class DownloadCleanupServiceTests
 
             originId = origin.Id;
 
-            // A child LogEntry referencing the origin Download but recorded under a DIFFERENT Service
-            // name, so the by-name child delete misses it - the parent delete would hit the FK unless
-            // the child is re-pointed by DownloadId first.
             seed.LogEntries.Add(NewLogEntry("othercdn", originId));
             await seed.SaveChangesAsync();
         }
@@ -173,8 +150,6 @@ public class DownloadCleanupServiceTests
 
         await using (var run = new AppDbContext(options))
         {
-            // PRE-FIX: deleting the origin Downloads throws (othercdn child still references it).
-            // POST-FIX: the child FK is nulled by DownloadId first, so the delete succeeds.
             var removed = await DownloadCleanupService.CleanupOrphanedServicesCoreAsync(
                 run, logServices, NullLogger.Instance, CancellationToken.None);
 
@@ -183,17 +158,16 @@ public class DownloadCleanupServiceTests
 
         await using (var assert = new AppDbContext(options))
         {
-            Assert.False(await assert.Downloads.AnyAsync(d => d.Service == "origin"));
+            Assert.True(await assert.Downloads.AnyAsync(d => d.Service == "origin"));
             Assert.True(await assert.Downloads.AnyAsync(d => d.Service == "steam"));
 
-            // The cross-service child survived (its Service != 'origin') with its FK nulled.
             var child = await assert.LogEntries.SingleAsync(le => le.Service == "othercdn");
-            Assert.Null(child.DownloadId);
+            Assert.Equal(originId, child.DownloadId);
         }
     }
 
     [Fact]
-    public async Task Cleanup_OrphanWithSameServiceChild_RemovesAllServiceData()
+    public async Task Cleanup_OrphanWithSameServiceChild()
     {
         await using var database = await TestDatabase.CreateAsync();
         var options = database.Options;
@@ -221,10 +195,41 @@ public class DownloadCleanupServiceTests
 
         await using (var assert = new AppDbContext(options))
         {
-            Assert.False(await assert.Downloads.AnyAsync(d => d.Service == "origin"));
-            Assert.False(await assert.LogEntries.AnyAsync(le => le.Service == "origin"));
+            Assert.True(await assert.Downloads.AnyAsync(d => d.Service == "origin"));
+            Assert.True(await assert.LogEntries.AnyAsync(le => le.Service == "origin"));
             Assert.True(await assert.Downloads.AnyAsync(d => d.Service == "steam"));
         }
+    }
+
+    [Theory]
+    [InlineData(null, "Default")]
+    [InlineData("", "Default")]
+    [InlineData("primary", "Primary")]
+    [InlineData("Retired", "Retired")]
+    public void NormalizeDatasourceName_PreservesHistoryAndNormalizesOwnedValues(
+        string? current,
+        string expected)
+    {
+        var normalized = DownloadCleanupService.NormalizeDatasourceName(
+            current,
+            ["Default", "Primary"],
+            "Default");
+
+        Assert.Equal(expected, normalized);
+    }
+
+    [Fact]
+    public async Task NormalizeDatasourceMappings_Postgres_CanonicalizesKnownHistory()
+    {
+        var schema = Environment.GetEnvironmentVariable("DS_IMPL_CASE_CORRECTION_SCHEMA");
+        if (string.IsNullOrWhiteSpace(schema))
+        {
+            await using var database = await TestDatabase.CreateAsync();
+            await VerifyDatasourceNormalizationAsync(database.Options);
+            return;
+        }
+
+        await VerifyDatasourceNormalizationAsync(CreatePostgresOptions(schema));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -502,6 +507,165 @@ public class DownloadCleanupServiceTests
     // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
+
+    private static async Task VerifyDatasourceNormalizationAsync(DbContextOptions<AppDbContext> options)
+    {
+        const string alphaClient = "10.0.0.11";
+        var eventTime = new DateTime(2026, 9, 26, 18, 0, 0, DateTimeKind.Utc);
+        long alphaDownloadId;
+        long betaDownloadId;
+        long retiredDownloadId;
+        long emptyDownloadId;
+        long alphaEntryId;
+        long alphaHistoryId;
+        long betaEntryId;
+        long retiredEntryId;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            var alpha = NewDownload("steam");
+            alpha.ClientIp = alphaClient;
+            alpha.DepotId = 42;
+            alpha.IsActive = true;
+            alpha.Datasource = "alpha";
+
+            var beta = NewDownload("steam");
+            beta.ClientIp = alphaClient;
+            beta.DepotId = 42;
+            beta.IsActive = true;
+            beta.Datasource = "beta";
+
+            var retired = NewDownload("steam");
+            retired.ClientIp = "10.0.0.13";
+            retired.DepotId = 42;
+            retired.Datasource = "retired";
+
+            var empty = NewDownload("steam");
+            empty.ClientIp = "10.0.0.14";
+            empty.Datasource = "";
+
+            seed.Downloads.AddRange(alpha, beta, retired, empty);
+            await seed.SaveChangesAsync();
+
+            alphaDownloadId = alpha.Id;
+            betaDownloadId = beta.Id;
+            retiredDownloadId = retired.Id;
+            emptyDownloadId = empty.Id;
+
+            var alphaEntry = NewLogEntry("steam", alpha.Id);
+            alphaEntry.ClientIp = alphaClient;
+            alphaEntry.Timestamp = eventTime;
+            alphaEntry.Url = "/depot/42/chunk";
+            alphaEntry.BytesServed = 4096;
+            alphaEntry.Datasource = "alpha";
+
+            var alphaHistory = NewLogEntry("steam", alpha.Id);
+            alphaHistory.DownloadId = null;
+            alphaHistory.ClientIp = alphaClient;
+            alphaHistory.Timestamp = eventTime.AddSeconds(-1);
+            alphaHistory.Url = "/depot/42/history";
+            alphaHistory.BytesServed = 2048;
+            alphaHistory.Datasource = "alpha";
+
+            var betaEntry = NewLogEntry("steam", beta.Id);
+            betaEntry.ClientIp = alphaClient;
+            betaEntry.Timestamp = eventTime;
+            betaEntry.Url = "/depot/42/chunk";
+            betaEntry.BytesServed = 4096;
+            betaEntry.Datasource = "beta";
+
+            var retiredEntry = NewLogEntry("steam", retired.Id);
+            retiredEntry.ClientIp = retired.ClientIp;
+            retiredEntry.Timestamp = eventTime;
+            retiredEntry.Url = "/depot/42/retired";
+            retiredEntry.BytesServed = 1024;
+            retiredEntry.Datasource = "retired";
+
+            seed.LogEntries.AddRange(alphaEntry, alphaHistory, betaEntry, retiredEntry);
+            await seed.SaveChangesAsync();
+
+            alphaEntryId = alphaEntry.Id;
+            alphaHistoryId = alphaHistory.Id;
+            betaEntryId = betaEntry.Id;
+            retiredEntryId = retiredEntry.Id;
+        }
+
+        await using (var run = new AppDbContext(options))
+        {
+            var updated = await DownloadCleanupService.NormalizeDatasourceMappingsCoreAsync(
+                run,
+                ["ALPHA", "beta"],
+                "ALPHA",
+                NullLogger.Instance,
+                CancellationToken.None);
+
+            Assert.Equal(4, updated);
+        }
+
+        await using (var assert = new AppDbContext(options))
+        {
+            Assert.Equal("ALPHA", (await assert.Downloads.SingleAsync(row => row.Id == alphaDownloadId)).Datasource);
+            Assert.Equal("beta", (await assert.Downloads.SingleAsync(row => row.Id == betaDownloadId)).Datasource);
+            Assert.Equal("retired", (await assert.Downloads.SingleAsync(row => row.Id == retiredDownloadId)).Datasource);
+            Assert.Equal("ALPHA", (await assert.Downloads.SingleAsync(row => row.Id == emptyDownloadId)).Datasource);
+
+            var alphaEntry = await assert.LogEntries.SingleAsync(row => row.Id == alphaEntryId);
+            var alphaHistory = await assert.LogEntries.SingleAsync(row => row.Id == alphaHistoryId);
+            var betaEntry = await assert.LogEntries.SingleAsync(row => row.Id == betaEntryId);
+            var retiredEntry = await assert.LogEntries.SingleAsync(row => row.Id == retiredEntryId);
+
+            Assert.Equal("ALPHA", alphaEntry.Datasource);
+            Assert.Equal("ALPHA", alphaHistory.Datasource);
+            Assert.Equal("beta", betaEntry.Datasource);
+            Assert.Equal("retired", retiredEntry.Datasource);
+            Assert.Equal(alphaDownloadId, alphaEntry.DownloadId);
+            Assert.Null(alphaHistory.DownloadId);
+            Assert.Equal(betaDownloadId, betaEntry.DownloadId);
+            Assert.Equal(retiredDownloadId, retiredEntry.DownloadId);
+
+            Assert.Empty(await (
+                from entry in assert.LogEntries
+                join download in assert.Downloads on entry.DownloadId equals download.Id
+                where entry.Datasource == "ALPHA" && entry.Datasource != download.Datasource
+                select entry.Id).ToListAsync());
+
+            Assert.Equal(1, await assert.LogEntries.CountAsync(row =>
+                row.Datasource == "ALPHA"
+                && row.ClientIp == alphaEntry.ClientIp
+                && row.Service == alphaEntry.Service
+                && row.Timestamp == alphaEntry.Timestamp
+                && row.Url == alphaEntry.Url
+                && row.BytesServed == alphaEntry.BytesServed));
+
+            Assert.Equal(alphaDownloadId, await assert.Downloads
+                .Where(row => row.ClientIp == alphaClient
+                    && row.Service == "steam"
+                    && row.DepotId == 42
+                    && row.IsActive
+                    && row.Datasource == "ALPHA")
+                .Select(row => row.Id)
+                .SingleAsync());
+        }
+    }
+
+    private static DbContextOptions<AppDbContext> CreatePostgresOptions(string schema)
+    {
+        var connection = Environment.GetEnvironmentVariable("DS_IMPL_POSTGRES_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connection))
+        {
+            throw new InvalidOperationException("The PostgreSQL test connection is missing");
+        }
+
+        var settings = new NpgsqlConnectionStringBuilder(connection)
+        {
+            SearchPath = schema + ",public",
+            ApplicationName = "ds-impl-b-case-correction"
+        };
+
+        return new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(settings.ConnectionString)
+            .Options;
+    }
 
     private static Download NewDownload(string service) => new Download
     {

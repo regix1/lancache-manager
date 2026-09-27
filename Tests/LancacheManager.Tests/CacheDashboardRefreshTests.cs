@@ -26,7 +26,8 @@ public sealed class CacheDashboardRefreshTests
 
             var paths = CacheManagementService.SelectFullScanCachePaths(
                 datasources,
-                Path.Combine(testRoot, "legacy"));
+                Path.Combine(testRoot, "legacy"),
+                DatasourceOrigin.Explicit);
 
             Assert.Equal([alpha, beta, nested], paths);
         }
@@ -48,7 +49,10 @@ public sealed class CacheDashboardRefreshTests
                 new() { CachePath = Path.Combine(testRoot, "disabled"), Enabled = false }
             };
 
-            var paths = CacheManagementService.SelectFullScanCachePaths(datasources, legacy);
+            var paths = CacheManagementService.SelectFullScanCachePaths(
+                datasources,
+                legacy,
+                DatasourceOrigin.Legacy);
 
             Assert.Equal([legacy], paths);
         }
@@ -78,7 +82,10 @@ public sealed class CacheDashboardRefreshTests
                 new() { CachePath = physicalRoot, Enabled = true }
             };
 
-            var paths = CacheManagementService.SelectFullScanCachePaths(datasources, testRoot);
+            var paths = CacheManagementService.SelectFullScanCachePaths(
+                datasources,
+                testRoot,
+                DatasourceOrigin.Explicit);
 
             Assert.Equal([physicalRoot], paths);
         }
@@ -105,6 +112,32 @@ public sealed class CacheDashboardRefreshTests
         Assert.Equal(3, aggregate.HexDirectories);
         Assert.Equal(5, aggregate.EstimatedDeletionTimes.PreserveSeconds);
         Assert.Equal("5 seconds", aggregate.EstimatedDeletionTimes.PreserveFormatted);
+    }
+
+    [Fact]
+    public void SelectFullScanCachePaths_ExplicitAllDisabledReturnsNoRoot()
+    {
+        var paths = CacheManagementService.SelectFullScanCachePaths(
+            [new ResolvedDatasource { CachePath = "disabled", Enabled = false }],
+            "legacy",
+            DatasourceOrigin.Explicit);
+
+        Assert.Empty(paths);
+    }
+
+    [Fact]
+    public void SumFilesystemUsage_CountsEachFilesystemOnce()
+    {
+        var totals = CacheManagementService.SumFilesystemUsage(
+        [
+            ("first", 1_000L, 400L),
+            ("first", 1_000L, 400L),
+            ("second", 2_000L, 500L)
+        ]);
+
+        Assert.Equal(3_000, totals.Capacity);
+        Assert.Equal(900, totals.Free);
+        Assert.Equal(2_100, totals.Used);
     }
 
     [Fact]

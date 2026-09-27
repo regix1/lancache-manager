@@ -229,7 +229,8 @@ pub async fn query_game_downloads(
     // below caps URLs per depot by counting and resetting that count when the depot id changes,
     // so it caps nothing unless a depot's rows arrive together. Pushed once, ahead of the
     // LIMIT the sampled path adds, so the two cannot drift apart.
-    unknown_query.push(" GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" ORDER BY le.\"DepotId\"");
+    unknown_query
+        .push(" GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" ORDER BY le.\"DepotId\"");
 
     if let Some(limit) = max_urls_per_game {
         unknown_query.push(" LIMIT ");
@@ -262,14 +263,17 @@ pub async fn query_game_downloads(
             }
 
             total_url_count += 1;
-            games_map.entry(depot_id_u32).or_default().push(DownloadRecord {
-                service,
-                game_app_id: depot_id_u32,
-                game_name: format!("Unknown Game (Depot {})", depot_id_u32),
-                url,
-                depot_id: Some(depot_id_u32),
-                bytes_served: bytes_served.unwrap_or(0),
-            });
+            games_map
+                .entry(depot_id_u32)
+                .or_default()
+                .push(DownloadRecord {
+                    service,
+                    game_app_id: depot_id_u32,
+                    game_name: format!("Unknown Game (Depot {})", depot_id_u32),
+                    url,
+                    depot_id: Some(depot_id_u32),
+                    bytes_served: bytes_served.unwrap_or(0),
+                });
         }
     }
 
@@ -336,10 +340,11 @@ pub async fn query_service_downloads(
             let url: String = row.get(1);
             let bytes_served: Option<i64> = row.get(2);
             let service_lower = cache_utils::service_name_lowercase(&service);
-            services
-                .entry(service_lower.clone())
-                .or_default()
-                .push((service_lower, url, bytes_served.unwrap_or(0)));
+            services.entry(service_lower.clone()).or_default().push((
+                service_lower,
+                url,
+                bytes_served.unwrap_or(0),
+            ));
         }
     }
 
@@ -347,8 +352,7 @@ pub async fn query_service_downloads(
     let total_urls: usize = services.values().map(|v| v.len()).sum();
     eprintln!(
         "Found {} unique services with {} URLs",
-        service_count,
-        total_urls
+        service_count, total_urls
     );
 
     Ok(services)
@@ -397,9 +401,7 @@ pub async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownload
 /// GameName but neither a Steam AppId nor an Epic AppId. Identity = (Service, GameName).
 /// Mirrors `query_epic_game_downloads` but gates on
 /// `GameAppId IS NULL AND EpicAppId IS NULL AND GameName IS NOT NULL` instead of EpicAppId.
-pub async fn query_named_game_downloads(
-    pool: &PgPool,
-) -> Result<Vec<NamedDownloadRecord>> {
+pub async fn query_named_game_downloads(pool: &PgPool) -> Result<Vec<NamedDownloadRecord>> {
     eprintln!("Querying LogEntries for named (Blizzard/Riot) game URLs...");
 
     // GROUP BY (d.Service, le.Service, Url, GameName) + MAX(BytesServed) so each named
@@ -462,9 +464,7 @@ pub struct EvictedDownloadUrl {
 /// is excluded: the Steam bucket joins SteamDepotMappings rather than Downloads and never
 /// filtered on IsEvicted, so Steam games were never blind here and their per-download eviction
 /// state stays owned by cache_eviction_scan.
-pub async fn query_evicted_game_download_urls(
-    pool: &PgPool,
-) -> Result<Vec<EvictedDownloadUrl>> {
+pub async fn query_evicted_game_download_urls(pool: &PgPool) -> Result<Vec<EvictedDownloadUrl>> {
     eprintln!("Querying LogEntries for evicted Epic/named game URLs...");
 
     // Byte-backed rows only: zero-byte Downloads are never flagged evicted, so this predicate is

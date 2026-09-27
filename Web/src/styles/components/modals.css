@@ -546,9 +546,14 @@
     margin-right: -0.75rem;
   }
 
-  /* Two buttons split a 320px dialog equally; a third wraps to its own line. */
+  .confirmation-modal__actions {
+    flex-direction: column;
+  }
+
+  /* Full-width controls keep translated and entity-specific labels on one 44px line. */
   .confirmation-modal__actions > button {
-    flex: 1 1 7rem;
+    flex: 0 0 2.75rem;
+    width: 100%;
     min-width: 0;
   }
 

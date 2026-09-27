@@ -10,6 +10,11 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use cache_corruption_detector::{
+    CorruptionCandidate, CorruptionDetector, CorruptionEvidence, DetectionMethod,
+    CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,
+};
+use cache_utils::{CacheSliceKind, ObservedByteRange};
 use lancache_processor::cache_corruption_detector;
 use lancache_processor::cache_structural_scanner;
 use lancache_processor::cache_structural_state;
@@ -20,11 +25,6 @@ use lancache_processor::log_layout;
 use lancache_processor::log_purge;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils::{self, write_progress, ProgressData};
-use cache_corruption_detector::{
-    CorruptionCandidate, CorruptionDetector, CorruptionEvidence, DetectionMethod,
-    CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,
-};
-use cache_utils::{CacheSliceKind, ObservedByteRange};
 use log_purge::{ExactLogMatcher, ExactLogObservation};
 use progress_events::ProgressReporter;
 

@@ -117,12 +117,17 @@ export const formatLogProcessingDetailMessage = (
  */
 export const formatLogProcessingRecoveryMessage = (
   mbProcessed?: number,
-  mbTotal?: number
+  mbTotal?: number,
+  datasourceName?: string | null
 ): string => {
-  return i18n.t('signalr.logProcessing.progress', {
-    mbProcessed: mbProcessed?.toFixed(1) || '0',
-    mbTotal: mbTotal?.toFixed(1) || '0'
-  });
+  return i18n.t(
+    datasourceName ? 'signalr.logProcessing.progressSource' : 'signalr.logProcessing.progress',
+    {
+      datasourceName,
+      mbProcessed: mbProcessed?.toFixed(1) || '0',
+      mbTotal: mbTotal?.toFixed(1) || '0'
+    }
+  );
 };
 
 /**
@@ -460,16 +465,22 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
   const base = event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
     : (event.statusMessage ?? i18n.t('signalr.cacheClear.starting'));
+  const scoped = event.datasourceName
+    ? i18n.t('signalr.cacheClear.forDatasource', {
+        datasource: event.datasourceName,
+        message: base
+      })
+    : base;
 
   if (event.directoriesProcessed !== undefined && event.totalDirectories) {
     return i18n.t('signalr.cacheClear.progressDirectories', {
-      base,
+      base: scoped,
       processed: event.directoriesProcessed,
       total: event.totalDirectories
     });
   }
 
-  return base;
+  return scoped;
 };
 
 /**

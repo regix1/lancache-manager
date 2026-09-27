@@ -46,8 +46,6 @@ public class DatasourceCapabilities
     /// unambiguous monolithic or bare-metal key scheme.
     /// </summary>
     public bool CanMapLogicalObjects { get; init; }
-    /// <summary>The container-exec nginx log-reopen signal applies to this datasource.</summary>
-    public bool CanSignalLogReopen { get; init; }
     /// <summary>The live speed tracker's cachelog tail understands this datasource's logs.</summary>
     public bool CanTrackLiveSpeed { get; init; }
 }

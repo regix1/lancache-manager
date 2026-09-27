@@ -29,6 +29,7 @@ public class RustLogProcessorService
     private Guid? _currentOperationId;
     private string? _currentDatasourceName;
     private string? _currentProgressPath;
+    private LogProcessingBatchState? _currentBatch;
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
@@ -80,6 +81,7 @@ public class RustLogProcessorService
                 _currentOperationId = null;
                 _currentDatasourceName = null;
                 _currentProgressPath = null;
+                _currentBatch = null;
                 _cancellationTokenSource = null;
                 // Reset the busy/state gates too: the universal force-kill path bypasses
                 // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true and
@@ -157,8 +159,130 @@ public class RustLogProcessorService
         _currentOperationId = null;
         _currentDatasourceName = null;
         _currentProgressPath = null;
+        _currentBatch = null;
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
+    }
+
+    internal static double ScaleBatchProgress(LogProcessingBatchState? batch, double childPercent)
+    {
+        var boundedChildPercent = Math.Clamp(childPercent, 0, 100);
+        if (batch is null)
+        {
+            return boundedChildPercent;
+        }
+
+        var scaled = ((batch.CompletedChildren + boundedChildPercent / 100) / batch.ChildCount) * 100;
+        batch.PercentComplete = Math.Max(batch.PercentComplete, scaled);
+        return batch.PercentComplete;
+    }
+
+    internal static void RecordBatchChild(
+        LogProcessingBatchState batch,
+        string datasourceName,
+        bool succeeded,
+        LogProcessingProgress? progress)
+    {
+        batch.EntriesProcessed += Math.Max(batch.CurrentEntriesProcessed, progress?.EntriesSaved ?? 0);
+        batch.LinesProcessed += Math.Max(batch.CurrentLinesProcessed, progress?.LinesParsed ?? 0);
+        batch.TotalLines += Math.Max(batch.CurrentTotalLines, progress?.TotalLines ?? 0);
+        batch.BytesProcessed += Math.Max(batch.CurrentBytesProcessed, progress?.BytesProcessed ?? 0);
+        batch.TotalBytes += Math.Max(batch.CurrentTotalBytes, progress?.TotalBytes ?? 0);
+        batch.CurrentEntriesProcessed = 0;
+        batch.CurrentLinesProcessed = 0;
+        batch.CurrentTotalLines = 0;
+        batch.CurrentBytesProcessed = 0;
+        batch.CurrentTotalBytes = 0;
+        batch.CompletedChildren++;
+        batch.PercentComplete = Math.Max(
+            batch.PercentComplete,
+            batch.CompletedChildren * 100.0 / batch.ChildCount);
+
+        if (!succeeded && batch.FailedDatasourceName is null)
+        {
+            batch.FailedDatasourceName = datasourceName;
+        }
+    }
+
+    internal void CompleteBatchOperation(
+        Guid operationId,
+        LogProcessingBatchState batch,
+        bool cancelled,
+        bool batchFinished)
+    {
+        if (_operationTracker.GetOperation(operationId)?.Status.IsTerminal() == true)
+        {
+            return;
+        }
+
+        if (_currentOperationId == operationId)
+        {
+            IsProcessing = false;
+            _currentDatasourceName = null;
+            _currentProgressPath = null;
+            _currentBatch = null;
+        }
+
+        if (cancelled)
+        {
+            var metrics = new LogProcessingTerminalMetrics(
+                batch.EntriesProcessed,
+                batch.LinesProcessed,
+                null,
+                "Log processing was cancelled",
+                null);
+            _operationTracker.CompleteOperation(
+                operationId,
+                false,
+                "Operation was cancelled",
+                cancelled: true,
+                onCompleting: operation => operation.Metadata = metrics);
+            return;
+        }
+
+        if (batch.FailedDatasourceName is { } failedDatasourceName)
+        {
+            var message = $"Log processing failed for datasource '{failedDatasourceName}'";
+            var metrics = new LogProcessingTerminalMetrics(
+                batch.EntriesProcessed,
+                batch.LinesProcessed,
+                null,
+                message,
+                null);
+            _operationTracker.CompleteOperation(
+                operationId,
+                false,
+                message,
+                onCompleting: operation => operation.Metadata = metrics);
+            return;
+        }
+
+        if (batchFinished)
+        {
+            var metrics = new LogProcessingTerminalMetrics(
+                batch.EntriesProcessed,
+                batch.LinesProcessed,
+                null,
+                "Log processing completed successfully",
+                "signalr.logProcessing.complete");
+            _operationTracker.CompleteOperation(
+                operationId,
+                true,
+                onCompleting: operation => operation.Metadata = metrics);
+            return;
+        }
+
+        var incompleteMetrics = new LogProcessingTerminalMetrics(
+            batch.EntriesProcessed,
+            batch.LinesProcessed,
+            null,
+            "Log processing ended without completing; marked failed",
+            null);
+        _operationTracker.CompleteOperation(
+            operationId,
+            false,
+            "Log processing ended without completing",
+            onCompleting: operation => operation.Metadata = incompleteMetrics);
     }
 
     private async Task<bool> RunAllDatasourcesAsync()
@@ -188,6 +312,8 @@ public class RustLogProcessorService
         }
 
         var batchOperationId = BeginOperation();
+        var batch = new LogProcessingBatchState { ChildCount = datasources.Count };
+        _currentBatch = batch;
         var batchToken = _operationTracker.GetOperation(batchOperationId)!.CancellationTokenSource!.Token;
         try
         {
@@ -215,7 +341,8 @@ public class RustLogProcessorService
                     logPosition,
                     datasourceName: datasource.Name,
                     sharedOperationId: batchOperationId,
-                    finalizeOperation: i == datasources.Count - 1);
+                    finalizeOperation: false,
+                    batch: batch);
                 if (!success)
                 {
                     allSuccess = false;
@@ -223,7 +350,12 @@ public class RustLogProcessorService
                 }
             }
 
-            return allSuccess;
+            CompleteBatchOperation(
+                batchOperationId,
+                batch,
+                cancelled: batchToken.IsCancellationRequested,
+                batchFinished: true);
+            return allSuccess && !batchToken.IsCancellationRequested;
         }
         finally
         {
@@ -235,14 +367,11 @@ public class RustLogProcessorService
             // terminal state, fail the operation here so the queue can move on.
             if (_operationTracker.GetOperation(batchOperationId)?.Status.IsTerminal() != true)
             {
-                var terminalMetrics = new LogProcessingTerminalMetrics(
-                    EntriesProcessed: 0,
-                    LinesProcessed: 0,
-                    Elapsed: null,
-                    Message: "Log processing ended without completing; marked failed",
-                    StageKey: null);
-                _operationTracker.CompleteOperation(batchOperationId, false,
-                    "Log processing ended without completing", onCompleting: operation => operation.Metadata = terminalMetrics);
+                CompleteBatchOperation(
+                    batchOperationId,
+                    batch,
+                    cancelled: batchToken.IsCancellationRequested,
+                    batchFinished: false);
             }
 
             if (_currentOperationId == batchOperationId)
@@ -333,14 +462,54 @@ public class RustLogProcessorService
             {
                 IsProcessing = false,
                 Status = "idle",
-                OperationId = _currentOperationId
+                OperationId = _currentOperationId,
+                DatasourceName = null
             };
         }
 
         // Read progress from the active datasource's progress file.
+        if (_currentDatasourceName is null)
+        {
+            if (_currentBatch is not { } betweenChildren)
+            {
+                return new LogProcessingStatusResponse
+                {
+                    IsProcessing = true,
+                    Status = "starting",
+                    OperationId = _currentOperationId,
+                    DatasourceName = null
+                };
+            }
+
+            return new LogProcessingStatusResponse
+            {
+                IsProcessing = true,
+                Status = "running",
+                OperationId = _currentOperationId,
+                DatasourceName = null,
+                PercentComplete = betweenChildren.PercentComplete,
+                MbProcessed = Math.Round(betweenChildren.BytesProcessed / (1024.0 * 1024.0), 1),
+                MbTotal = Math.Round(betweenChildren.TotalBytes / (1024.0 * 1024.0), 1),
+                EntriesProcessed = betweenChildren.EntriesProcessed,
+                TotalLines = betweenChildren.TotalLines
+            };
+        }
+
         var operationsDir = _pathResolver.GetOperationsDirectory();
-        var progressPath = _currentProgressPath
-            ?? Path.Combine(operationsDir, $"rust_progress_{_currentDatasourceName ?? (_datasourceService.GetDefaultDatasource()?.Name ?? "default")}.json");
+        var progressPath = _currentProgressPath;
+        if (progressPath is null)
+        {
+            return new LogProcessingStatusResponse
+            {
+                IsProcessing = true,
+                Status = "starting",
+                OperationId = _currentOperationId,
+                DatasourceName = _currentDatasourceName,
+                PercentComplete = _currentBatch?.PercentComplete,
+                EntriesProcessed = _currentBatch?.EntriesProcessed,
+                TotalLines = _currentBatch?.TotalLines
+            };
+        }
         var legacyProgressPath = Path.Combine(operationsDir, "rust_progress.json");
 
         LogProcessingProgress? progress = null;
@@ -368,25 +537,48 @@ public class RustLogProcessorService
             {
                 IsProcessing = true,
                 Status = "starting",
-                OperationId = _currentOperationId
+                OperationId = _currentOperationId,
+                DatasourceName = _currentDatasourceName,
+                PercentComplete = _currentBatch?.PercentComplete,
+                EntriesProcessed = _currentBatch?.EntriesProcessed,
+                TotalLines = _currentBatch?.TotalLines
             };
         }
 
         // The Rust processor reports real byte counts across ALL discovered log files
         // (access.log + rotated + compressed), replacing the old single-file estimate.
-        var mbTotal = progress.TotalBytes / (1024.0 * 1024.0);
-        var mbProcessed = progress.BytesProcessed / (1024.0 * 1024.0);
+        var percentComplete = ScaleBatchProgress(_currentBatch, progress.PercentComplete);
+        var entriesProcessed = progress.EntriesSaved;
+        var totalLines = progress.TotalLines;
+        var bytesProcessed = progress.BytesProcessed;
+        var totalBytes = progress.TotalBytes;
+        if (_currentBatch is { } batch)
+        {
+            batch.CurrentEntriesProcessed = Math.Max(batch.CurrentEntriesProcessed, progress.EntriesSaved);
+            batch.CurrentLinesProcessed = Math.Max(batch.CurrentLinesProcessed, progress.LinesParsed);
+            batch.CurrentTotalLines = Math.Max(batch.CurrentTotalLines, progress.TotalLines);
+            batch.CurrentBytesProcessed = Math.Max(batch.CurrentBytesProcessed, progress.BytesProcessed);
+            batch.CurrentTotalBytes = Math.Max(batch.CurrentTotalBytes, progress.TotalBytes);
+            entriesProcessed = batch.EntriesProcessed + batch.CurrentEntriesProcessed;
+            totalLines = batch.TotalLines + batch.CurrentTotalLines;
+            bytesProcessed = batch.BytesProcessed + batch.CurrentBytesProcessed;
+            totalBytes = batch.TotalBytes + batch.CurrentTotalBytes;
+        }
+
+        var mbTotal = totalBytes / (1024.0 * 1024.0);
+        var mbProcessed = bytesProcessed / (1024.0 * 1024.0);
 
         return new LogProcessingStatusResponse
         {
             IsProcessing = true,
             OperationId = _currentOperationId,
+            DatasourceName = _currentDatasourceName,
             Status = progress.Status,
-            PercentComplete = progress.PercentComplete,
+            PercentComplete = percentComplete,
             MbProcessed = Math.Round(mbProcessed, 1),
             MbTotal = Math.Round(mbTotal, 1),
-            EntriesProcessed = progress.EntriesSaved,
-            TotalLines = progress.TotalLines,
+            EntriesProcessed = entriesProcessed,
+            TotalLines = totalLines,
             StageKey = progress.StageKey
         };
     }
@@ -480,7 +672,8 @@ public class RustLogProcessorService
         bool liveIngest = false,
         string? datasourceName = null,
         Guid? sharedOperationId = null,
-        bool finalizeOperation = true)
+        bool finalizeOperation = true,
+        LogProcessingBatchState? batch = null)
     {
         await _startLock.WaitAsync();
         try
@@ -512,6 +705,8 @@ public class RustLogProcessorService
         // re-entry guard and reassign the field before this run has finished.
         Guid? ownerOperationId = null;
         LogProcessingTerminalMetrics terminalMetrics = default;
+        LogProcessingProgress? finalProgress = null;
+        var childSucceeded = false;
 
         try
         {
@@ -615,16 +810,16 @@ public class RustLogProcessorService
                 ? logFilePath  // It's already a directory
                 : (Path.GetDirectoryName(logFilePath) ?? _pathResolver.GetLogsDirectory());  // Extract from file path
 
-            if (_currentOperationId == ownerOperationId)
-            {
-                _currentDatasourceName = datasourceName;
-                _currentProgressPath = progressPath;
-            }
-
             // Delete old progress file
             if (File.Exists(progressPath))
             {
                 File.Delete(progressPath);
+            }
+
+            if (_currentOperationId == ownerOperationId)
+            {
+                _currentDatasourceName = datasourceName;
+                _currentProgressPath = progressPath;
             }
 
             _logger.LogInformation("Starting Rust log processor");
@@ -732,24 +927,42 @@ public class RustLogProcessorService
                     // Same load guard as the started event: a live pass reports no progress.
                     if (!liveIngest)
                     {
+                        var startingPercent = ScaleBatchProgress(batch, 0);
+                        var startingEntries = batch?.EntriesProcessed ?? 0;
+                        var startingLines = batch?.LinesProcessed ?? 0;
+                        var startingTotalLines = batch?.TotalLines ?? 0;
+                        var startingBytes = batch?.BytesProcessed ?? 0;
+                        var startingTotalBytes = batch?.TotalBytes ?? 0;
                         var accepted = false;
-                        _operationTracker.UpdateProgress(ownerOperationId!.Value, 0, "signalr.logProcessing.starting",
-                            onProgress: _ => accepted = true);
+                        _operationTracker.UpdateProgress(
+                            ownerOperationId!.Value,
+                            startingPercent,
+                            "signalr.logProcessing.starting",
+                            onProgress: operation =>
+                            {
+                                operation.Metadata = new LogProcessingTerminalMetrics(
+                                    startingEntries,
+                                    startingLines,
+                                    null,
+                                    null,
+                                    "signalr.logProcessing.starting");
+                                accepted = true;
+                            });
                         if (accepted)
                         {
-                        await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
-                        {
-                            OperationId = ownerOperationId,
-                            PercentComplete = 0.0,
-                            Status = OperationStatus.Running,
-                            StageKey = "signalr.logProcessing.starting",
-                            Context = new Dictionary<string, object?>(),
-                            TotalLines = 0,
-                            LinesParsed = 0,
-                            EntriesSaved = 0,
-                            MbProcessed = 0.0,
-                            MbTotal = 0.0
-                        });
+                            await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
+                            {
+                                OperationId = ownerOperationId,
+                                PercentComplete = startingPercent,
+                                Status = OperationStatus.Running,
+                                StageKey = "signalr.logProcessing.starting",
+                                Context = new Dictionary<string, object?>(),
+                                TotalLines = startingTotalLines,
+                                LinesParsed = startingLines,
+                                EntriesSaved = startingEntries,
+                                MbProcessed = Math.Round(startingBytes / (1024.0 * 1024.0), 1),
+                                MbTotal = Math.Round(startingTotalBytes / (1024.0 * 1024.0), 1)
+                            });
                         }
                     }
                     _progressMonitorTask = Task.Run(
@@ -758,7 +971,8 @@ public class RustLogProcessorService
                             monitorCts.Token,
                             emitLogProgress: !liveIngest,
                             riotMappingRun,
-                            ownerOperationId!.Value));
+                            ownerOperationId!.Value,
+                            batch));
 
                     await process.WaitForExitAsync(processingToken);
 
@@ -788,7 +1002,7 @@ public class RustLogProcessorService
             // The polled progress file is the single authority on the run outcome. The
             // typed terminal_status decides success/warning/partial/failure; "cancelled"
             // additionally requires that this host actually requested cancellation.
-            var finalProgress = await ReadProgressFileAsync(progressPath);
+            finalProgress = await ReadProgressFileAsync(progressPath);
             var hasTerminalCheckpoint = IsValidTerminalCheckpoint(finalProgress);
             var wasCancelled = cancelRequestedDuringRun &&
                 ((hasTerminalCheckpoint && finalProgress!.TerminalStatus == "cancelled") ||
@@ -975,22 +1189,30 @@ public class RustLogProcessorService
                     // A live pass sends no final progress, for the same load reason as its started event.
                     if (!liveIngest)
                     {
-                        // Real total byte count from the Rust processor (all discovered log files)
-                        var mbTotal = finalProgress.TotalBytes / (1024.0 * 1024.0);
+                        var finalPercent = ScaleBatchProgress(batch, 100);
+                        var finalEntries = (batch?.EntriesProcessed ?? 0) +
+                            Math.Max(batch?.CurrentEntriesProcessed ?? 0, finalProgress.EntriesSaved);
+                        var finalLines = (batch?.LinesProcessed ?? 0) +
+                            Math.Max(batch?.CurrentLinesProcessed ?? 0, finalProgress.LinesParsed);
+                        var finalTotalLines = (batch?.TotalLines ?? 0) +
+                            Math.Max(batch?.CurrentTotalLines ?? 0, finalProgress.TotalLines);
+                        var finalBytes = (batch?.BytesProcessed ?? 0) +
+                            Math.Max(batch?.CurrentBytesProcessed ?? 0, finalProgress.BytesProcessed);
+                        var finalTotalBytes = (batch?.TotalBytes ?? 0) +
+                            Math.Max(batch?.CurrentTotalBytes ?? 0, finalProgress.TotalBytes);
 
-                        // Send final progress update with 100% and complete status
                         await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
                         {
                             OperationId = ownerOperationId,
-                            PercentComplete = 100.0,
-                            Status = OperationStatus.Completed,
+                            PercentComplete = finalPercent,
+                            Status = batch is null ? OperationStatus.Completed : OperationStatus.Running,
                             StageKey = "signalr.logProcessing.complete",
                             Context = new Dictionary<string, object?>(),
-                            finalProgress.TotalLines,
-                            finalProgress.LinesParsed,
-                            finalProgress.EntriesSaved,
-                            MbProcessed = Math.Round(mbTotal, 1),
-                            MbTotal = Math.Round(mbTotal, 1)
+                            TotalLines = finalTotalLines,
+                            LinesParsed = finalLines,
+                            EntriesSaved = finalEntries,
+                            MbProcessed = Math.Round(finalBytes / (1024.0 * 1024.0), 1),
+                            MbTotal = Math.Round(finalTotalBytes / (1024.0 * 1024.0), 1)
                         });
                     }
                 }
@@ -1172,6 +1394,7 @@ public class RustLogProcessorService
                     _operationTracker.CompleteOperation(ownerOperationId.Value, true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
+                childSucceeded = true;
                 return true;
             }
             else
@@ -1254,6 +1477,11 @@ public class RustLogProcessorService
                 await riotMappingRun.DisposeAsync();
             }
 
+            if (batch is not null)
+            {
+                RecordBatchChild(batch, datasourceName!, childSucceeded, finalProgress);
+            }
+
             if (shouldFinalizeOperation)
             {
                 // Tear down only the state this run installed. A live tick that passed the re-entry
@@ -1280,7 +1508,8 @@ public class RustLogProcessorService
         CancellationToken cancellationToken,
         bool emitLogProgress,
         RiotMappingRunReporter riotMappingRun,
-        Guid operationId)
+        Guid operationId,
+        LogProcessingBatchState? batch)
     {
         var loggedWarnings = new HashSet<string>();
         var loggedErrors = new HashSet<string>();
@@ -1316,14 +1545,33 @@ public class RustLogProcessorService
                 }
             }
 
-            // Real byte counts from the Rust processor (all files, compressed sizes)
-            var mbTotal = progress.TotalBytes / (1024.0 * 1024.0);
-            var mbProcessed = progress.BytesProcessed / (1024.0 * 1024.0);
+            var percentComplete = ScaleBatchProgress(batch, progress.PercentComplete);
+            var totalLines = progress.TotalLines;
+            var linesProcessed = progress.LinesParsed;
+            var entriesProcessed = progress.EntriesSaved;
+            var bytesProcessed = progress.BytesProcessed;
+            var totalBytes = progress.TotalBytes;
+            if (batch is not null)
+            {
+                batch.CurrentEntriesProcessed = Math.Max(batch.CurrentEntriesProcessed, progress.EntriesSaved);
+                batch.CurrentLinesProcessed = Math.Max(batch.CurrentLinesProcessed, progress.LinesParsed);
+                batch.CurrentTotalLines = Math.Max(batch.CurrentTotalLines, progress.TotalLines);
+                batch.CurrentBytesProcessed = Math.Max(batch.CurrentBytesProcessed, progress.BytesProcessed);
+                batch.CurrentTotalBytes = Math.Max(batch.CurrentTotalBytes, progress.TotalBytes);
+                totalLines = batch.TotalLines + batch.CurrentTotalLines;
+                linesProcessed = batch.LinesProcessed + batch.CurrentLinesProcessed;
+                entriesProcessed = batch.EntriesProcessed + batch.CurrentEntriesProcessed;
+                bytesProcessed = batch.BytesProcessed + batch.CurrentBytesProcessed;
+                totalBytes = batch.TotalBytes + batch.CurrentTotalBytes;
+            }
+
+            var mbTotal = totalBytes / (1024.0 * 1024.0);
+            var mbProcessed = bytesProcessed / (1024.0 * 1024.0);
 
             var accepted = false;
-            var metrics = new LogProcessingTerminalMetrics(progress.EntriesSaved, progress.LinesParsed,
+            var metrics = new LogProcessingTerminalMetrics(entriesProcessed, linesProcessed,
                 null, null, progress.StageKey);
-            _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "",
+            _operationTracker.UpdateProgress(operationId, percentComplete, progress.StageKey ?? "",
                 onProgress: operation =>
                 {
                     operation.Metadata = metrics;
@@ -1335,13 +1583,13 @@ public class RustLogProcessorService
             await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
             {
                 OperationId = operationId,
-                progress.PercentComplete,
+                PercentComplete = percentComplete,
                 Status = OperationStatus.Running,
                 StageKey = progress.StageKey,
                 Context = progress.Context,
-                progress.TotalLines,
-                progress.LinesParsed,
-                progress.EntriesSaved,
+                TotalLines = totalLines,
+                LinesParsed = linesProcessed,
+                EntriesSaved = entriesProcessed,
                 MbProcessed = Math.Round(mbProcessed, 1),
                 MbTotal = Math.Round(mbTotal, 1)
             });

@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::cache_detect_queries::{
     DownloadRecord, EpicDownloadRecord, EvictedDownloadUrl, NamedDownloadRecord,
 };
-use lancache_processor::cache_utils;
 use crate::{GameCacheInfo, ServiceCacheInfo};
+use lancache_processor::cache_utils;
 
 /// (service, url, bytes_served) — `bytes_served` is the URL's `MAX(LogEntries.BytesServed)`.
 /// Detection IGNORES this value: for range-served objects (Blizzard /tpr/ TACT archives, Riot
@@ -76,9 +76,15 @@ pub(crate) fn group_named_records(
         let cache_service_lc = record.cache_service.to_lowercase();
         let key = named_game_key(&record.service, &record.game_name);
         let entry = named_map.entry(key).or_insert_with(|| {
-            (identity_service_lc.clone(), record.game_name.clone(), Vec::new())
+            (
+                identity_service_lc.clone(),
+                record.game_name.clone(),
+                Vec::new(),
+            )
         });
-        entry.2.push((cache_service_lc, record.url.clone(), record.bytes_served));
+        entry
+            .2
+            .push((cache_service_lc, record.url.clone(), record.bytes_served));
     }
 
     named_map
@@ -391,7 +397,11 @@ pub(crate) fn detect_steam_game_cache_info(
     let owned_files = claim_first(&found_files, claimed);
     let total_size = total_size_from_index(&owned_files, cache_files_index);
 
-    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size))
+    Ok(build_steam_game_cache_info(
+        inputs,
+        found_files.len(),
+        total_size,
+    ))
 }
 
 pub(crate) fn detect_steam_game_cache_info_incremental(
@@ -404,7 +414,11 @@ pub(crate) fn detect_steam_game_cache_info_incremental(
     let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
     let total_size = total_size_from_filesystem(&owned_files);
 
-    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size))
+    Ok(build_steam_game_cache_info(
+        inputs,
+        found_files.len(),
+        total_size,
+    ))
 }
 
 fn generate_epic_game_app_id(epic_app_id: &str) -> u32 {
@@ -572,8 +586,14 @@ mod tests {
     #[test]
     fn named_key_is_service_lowercased_plus_name() {
         // Service is lowercased; game name preserved verbatim.
-        assert_eq!(named_game_key("Blizzard", "Diablo IV"), "blizzard\u{1}Diablo IV");
-        assert_eq!(named_game_key("blizzard", "Diablo IV"), "blizzard\u{1}Diablo IV");
+        assert_eq!(
+            named_game_key("Blizzard", "Diablo IV"),
+            "blizzard\u{1}Diablo IV"
+        );
+        assert_eq!(
+            named_game_key("blizzard", "Diablo IV"),
+            "blizzard\u{1}Diablo IV"
+        );
     }
 
     #[test]
@@ -589,7 +609,9 @@ mod tests {
         // 3 distinct (service, game) keys.
         assert_eq!(grouped.len(), 3);
 
-        let blizz_diablo = grouped.get("blizzard\u{1}Diablo").expect("blizzard diablo present");
+        let blizz_diablo = grouped
+            .get("blizzard\u{1}Diablo")
+            .expect("blizzard diablo present");
         assert_eq!(blizz_diablo.0, "blizzard");
         assert_eq!(blizz_diablo.1, "Diablo");
         assert_eq!(blizz_diablo.2.len(), 2);
@@ -605,13 +627,27 @@ mod tests {
         // hashed under the LogEntries service `wsus`. The grouped key + identity service must be
         // `xbox`, while every ServiceUrl tuple must carry `wsus` so the cache lookup hashes correctly.
         let records = vec![
-            rec_split("xbox", "wsus", "Halo Infinite", "http://x/filestreamingservice/files/abc", 100),
-            rec_split("xbox", "wsus", "Halo Infinite", "http://x/filestreamingservice/files/def", 200),
+            rec_split(
+                "xbox",
+                "wsus",
+                "Halo Infinite",
+                "http://x/filestreamingservice/files/abc",
+                100,
+            ),
+            rec_split(
+                "xbox",
+                "wsus",
+                "Halo Infinite",
+                "http://x/filestreamingservice/files/def",
+                200,
+            ),
         ];
         let grouped = group_named_records(&records);
         assert_eq!(grouped.len(), 1);
 
-        let halo = grouped.get("xbox\u{1}Halo Infinite").expect("xbox halo present");
+        let halo = grouped
+            .get("xbox\u{1}Halo Infinite")
+            .expect("xbox halo present");
         // Identity service drives detection + removal.
         assert_eq!(halo.0, "xbox");
         assert_eq!(halo.1, "Halo Infinite");
@@ -818,7 +854,11 @@ mod tests {
 
         let service_urls: Vec<ServiceUrl> = vec![(service.to_string(), url.to_string(), 0)];
         let found = match_files_with_index(&service_urls, &index);
-        assert_eq!(found.len(), 7, "walk must bridge the 2-slice hole and count slices 0-2 and 5-8");
+        assert_eq!(
+            found.len(),
+            7,
+            "walk must bridge the 2-slice hole and count slices 0-2 and 5-8"
+        );
     }
 
     fn evicted(download_id: i64, cache_service: &str, url: &str) -> EvictedDownloadUrl {

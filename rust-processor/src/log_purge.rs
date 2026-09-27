@@ -29,11 +29,12 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write as IoWrite};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use aho_corasick::AhoCorasick;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
 use crate::cache_utils;
@@ -43,6 +44,176 @@ use crate::models::LogEntry;
 use crate::parser::{parse_log_line, LogParser};
 use crate::parser_http_detailed::HttpDetailedParser;
 use crate::service_utils;
+
+const LOG_CHECK_ENV: &str = "LANCACHE_LOG_CHECK";
+const LOG_RESULT_ENV: &str = "LANCACHE_LOG_RESULT";
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct FileIdentity {
+    first: u64,
+    second: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicationExpectation {
+    target_path: PathBuf,
+    original_identity: FileIdentity,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicationCheck {
+    valid: bool,
+    files: Vec<PublicationExpectation>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicationRecord {
+    target_path: PathBuf,
+    original_identity: FileIdentity,
+    temporary_identity: Option<FileIdentity>,
+    published_identity: Option<FileIdentity>,
+    changed: bool,
+    deleted: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicationResult {
+    success: bool,
+    files: Vec<PublicationRecord>,
+}
+
+#[cfg(windows)]
+fn file_identity(path: &Path) -> Result<FileIdentity> {
+    use std::os::windows::io::AsRawHandle;
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        file_attributes: u32,
+        creation_time: [u32; 2],
+        last_access_time: [u32; 2],
+        last_write_time: [u32; 2],
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            file: *mut std::ffi::c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    let file = File::open(path)
+        .with_context(|| format!("failed to open identity handle for {}", path.display()))?;
+    let mut information = std::mem::MaybeUninit::<ByHandleFileInformation>::uninit();
+    let succeeded = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle().cast(), information.as_mut_ptr())
+    };
+    if succeeded == 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("failed to read identity for {}", path.display()));
+    }
+    let information = unsafe { information.assume_init() };
+    Ok(FileIdentity {
+        first: information.volume_serial_number as u64,
+        second: ((information.file_index_high as u64) << 32) | information.file_index_low as u64,
+    })
+}
+
+#[cfg(unix)]
+fn file_identity(path: &Path) -> Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+
+    let attributes = std::fs::metadata(path)
+        .with_context(|| format!("failed to read identity for {}", path.display()))?;
+    Ok(FileIdentity {
+        first: attributes.dev(),
+        second: attributes.ino(),
+    })
+}
+
+#[cfg(not(any(windows, unix)))]
+fn file_identity(_path: &Path) -> Result<FileIdentity> {
+    anyhow::bail!("file identity is unsupported on this platform")
+}
+
+fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectation>> {
+    let Some(check_path) = std::env::var_os(LOG_CHECK_ENV) else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(&check_path).with_context(|| {
+        format!(
+            "failed to read log publication check {}",
+            Path::new(&check_path).display()
+        )
+    })?;
+    let check: PublicationCheck =
+        serde_json::from_slice(&bytes).context("failed to parse log publication check")?;
+    if !check.valid {
+        anyhow::bail!("log publication check was invalidated")
+    }
+
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize log target {}", path.display()))?;
+    let expected = check
+        .files
+        .into_iter()
+        .find(|file| {
+            file.target_path
+                .canonicalize()
+                .map(|candidate| candidate == canonical)
+                .unwrap_or(false)
+        })
+        .with_context(|| {
+            format!(
+                "log publication check did not include {}",
+                canonical.display()
+            )
+        })?;
+    let actual = file_identity(path)?;
+    if actual != expected.original_identity {
+        anyhow::bail!(
+            "log target identity changed before publication: {}",
+            path.display()
+        )
+    }
+    Ok(Some(expected))
+}
+
+fn write_publication_result(records: Vec<PublicationRecord>, success: bool) -> Result<()> {
+    let Some(result_path) = std::env::var_os(LOG_RESULT_ENV) else {
+        return Ok(());
+    };
+    let result_path = PathBuf::from(result_path);
+    let parent = result_path
+        .parent()
+        .context("log publication result has no parent directory")?;
+    let mut temporary = NamedTempFile::new_in(parent)?;
+    serde_json::to_writer(
+        &mut temporary,
+        &PublicationResult {
+            success,
+            files: records,
+        },
+    )?;
+    temporary.as_file_mut().flush()?;
+    temporary
+        .persist(&result_path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to publish log result {}", result_path.display()))?;
+    Ok(())
+}
 
 /// Byte-level prefilter for removal candidates. A line that fails
 /// `is_candidate` can never match the removal predicate and is written
@@ -143,6 +314,8 @@ enum LogRewriteWriter {
     Zstd(zstd::Encoder<'static, BufWriter<File>>),
 }
 
+type LogLinePredicate<'a> = dyn Fn(&[u8], &SourceKind) -> bool + Send + Sync + 'a;
+
 impl IoWrite for LogRewriteWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
@@ -193,7 +366,9 @@ impl RemovalPrefilter {
         }
         let automaton =
             AhoCorasick::new(patterns).context("Failed to build Aho-Corasick removal prefilter")?;
-        Ok(Self { automaton: Some(automaton) })
+        Ok(Self {
+            automaton: Some(automaton),
+        })
     }
 
     /// Returns true when the line might match the removal predicate and must
@@ -221,12 +396,17 @@ fn line_should_be_removed<F>(
     detailed: &HttpDetailedParser,
     source_kind: &SourceKind,
     should_remove_entry: &F,
+    should_remove_line: Option<&LogLinePredicate<'_>>,
 ) -> bool
 where
     F: Fn(&LogEntry) -> bool,
 {
     if !prefilter.is_candidate(raw_line) {
         return false;
+    }
+
+    if let Some(should_remove_line) = should_remove_line {
+        return should_remove_line(raw_line, source_kind);
     }
 
     let Ok(text) = std::str::from_utf8(raw_line) else {
@@ -249,6 +429,7 @@ fn scan_file_for_matches<F>(
     detailed: &HttpDetailedParser,
     source_kind: &SourceKind,
     should_remove_entry: &F,
+    should_remove_line: Option<&LogLinePredicate<'_>>,
 ) -> Result<(u64, u64)>
 where
     F: Fn(&LogEntry) -> bool,
@@ -273,6 +454,7 @@ where
             detailed,
             source_kind,
             should_remove_entry,
+            should_remove_line,
         ) {
             lines_matched += 1;
         }
@@ -286,6 +468,7 @@ fn rewrite_matching_log_entries_outcome<F>(
     description: &str,
     prefilter: &RemovalPrefilter,
     should_remove_entry: F,
+    should_remove_line: Option<&LogLinePredicate<'_>>,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
     stem_positions: Option<&HashMap<String, u64>>,
 ) -> Result<LogRewriteOutcome>
@@ -315,6 +498,8 @@ where
         std::sync::Mutex::new(HashMap::new());
     let lines_removed_before_position_by_stem: std::sync::Mutex<HashMap<String, u64>> =
         std::sync::Mutex::new(HashMap::new());
+    let publication_records: std::sync::Mutex<Vec<PublicationRecord>> =
+        std::sync::Mutex::new(Vec::new());
 
     source_set.sources.into_par_iter().for_each(|source| {
         // None = no positions supplied at all -> every removed line counts as already read.
@@ -330,6 +515,12 @@ where
             eprintln!("  Processing file: {}", log_file.path.display());
 
             let file_result = (|| -> Result<(u64, u64, u64)> {
+                let expected = publication_expectation(&log_file.path)?;
+                let original_identity = match &expected {
+                    Some(expectation) => expectation.original_identity.clone(),
+                    None => file_identity(&log_file.path)?,
+                };
+
                 // Pass 1: read-only scan. Files with zero confirmed matches are left
                 // completely untouched (no temp file, no recompression).
                 let (lines_total, lines_matched) = scan_file_for_matches(
@@ -339,9 +530,21 @@ where
                     &detailed,
                     &source.kind,
                     &should_remove_entry,
+                    should_remove_line,
                 )?;
 
                 if lines_matched == 0 {
+                    publication_records
+                        .lock()
+                        .expect("publication_records mutex poisoned")
+                        .push(PublicationRecord {
+                            target_path: log_file.path.clone(),
+                            original_identity: original_identity.clone(),
+                            temporary_identity: None,
+                            published_identity: Some(original_identity),
+                            changed: false,
+                            deleted: false,
+                        });
                     return Ok((lines_total, 0, 0));
                 }
 
@@ -354,7 +557,19 @@ where
                     );
                     match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
                         Ok(_) => {
+                            publication_expectation(&log_file.path)?;
                             std::fs::remove_file(&log_file.path)?;
+                            publication_records
+                                .lock()
+                                .expect("publication_records mutex poisoned")
+                                .push(PublicationRecord {
+                                    target_path: log_file.path.clone(),
+                                    original_identity,
+                                    temporary_identity: None,
+                                    published_identity: None,
+                                    changed: true,
+                                    deleted: true,
+                                });
                         }
                         Err(e) => {
                             return Err(e).with_context(|| {
@@ -432,6 +647,7 @@ where
                             &detailed,
                             &source.kind,
                             &should_remove_entry,
+                            should_remove_line,
                         ) {
                             lines_removed += 1;
                             // An unterminated final record naturally lands in the not-read
@@ -451,21 +667,50 @@ where
                 }
 
                 let temp_path = temp_file.into_temp_path();
+                let temporary_identity = file_identity(&temp_path)?;
+                let kept_path = temp_path
+                    .keep()
+                    .map_err(|error| error.error)
+                    .context("failed to keep rewritten log temporary file")?;
 
-                if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                    eprintln!(
-                        "    persist() failed ({}), using copy fallback...",
-                        persist_err
-                    );
-                    std::fs::copy(&persist_err.path, &log_file.path)?;
-                    match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
-                        Ok(_) => {
-                            std::fs::remove_file(&persist_err.path).ok();
-                        }
-                        Err(e) => {
-                            eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e);
-                        }
+                if let Err(error) = (|| -> Result<()> {
+                    publication_expectation(&log_file.path)?;
+                    if file_identity(&kept_path)? != temporary_identity {
+                        anyhow::bail!(
+                            "rewritten log temporary identity changed: {}",
+                            kept_path.display()
+                        )
                     }
+                    std::fs::rename(&kept_path, &log_file.path).with_context(|| {
+                        format!(
+                            "failed to atomically publish rewritten log {}",
+                            log_file.path.display()
+                        )
+                    })?;
+                    let published_identity = file_identity(&log_file.path)?;
+                    if published_identity != temporary_identity {
+                        anyhow::bail!(
+                            "published log identity did not match kept temporary file: {}",
+                            log_file.path.display()
+                        )
+                    }
+                    publication_records
+                        .lock()
+                        .expect("publication_records mutex poisoned")
+                        .push(PublicationRecord {
+                            target_path: log_file.path.clone(),
+                            original_identity,
+                            temporary_identity: Some(temporary_identity.clone()),
+                            published_identity: Some(published_identity),
+                            changed: true,
+                            deleted: false,
+                        });
+                    Ok(())
+                })() {
+                    if kept_path.exists() {
+                        let _ = std::fs::remove_file(&kept_path);
+                    }
+                    return Err(error);
                 }
 
                 Ok((lines_total_rewrite, lines_removed, removed_before))
@@ -530,6 +775,13 @@ where
         "Total log entries removed: {}, permission errors: {}",
         final_removed, final_permission_errors
     );
+    let records = publication_records
+        .into_inner()
+        .expect("publication_records mutex poisoned");
+    write_publication_result(
+        records,
+        final_permission_errors == 0 && final_other_errors == 0,
+    )?;
     Ok(LogRewriteOutcome {
         lines_removed: final_removed,
         permission_errors: final_permission_errors,
@@ -542,7 +794,6 @@ where
             .expect("lines_removed_before_position_by_stem mutex poisoned"),
     })
 }
-
 
 pub(crate) fn rewrite_matching_log_entries<F>(
     log_dir: &Path,
@@ -560,6 +811,7 @@ where
         description,
         prefilter,
         should_remove_entry,
+        None,
         on_file_processed,
         stem_positions,
     )
@@ -583,7 +835,29 @@ where
         description,
         prefilter,
         should_remove_entry,
+        None,
         on_file_processed,
+        stem_positions,
+    )
+}
+
+pub fn rewrite_matching_log_lines_strict<F>(
+    log_dir: &Path,
+    description: &str,
+    prefilter: &RemovalPrefilter,
+    should_remove_line: F,
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<LogRewriteOutcome>
+where
+    F: Fn(&[u8], &SourceKind) -> bool + Send + Sync,
+{
+    rewrite_matching_log_entries_outcome(
+        log_dir,
+        description,
+        prefilter,
+        |_| false,
+        Some(&should_remove_line),
+        None,
         stem_positions,
     )
 }
@@ -600,8 +874,8 @@ where
 /// `Send + Sync` because files are processed in parallel via rayon.
 ///
 /// Safe to run against a live cache host: each target file is rewritten via a
-/// temp file in the same directory and then atomically persisted (or copy +
-/// delete fallback) so partially-written files are never observed. Files that
+/// temp file in the same directory and then atomically renamed so partially-written
+/// files are never observed. Files that
 /// contain no matching lines are left completely untouched.
 #[allow(dead_code)]
 pub fn remove_log_entries_for_game(
@@ -673,6 +947,38 @@ pub fn remove_log_entries_for_service(
         &prefilter,
         |entry| entry.service == normalized_service && urls_to_remove.contains(&entry.url),
         None,
+        stem_positions,
+    )
+}
+
+pub fn remove_all_log_entries_for_service(
+    log_dir: &Path,
+    service: &str,
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<LogRewriteOutcome> {
+    let normalized_service = service_utils::normalize_service_name(service);
+    let pattern = format!("[{normalized_service}]");
+    let prefilter = RemovalPrefilter::new([pattern.as_bytes()])?;
+    rewrite_matching_log_lines_strict(
+        log_dir,
+        service,
+        &prefilter,
+        |raw_line, _| {
+            let trimmed = raw_line
+                .iter()
+                .position(|byte| !byte.is_ascii_whitespace())
+                .map(|start| &raw_line[start..])
+                .unwrap_or_default();
+            if trimmed.first() != Some(&b'[') {
+                return false;
+            }
+            let Some(end) = trimmed.iter().position(|byte| *byte == b']') else {
+                return false;
+            };
+            std::str::from_utf8(&trimmed[1..end])
+                .map(service_utils::normalize_service_name)
+                .is_ok_and(|tag| tag == normalized_service)
+        },
         stem_positions,
     )
 }
@@ -782,14 +1088,22 @@ mod tests {
         // indices 0..5 were read. Removals at series indices 2 (read) and 7 (not read).
         let mut rotated = String::new();
         for i in 0..5 {
-            let url = if i == 2 { "/depot/9/chunk/gone-a".to_string() } else { format!("/depot/7/chunk/keep{i}") };
+            let url = if i == 2 {
+                "/depot/9/chunk/gone-a".to_string()
+            } else {
+                format!("/depot/7/chunk/keep{i}")
+            };
             rotated.push_str(&log_line(&url, "HIT"));
             rotated.push('\n');
         }
         fs::write(dir.path().join("access.log.1"), rotated).unwrap();
         let mut live = String::new();
         for i in 5..10 {
-            let url = if i == 7 { "/depot/9/chunk/gone-b".to_string() } else { format!("/depot/7/chunk/keep{i}") };
+            let url = if i == 7 {
+                "/depot/9/chunk/gone-b".to_string()
+            } else {
+                format!("/depot/7/chunk/keep{i}")
+            };
             live.push_str(&log_line(&url, "HIT"));
             live.push('\n');
         }
@@ -1192,7 +1506,8 @@ mod tests {
 
         let urls: HashSet<String> = HashSet::new();
         let depot_ids: HashSet<u32> = [424242].into_iter().collect();
-        let outcome = remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None, None).unwrap();
+        let outcome =
+            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None, None).unwrap();
 
         assert_eq!(outcome.lines_removed, 2);
         assert_eq!(outcome.permission_errors, 0);
@@ -1283,7 +1598,8 @@ mod tests {
 
         let urls: HashSet<String> = HashSet::new();
         let depot_ids: HashSet<u32> = [424242].into_iter().collect();
-        let outcome = remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None, None).unwrap();
+        let outcome =
+            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None, None).unwrap();
 
         assert_eq!(outcome.lines_removed, 1);
         let remaining = fs::read_to_string(&log_path).unwrap();

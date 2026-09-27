@@ -34,7 +34,6 @@ public partial class CacheManagementService
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
-    private readonly string _cachePath;
 
     // Lock for thread safety during Rust binary execution
     private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
@@ -111,52 +110,6 @@ public partial class CacheManagementService
         _envFileReader = envFileReader;
         _conflictChecker = conflictChecker;
 
-        // Use DatasourceService for paths (with backward compatibility)
-        var defaultDatasource = _datasourceService.GetDefaultDatasource();
-        if (defaultDatasource != null)
-        {
-            _cachePath = defaultDatasource.CachePath;
-        }
-        else
-        {
-            // Fallback to legacy configuration
-            var configCachePath = configuration["LanCache:CachePath"];
-            _cachePath = !string.IsNullOrEmpty(configCachePath)
-                ? _pathResolver.ResolvePath(configCachePath)
-                : _pathResolver.GetCacheDirectory();
-        }
-
-        // Check if cache directories exist for all datasources
-        foreach (var ds in _datasourceService.GetDatasources())
-        {
-            if (!Directory.Exists(ds.CachePath))
-            {
-                try
-                {
-                    Directory.CreateDirectory(ds.CachePath);
-                    _logger.LogInformation("Created cache directory for datasource '{Name}': {Path}", ds.Name, ds.CachePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to create cache directory for datasource '{Name}': {Path}", ds.Name, ds.CachePath);
-                }
-            }
-
-            // Also ensure logs directory exists
-            if (!Directory.Exists(ds.LogPath))
-            {
-                try
-                {
-                    Directory.CreateDirectory(ds.LogPath);
-                    _logger.LogInformation("Created logs directory for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to create logs directory for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
-                }
-            }
-        }
-
         // Initialize Docker client for reading container configuration
         try
         {
@@ -188,6 +141,12 @@ public partial class CacheManagementService
     public async Task<CacheInfo> GetCacheInfoAsync()
     {
         var info = new CacheInfo();
+        var cacheRoots = _datasourceService.GetDatasources()
+            .Where(datasource => datasource.Enabled)
+            .Select(datasource => datasource.CachePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToList();
+        var rootUnavailable = cacheRoots.Count == 0 || cacheRoots.Any(path => !Directory.Exists(path));
 
         try
         {
@@ -195,33 +154,42 @@ public partial class CacheManagementService
             // still applied below so zero files and no scan remain distinct.
             if (!OperatingSystemDetector.IsWindows)
             {
-                // Find the actual mount point for the cache directory
-                var mountPoint = GetMountPoint(_cachePath);
-
-                if (Directory.Exists(mountPoint))
+                var filesystems = new List<(string Filesystem, long Capacity, long Free)>();
+                foreach (var cacheRoot in cacheRoots)
                 {
-                    var driveInfo = new DriveInfo(mountPoint);
-                    info.DriveCapacity = driveInfo.TotalSize;
-                    info.FreeCacheSize = driveInfo.AvailableFreeSpace;
+                    if (!Directory.Exists(cacheRoot))
+                    {
+                        rootUnavailable = true;
+                        _logger.LogWarning("Cache root does not exist: {CachePath}", cacheRoot);
+                        continue;
+                    }
 
-                    // Try to read configured cache size from lancache .env file
-                    info.ConfiguredCacheSize = await GetConfiguredCacheSizeAsync();
+                    var mountPoint = GetCanonicalCachePath(GetMountPoint(cacheRoot));
+                    if (!Directory.Exists(mountPoint))
+                    {
+                        rootUnavailable = true;
+                        _logger.LogWarning("Mount point does not exist: {MountPoint}", mountPoint);
+                        continue;
+                    }
 
-                    // Use configured size if available, otherwise use drive capacity
-                    info.TotalCacheSize = info.ConfiguredCacheSize > 0
-                        ? info.ConfiguredCacheSize
-                        : info.DriveCapacity;
-
-                    // Calculate used space - this is always based on actual drive usage
-                    info.UsedCacheSize = info.DriveCapacity - info.FreeCacheSize;
+                    var drive = new DriveInfo(mountPoint);
+                    filesystems.Add((mountPoint, drive.TotalSize, drive.AvailableFreeSpace));
                 }
-                else
-                {
-                    _logger.LogWarning("Mount point does not exist: {MountPoint}", mountPoint);
-                }
+
+                (info.DriveCapacity, info.FreeCacheSize, info.UsedCacheSize) =
+                    SumFilesystemUsage(filesystems);
+
+                info.ConfiguredCacheSize = await GetConfiguredCacheSizeAsync();
+                info.TotalCacheSize = info.ConfiguredCacheSize > 0
+                    ? info.ConfiguredCacheSize
+                    : info.DriveCapacity;
             }
 
             await ApplyCachedScanStatsAsync(info);
+            if (rootUnavailable)
+            {
+                info.ScanStale = true;
+            }
         }
         catch (Exception ex)
         {
@@ -234,6 +202,26 @@ public partial class CacheManagementService
         }
 
         return info;
+    }
+
+    internal static (long Capacity, long Free, long Used) SumFilesystemUsage(
+        IEnumerable<(string Filesystem, long Capacity, long Free)> filesystems)
+    {
+        var counted = new HashSet<string>(CachePathComparer);
+        var capacity = 0L;
+        var free = 0L;
+        foreach (var filesystem in filesystems)
+        {
+            if (!counted.Add(filesystem.Filesystem))
+            {
+                continue;
+            }
+
+            capacity += filesystem.Capacity;
+            free += filesystem.Free;
+        }
+
+        return (capacity, free, capacity - free);
     }
 
     private async Task ApplyCachedScanStatsAsync(CacheInfo info)
@@ -870,7 +858,7 @@ public partial class CacheManagementService
             result.EnsureSuccess("log_manager", datasourceName, cancellationToken);
 
             // Read results from progress file
-            var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
+            var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgress>(progressFile);
 
             if (progressData?.ServiceCounts != null)
             {
@@ -907,166 +895,6 @@ public partial class CacheManagementService
         }
     }
 
-    // Helper class for deserializing Rust progress data
-    private class LogCountProgressData
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("is_processing")]
-        public bool IsProcessing { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
-        public double PercentComplete { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public string Status { get; set; } = "";
-
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = "";
-
-        [System.Text.Json.Serialization.JsonPropertyName("lines_processed")]
-        public ulong LinesProcessed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
-        public Dictionary<string, ulong>? ServiceCounts { get; set; }
-    }
-
-    // Helper class for deserializing game removal progress data from Rust
-    private class GameRemovalProgressData
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public string Status { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
-
-        // Rust writes `stageKey` (i18n translation key) and `context` (a JSON object of
-        // substitution vars) on every progress tick. Frontend registry uses these to
-        // render per-phase labels. Before these properties existed the values were
-        // silently dropped during deserialization and the frontend fell through to a
-        // single generic default message for the whole removal.
-        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
-        public string StageKey { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("context")]
-        public Dictionary<string, object?>? Context { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
-        public double PercentComplete { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("filesProcessed")]
-        public int FilesProcessed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
-        public int TotalFiles { get; set; }
-    }
-
-    // Helper class for deserializing service removal progress data from Rust
-    private class ServiceRemovalProgressData
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public string Status { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
-
-        // See GameRemovalProgressData - same stageKey/context passthrough for service removals.
-        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
-        public string StageKey { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("context")]
-        public Dictionary<string, object?>? Context { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
-        public double PercentComplete { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("filesProcessed")]
-        public int FilesProcessed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
-        public int TotalFiles { get; set; }
-    }
-
-    // Helper classes for game cache removal
-    public class GameCacheRemovalReport
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("game_app_id")]
-        public long GameAppId { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("game_name")]
-        public string GameName { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("cache_files_deleted")]
-        public int CacheFilesDeleted { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("total_bytes_freed")]
-        public ulong TotalBytesFreed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("empty_dirs_removed")]
-        public int EmptyDirsRemoved { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("log_entries_removed")]
-        public ulong LogEntriesRemoved { get; set; }
-
-        /// <summary>
-        /// Removed-line count per log-source stem; subtracted from saved ingestion positions
-        /// so the purge cannot shift them past unread lines.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
-
-        /// <summary>
-        /// The already-read subset of the map above (series index below the saved read
-        /// position); the amount the saved position itself comes back by.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_before_position_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
-
-        [System.Text.Json.Serialization.JsonPropertyName("depot_ids")]
-        public List<long> DepotIds { get; set; } = new List<long>();
-    }
-
-    public class ServiceCacheRemovalReport
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("service_name")]
-        public string ServiceName { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("cache_files_deleted")]
-        public int CacheFilesDeleted { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("total_bytes_freed")]
-        public ulong TotalBytesFreed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("log_entries_removed")]
-        public ulong LogEntriesRemoved { get; set; }
-
-        /// <summary>
-        /// Removed-line count per log-source stem; subtracted from saved ingestion positions
-        /// so the purge cannot shift them past unread lines.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
-
-        /// <summary>
-        /// The already-read subset of the map above (series index below the saved read
-        /// position); the amount the saved position itself comes back by.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_before_position_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
-
-        [System.Text.Json.Serialization.JsonPropertyName("database_entries_deleted")]
-        public int DatabaseEntriesDeleted { get; set; }
-    }
-
-    private sealed record RemovalDatasourceContext(
-        ResolvedDatasource Datasource,
-        int ExecutionIndex,
-        int TotalConfiguredDatasources,
-        string OutputJsonPath,
-        string ProgressJsonPath);
-
-    private sealed record RemovalExecutionPlan(
-        IReadOnlyList<RemovalDatasourceContext> RunnableDatasources,
-        int DatasourcesSkipped);
-
     /// <summary>
     /// Maps one datasource's local 0-100 progress into the full multi-datasource operation.
     /// Steam, Epic, and named-game removal all use the same execution-plan indexing, so keeping the
@@ -1081,13 +909,6 @@ public partial class CacheManagementService
         return (completedDatasources * 100.0 / totalDatasources)
             + (datasourcePercent / totalDatasources);
     }
-
-    private sealed record RustRemovalProcessResult(
-        ResolvedDatasource Datasource,
-        string OutputJsonPath,
-        string ProgressJsonPath,
-        string StdOut,
-        string StdErr);
 
     private RemovalExecutionPlan PrepareRemovalExecutionPlan(
         string logPrefix,
@@ -1353,6 +1174,9 @@ public partial class CacheManagementService
             _cachedCacheScan = System.Text.Json.JsonSerializer.Deserialize<CachedCacheScan>(json, options);
             if (_cachedCacheScan != null)
             {
+                _cachedCacheScan.RootResults = new Dictionary<string, CacheSizeResponse>(
+                    _cachedCacheScan.RootResults,
+                    CachePathComparer);
                 _logger.LogInformation("Loaded cached cache scan from disk (scanned {ScannedAt:u}, usedBytes={UsedBytes})",
                     _cachedCacheScan.ScannedAtUtc, _cachedCacheScan.UsedCacheSizeAtScan);
             }
@@ -1403,7 +1227,8 @@ public partial class CacheManagementService
     private async Task SaveCachedScanAsync(
         CacheSizeResponse scanResult,
         long usedCacheSizeAtScan,
-        IReadOnlyDictionary<string, long>? usedCacheSizeByMountAtScan = null)
+        IReadOnlyDictionary<string, long>? usedCacheSizeByMountAtScan = null,
+        IReadOnlyDictionary<string, CacheSizeResponse>? rootResults = null)
     {
         var scannedAtUtc = DateTime.UtcNow;
         SyncScanTimestamp(scanResult, scannedAtUtc);
@@ -1419,6 +1244,10 @@ public partial class CacheManagementService
                 pair => pair.Key,
                 pair => pair.Value,
                 CachePathComparer) ?? new Dictionary<string, long>(CachePathComparer),
+            RootResults = rootResults?.ToDictionary(
+                pair => pair.Key,
+                pair => CopyCacheSizeResponse(pair.Value, isCached: false),
+                CachePathComparer) ?? new Dictionary<string, CacheSizeResponse>(CachePathComparer),
             ScannedAtUtc = scannedAtUtc
         };
 
@@ -1485,7 +1314,7 @@ public partial class CacheManagementService
         string cachePath,
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
-        Func<CacheSizeScanProgressData, Task>? onProgress = null)
+        Func<CacheScanProgress, Task>? onProgress = null)
     {
         var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
 
@@ -1545,7 +1374,7 @@ public partial class CacheManagementService
                     ? null
                     : async _ =>
                     {
-                        var progress = await _rustProcessHelper.ReadProgressFileAsync<CacheSizeScanProgressData>(outputFile);
+                        var progress = await _rustProcessHelper.ReadProgressFileAsync<CacheScanProgress>(outputFile);
                         if (progress != null)
                         {
                             await onProgress(progress);
@@ -1614,11 +1443,12 @@ public partial class CacheManagementService
 
     /// <summary>
     /// Resolves the distinct enabled cache roots included in a full scan. The legacy path is used
-    /// only when no enabled datasource was resolved.
+    /// only for legacy configuration when no enabled datasource was resolved.
     /// </summary>
     internal static IReadOnlyList<string> SelectFullScanCachePaths(
         IEnumerable<ResolvedDatasource> datasources,
-        string legacyCachePath)
+        string legacyCachePath,
+        DatasourceOrigin origin)
     {
         var configuredPaths = datasources
             .Where(datasource => datasource.Enabled)
@@ -1626,7 +1456,9 @@ public partial class CacheManagementService
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToList();
 
-        var candidates = configuredPaths.Count > 0 ? configuredPaths : [legacyCachePath];
+        var candidates = configuredPaths.Count > 0
+            ? configuredPaths
+            : origin == DatasourceOrigin.Legacy ? [legacyCachePath] : [];
         var canonicalPaths = new List<string>(candidates.Count);
         foreach (var candidate in candidates)
         {
@@ -1829,7 +1661,7 @@ public partial class CacheManagementService
     /// </summary>
     private async Task ReportProgressAsync(
         Guid operationId,
-        CacheSizeScanProgressData progress)
+        CacheScanProgress progress)
     {
         if (string.IsNullOrEmpty(progress.StageKey))
         {
@@ -1891,7 +1723,7 @@ public partial class CacheManagementService
     /// The run's notice decides how it is drawn; a null notice draws a full card.
     /// Callers must hold _scanCacheLock so at most one tracked scan is registered at a time.
     /// </summary>
-    private async Task<CacheSizeResponse?> RunFullScanAsync(
+    private async Task<(CacheSizeResponse Total, Dictionary<string, CacheSizeResponse> Roots)?> RunFullScanAsync(
         IReadOnlyList<string> cachePaths,
         CancellationToken callerToken,
         Action<Guid>? onScanStarted = null,
@@ -1998,6 +1830,7 @@ public partial class CacheManagementService
             onScanStarted?.Invoke(operationId);
 
             var results = new List<CacheSizeResponse>(cachePaths.Count);
+            var rootResults = new Dictionary<string, CacheSizeResponse>(CachePathComparer);
             var completedDirectories = 0L;
             var completedFiles = 0L;
             var completedBytes = 0L;
@@ -2005,15 +1838,28 @@ public partial class CacheManagementService
             for (var cachePathIndex = 0; cachePathIndex < cachePaths.Count; cachePathIndex++)
             {
                 var cachePath = cachePaths[cachePathIndex];
+                var currentPath = GetCanonicalCachePath(cachePath);
+                if (!Directory.Exists(currentPath) || !CachePathComparer.Equals(currentPath, cachePath))
+                {
+                    _logger.LogWarning(
+                        "[CacheSizeScan] Cache root is unavailable or changed identity: {CachePath}",
+                        currentPath);
+                    _operationTracker.CompleteOperation(
+                        operationId,
+                        success: false,
+                        error: $"Cache root is unavailable or changed identity: {currentPath}");
+                    return null;
+                }
+
                 _logger.LogInformation(
                     "[CacheSizeScan] Scanning cache root {Current}/{Total}: {CachePath}",
                     cachePathIndex + 1,
                     cachePaths.Count,
                     cachePath);
 
-                async Task RelayDatasourceProgressAsync(CacheSizeScanProgressData progress)
+                async Task RelayDatasourceProgressAsync(CacheScanProgress progress)
                 {
-                    var overallProgress = new CacheSizeScanProgressData
+                    var overallProgress = new CacheScanProgress
                     {
                         StageKey = progress.StageKey,
                         PercentComplete = ((cachePathIndex + (progress.PercentComplete / 100.0)) / cachePaths.Count) * 100.0,
@@ -2041,6 +1887,7 @@ public partial class CacheManagementService
                 }
 
                 results.Add(datasourceResult);
+                rootResults[GetCanonicalCachePath(cachePath)] = datasourceResult;
                 completedDirectories += datasourceResult.TotalDirectories;
                 completedFiles += datasourceResult.TotalFiles;
                 completedBytes += datasourceResult.TotalBytes;
@@ -2061,7 +1908,7 @@ public partial class CacheManagementService
                 terminalBytes = bytes;
                 terminalFormattedSize = formattedSize;
             });
-            return result;
+            return (result, rootResults);
         }
         catch (OperationCanceledException)
         {
@@ -2168,6 +2015,17 @@ public partial class CacheManagementService
             if (ds == null)
                 return null;
 
+            var cachePath = GetCanonicalCachePath(ds.CachePath);
+            if (!Directory.Exists(cachePath))
+            {
+                _logger.LogWarning(
+                    "Cache root is unavailable for datasource '{Name}': {CachePath}",
+                    ds.Name,
+                    cachePath);
+                await LoadCachedScanAsync();
+                return BuildStaleDatasourceResult(ds.CachePath);
+            }
+
             // This branch always walks the directory, so it is a scan however it was asked for.
             var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
             if (downloadDenial != null)
@@ -2175,7 +2033,14 @@ public partial class CacheManagementService
                 throw new DownloadInProgressException(downloadDenial);
             }
 
-            return await RunCacheSizeScanAsync(ds.CachePath, cancellationToken);
+            var datasourceResult = await RunCacheSizeScanAsync(cachePath, cancellationToken);
+            if (datasourceResult != null)
+            {
+                return datasourceResult;
+            }
+
+            await LoadCachedScanAsync();
+            return BuildStaleDatasourceResult(ds.CachePath);
         }
 
         // A normal read must stay cheap and must not wait behind a minutes-long active scan.
@@ -2194,7 +2059,15 @@ public partial class CacheManagementService
 
         var allCachePaths = SelectFullScanCachePaths(
             _datasourceService.GetDatasources(),
-            _pathResolver.GetCacheDirectory());
+            _pathResolver.GetCacheDirectory(),
+            _datasourceService.Origin);
+
+        if (allCachePaths.Count == 0)
+        {
+            _logger.LogWarning("Cache size scan skipped because no datasource is enabled");
+            await LoadCachedScanAsync();
+            return BuildStaleResult();
+        }
 
         await _scanCacheLock.WaitAsync(cancellationToken);
         try
@@ -2211,12 +2084,13 @@ public partial class CacheManagementService
                     ? usedCacheSizeByMount.Values.Sum()
                     : (await GetCacheInfoAsync()).UsedCacheSize;
                 await SaveCachedScanAsync(
-                    freshResult,
+                    freshResult.Value.Total,
                     usedCacheSizeAtScan,
-                    usedCacheSizeByMount);
-                freshResult.IsCached = false;
-                ApplyMeasuredClearRates(freshResult);
-                return freshResult;
+                    usedCacheSizeByMount,
+                    freshResult.Value.Roots);
+                freshResult.Value.Total.IsCached = false;
+                ApplyMeasuredClearRates(freshResult.Value.Total);
+                return freshResult.Value.Total;
             }
             // Cancelled/failed force scan: fall back to the last good result (stale is
             // fine) so the dashboard keeps showing data instead of erroring.
@@ -2261,92 +2135,23 @@ public partial class CacheManagementService
         return cachedResult;
     }
 
-    /// <summary>
-    /// Progress tick written by the Rust cache_size binary to the output file while the scan
-    /// and calibration phases run. The final result JSON has no stageKey, which is how the
-    /// relay distinguishes ticks from the terminal payload.
-    /// </summary>
-    private class CacheSizeScanProgressData
+    private CacheSizeResponse? BuildStaleDatasourceResult(string cachePath)
     {
-        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
-        public string? StageKey { get; set; }
+        if (_cachedCacheScan == null)
+        {
+            return null;
+        }
 
-        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
-        public double PercentComplete { get; set; }
+        var canonicalPath = GetCanonicalCachePath(cachePath);
+        if (!_cachedCacheScan.RootResults.TryGetValue(canonicalPath, out var result))
+        {
+            return null;
+        }
 
-        [System.Text.Json.Serialization.JsonPropertyName("directoriesScanned")]
-        public long DirectoriesScanned { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalDirectories")]
-        public long TotalDirectories { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalBytes")]
-        public long TotalBytes { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
-        public long TotalFiles { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("calibrationStep")]
-        public int CalibrationStep { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("calibrationTotalSteps")]
-        public int CalibrationTotalSteps { get; set; }
+        var cachedResult = CopyCacheSizeResponse(result, isCached: true);
+        SyncScanTimestamp(cachedResult, _cachedCacheScan.ScannedAtUtc);
+        ApplyMeasuredClearRates(cachedResult);
+        return cachedResult;
     }
 
-    // Helper class for deserializing the Rust cache-size binary output
-    private class CacheSizeResult
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("totalBytes")]
-        public ulong TotalBytes { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
-        public ulong TotalFiles { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("totalDirectories")]
-        public ulong TotalDirectories { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("hexDirectories")]
-        public int HexDirectories { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("scanDurationMs")]
-        public ulong ScanDurationMs { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("estimatedDeletionTimes")]
-        public CacheSizeEstimates EstimatedDeletionTimes { get; set; } = new();
-
-        [System.Text.Json.Serialization.JsonPropertyName("formattedSize")]
-        public string FormattedSize { get; set; } = string.Empty;
-    }
-
-    private class CacheSizeEstimates
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("preserveSeconds")]
-        public double PreserveSeconds { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("fullSeconds")]
-        public double FullSeconds { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("rsyncSeconds")]
-        public double RsyncSeconds { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("preserveFormatted")]
-        public string PreserveFormatted { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("fullFormatted")]
-        public string FullFormatted { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("rsyncFormatted")]
-        public string RsyncFormatted { get; set; } = string.Empty;
-    }
-
-    /// <summary>
-    /// Persisted model for the cached Rust cache-size scan.
-    /// </summary>
-    public class CachedCacheScan
-    {
-        public CacheSizeResponse ScanResult { get; set; } = new();
-        public long UsedCacheSizeAtScan { get; set; }
-        public Dictionary<string, long> UsedCacheSizeByMountAtScan { get; set; } = new();
-        public DateTime ScannedAtUtc { get; set; }
-    }
 }

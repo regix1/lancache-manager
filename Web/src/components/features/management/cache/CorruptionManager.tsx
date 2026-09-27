@@ -32,7 +32,6 @@ import { DiskObjectActionGate } from '@components/features/management/DiskObject
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
-import { resolveDatasources } from '@utils/datasources';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -92,7 +91,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { notifySuccess } = useNotifySuccess();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
-  const datasources = resolveDatasources(config);
+  const datasources = config.dataSources;
   const repeatedMissNginxReopenGate = getNginxReopenGate(datasources);
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
     useDirectoryPermissionsContext();
@@ -533,9 +532,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const hasRemovalPermissionIssue = directoryMissing || isReadOnly;
   const nginxReopenAvailable =
     !requiresRepeatedMissResources || repeatedMissNginxReopenGate.available;
-  const nginxReopenUnavailableMessage = repeatedMissNginxReopenGate.messageKey
-    ? t(repeatedMissNginxReopenGate.messageKey)
-    : '';
+  const nginxReopenUnavailableMessage =
+    requiresRepeatedMissResources && repeatedMissNginxReopenGate.messageKey
+      ? t(repeatedMissNginxReopenGate.messageKey)
+      : '';
   const corruptionRemovalBusy =
     anyServiceRemovalPending ||
     startingRemoveAll ||

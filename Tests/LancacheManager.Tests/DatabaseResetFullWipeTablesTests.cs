@@ -42,4 +42,61 @@ public sealed class DatabaseResetFullWipeTablesTests
             Assert.Contains(table, DatabaseService.ResolveResetTables([table]));
         }
     }
+
+    [Fact]
+    public void ResetLocksDownloadsBeforeLogEntries()
+    {
+        var source = ReadSource("Infrastructure", "Services", "System", "DatabaseService.cs");
+        var transaction = source.IndexOf("using var deleteTransaction", StringComparison.Ordinal);
+        var downloadsLock = source.IndexOf(
+            "LOCK TABLE \\\"Downloads\\\" IN SHARE ROW EXCLUSIVE MODE",
+            transaction,
+            StringComparison.Ordinal);
+        var logEntriesLock = source.IndexOf(
+            "LOCK TABLE \\\"LogEntries\\\" IN SHARE ROW EXCLUSIVE MODE",
+            transaction,
+            StringComparison.Ordinal);
+        var firstMutationBranch = source.IndexOf(
+            "if (tablesToClear.Contains(\"Downloads\") && !tablesToClear.Contains(\"LogEntries\"))",
+            transaction,
+            StringComparison.Ordinal);
+
+        Assert.True(transaction >= 0);
+        Assert.True(downloadsLock > transaction);
+        Assert.True(logEntriesLock > downloadsLock);
+        Assert.True(firstMutationBranch > logEntriesLock);
+    }
+
+    [Fact]
+    public void ResetLogEntriesClearsEveryCheckpointMap()
+    {
+        var stateSource = ReadSource("Infrastructure", "Services", "State", "StateService.cs");
+        var method = stateSource.IndexOf("public void ClearLogProcessingPositions()", StringComparison.Ordinal);
+        var methodEnd = stateSource.IndexOf("public LogIngestDiagnostics?", method, StringComparison.Ordinal);
+        var body = stateSource[method..methodEnd];
+
+        Assert.Contains("state.LogProcessing.Position = 0", body, StringComparison.Ordinal);
+        Assert.Contains("DatasourcePositions.Clear()", body, StringComparison.Ordinal);
+        Assert.Contains("DatasourceTotalLines.Clear()", body, StringComparison.Ordinal);
+        Assert.Contains("DatasourceSourcePositions.Clear()", body, StringComparison.Ordinal);
+
+        var resetSource = ReadSource("Infrastructure", "Services", "System", "DatabaseService.cs");
+        Assert.Contains(
+            "if (tablesToClear.Contains(\"LogEntries\"))",
+            resetSource,
+            StringComparison.Ordinal);
+        Assert.Contains("_stateRepository.ClearLogProcessingPositions();", resetSource, StringComparison.Ordinal);
+    }
+
+    private static string ReadSource(params string[] segments)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
+        return File.ReadAllText(Path.Combine([root, "Api", "LancacheManager", .. segments]));
+    }
 }

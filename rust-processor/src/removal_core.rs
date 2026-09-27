@@ -175,8 +175,9 @@ pub fn collect_cache_paths(
     let walked: Vec<(PathBuf, Option<String>)> = url_data
         .par_iter()
         .flat_map(|(url, (service, _total_bytes))| {
-            let paths =
-                cache_utils::existing_keyed_paths_for_url_with_scheme(scheme, cache_dir, service, url);
+            let paths = cache_utils::existing_keyed_paths_for_url_with_scheme(
+                scheme, cache_dir, service, url,
+            );
 
             if let Some(progress) = progress {
                 let walked = urls_walked.fetch_add(1, Ordering::Relaxed) + 1;
@@ -219,7 +220,12 @@ pub fn collect_cache_paths(
     paths.extend(
         key_header_residue(cache_dir, &bases, &claimed)
             .into_iter()
-            .map(|(digest, key)| (cache_utils::cache_path_for_digest(cache_dir, digest), Some(key))),
+            .map(|(digest, key)| {
+                (
+                    cache_utils::cache_path_for_digest(cache_dir, digest),
+                    Some(key),
+                )
+            }),
     );
     paths
 }
@@ -332,6 +338,7 @@ pub fn count_cache_files(
 /// rayon-delete with a symlink/escape guard, atomic counters, cooperative cancel,
 /// and a permission-error tally. The only parameterized difference is `cadence`,
 /// which selects between the two pre-existing emit frequencies.
+#[allow(clippy::too_many_arguments)]
 pub fn remove_cache_files(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
@@ -432,7 +439,7 @@ pub fn remove_cache_files(
                             }
                         }
 
-                        if count % 100 == 0 {
+                        if count.is_multiple_of(100) {
                             let bytes = bytes_freed.load(Ordering::Relaxed);
                             eprintln!(
                                 "  Deleted {} cache files... ({:.2} MB freed)",
@@ -691,6 +698,7 @@ impl RemovalReport {
 ///
 /// Steam does NOT use this: its log purge is depot-scoped with per-file progress, and its
 /// report carries depot ids - the one tail divergence that bin keeps.
+#[allow(clippy::too_many_arguments)]
 pub fn run_url_removal_steps(
     cache_dir: &Path,
     log_dir: &Path,
@@ -706,7 +714,16 @@ pub fn run_url_removal_steps(
 ) -> Result<Option<RemovalTail>> {
     // Step 1: Remove cache files
     let url_count = url_data.len();
-    write_progress(progress_path, reporter, "removing_cache", lifecycle.cache_removing, json!({ "count": url_count }), 10.0, 0, 0)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "removing_cache",
+        lifecycle.cache_removing,
+        json!({ "count": url_count }),
+        10.0,
+        0,
+        0,
+    )?;
     eprintln!("\nRemoving cache files...");
     let outcome = remove_cache_files(
         cache_dir,
@@ -727,7 +744,16 @@ pub fn run_url_removal_steps(
     }
 
     // Step 2: Clean up empty directories
-    write_progress(progress_path, reporter, "cleaning_directories", lifecycle.dirs_cleaning, json!({}), 70.0, 0, 0)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "cleaning_directories",
+        lifecycle.dirs_cleaning,
+        json!({}),
+        70.0,
+        0,
+        0,
+    )?;
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cache_utils::cleanup_empty_directories(cache_dir, outcome.parent_dirs);
 
@@ -749,7 +775,16 @@ pub fn run_url_removal_steps(
     }
 
     // Step 3: Remove log entries from access log text files
-    write_progress(progress_path, reporter, "removing_logs", lifecycle.logs_removing, json!({}), 80.0, 0, 0)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "removing_logs",
+        lifecycle.logs_removing,
+        json!({}),
+        80.0,
+        0,
+        0,
+    )?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let stem_positions = stem_positions_path.and_then(log_purge::read_stem_positions);
@@ -762,7 +797,8 @@ pub fn run_url_removal_steps(
     tail.log_entries_removed = log_outcome.lines_removed;
     let log_permission_errors = log_outcome.permission_errors;
     tail.log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
-    tail.log_lines_removed_before_position_by_source = log_outcome.lines_removed_before_position_by_stem;
+    tail.log_lines_removed_before_position_by_source =
+        log_outcome.lines_removed_before_position_by_stem;
 
     // Step 4: Check for permission errors before touching database
     let total_permission_errors = outcome.permission_errors + log_permission_errors;
@@ -778,7 +814,16 @@ pub fn run_url_removal_steps(
     }
 
     // Step 5 hand-off: the caller deletes its own database records next.
-    write_progress(progress_path, reporter, "removing_database", lifecycle.db_deleting, json!({}), 90.0, 0, 0)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "removing_database",
+        lifecycle.db_deleting,
+        json!({}),
+        90.0,
+        0,
+        0,
+    )?;
     eprintln!("\nRemoving database records...");
     Ok(Some(tail))
 }
@@ -1013,7 +1058,9 @@ mod tests {
         // A file belonging to something else must survive the sweep untouched.
         write_keyed_cache_file(&root, "steam/depot/1234/chunk/abcdef");
 
-        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)].into_iter().collect();
+        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)]
+            .into_iter()
+            .collect();
         let claimed: HashSet<u128> = [reachable].into_iter().collect();
 
         let residue = key_header_residue(&root, &bases, &claimed);
@@ -1031,7 +1078,9 @@ mod tests {
         let base = "riot/bundle/one";
         let only_slice = write_keyed_cache_file(&root, &format!("{base}bytes=0-1048575"));
 
-        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)].into_iter().collect();
+        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)]
+            .into_iter()
+            .collect();
         let claimed: HashSet<u128> = [only_slice].into_iter().collect();
 
         assert!(key_header_residue(&root, &bases, &claimed).is_empty());
@@ -1048,7 +1097,8 @@ mod tests {
             "{}bytes=0-1048575",
             cache_utils::object_key_base(&service, &url).unwrap()
         );
-        let from_header = cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(&slice_key));
+        let from_header =
+            cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(&slice_key));
         assert!(bases.contains(&from_header));
     }
 

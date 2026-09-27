@@ -424,7 +424,10 @@ mod tests {
         };
         let progress_value: serde_json::Value = serde_json::to_value(&progress).unwrap();
         assert_eq!(progress_value["percentComplete"], 42.5);
-        assert_eq!(progress_value["stageKey"], "signalr.gameRemove.cache.file.progress");
+        assert_eq!(
+            progress_value["stageKey"],
+            "signalr.gameRemove.cache.file.progress"
+        );
     }
 
     #[test]

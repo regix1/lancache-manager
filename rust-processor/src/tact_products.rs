@@ -13,9 +13,9 @@
 /// Resolution for a `/tpr/<seg>/` segment (lowercased):
 ///   1. `products[seg]`  -> game display name
 ///   2. `aliases[seg]`   -> game display name (extension point for CDN paths
-///                          that diverge from the Ribbit product slug)
+///      that diverge from the Ribbit product slug)
 ///   3. `seg ∈ shared`   -> the shared label ("Battle.net (shared)") for
-///                          product-agnostic paths (configs/agent/catalogs/...)
+///      product-agnostic paths (configs/agent/catalogs/...)
 ///   4. otherwise        -> unresolved (caller leaves `GameName` NULL)
 ///
 /// There is no integer app id, so `Downloads.GameAppId`/`DepotId` stay NULL for
@@ -156,8 +156,14 @@ mod tests {
     #[test]
     fn extract_tact_product_rejects_unknown_path_roots() {
         // Arbitrary Blizzard-vhost paths must not invent product segments.
-        assert_eq!(extract_tact_product("/filestreamingservice/files/abc"), None);
-        assert_eq!(extract_tact_product("/Cerberus-B-Live/data/81/1d/abc"), None);
+        assert_eq!(
+            extract_tact_product("/filestreamingservice/files/abc"),
+            None
+        );
+        assert_eq!(
+            extract_tact_product("/Cerberus-B-Live/data/81/1d/abc"),
+            None
+        );
         assert_eq!(extract_tact_product("/"), None);
     }
 

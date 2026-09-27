@@ -1,5 +1,5 @@
-/// Utility functions for service name normalization and URL filtering
-/// This ensures consistent service names and URL handling across all modules
+//! Utility functions for service name normalization and URL filtering
+//! This ensures consistent service names and URL handling across all modules
 
 /// User-Agent marker carried by every server-side probe the manager itself sends through the
 /// cache (Status Check heartbeat and HTTPS-redirect checks). Lines carrying it are synthetic
@@ -63,6 +63,19 @@ pub fn normalize_service_name(service: &str) -> String {
     service_lower
 }
 
+/// Extract and normalize service name from a log line
+/// Format: [service] ...
+#[allow(dead_code)]
+pub fn extract_service_from_line(line: &str) -> Option<String> {
+    if line.starts_with('[') {
+        if let Some(end_idx) = line.find(']') {
+            let service = &line[1..end_idx];
+            return Some(normalize_service_name(service));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,17 +130,4 @@ mod tests {
         );
         assert_eq!(extract_service_from_line("no bracket"), None);
     }
-}
-
-/// Extract and normalize service name from a log line
-/// Format: [service] ...
-#[allow(dead_code)]
-pub fn extract_service_from_line(line: &str) -> Option<String> {
-    if line.starts_with('[') {
-        if let Some(end_idx) = line.find(']') {
-            let service = &line[1..end_idx];
-            return Some(normalize_service_name(service));
-        }
-    }
-    None
 }

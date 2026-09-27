@@ -148,6 +148,16 @@ public class DatasourceInfoDto
     public bool NginxReopenAvailable { get; set; }
 
     /// <summary>
+    /// Advisory writer state. The request boundary repeats the check before mutation.
+    /// </summary>
+    public NginxReopenRequirement NginxReopenRequirement { get; set; }
+
+    /// <summary>
+    /// Whether this manager can attempt an operation-owned writer check on demand.
+    /// </summary>
+    public bool NginxReopenCheckOnAction { get; set; }
+
+    /// <summary>
     /// Action needed to make nginx reopen available, or null when it is already available.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]

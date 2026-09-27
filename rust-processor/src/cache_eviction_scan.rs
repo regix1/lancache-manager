@@ -732,6 +732,7 @@ async fn update_download_eviction_state_tx(
 /// `reporter` (file write first). Every checkpoint in this file uses status "running" - the
 /// terminal started/complete/failed events are emitted separately in `main()` from the real
 /// `ScanResult`, so this always maps to `emit_progress`.
+#[allow(clippy::too_many_arguments)]
 fn write_progress(
     progress_path: Option<&Path>,
     reporter: &ProgressReporter,
@@ -764,6 +765,7 @@ fn write_progress(
 /// File-only half of `write_progress`: writes the checkpoint without emitting any stdout
 /// event, so `main()` can seed the file before `emit_started` (a "started" event has its own
 /// emit and must not be preceded by a stray progress event on the stdout channel).
+#[allow(clippy::too_many_arguments)]
 fn write_progress_file(
     progress_path: Option<&Path>,
     status: &str,
@@ -796,12 +798,12 @@ fn write_progress_file(
 
 #[cfg(test)]
 mod tests {
-    use lancache_processor::cache_utils;
     use super::{
-        cache_eviction_paths, classify_download, classify_unverifiable,
-        classify_verifiable, download_was_cached, DatasourceConfig, DownloadAction,
-        UnverifiableAction, VerifiableAction,
+        cache_eviction_paths, classify_download, classify_unverifiable, classify_verifiable,
+        download_was_cached, DatasourceConfig, DownloadAction, UnverifiableAction,
+        VerifiableAction,
     };
+    use lancache_processor::cache_utils;
 
     /// Builds a resolved ProbeKey under the given key scheme for the was_cached tests.
     fn scheme_key(key_scheme: &str) -> cache_eviction_paths::ProbeKey {

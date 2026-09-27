@@ -175,6 +175,12 @@ public class LogProcessingStatusResponse
     public string Status { get; set; } = string.Empty;
 
     /// <summary>
+    /// Canonical name of the datasource child that is currently running. Null between batch
+    /// children and whenever no child is active.
+    /// </summary>
+    public string? DatasourceName { get; set; }
+
+    /// <summary>
     /// Operation ID for the current or most recent run. Null before any processing run has ever
     /// started in this process.
     /// </summary>

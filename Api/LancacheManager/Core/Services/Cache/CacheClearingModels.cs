@@ -5,6 +5,7 @@ namespace LancacheManager.Core.Services;
 public class CacheClearProgress
 {
     public Guid OperationId { get; set; }
+    public string? DatasourceName { get; set; }
     public OperationStatus Status { get; set; }
     public string StatusMessage { get; set; } = string.Empty;
     public DateTime StartTime { get; set; }

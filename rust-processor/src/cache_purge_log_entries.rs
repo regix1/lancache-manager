@@ -87,6 +87,7 @@ struct PurgeReport {
 /// was supplied (silent runs) but still emits stdout when `--progress` is set. The struct and the
 /// file-write-then-emit body live once in `progress_utils`; this wrapper only adapts the `Option`
 /// this binary's silent-run mode needs.
+#[allow(clippy::too_many_arguments)]
 fn write_progress(
     progress_path: Option<&Path>,
     reporter: &ProgressReporter,
@@ -109,7 +110,13 @@ fn write_progress(
             total_files,
         ),
         None => {
-            progress_utils::emit_progress_event(reporter, status, stage_key, context, percent_complete);
+            progress_utils::emit_progress_event(
+                reporter,
+                status,
+                stage_key,
+                context,
+                percent_complete,
+            );
             Ok(())
         }
     }
@@ -122,7 +129,16 @@ fn main() -> Result<()> {
 
     let progress_path_buf = args.progress_json.clone().map(std::path::PathBuf::from);
     let progress_path = progress_path_buf.as_deref();
-    let _ = write_progress(progress_path, &reporter, "starting", "signalr.logPurge.reading", json!({}), 0.0, 0, 0);
+    let _ = write_progress(
+        progress_path,
+        &reporter,
+        "starting",
+        "signalr.logPurge.reading",
+        json!({}),
+        0.0,
+        0,
+        0,
+    );
 
     // Single failure funnel: run_or_exit emits the structured `failed` event (with
     // errorDetail) exactly once, whether run_purge itself failed or a later step
@@ -133,8 +149,9 @@ fn main() -> Result<()> {
             Ok(report) => {
                 let payload = serde_json::to_string_pretty(&report)
                     .context("Failed to serialize purge report")?;
-                fs::write(&args.output_json, payload)
-                    .with_context(|| format!("Failed to write output JSON to {}", args.output_json))?;
+                fs::write(&args.output_json, payload).with_context(|| {
+                    format!("Failed to write output JSON to {}", args.output_json)
+                })?;
 
                 let _ = write_progress(
                     progress_path,
@@ -146,7 +163,10 @@ fn main() -> Result<()> {
                     0,
                     0,
                 );
-                eprintln!("Purged {} log lines across access.log files ({} permission errors)", report.lines_removed, report.permission_errors);
+                eprintln!(
+                    "Purged {} log lines across access.log files ({} permission errors)",
+                    report.lines_removed, report.permission_errors
+                );
                 Ok(())
             }
             Err(e) => {
@@ -178,9 +198,22 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressReporter) -> Result<PurgeReport> {
+fn run_purge(
+    args: &Args,
+    progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
+) -> Result<PurgeReport> {
     // Read input JSON
-    let _ = write_progress(progress_path, reporter, "purging", "signalr.logPurge.reading", json!({}), 5.0, 0, 0);
+    let _ = write_progress(
+        progress_path,
+        reporter,
+        "purging",
+        "signalr.logPurge.reading",
+        json!({}),
+        5.0,
+        0,
+        0,
+    );
     let input_bytes = fs::read(&args.input_json)
         .with_context(|| format!("Failed to read input JSON {}", args.input_json))?;
     let request: PurgeRequest = serde_json::from_slice(&input_bytes)
@@ -270,7 +303,10 @@ fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressRepor
     // Cooperative cancellation: if cancel arrived during the purge, flush partial progress
     // with real counts and return Ok so main() exits 0 without writing a failed status.
     if cancel::is_cancelled() {
-        eprintln!("Cancellation confirmed — flushing partial progress ({} lines removed so far).", lines_removed);
+        eprintln!(
+            "Cancellation confirmed — flushing partial progress ({} lines removed so far).",
+            lines_removed
+        );
         let _ = write_progress(
             progress_path,
             reporter,

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -15,22 +16,20 @@ internal sealed class NginxReopenHintJsonConverter : JsonStringEnumConverter<Ngi
     }
 }
 
-/// <summary>
-/// Result of a log rotation operation
-/// </summary>
-public class LogRotationResult
+internal sealed class NginxReopenRequirementJsonConverter : JsonStringEnumConverter<NginxReopenRequirement>
 {
-    public bool Success { get; set; }
-    public string? ErrorMessage { get; set; }
-    public bool DockerSocketMissing { get; set; }
-
-    public static LogRotationResult Succeeded() => new() { Success = true };
-    public static LogRotationResult Failed(string message, bool dockerSocketMissing = false) => new()
+    public NginxReopenRequirementJsonConverter()
+        : base(JsonNamingPolicy.CamelCase, allowIntegerValues: false)
     {
-        Success = false,
-        ErrorMessage = message,
-        DockerSocketMissing = dockerSocketMissing
-    };
+    }
+}
+
+internal sealed class NginxReopenStatusJsonConverter : JsonStringEnumConverter<NginxReopenStatus>
+{
+    public NginxReopenStatusJsonConverter()
+        : base(JsonNamingPolicy.CamelCase, allowIntegerValues: false)
+    {
+    }
 }
 
 /// <summary>
@@ -45,6 +44,8 @@ public class NginxLogRotationService
     private const string HostPidVisibleMarker = "nginx-pid-visible";
     private const int HostPidNotVisibleExitCode = 3;
     private const string NoNginxContainerFoundError = "No container with nginx found";
+    private const string WindowsDockerUnsupportedMessage =
+        "This manager cannot safely change logs held by a Docker writer while running natively on Windows. Run the manager in a Linux environment with the same log mounts, or use a static log source.";
     private const string HostNginxPidExpression =
         "$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
         "pgrep -f 'nginx[:] master' | head -1)";
@@ -59,6 +60,9 @@ public class NginxLogRotationService
     private readonly SemaphoreSlim _availabilityProbeLock = new(1, 1);
     private DateTimeOffset? _lastBareMetalWarning;
     private AvailabilityCacheEntry? _availability;
+
+    protected virtual bool CanProbeHostWriters => OperatingSystem.IsLinux();
+    protected virtual bool CanReplaceDockerLogs => !OperatingSystem.IsWindows();
 
     public NginxLogRotationService(
         ILogger<NginxLogRotationService> logger,
@@ -116,18 +120,83 @@ public class NginxLogRotationService
             var detection = await GetCachedAvailabilityAsync();
             if (detection.Available)
             {
-                return new NginxReopenAvailability(true, NginxReopenHint.None);
+                return new NginxReopenAvailability(
+                    true,
+                    NginxReopenHint.None,
+                    NginxReopenRequirement.Required,
+                    NginxWriterProbe.CanCheckOnAction);
             }
 
             return new NginxReopenAvailability(
                 false,
-                detection.DetectedHint ?? GetLayoutFallbackHint(datasourceLayout));
+                detection.DetectedHint ?? GetLayoutFallbackHint(datasourceLayout),
+                NginxReopenRequirement.Unknown,
+                NginxWriterProbe.CanCheckOnAction);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Nginx reopen availability check failed");
-            return new NginxReopenAvailability(false, GetLayoutFallbackHint(datasourceLayout));
+            return new NginxReopenAvailability(
+                false,
+                GetLayoutFallbackHint(datasourceLayout),
+                NginxReopenRequirement.Unknown,
+                NginxWriterProbe.CanCheckOnAction);
         }
+    }
+
+    /// <summary>
+    /// Returns non-exclusive advisory evidence for one actual datasource. This method never opens
+    /// deny-write handles, acquires leases, signals a writer, or waits for a writer to release a file.
+    /// </summary>
+    public async Task<NginxReopenAvailability> GetNginxReopenAvailabilityAsync(
+        ResolvedDatasource datasource)
+    {
+        try
+        {
+            var paths = GetAffectedLogPaths(datasource);
+            if (paths.Count > 0)
+            {
+                var writers = await ResolveWritersAsync(paths, CancellationToken.None);
+                if (writers.Any(writer => writer.Kind == NginxWriterKind.Docker) &&
+                    !CanReplaceDockerLogs)
+                {
+                    return new NginxReopenAvailability(
+                        false,
+                        NginxReopenHint.UseLinuxManager,
+                        NginxReopenRequirement.Required,
+                        CheckOnAction: false);
+                }
+                if (writers.Count > 0)
+                {
+                    return new NginxReopenAvailability(
+                        true,
+                        NginxReopenHint.None,
+                        NginxReopenRequirement.Required,
+                        NginxWriterProbe.CanCheckOnAction);
+                }
+            }
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            _logger.LogDebug(error, "Datasource nginx writer advisory could not be resolved");
+        }
+
+        var detection = await GetCachedAvailabilityAsync();
+        if (detection.Available)
+        {
+            return new NginxReopenAvailability(
+                true,
+                NginxReopenHint.None,
+                NginxReopenRequirement.Required,
+                NginxWriterProbe.CanCheckOnAction);
+        }
+
+        var checkOnAction = NginxWriterProbe.CanCheckOnAction && Directory.Exists(datasource.LogPath);
+        return new NginxReopenAvailability(
+            false,
+            checkOnAction ? NginxReopenHint.None : detection.DetectedHint ?? NginxReopenHint.MountDockerSocket,
+            NginxReopenRequirement.Unknown,
+            checkOnAction);
     }
 
     private async Task<AvailabilityDetection> GetCachedAvailabilityAsync()
@@ -305,6 +374,521 @@ public class NginxLogRotationService
             ? NginxReopenHint.EnablePidHost
             : NginxReopenHint.MountDockerSocket;
 
+    public static IReadOnlyList<string> GetAffectedLogPaths(ResolvedDatasource datasource)
+    {
+        datasource.RefreshLogSources();
+        if (!Directory.Exists(datasource.LogPath))
+        {
+            return Array.Empty<string>();
+        }
+
+        return Directory.EnumerateFiles(datasource.LogPath, "*", SearchOption.TopDirectoryOnly)
+            .Where(path => LogSourceLayout.LogicalStem(Path.GetFileName(path)) is not null)
+            .Select(Path.GetFullPath)
+            .Distinct(OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public async Task<NginxReopenCheck> PrepareReopenCheckAsync(
+        IReadOnlyList<ResolvedDatasource> datasources,
+        IReadOnlyList<string> affectedPaths,
+        bool expectsPublication,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var canonicalNames = datasources.Select(datasource => datasource.Name).Distinct(
+            StringComparer.OrdinalIgnoreCase).ToList();
+        var existingPaths = affectedPaths
+            .Where(File.Exists)
+            .Select(Path.GetFullPath)
+            .Distinct(OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        if (existingPaths.Count == 0)
+        {
+            if (expectsPublication)
+            {
+                throw new InvalidOperationException(
+                    "No existing log file was available to bind to the replacement check");
+            }
+
+            return new NginxReopenCheck(
+                canonicalNames,
+                existingPaths,
+                new Dictionary<string, NginxFileIdentity>(),
+                Array.Empty<NginxWriterIdentity>(),
+                NginxReopenRequirement.NotRequired,
+                Array.Empty<NginxHeldProof>(),
+                null,
+                null,
+                expectsPublication);
+        }
+
+        var writers = await ResolveWritersAsync(existingPaths, cancellationToken);
+        if (!CanReplaceDockerLogs && writers.Any(writer => writer.Kind == NginxWriterKind.Docker))
+        {
+            throw new ValidationException(WindowsDockerUnsupportedMessage)
+            {
+                StageKey = "management.nginxReopen.windowsDockerUnsupported"
+            };
+        }
+        IReadOnlyList<NginxHeldProof> proofs = Array.Empty<NginxHeldProof>();
+        if (writers.Count == 0 &&
+            !NginxWriterProbe.TryAcquire(existingPaths, out proofs, out var proofError))
+        {
+            throw new InvalidOperationException(
+                $"Could not prove that the selected logs have no active writer: {proofError}");
+        }
+
+        string? checkPath = null;
+        string? resultPath = null;
+        try
+        {
+            var identities = proofs.Count > 0
+                ? proofs.ToDictionary(proof => proof.Path, proof => proof.Identity,
+                    OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+                : existingPaths.ToDictionary(path => path, NginxWriterProbe.ReadIdentity,
+                    OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            var operationsDirectory = _pathResolver.GetOperationsDirectory();
+            Directory.CreateDirectory(operationsDirectory);
+            var token = Guid.NewGuid().ToString("N");
+            checkPath = Path.Combine(operationsDirectory, $"nginx_log_check_{token}.json");
+            resultPath = Path.Combine(operationsDirectory, $"nginx_log_result_{token}.json");
+            await WritePublicationCheckAsync(checkPath, valid: true, identities, cancellationToken);
+
+            return new NginxReopenCheck(
+                canonicalNames,
+                existingPaths,
+                identities,
+                writers,
+                writers.Count > 0 ? NginxReopenRequirement.Required : NginxReopenRequirement.NotRequired,
+                proofs,
+                checkPath,
+                resultPath,
+                expectsPublication);
+        }
+        catch
+        {
+            foreach (var proof in proofs)
+            {
+                proof.Dispose();
+            }
+            foreach (var path in new[]
+            {
+                checkPath,
+                checkPath is null ? null : checkPath + ".new",
+                resultPath,
+                resultPath is null ? null : resultPath + ".new"
+            })
+            {
+                if (!string.IsNullOrEmpty(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            throw;
+        }
+    }
+
+    public async Task<NginxReopenChecks> PrepareReopenChecksAsync(
+        IReadOnlyList<ResolvedDatasource> datasources,
+        bool expectsPublication,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = new List<KeyValuePair<string, NginxReopenCheck>>();
+        try
+        {
+            foreach (var datasource in datasources)
+            {
+                var check = await PrepareReopenCheckAsync(
+                    new[] { datasource },
+                    GetAffectedLogPaths(datasource),
+                    expectsPublication,
+                    cancellationToken);
+                prepared.Add(KeyValuePair.Create(datasource.Name, check));
+            }
+            return new NginxReopenChecks(prepared);
+        }
+        catch
+        {
+            foreach (var pair in prepared)
+            {
+                await pair.Value.DisposeAsync();
+            }
+            throw;
+        }
+    }
+
+    public void ValidateReopenCheck(NginxReopenCheck check)
+    {
+        foreach (var proof in check.Proofs)
+        {
+            if (!proof.Validate())
+            {
+                throw new InvalidOperationException($"The held no-writer proof is no longer valid for '{proof.Path}'");
+            }
+        }
+        foreach (var pair in check.OriginalIdentities)
+        {
+            if (!File.Exists(pair.Key) || NginxWriterProbe.ReadIdentity(pair.Key) != pair.Value)
+            {
+                throw new InvalidOperationException($"The selected log identity changed before launch: '{pair.Key}'");
+            }
+        }
+    }
+
+    public static void AttachPublicationCheck(NginxReopenCheck check, ProcessStartInfo process)
+    {
+        if (check.CheckPath is null || check.ResultPath is null)
+        {
+            return;
+        }
+
+        process.Environment["LANCACHE_LOG_CHECK"] = check.CheckPath;
+        process.Environment["LANCACHE_LOG_RESULT"] = check.ResultPath;
+    }
+
+    public async Task InvalidateReopenCheckAsync(
+        NginxReopenCheck check,
+        CancellationToken cancellationToken = default)
+    {
+        if (check.CheckPath is not null)
+        {
+            await WritePublicationCheckAsync(
+                check.CheckPath,
+                valid: false,
+                check.OriginalIdentities,
+                cancellationToken);
+        }
+    }
+
+    public async Task<LogRotationResult> CompleteReopenCheckAsync(
+        NginxReopenCheck check,
+        bool physicalChange,
+        CancellationToken cancellationToken = default)
+    {
+        if (!physicalChange)
+        {
+            return LogRotationResult.NotRequired();
+        }
+
+        string? completionError = null;
+        if (check.Proofs.Any(proof => !proof.Validate()))
+        {
+            completionError = "The no-writer proof changed while the logs were being updated";
+        }
+
+        if (completionError is null && check.ExpectsPublication)
+        {
+            try
+            {
+                var publication = await ReadPublicationResultAsync(check, cancellationToken);
+                if (!publication.Success)
+                {
+                    completionError = "The log child reported an incomplete publication";
+                }
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                completionError = error.Message;
+            }
+        }
+
+        if (check.Requirement == NginxReopenRequirement.NotRequired)
+        {
+            return completionError is null
+                ? LogRotationResult.NotRequired()
+                : LogRotationResult.Failed(
+                    completionError,
+                    NginxReopenRequirement.NotRequired,
+                    partialPhysicalEffects: true);
+        }
+
+        foreach (var writer in check.Writers)
+        {
+            if (!await SignalWriterAsync(writer, cancellationToken))
+            {
+                return LogRotationResult.Failed(
+                    $"Failed to reopen nginx writer '{writer.Name}'",
+                    NginxReopenRequirement.Required,
+                    partialPhysicalEffects: true);
+            }
+        }
+
+        return completionError is null
+            ? LogRotationResult.Succeeded()
+            : LogRotationResult.Failed(
+                completionError,
+                NginxReopenRequirement.Required,
+                partialPhysicalEffects: true);
+    }
+
+    private async Task WritePublicationCheckAsync(
+        string checkPath,
+        bool valid,
+        IReadOnlyDictionary<string, NginxFileIdentity> identities,
+        CancellationToken cancellationToken)
+    {
+        var check = new NginxPublicationCheckFile(
+            valid,
+            identities.Select(pair => new NginxPublicationExpectation(pair.Key, pair.Value)).ToList());
+        var temporaryPath = checkPath + ".new";
+        await File.WriteAllTextAsync(
+            temporaryPath,
+            JsonSerializer.Serialize(check, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            cancellationToken);
+        File.Move(temporaryPath, checkPath, overwrite: true);
+    }
+
+    private static async Task<NginxPublicationResult> ReadPublicationResultAsync(
+        NginxReopenCheck check,
+        CancellationToken cancellationToken)
+    {
+        if (check.ResultPath is null || !File.Exists(check.ResultPath))
+        {
+            throw new InvalidDataException("The log child did not publish its identity result");
+        }
+
+        await using var stream = File.OpenRead(check.ResultPath);
+        var result = await JsonSerializer.DeserializeAsync<NginxPublicationResult>(
+            stream,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web),
+            cancellationToken) ?? throw new InvalidDataException("The log child result was empty");
+        if (result.Files.Count != check.AffectedPaths.Count)
+        {
+            throw new InvalidDataException("The log child result did not cover every selected file");
+        }
+
+        var comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var records = result.Files.ToDictionary(record => Path.GetFullPath(record.TargetPath), comparer);
+        foreach (var path in check.AffectedPaths)
+        {
+            if (!records.TryGetValue(path, out var record) ||
+                !check.OriginalIdentities.TryGetValue(path, out var original) ||
+                record.OriginalIdentity != original)
+            {
+                throw new InvalidDataException($"The log child result did not match '{path}'");
+            }
+
+            if (record.Changed && !record.Deleted &&
+                (record.TemporaryIdentity is null ||
+                 record.PublishedIdentity != record.TemporaryIdentity ||
+                 record.PublishedIdentity == original))
+            {
+                throw new InvalidDataException($"The log child reported an invalid publication for '{path}'");
+            }
+            if (!record.Changed && record.PublishedIdentity != original)
+            {
+                throw new InvalidDataException($"The unchanged log identity did not match '{path}'");
+            }
+            if (record.Deleted && File.Exists(path))
+            {
+                throw new InvalidDataException($"The deleted log still exists at '{path}'");
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<IReadOnlyList<NginxWriterIdentity>> ResolveWritersAsync(
+        IReadOnlyList<string> affectedPaths,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var writers = new List<NginxWriterIdentity>();
+        if (_pathResolver.IsDockerSocketAvailable())
+        {
+            var configured = _configuration.GetValue<string>("NginxLogRotation:ContainerName")
+                ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(containerName => !string.Equals(containerName, "auto", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.Ordinal)
+                .ToList() ?? new List<string>();
+            var names = configured;
+            if (names.Count == 0)
+            {
+                var listed = await RunProcessAsync(
+                    CreateDockerStartInfo("ps --filter status=running --format \"{{.Names}}\""),
+                    "docker nginx writer list");
+                if (listed.ExitCode == 0)
+                {
+                    names = listed.Output
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList();
+                }
+            }
+
+            foreach (var name in names)
+            {
+                var match = await ReadDockerWriterAsync(name, affectedPaths);
+                if (match is { Matches: true })
+                {
+                    writers.Add(match.Writer);
+                }
+                else if (match is null && configured.Contains(name, StringComparer.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Configured nginx writer '{name}' could not be verified for the selected logs");
+                }
+            }
+        }
+
+        var hosts = CanProbeHostWriters
+            ? await ReadHostWritersAsync(affectedPaths)
+            : Array.Empty<NginxWriterIdentity>();
+        foreach (var host in hosts)
+        {
+            writers.Add(host);
+        }
+
+        return writers
+            .DistinctBy(writer => (writer.Kind, writer.Name, writer.ProcessId, writer.StartIdentity))
+            .ToList();
+    }
+
+    private async Task<NginxWriterMatch?> ReadDockerWriterAsync(
+        string containerName,
+        IReadOnlyList<string> affectedPaths)
+    {
+        var inspect = await RunProcessAsync(
+            CreateDockerStartInfo(
+                $"inspect --format \"{{{{range .Mounts}}}}{{{{println .Source \\\"|\\\" .Destination}}}}{{{{end}}}}\" {containerName}"),
+            "docker nginx mount inspection");
+        if (inspect.ExitCode != 0)
+        {
+            return null;
+        }
+
+        var comparer = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var mapped = inspect.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => line.Split('|', 2, StringSplitOptions.TrimEntries))
+            .Where(parts => parts.Length == 2)
+            .Any(parts => affectedPaths.Any(path =>
+                IsWithinMount(path, parts[0], comparer) ||
+                IsWithinMount(path, parts[1], comparer)));
+        var writer = await ReadDockerWriterIdentityAsync(containerName);
+        if (writer is null)
+        {
+            return null;
+        }
+        return new NginxWriterMatch(writer, mapped);
+    }
+
+    private async Task<NginxWriterIdentity?> ReadDockerWriterIdentityAsync(string containerName)
+    {
+        var identity = await RunProcessAsync(
+            CreateDockerStartInfo(
+                $"exec {containerName} sh -c \"pid=$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || pgrep -f 'nginx[:] master' | head -1); test -n \\\"$pid\\\" || exit 3; tr '\\0' ' ' </proc/$pid/cmdline | grep -q 'nginx: master' || exit 4; start=$(awk '{{print $22}}' /proc/$pid/stat); printf '%s|%s\\n' \\\"$pid\\\" \\\"$start\\\"\""),
+            "docker nginx writer identity");
+        return identity.ExitCode == 0
+            ? ParseWriterIdentity(NginxWriterKind.Docker, containerName, identity.Output)
+            : null;
+    }
+
+    private static bool IsWithinMount(
+        string path,
+        string root,
+        StringComparison comparison)
+    {
+        var normalizedPath = path.Replace('\\', '/').TrimEnd('/');
+        var normalizedRoot = root.Replace('\\', '/').TrimEnd('/');
+        return string.Equals(normalizedPath, normalizedRoot, comparison) ||
+            normalizedPath.StartsWith(normalizedRoot + "/", comparison);
+    }
+
+    private async Task<IReadOnlyList<NginxWriterIdentity>> ReadHostWritersAsync(
+        IReadOnlyList<string>? affectedPaths = null)
+    {
+        var process = new ProcessStartInfo
+        {
+            FileName = "sh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        process.ArgumentList.Add("-c");
+        process.ArgumentList.Add(
+            "found=; for pid in $(pgrep -f 'nginx[:] master'); do matched=; " +
+            "if [ \"$#\" -eq 0 ]; then matched=1; else " +
+            "for descriptor in /proc/$pid/fd/*; do resolved=$(readlink -f \"$descriptor\" 2>/dev/null) || continue; " +
+            "for target in \"$@\"; do if [ \"$resolved\" = \"$target\" ]; then matched=1; break 2; fi; done; done; fi; " +
+            "if [ -n \"$matched\" ]; then start=$(awk '{print $22}' /proc/$pid/stat 2>/dev/null) || continue; " +
+            "printf '%s|%s\\n' \"$pid\" \"$start\"; found=1; fi; done; test -n \"$found\"");
+        process.ArgumentList.Add("nginx-writer-check");
+        if (affectedPaths is not null)
+        {
+            foreach (var path in affectedPaths)
+            {
+                process.ArgumentList.Add(path);
+            }
+        }
+        var result = await RunProcessAsync(process, "host nginx writer identity");
+        if (result.ExitCode != 0)
+        {
+            return Array.Empty<NginxWriterIdentity>();
+        }
+
+        return result.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => ParseWriterIdentity(NginxWriterKind.Host, "host", line))
+            .Where(writer => writer is not null)
+            .Select(writer => writer!)
+            .ToList();
+    }
+
+    private static NginxWriterIdentity? ParseWriterIdentity(
+        NginxWriterKind kind,
+        string name,
+        string output)
+    {
+        var parts = output.Trim().Split('|', 2, StringSplitOptions.TrimEntries);
+        return parts.Length == 2 && int.TryParse(parts[0], out var processId) &&
+            !string.IsNullOrEmpty(parts[1])
+            ? new NginxWriterIdentity(kind, name, processId, parts[1])
+            : null;
+    }
+
+    private async Task<bool> SignalWriterAsync(
+        NginxWriterIdentity writer,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (writer.Kind == NginxWriterKind.Docker)
+        {
+            var result = await RunProcessAsync(
+                CreateDockerStartInfo(
+                    $"exec {writer.Name} sh -c \"start=$(awk '{{print $22}}' /proc/{writer.ProcessId}/stat 2>/dev/null); test \\\"$start\\\" = '{writer.StartIdentity}' && kill -USR1 {writer.ProcessId}\""),
+                "docker nginx verified reopen");
+            return result.ExitCode == 0;
+        }
+
+        var process = new ProcessStartInfo
+        {
+            FileName = "sh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        process.ArgumentList.Add("-c");
+        process.ArgumentList.Add(
+            $"start=$(awk '{{print $22}}' /proc/{writer.ProcessId}/stat 2>/dev/null); " +
+            $"test \"$start\" = '{writer.StartIdentity}' && kill -USR1 {writer.ProcessId}");
+        var hostResult = await RunProcessAsync(process, "host nginx verified reopen");
+        return hostResult.ExitCode == 0;
+    }
+
     /// <summary>
     /// Signals nginx to reopen log files. A configured or auto-detected LANCache container is
     /// preferred; when none is found, the host nginx master is signaled locally.
@@ -356,94 +940,75 @@ public class NginxLogRotationService
                 return LogRotationResult.Failed("Log rotation is disabled in configuration");
             }
 
-            // Try to auto-detect container name if not explicitly configured
             var configuredName = _configuration.GetValue<string>("NginxLogRotation:ContainerName");
-            var (containerName, detectionError) =
-                !string.IsNullOrEmpty(configuredName) &&
-                !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase)
-                ? (configuredName, (string?)null)
-                : await FindMonolithicContainerAsync();
-
-            if (string.IsNullOrEmpty(containerName))
+            var configuredNames = configuredName?
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(containerName => !string.Equals(containerName, "auto", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.Ordinal)
+                .ToList() ?? new List<string>();
+            var writers = new List<NginxWriterIdentity>();
+            string? detectionError = null;
+            if (configuredNames.Count > 0)
             {
-                try
+                foreach (var containerName in configuredNames)
                 {
-                    var hostSignalResult = await RunProcessAsync(
-                        CreateHostSignalStartInfo("USR1"),
-                        "host nginx log reopen");
-
-                    if (hostSignalResult.ExitCode == 0)
+                    var writer = await ReadDockerWriterIdentityAsync(containerName);
+                    if (writer is null)
                     {
-                        lock (_bareMetalWarningLock)
-                        {
-                            _lastBareMetalWarning = null;
-                        }
-
-                        _logger.LogInformation("Successfully sent USR1 to the host nginx master process");
-                        return LogRotationResult.Succeeded();
-                    }
-
-                    if (hostSignalResult.ExitCode == HostPidNotVisibleExitCode)
-                    {
-                        const string visibilityFailure =
-                            "host nginx is not visible to the manager; enable pid: host " +
-                            "(CAP_KILL is granted by default; do not drop it)";
-                        var visibilityDetectionContext =
-                            detectionError ?? "No LANCache container was found";
-                        LogBareMetalFailure($"{visibilityDetectionContext}; {visibilityFailure}");
                         return LogRotationResult.Failed(
-                            $"Failed to signal host nginx to reopen logs: {visibilityFailure}",
-                            false);
+                            $"Configured nginx writer '{containerName}' could not be verified");
                     }
-
-                    var processFailure = string.IsNullOrWhiteSpace(hostSignalResult.Error)
-                        ? $"command exited with code {hostSignalResult.ExitCode}"
-                        : $"command exited with code {hostSignalResult.ExitCode}: {hostSignalResult.Error.Trim()}";
-                    var detectionContext = detectionError ?? "No LANCache container was found";
-                    LogBareMetalFailure($"{detectionContext}; {processFailure}");
-                    return LogRotationResult.Failed(
-                        $"Failed to signal host nginx to reopen logs: {processFailure}",
-                        detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
+                    writers.Add(writer);
                 }
-                catch (Exception ex)
+            }
+            else
+            {
+                var (containerName, error) = await FindMonolithicContainerAsync();
+                detectionError = error;
+                if (!string.IsNullOrEmpty(containerName))
                 {
-                    var processFailure = $"could not run the local signal command: {ex.Message}";
-                    var detectionContext = detectionError ?? "No LANCache container was found";
-                    LogBareMetalFailure($"{detectionContext}; {processFailure}", ex);
+                    var writer = await ReadDockerWriterIdentityAsync(containerName);
+                    if (writer is null)
+                    {
+                        return LogRotationResult.Failed(
+                            $"Detected nginx writer '{containerName}' could not be verified");
+                    }
+                    writers.Add(writer);
+                }
+            }
+
+            if (writers.Count == 0)
+            {
+                var hosts = CanProbeHostWriters
+                    ? await ReadHostWritersAsync()
+                    : Array.Empty<NginxWriterIdentity>();
+                if (hosts.Count == 0)
+                {
+                    const string failureReason =
+                        "Host nginx is not visible to the manager; enable pid: host and preserve CAP_KILL";
+                    LogBareMetalFailure(failureReason);
                     return LogRotationResult.Failed(
-                        $"Failed to signal host nginx to reopen logs: {processFailure}",
+                        failureReason,
+                        detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
+                }
+                writers.AddRange(hosts);
+            }
+
+            foreach (var writer in writers)
+            {
+                if (!await SignalWriterAsync(writer, CancellationToken.None))
+                {
+                    return LogRotationResult.Failed(
+                        $"Failed to reopen nginx writer '{writer.Name}'",
                         detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
                 }
             }
 
-            _logger.LogInformation("Signaling nginx to reopen logs in container: {ContainerName}", containerName);
-
-            // Try method 1: Send USR1 to PID 1 (works if nginx is the main process)
-            var directSignalSuccess = await SignalContainerAsync(containerName, "USR1");
-            if (directSignalSuccess)
+            lock (_bareMetalWarningLock)
             {
-                _logger.LogInformation("Successfully sent USR1 to PID 1 in {ContainerName}", containerName);
+                _lastBareMetalWarning = null;
             }
-
-            // Try method 2: Execute kill command inside container to find and signal nginx master process
-            // This works even when nginx is not PID 1 (e.g., running under supervisor)
-            var execSuccess = await ExecuteInContainerAsync(containerName,
-                "sh", "-c", "kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null || pgrep -f 'nginx[:] master' | head -1)");
-
-            if (execSuccess)
-            {
-                _logger.LogInformation("Successfully sent USR1 to nginx master process in {ContainerName}", containerName);
-                return LogRotationResult.Succeeded();
-            }
-
-            if (directSignalSuccess)
-            {
-                // First method worked, assume it was successful
-                return LogRotationResult.Succeeded();
-            }
-
-            _logger.LogWarning("Failed to signal nginx to reopen logs in {ContainerName}", containerName);
-            return LogRotationResult.Failed($"Failed to signal nginx in container '{containerName}'");
+            return LogRotationResult.Succeeded();
         }
         catch (Exception ex)
         {
@@ -643,72 +1208,6 @@ public class NginxLogRotationService
         }
     }
 
-    /// <summary>
-    /// Execute a command inside a container using 'docker exec'
-    /// </summary>
-    /// <returns>
-    /// False both when the command ran and failed and when docker could not be reached. The
-    /// caller tries the next reopen path either way, so it does not need to tell them apart.
-    /// </returns>
-    private async Task<bool> ExecuteInContainerAsync(string containerName, params string[] command)
-    {
-        try
-        {
-            var commandStr = string.Join(" ", command.Select(c => c.Contains(" ") ? $"\"{c}\"" : c));
-            var processStartInfo = CreateDockerStartInfo($"exec {containerName} {commandStr}");
-
-            var result = await RunProcessAsync(processStartInfo, "docker exec");
-
-            if (result.ExitCode == 0)
-            {
-                _logger.LogDebug("Command executed successfully in container {Container}", containerName);
-                return true;
-            }
-
-            _logger.LogDebug("docker exec failed with exit code {ExitCode}: {Error}",
-                result.ExitCode, result.Error.Trim());
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Error executing command in container {Container}", containerName);
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Send a signal to a container using 'docker kill --signal'
-    /// This sends signal to PID 1 in the container
-    /// </summary>
-    /// <returns>
-    /// False both when docker kill returned a non-zero exit code and when the call itself failed.
-    /// Same as the exec path: the caller moves on to the next option.
-    /// </returns>
-    private async Task<bool> SignalContainerAsync(string containerName, string signal)
-    {
-        try
-        {
-            var processStartInfo = CreateDockerStartInfo($"kill --signal={signal} {containerName}");
-
-            var result = await RunProcessAsync(processStartInfo, "docker kill");
-
-            if (result.ExitCode == 0)
-            {
-                _logger.LogDebug("Signal {Signal} sent successfully to container {Container}", signal, containerName);
-                return true;
-            }
-
-            _logger.LogWarning("docker kill failed with exit code {ExitCode}: {Error}",
-                result.ExitCode, result.Error.Trim());
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending signal {Signal} to container {Container}", signal, containerName);
-            return false;
-        }
-    }
-
     private static ProcessStartInfo CreateDockerStartInfo(string arguments) => new()
     {
         FileName = "docker",
@@ -727,23 +1226,6 @@ public class NginxLogRotationService
     private static string BuildHostPidResolutionScript() =>
         $"pid={HostNginxPidExpression}; " +
         $"if [ -z \"$pid\" ]; then exit {HostPidNotVisibleExitCode}; fi; ";
-
-    private static ProcessStartInfo CreateHostSignalStartInfo(string signal)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "sh",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add(
-            BuildHostPidResolutionScript() +
-            $"kill -{signal} \"$pid\"");
-        return startInfo;
-    }
 
     private static ProcessStartInfo CreateHostProbeStartInfo()
     {
@@ -768,43 +1250,4 @@ public class NginxLogRotationService
     protected virtual Task<ProcessCommandResult> RunProcessAsync(ProcessStartInfo startInfo, string label) =>
         _processManager.RunAsync(startInfo, label: label);
 
-    private enum DockerProbeFailure
-    {
-        None,
-        SocketMissing,
-        NoNginxContainer,
-        Unknown
-    }
-
-    private enum HostProbeFailure
-    {
-        None,
-        PidNotVisible,
-        SignalDenied,
-        Unknown
-    }
-
-    private sealed record DockerProbeResult(bool Available, DockerProbeFailure Failure)
-    {
-        public static DockerProbeResult AvailableResult { get; } = new(true, DockerProbeFailure.None);
-        public static DockerProbeResult Unknown { get; } = new(false, DockerProbeFailure.Unknown);
-    }
-
-    private sealed record HostProbeResult(bool Available, HostProbeFailure Failure)
-    {
-        public static HostProbeResult AvailableResult { get; } = new(true, HostProbeFailure.None);
-        public static HostProbeResult Unknown { get; } = new(false, HostProbeFailure.Unknown);
-    }
-
-    private sealed record AvailabilityDetection(bool Available, NginxReopenHint? DetectedHint)
-    {
-        public static AvailabilityDetection AvailableResult { get; } = new(true, null);
-
-        public static AvailabilityDetection Unavailable(NginxReopenHint? hint = null) =>
-            new(false, hint);
-    }
-
-    private sealed record AvailabilityCacheEntry(
-        AvailabilityDetection Detection,
-        DateTimeOffset CheckedAt);
 }

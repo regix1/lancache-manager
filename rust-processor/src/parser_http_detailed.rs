@@ -309,6 +309,7 @@ mod tests {
     const TS: &str = "01/Jan/2024:00:00:00 +0000";
 
     /// Build a detailed line with default plumbing fields.
+    #[allow(clippy::too_many_arguments)]
     fn detailed_line(
         ip: &str,
         method: &str,
@@ -328,6 +329,7 @@ mod tests {
 
     /// Build the semantically identical cachelog line: same timestamp, client, request,
     /// status, BODY bytes, cache status, host and range.
+    #[allow(clippy::too_many_arguments)]
     fn cachelog_line(
         service: &str,
         ip: &str,
@@ -350,6 +352,7 @@ mod tests {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn assert_golden_pair(
         service_hint: &str,
         cachelog_service_tag: &str,

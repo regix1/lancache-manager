@@ -13,36 +13,24 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use lancache_processor::cancel;
 use lancache_processor::cache_utils;
+use lancache_processor::cancel;
 mod cache_detect_matching;
 mod cache_detect_queries;
+use cache_detect_matching::{
+    detect_epic_game_cache_info, detect_epic_game_cache_info_incremental,
+    detect_named_game_cache_info, detect_named_game_cache_info_incremental,
+    detect_service_cache_info, detect_service_cache_info_incremental, detect_steam_game_cache_info,
+    detect_steam_game_cache_info_incremental, games_in_claim_order, group_epic_records,
+    group_named_records, unevict_candidates_incremental, unevict_candidates_with_index,
+};
+use cache_detect_queries::{
+    query_epic_game_downloads, query_evicted_game_download_urls, query_game_downloads,
+    query_named_game_downloads, query_service_downloads, unevict_downloads,
+};
 use lancache_processor::db;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
-use cache_detect_matching::{
-    detect_epic_game_cache_info,
-    detect_epic_game_cache_info_incremental,
-    detect_named_game_cache_info,
-    detect_named_game_cache_info_incremental,
-    detect_service_cache_info,
-    detect_service_cache_info_incremental,
-    detect_steam_game_cache_info,
-    detect_steam_game_cache_info_incremental,
-    games_in_claim_order,
-    group_epic_records,
-    group_named_records,
-    unevict_candidates_incremental,
-    unevict_candidates_with_index,
-};
-use cache_detect_queries::{
-    query_epic_game_downloads,
-    query_evicted_game_download_urls,
-    query_game_downloads,
-    query_named_game_downloads,
-    query_service_downloads,
-    unevict_downloads,
-};
 use progress_events::ProgressReporter;
 
 /// Game cache detection utility - detects which games have files in the cache
@@ -191,7 +179,7 @@ fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
         .filter_map(|entry| {
             // Progress counter
             let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if count % 10000 == 0 {
+            if count.is_multiple_of(10000) {
                 eprint!("\r  Scanned {} files...", count);
             }
 
@@ -214,7 +202,10 @@ fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
     let total = cache_files.len();
     let total_size_gb = cache_files.values().copied().sum::<u64>() as f64 / 1_073_741_824.0;
 
-    eprintln!("\r  Found {} cache files ({:.2} GB total)", total, total_size_gb);
+    eprintln!(
+        "\r  Found {} cache files ({:.2} GB total)",
+        total, total_size_gb
+    );
     let skipped = non_hash_names.load(Ordering::Relaxed);
     if skipped > 0 {
         eprintln!(
@@ -283,6 +274,7 @@ fn register_late_owner(
 /// Must run before the index is dropped. `claimed` is the scan-wide set every row above
 /// inserted its matched digests into, so "unclaimed" here is exact without re-deriving a
 /// digest from anything.
+#[allow(clippy::too_many_arguments)]
 fn detect_unmapped_services(
     cache_dir: &Path,
     cache_files_index: Option<&HashMap<u128, u64>>,
@@ -304,7 +296,10 @@ fn detect_unmapped_services(
         .collect();
 
     let total = unmapped.len();
-    eprintln!("\n=== Phase 5: Grouping {} Unclaimed Cache Files ===", total);
+    eprintln!(
+        "\n=== Phase 5: Grouping {} Unclaimed Cache Files ===",
+        total
+    );
 
     let mut processed = 0usize;
     let mut by_service: BTreeMap<String, UnmappedService> = BTreeMap::new();
@@ -315,7 +310,10 @@ fn detect_unmapped_services(
     for (digest, size_bytes) in unmapped {
         // Cooperative cancel: check between key reads, one disk read each
         if cancel::is_cancelled() {
-            eprintln!("\nCancel requested — stopping unclaimed file grouping after {}/{} files", processed, total);
+            eprintln!(
+                "\nCancel requested — stopping unclaimed file grouping after {}/{} files",
+                processed, total
+            );
             write_progress(
                 progress_path,
                 "cancelled",
@@ -330,7 +328,7 @@ fn detect_unmapped_services(
 
         processed += 1;
 
-        if processed % 500 == 0 || processed == total {
+        if processed.is_multiple_of(500) || processed == total {
             let percent = 90.0 + (processed as f64 / total.max(1) as f64) * 2.0;
             let context = json!({ "processed": processed, "total": total });
             write_progress(
@@ -938,6 +936,7 @@ async fn main() -> Result<()> {
         let mut services_processed = 0;
 
         // Sorted so a file two services both match is always claimed by the same one.
+        #[allow(clippy::type_complexity)]
         let mut sorted_services: Vec<(String, Vec<(String, String, i64)>)> =
             services_map.into_iter().collect();
         sorted_services.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
@@ -1315,7 +1314,8 @@ mod tests {
         let root = temp.path().join("cache");
         fs::create_dir_all(&root).unwrap();
         // A mid-object slice (chunk 493) the consecutive-miss walk can never reach.
-        let base = cache_utils::object_key_base("wsus", "/filestreamingservice/files/guid").unwrap();
+        let base =
+            cache_utils::object_key_base("wsus", "/filestreamingservice/files/guid").unwrap();
         let key = format!("{base}bytes=517996544-519045119");
         write_cache_file(&root, 7, &key, "slice-body");
         let index = HashMap::from([(7u128, 41u64)]);
@@ -1410,8 +1410,14 @@ mod tests {
             cache_utils::cache_key_base_of("wsus/files/abytes=0-1048575"),
             "wsus/files/a"
         );
-        assert_eq!(cache_utils::cache_key_base_of("steam/depot/1::noslice"), "steam/depot/1");
-        assert_eq!(cache_utils::cache_key_base_of("steam/depot/1"), "steam/depot/1");
+        assert_eq!(
+            cache_utils::cache_key_base_of("steam/depot/1::noslice"),
+            "steam/depot/1"
+        );
+        assert_eq!(
+            cache_utils::cache_key_base_of("steam/depot/1"),
+            "steam/depot/1"
+        );
         // A URL genuinely ending in a bytes= lookalike without a digits-dash-digits tail
         // must NOT be truncated.
         assert_eq!(

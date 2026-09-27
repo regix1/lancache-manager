@@ -329,7 +329,11 @@ export interface MessageResponse {
   message: string;
 }
 
-export type NginxReopenHint = 'grantSignalPrivilege' | 'enablePidHost' | 'mountDockerSocket';
+export type NginxReopenHint =
+  | 'useLinuxManager'
+  | 'grantSignalPrivilege'
+  | 'enablePidHost'
+  | 'mountDockerSocket';
 
 export type DatasourceSchemeOverride = 'auto' | 'monolithic' | 'bare_metal';
 export type CacheKeyScheme = 'monolithic' | 'bare_metal' | 'mixed' | 'unknown';
@@ -363,6 +367,10 @@ export interface DatasourceInfo {
   canClearWholeCacheRoot?: boolean;
   /** Manager can reopen nginx after this datasource's access logs are rewritten. */
   nginxReopenAvailable?: boolean;
+  /** Whether rewriting this datasource's logs needs nginx to reopen its file handles. */
+  nginxReopenRequirement: 'notRequired' | 'required' | 'unknown';
+  /** Whether an action can perform a fresh writer check when the current requirement is unknown. */
+  nginxReopenCheckOnAction: boolean;
   /** Action needed to make nginx reopen available, or null when it is already available. */
   nginxReopenHint?: NginxReopenHint | null;
 }
@@ -413,7 +421,7 @@ export interface Config {
   timeZone: string;
   cacheWritable: boolean;
   logsWritable: boolean;
-  /** List of all configured datasources. Empty indicates single datasource mode. */
+  /** Enabled datasources. The server sends one "default" row in legacy single-path mode; empty means an explicit configuration enables none. */
   dataSources: DatasourceInfo[];
 }
 

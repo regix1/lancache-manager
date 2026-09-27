@@ -58,7 +58,7 @@ public partial class CacheManagementService
             {
                 var datasource = execution.Datasource;
 
-                var dsCount = await RunRustRemovalProcessAsync<ServiceRemovalProgressData, CacheFileCountReport>(
+                var dsCount = await RunRustRemovalProcessAsync<ServiceRemovalProgress, CacheFileCountReport>(
                     logPrefix,
                     execution,
                     () =>

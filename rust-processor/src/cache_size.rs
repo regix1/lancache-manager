@@ -9,11 +9,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use lancache_processor::cancel;
+use cache_utils::detect_filesystem_type;
 use lancache_processor::cache_utils;
+use lancache_processor::cancel;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
-use cache_utils::detect_filesystem_type;
 use progress_events::ProgressReporter;
 
 #[derive(Serialize)]
@@ -84,26 +84,30 @@ fn format_duration(seconds: f64) -> String {
     if seconds < 1.0 {
         return "< 1 second".to_string();
     }
-    
+
     let total_seconds = seconds.round() as u64;
-    
+
     if total_seconds < 60 {
-        return format!("{} second{}", total_seconds, if total_seconds == 1 { "" } else { "s" });
+        return format!(
+            "{} second{}",
+            total_seconds,
+            if total_seconds == 1 { "" } else { "s" }
+        );
     }
-    
+
     let minutes = total_seconds / 60;
     let secs = total_seconds % 60;
-    
+
     if minutes < 60 {
         if secs == 0 {
             return format!("{} minute{}", minutes, if minutes == 1 { "" } else { "s" });
         }
         return format!("{}m {}s", minutes, secs);
     }
-    
+
     let hours = minutes / 60;
     let mins = minutes % 60;
-    
+
     if mins == 0 {
         return format!("{} hour{}", hours, if hours == 1 { "" } else { "s" });
     }
@@ -132,14 +136,14 @@ fn format_bytes(bytes: u64) -> String {
 /// Print deletion time estimates with dynamic recommendations based on actual calculated times
 fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_network_fs: bool) {
     eprintln!("\nEstimated deletion times (based on filesystem calibration):");
-    
+
     let preserve = estimates.preserve_seconds;
     let full = estimates.full_seconds;
     let rsync = estimates.rsync_seconds;
-    
+
     // Find the fastest mode
     let fastest = preserve.min(full).min(rsync);
-    
+
     // Determine indicators for each mode
     let preserve_indicator = if preserve == fastest {
         " ✓ Fastest"
@@ -148,13 +152,9 @@ fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_ne
     } else {
         ""
     };
-    
-    let full_indicator = if full == fastest {
-        " ✓ Fastest"
-    } else {
-        ""
-    };
-    
+
+    let full_indicator = if full == fastest { " ✓ Fastest" } else { "" };
+
     let rsync_indicator = if rsync == fastest {
         if is_network_fs {
             " ✓ Fastest (recommended for NFS)"
@@ -167,9 +167,15 @@ fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_ne
     } else {
         ""
     };
-    
-    eprintln!("  Preserve: {}{}", estimates.preserve_formatted, preserve_indicator);
-    eprintln!("  Remove All: {}{}", estimates.full_formatted, full_indicator);
+
+    eprintln!(
+        "  Preserve: {}{}",
+        estimates.preserve_formatted, preserve_indicator
+    );
+    eprintln!(
+        "  Remove All: {}{}",
+        estimates.full_formatted, full_indicator
+    );
     eprintln!("  Rsync: {}{}", estimates.rsync_formatted, rsync_indicator);
 }
 
@@ -177,7 +183,11 @@ fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_ne
 /// (file write first). Note: the C# consumer for cache_size.rs lives in
 /// CacheManagementService.cs, owned by a different lane this run - this stdout channel is
 /// dual-channel-ready but not yet consumed on the C# side.
-fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &ProgressData) -> Result<()> {
+fn write_progress(
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    progress: &ProgressData,
+) -> Result<()> {
     progress_utils::write_progress_json(progress_path, progress)?;
 
     reporter.emit_progress(
@@ -199,7 +209,11 @@ fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &
 
 /// Writes the final result file (unchanged schema), then emits a stdout complete event with the
 /// REAL final counts (file write first). This is always the terminal call for a successful scan.
-fn write_result(result_path: &Path, reporter: &ProgressReporter, result: &CacheSizeResult) -> Result<()> {
+fn write_result(
+    result_path: &Path,
+    reporter: &ProgressReporter,
+    result: &CacheSizeResult,
+) -> Result<()> {
     progress_utils::write_progress_json(result_path, result)?;
 
     reporter.emit_complete(
@@ -485,28 +499,89 @@ fn run_dynamic_calibration(
     // - Varying directory counts
     let scenarios = vec![
         // Flat directories with varying file counts
-        TestScenario { name: "flat_sparse", num_dirs: 5, files_per_dir: 2, depth: 1 },
-        TestScenario { name: "flat_medium", num_dirs: 5, files_per_dir: 20, depth: 1 },
-        TestScenario { name: "flat_dense", num_dirs: 5, files_per_dir: 100, depth: 1 },
-
+        TestScenario {
+            name: "flat_sparse",
+            num_dirs: 5,
+            files_per_dir: 2,
+            depth: 1,
+        },
+        TestScenario {
+            name: "flat_medium",
+            num_dirs: 5,
+            files_per_dir: 20,
+            depth: 1,
+        },
+        TestScenario {
+            name: "flat_dense",
+            num_dirs: 5,
+            files_per_dir: 100,
+            depth: 1,
+        },
         // 2-level nested directories (like cache hex/subdir structure)
-        TestScenario { name: "nested2_sparse", num_dirs: 8, files_per_dir: 2, depth: 2 },
-        TestScenario { name: "nested2_medium", num_dirs: 8, files_per_dir: 20, depth: 2 },
-        TestScenario { name: "nested2_dense", num_dirs: 8, files_per_dir: 50, depth: 2 },
-
+        TestScenario {
+            name: "nested2_sparse",
+            num_dirs: 8,
+            files_per_dir: 2,
+            depth: 2,
+        },
+        TestScenario {
+            name: "nested2_medium",
+            num_dirs: 8,
+            files_per_dir: 20,
+            depth: 2,
+        },
+        TestScenario {
+            name: "nested2_dense",
+            num_dirs: 8,
+            files_per_dir: 50,
+            depth: 2,
+        },
         // 3-level nested directories (deeper cache paths)
-        TestScenario { name: "nested3_sparse", num_dirs: 6, files_per_dir: 3, depth: 3 },
-        TestScenario { name: "nested3_medium", num_dirs: 6, files_per_dir: 15, depth: 3 },
-
+        TestScenario {
+            name: "nested3_sparse",
+            num_dirs: 6,
+            files_per_dir: 3,
+            depth: 3,
+        },
+        TestScenario {
+            name: "nested3_medium",
+            num_dirs: 6,
+            files_per_dir: 15,
+            depth: 3,
+        },
         // Many directories with few files (common in lancache)
-        TestScenario { name: "many_dirs_single", num_dirs: 25, files_per_dir: 1, depth: 2 },
-        TestScenario { name: "many_dirs_few", num_dirs: 15, files_per_dir: 5, depth: 2 },
-
+        TestScenario {
+            name: "many_dirs_single",
+            num_dirs: 25,
+            files_per_dir: 1,
+            depth: 2,
+        },
+        TestScenario {
+            name: "many_dirs_few",
+            num_dirs: 15,
+            files_per_dir: 5,
+            depth: 2,
+        },
         // Large-scale scenarios to capture non-linear performance degradation
         // Real caches have ~3,562 files/dir, so we need larger test cases
-        TestScenario { name: "medium_1k", num_dirs: 3, files_per_dir: 500, depth: 2 },
-        TestScenario { name: "large_2k", num_dirs: 2, files_per_dir: 2000, depth: 2 },
-        TestScenario { name: "stress_5k", num_dirs: 1, files_per_dir: 5000, depth: 2 },
+        TestScenario {
+            name: "medium_1k",
+            num_dirs: 3,
+            files_per_dir: 500,
+            depth: 2,
+        },
+        TestScenario {
+            name: "large_2k",
+            num_dirs: 2,
+            files_per_dir: 2000,
+            depth: 2,
+        },
+        TestScenario {
+            name: "stress_5k",
+            num_dirs: 1,
+            files_per_dir: 5000,
+            depth: 2,
+        },
     ];
 
     let mut measurements = Vec::new();
@@ -548,15 +623,19 @@ fn run_dynamic_calibration(
             }
         }
 
-        eprintln!("  Testing: {} ({} dirs × {} files, depth {})",
-            scenario.name, scenario.num_dirs, scenario.files_per_dir, scenario.depth);
+        eprintln!(
+            "  Testing: {} ({} dirs × {} files, depth {})",
+            scenario.name, scenario.num_dirs, scenario.files_per_dir, scenario.depth
+        );
 
         let preserve_rate = measure_preserve_mode(&calibration_dir, scenario);
         let fast_rate = measure_fast_mode(&calibration_dir, scenario);
         let rsync_rate = measure_rsync_mode(&calibration_dir, scenario);
 
-        eprintln!("    → Preserve: {:.0}/s, Fast: {:.1}/s, Rsync: {:.1}/s",
-            preserve_rate, fast_rate, rsync_rate);
+        eprintln!(
+            "    → Preserve: {:.0}/s, Fast: {:.1}/s, Rsync: {:.1}/s",
+            preserve_rate, fast_rate, rsync_rate
+        );
 
         measurements.push(ScenarioMeasurement {
             files_per_dir: scenario.files_per_dir,
@@ -574,7 +653,10 @@ fn run_dynamic_calibration(
         .map(|p| p.get())
         .unwrap_or(4);
 
-    eprintln!("Calibration complete! (Network FS: {}, CPUs: {})", is_network_fs, cpu_count);
+    eprintln!(
+        "Calibration complete! (Network FS: {}, CPUs: {})",
+        is_network_fs, cpu_count
+    );
 
     Some(DynamicCalibrationResult {
         scenarios: measurements,
@@ -643,10 +725,8 @@ fn interpolate_rate(
 
     if depth_matched.is_empty() {
         // Fall back to any valid scenario
-        let valid: Vec<&ScenarioMeasurement> = scenarios
-            .iter()
-            .filter(|s| get_rate(s) > 0.0)
-            .collect();
+        let valid: Vec<&ScenarioMeasurement> =
+            scenarios.iter().filter(|s| get_rate(s) > 0.0).collect();
         if valid.is_empty() {
             return 0.0;
         }
@@ -750,15 +830,13 @@ fn estimate_deletion_times_dynamic(
 
     // === PRESERVE MODE ===
     // Interpolate preserve rate from measured scenarios
-    let preserve_rate = interpolate_rate(
-        scenarios,
-        files_per_dir,
-        estimated_depth,
-        |s| s.preserve_files_per_sec,
-    );
+    let preserve_rate = interpolate_rate(scenarios, files_per_dir, estimated_depth, |s| {
+        s.preserve_files_per_sec
+    });
 
     // Calculate parallelism effect using mode-specific factors
-    let preserve_parallel_factor = get_parallel_factor("preserve", calibration.is_network_fs, calibration.cpu_count);
+    let preserve_parallel_factor =
+        get_parallel_factor("preserve", calibration.is_network_fs, calibration.cpu_count);
 
     let effective_preserve_rate = if preserve_rate > 0.0 {
         preserve_rate * preserve_parallel_factor
@@ -770,20 +848,22 @@ fn estimate_deletion_times_dynamic(
     // === FAST MODE ===
     // Fast mode uses remove_dir_all which also scales with file count
     // Similar to rsync: time = overhead + file_processing_time
-    let full_rate = interpolate_rate(
-        scenarios,
-        files_per_dir,
-        estimated_depth,
-        |s| s.full_dirs_per_sec,
-    );
+    let full_rate = interpolate_rate(scenarios, files_per_dir, estimated_depth, |s| {
+        s.full_dirs_per_sec
+    });
 
     let full_seconds = if full_rate > 0.0 {
         // Get average files per dir from calibration
-        let avg_cal_files: f64 = scenarios.iter()
+        let avg_cal_files: f64 = scenarios
+            .iter()
             .filter(|s| s.full_dirs_per_sec > 0.0)
             .map(|s| s.files_per_dir as f64)
             .sum::<f64>()
-            / scenarios.iter().filter(|s| s.full_dirs_per_sec > 0.0).count().max(1) as f64;
+            / scenarios
+                .iter()
+                .filter(|s| s.full_dirs_per_sec > 0.0)
+                .count()
+                .max(1) as f64;
 
         // Time per calibration directory
         let time_per_cal_dir = 1.0 / full_rate;
@@ -802,7 +882,8 @@ fn estimate_deletion_times_dynamic(
         let overhead_per_dir = (time_per_cal_dir - file_time_per_cal).max(0.001);
 
         // Scale for real cache using full mode parallel factor
-        let full_parallel_factor = get_parallel_factor("full", calibration.is_network_fs, calibration.cpu_count);
+        let full_parallel_factor =
+            get_parallel_factor("full", calibration.is_network_fs, calibration.cpu_count);
         let total_overhead = hex_dirs as f64 * overhead_per_dir / full_parallel_factor;
         let total_file_time = total_files as f64 / file_rate / full_parallel_factor;
 
@@ -819,21 +900,23 @@ fn estimate_deletion_times_dynamic(
     // For small calibration dirs, overhead dominates. For large real dirs, file count dominates.
 
     // Get calibration data for rsync
-    let rsync_rate = interpolate_rate(
-        scenarios,
-        files_per_dir,
-        estimated_depth,
-        |s| s.rsync_dirs_per_sec,
-    );
+    let rsync_rate = interpolate_rate(scenarios, files_per_dir, estimated_depth, |s| {
+        s.rsync_dirs_per_sec
+    });
 
     // Calculate rsync time using a model that accounts for both overhead and file processing
     let rsync_seconds = if rsync_rate > 0.0 {
         // Get the average files_per_dir from calibration scenarios to estimate overhead vs file-rate
-        let avg_cal_files: f64 = scenarios.iter()
+        let avg_cal_files: f64 = scenarios
+            .iter()
             .filter(|s| s.rsync_dirs_per_sec > 0.0)
             .map(|s| s.files_per_dir as f64)
             .sum::<f64>()
-            / scenarios.iter().filter(|s| s.rsync_dirs_per_sec > 0.0).count().max(1) as f64;
+            / scenarios
+                .iter()
+                .filter(|s| s.rsync_dirs_per_sec > 0.0)
+                .count()
+                .max(1) as f64;
 
         // Estimate overhead per rsync call from calibration
         // If we process dirs at rsync_rate with avg_cal_files each, the time per dir is 1/rsync_rate
@@ -864,7 +947,8 @@ fn estimate_deletion_times_dynamic(
 
         // Calculate total rsync time for real cache
         // With parallelism, we can run multiple rsync processes
-        let rsync_parallel_factor = get_parallel_factor("rsync", calibration.is_network_fs, calibration.cpu_count);
+        let rsync_parallel_factor =
+            get_parallel_factor("rsync", calibration.is_network_fs, calibration.cpu_count);
 
         // Total time = (calls * overhead / workers) + (total_files / file_rate / workers)
         let call_overhead_time = (hex_dirs as f64 * overhead_per_call) / rsync_parallel_factor;
@@ -877,14 +961,18 @@ fn estimate_deletion_times_dynamic(
     };
 
     // Find max files_per_dir from calibration scenarios
-    let max_calibrated_files = scenarios.iter()
+    let max_calibrated_files = scenarios
+        .iter()
         .map(|s| s.files_per_dir as f64)
         .fold(0.0_f64, |a, b| a.max(b));
 
     // Apply safety margin for extrapolation
-    let preserve_seconds = apply_extrapolation_margin(preserve_seconds, files_per_dir, max_calibrated_files);
-    let full_seconds = apply_extrapolation_margin(full_seconds, files_per_dir, max_calibrated_files);
-    let rsync_seconds = apply_extrapolation_margin(rsync_seconds, files_per_dir, max_calibrated_files);
+    let preserve_seconds =
+        apply_extrapolation_margin(preserve_seconds, files_per_dir, max_calibrated_files);
+    let full_seconds =
+        apply_extrapolation_margin(full_seconds, files_per_dir, max_calibrated_files);
+    let rsync_seconds =
+        apply_extrapolation_margin(rsync_seconds, files_per_dir, max_calibrated_files);
 
     EstimatedDeletionTimes {
         preserve_seconds,
@@ -896,7 +984,11 @@ fn estimate_deletion_times_dynamic(
     }
 }
 
-fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<ProgressReporter>) -> Result<CacheSizeResult> {
+fn calculate_cache_size(
+    cache_path: &str,
+    progress_path: &Path,
+    reporter: &Arc<ProgressReporter>,
+) -> Result<CacheSizeResult> {
     let start_time = Instant::now();
     eprintln!("Starting cache size calculation...");
     eprintln!("Cache path: {}", cache_path);
@@ -910,7 +1002,10 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
     let fs_type = detect_filesystem_type(cache_dir);
     let is_network_fs = fs_type.is_network();
 
-    eprintln!("Filesystem type: {:?} (network: {})", fs_type, is_network_fs);
+    eprintln!(
+        "Filesystem type: {:?} (network: {})",
+        fs_type, is_network_fs
+    );
 
     // Find all hex directories (00-ff)
     // Cache structure can be either:
@@ -935,18 +1030,20 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
 
     // If we found service directories, look for hex dirs inside them
     if hex_dirs.is_empty() && !service_dirs.is_empty() {
-        eprintln!("Found {} service directories: {:?}",
+        eprintln!(
+            "Found {} service directories: {:?}",
             service_dirs.len(),
-            service_dirs.iter().map(|p| p.file_name().unwrap_or_default().to_string_lossy()).collect::<Vec<_>>());
+            service_dirs
+                .iter()
+                .map(|p| p.file_name().unwrap_or_default().to_string_lossy())
+                .collect::<Vec<_>>()
+        );
 
         for service_dir in &service_dirs {
             // A service directory that cannot be read would drop every one of its hex
             // dirs from the scan, reporting a cache size far smaller than the real one.
             let entries = fs::read_dir(service_dir).with_context(|| {
-                format!(
-                    "could not read service directory {}",
-                    service_dir.display()
-                )
+                format!("could not read service directory {}", service_dir.display())
             })?;
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
@@ -988,11 +1085,14 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
             // Show what the filesystem CAN do, even with empty cache
             eprintln!("\nFilesystem calibration results (cache is empty):");
             for scenario in &cal.scenarios {
-                eprintln!("  {} files/dir, depth {}: preserve={:.0}/s, fast={:.1}/s, rsync={:.1}/s",
-                    scenario.files_per_dir, scenario.depth,
+                eprintln!(
+                    "  {} files/dir, depth {}: preserve={:.0}/s, fast={:.1}/s, rsync={:.1}/s",
+                    scenario.files_per_dir,
+                    scenario.depth,
                     scenario.preserve_files_per_sec,
                     scenario.full_dirs_per_sec,
-                    scenario.rsync_dirs_per_sec);
+                    scenario.rsync_dirs_per_sec
+                );
             }
             EstimatedDeletionTimes {
                 preserve_seconds: 0.0,
@@ -1031,7 +1131,13 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
     // The NFS client caches directory information and 'du' leverages this efficiently
     if is_network_fs {
         eprintln!("Network filesystem detected - using optimized du/find approach");
-        return calculate_cache_size_network(cache_dir, progress_path, total_hex_dirs, start_time, reporter);
+        return calculate_cache_size_network(
+            cache_dir,
+            progress_path,
+            total_hex_dirs,
+            start_time,
+            reporter,
+        );
     }
 
     // For local filesystems, use parallel scanning (fast and reliable)
@@ -1073,12 +1179,12 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
     let monitor_handle = std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(300));
-            
+
             let scanned = dirs_for_monitor.load(Ordering::Relaxed);
             if scanned >= total_hex_dirs || cancel::is_cancelled() {
                 break;
             }
-            
+
             let bytes = bytes_for_monitor.load(Ordering::Relaxed);
             let files = files_for_monitor.load(Ordering::Relaxed);
             // The directory walk owns 0-80% of the bar; the deletion-speed calibration that
@@ -1099,7 +1205,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
                 calibration_total_steps: 0,
                 timestamp: progress_utils::current_timestamp(),
             };
-            
+
             if let Err(e) = write_progress(&progress_path_clone, &reporter_for_monitor, &progress) {
                 eprintln!("Warning: Failed to write progress: {}", e);
             }
@@ -1180,17 +1286,27 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
     eprintln!("  Hex directories: {}", total_hex_dirs);
     eprintln!("  Total directories: {}", final_dirs);
     eprintln!("  Total files: {}", final_files);
-    eprintln!("  Total size: {} ({} bytes)", format_bytes(final_bytes), final_bytes);
+    eprintln!(
+        "  Total size: {} ({} bytes)",
+        format_bytes(final_bytes),
+        final_bytes
+    );
     eprintln!("  Scan time: {:.2}s", scan_duration.as_secs_f64());
 
     // Report any failures - these indicate potential NFS or permission issues
     if final_failed_entries > 0 || final_failed_metadata > 0 {
         eprintln!("\n  ⚠ Warning: Some files could not be read:");
         if final_failed_entries > 0 {
-            eprintln!("    - Failed to read {} directory entries", final_failed_entries);
+            eprintln!(
+                "    - Failed to read {} directory entries",
+                final_failed_entries
+            );
         }
         if final_failed_metadata > 0 {
-            eprintln!("    - Failed to get metadata for {} files (size counted as 0)", final_failed_metadata);
+            eprintln!(
+                "    - Failed to get metadata for {} files (size counted as 0)",
+                final_failed_metadata
+            );
         }
         eprintln!("    This may indicate NFS issues, permission problems, or stale file handles.");
     }
@@ -1209,11 +1325,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
     let estimates = if let Some(calibration) =
         run_dynamic_calibration(cache_dir, is_network_fs, Some(&calibration_progress))
     {
-        estimate_deletion_times_dynamic(
-            final_files,
-            total_hex_dirs,
-            &calibration,
-        )
+        estimate_deletion_times_dynamic(final_files, total_hex_dirs, &calibration)
     } else {
         // Fallback if calibration fails - return minimal estimates
         eprintln!("Warning: Calibration failed, estimates may be inaccurate");
@@ -1284,10 +1396,7 @@ fn calculate_cache_size_network(
 
     // Use du -sb for total size (summarize, bytes)
     // This is much more reliable on NFS than iterating with stat()
-    let du_output = Command::new("du")
-        .arg("-sb")
-        .arg(cache_dir)
-        .output();
+    let du_output = Command::new("du").arg("-sb").arg(cache_dir).output();
 
     let total_bytes = match du_output {
         Ok(output) if output.status.success() => {
@@ -1303,10 +1412,7 @@ fn calculate_cache_size_network(
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!("du command failed: {}", stderr);
             // Fallback to du without -b (some systems don't support it)
-            let fallback = Command::new("du")
-                .arg("-s")
-                .arg(cache_dir)
-                .output();
+            let fallback = Command::new("du").arg("-s").arg(cache_dir).output();
             match fallback {
                 Ok(out) if out.status.success() => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -1327,7 +1433,11 @@ fn calculate_cache_size_network(
         }
     };
 
-    eprintln!("Total size from du: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
+    eprintln!(
+        "Total size from du: {} ({} bytes)",
+        format_bytes(total_bytes),
+        total_bytes
+    );
 
     if cancel::is_cancelled() {
         anyhow::bail!("Cache size scan cancelled");
@@ -1398,7 +1508,11 @@ fn calculate_cache_size_network(
     eprintln!("  Hex directories: {}", hex_dir_count);
     eprintln!("  Total directories: {}", total_dirs);
     eprintln!("  Total files: {}", total_files);
-    eprintln!("  Total size: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
+    eprintln!(
+        "  Total size: {} ({} bytes)",
+        format_bytes(total_bytes),
+        total_bytes
+    );
     eprintln!("  Scan time: {:.2}s", scan_duration.as_secs_f64());
 
     // Run dynamic calibration to measure actual network filesystem performance
@@ -1415,11 +1529,7 @@ fn calculate_cache_size_network(
     let estimates = if let Some(calibration) =
         run_dynamic_calibration(cache_dir, true, Some(&calibration_progress))
     {
-        estimate_deletion_times_dynamic(
-            total_files,
-            hex_dir_count,
-            &calibration,
-        )
+        estimate_deletion_times_dynamic(total_files, hex_dir_count, &calibration)
     } else {
         // Fallback if calibration fails - return minimal estimates
         eprintln!("Warning: Calibration failed, estimates may be inaccurate");
@@ -1464,12 +1574,13 @@ fn main() -> anyhow::Result<()> {
 
     // Emit JSON progress events to stdout (mirrors cache_clear.rs/cache_game_detect.rs's
     // `-p`/`--progress` flag). Stripped before the existing positional-argument check below.
-    let progress_enabled = if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
-        args.remove(pos);
-        true
-    } else {
-        false
-    };
+    let progress_enabled =
+        if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
+            args.remove(pos);
+            true
+        } else {
+            false
+        };
 
     if args.len() != 3 {
         eprintln!("Usage:");

@@ -312,7 +312,10 @@ impl SpeedTracker {
     }
 
     async fn run(&mut self) -> Result<()> {
-        eprintln!("SpeedTracker started - monitoring {} log file(s)", self.sources.len());
+        eprintln!(
+            "SpeedTracker started - monitoring {} log file(s)",
+            self.sources.len()
+        );
 
         // File positions seed lazily on each source's first readable poll (see read_new_entries):
         // every source anchors at its CURRENT EOF, so pre-existing history is never replayed, and a
@@ -563,7 +566,9 @@ impl SpeedTracker {
         let window_start = now_naive - chrono::Duration::seconds(window_secs);
 
         // Clone entries within window to avoid borrow issues
-        let window_entries: Vec<SpeedLogEntry> = self.entries.iter()
+        let window_entries: Vec<SpeedLogEntry> = self
+            .entries
+            .iter()
             .filter(|e| e.timestamp >= window_start)
             .cloned()
             .collect();
@@ -595,7 +600,9 @@ impl SpeedTracker {
         // entry, so no entry clone is needed.
         let mut client_aggregates: HashMap<String, (i64, i64)> = HashMap::new();
         for entry in &window_entries {
-            let aggregate = client_aggregates.entry(entry.client_ip.clone()).or_insert((0, 0));
+            let aggregate = client_aggregates
+                .entry(entry.client_ip.clone())
+                .or_insert((0, 0));
             aggregate.0 += entry.bytes_sent;
             if entry.is_cache_hit {
                 aggregate.1 += entry.bytes_sent;
@@ -634,9 +641,16 @@ impl SpeedTracker {
         // depots (or a chunk/depot rollover inside the 2s window) shows as ONE row with
         // combined throughput, mirroring the resolved_groups collapse used for the
         // non-depot services below. Unresolved depots keep their per-depot identity.
-        let mut game_speeds: Vec<GameSpeedInfo> = collapse_depot_groups(depot_groups, |depot_id| {
-            depot_resolutions.get(&depot_id).cloned().unwrap_or((None, None))
-        }, speed_divisor);
+        let mut game_speeds: Vec<GameSpeedInfo> = collapse_depot_groups(
+            depot_groups,
+            |depot_id| {
+                depot_resolutions
+                    .get(&depot_id)
+                    .cloned()
+                    .unwrap_or((None, None))
+            },
+            speed_divisor,
+        );
 
         // Add non-depot service entries (Epic, Origin, etc.)
         let mut resolved_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
@@ -645,12 +659,17 @@ impl SpeedTracker {
                 // Try to resolve each entry's URL to a game name, then sub-group
                 let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
-                    let game_name = self.lookup_epic_game(&entry.request_url).await
+                    let game_name = self
+                        .lookup_epic_game(&entry.request_url)
+                        .await
                         .unwrap_or_else(|| get_service_display_name(&service));
                     sub_groups.entry(game_name).or_default().push(entry);
                 }
                 for (game_name, sub_entries) in sub_groups {
-                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                    resolved_groups
+                        .entry((game_name, client_ip.clone()))
+                        .or_default()
+                        .extend(sub_entries);
                 }
             } else if service.contains("blizzard") || service.contains("battle") {
                 // Collapse a client's Blizzard traffic into ONE group named by the dominant
@@ -683,7 +702,10 @@ impl SpeedTracker {
                     .map(|(name, _)| name)
                     .or(shared_label)
                     .unwrap_or_else(|| get_service_display_name(&service));
-                resolved_groups.entry((group_name, client_ip)).or_default().extend(entries);
+                resolved_groups
+                    .entry((group_name, client_ip))
+                    .or_default()
+                    .extend(entries);
             } else if service.contains("riot") {
                 // Riot bundle URLs carry no product slug; sub-group each entry by the
                 // game resolved from its CDN host (lol/valorant/bacon). One Riot game
@@ -701,7 +723,10 @@ impl SpeedTracker {
                     sub_groups.entry(game_name).or_default().push(entry);
                 }
                 for (game_name, sub_entries) in sub_groups {
-                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                    resolved_groups
+                        .entry((game_name, client_ip.clone()))
+                        .or_default()
+                        .extend(sub_entries);
                 }
             } else if service.contains("wsus") || service.contains("xboxlive") {
                 // Xbox / Microsoft Store content reaches the cache two ways: Delivery-Optimization
@@ -714,22 +739,41 @@ impl SpeedTracker {
                 // mirrors log_processor's is_xbox_cache_service guard.
                 let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
-                    let game_name = self.lookup_xbox_game(&entry.request_url).await
+                    let game_name = self
+                        .lookup_xbox_game(&entry.request_url)
+                        .await
                         .unwrap_or_else(|| get_service_display_name(&service));
                     sub_groups.entry(game_name).or_default().push(entry);
                 }
                 for (game_name, sub_entries) in sub_groups {
-                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                    resolved_groups
+                        .entry((game_name, client_ip.clone()))
+                        .or_default()
+                        .extend(sub_entries);
                 }
             } else {
                 let display_name = get_service_display_name(&service);
-                resolved_groups.entry((display_name, client_ip)).or_default().extend(entries);
+                resolved_groups
+                    .entry((display_name, client_ip))
+                    .or_default()
+                    .extend(entries);
             }
         }
 
         for ((game_name, client_ip), entries) in resolved_groups {
-            let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
-            game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(game_name), None, speed_divisor));
+            let service = entries
+                .first()
+                .map(|e| e.service.clone())
+                .unwrap_or_default();
+            game_speeds.push(build_game_speed_info(
+                entries,
+                0,
+                client_ip,
+                service,
+                Some(game_name),
+                None,
+                speed_divisor,
+            ));
         }
 
         // Fixed slots: service, then title, then client. Sorting by speed instead put every row in
@@ -751,13 +795,17 @@ impl SpeedTracker {
         });
 
         // Client speeds from the per-client aggregates computed before the grouping.
-        let mut client_speeds: Vec<ClientSpeedInfo> = client_aggregates.into_iter()
+        let mut client_speeds: Vec<ClientSpeedInfo> = client_aggregates
+            .into_iter()
             .map(|(client_ip, (total_bytes, cache_hit_bytes))| {
                 let cache_miss_bytes = total_bytes - cache_hit_bytes;
                 // Count active games as this client's rows in the collapsed game_speeds
                 // list, so the client card agrees with the games list (counting raw
                 // depot IDs would show one multi-depot game as several games).
-                let active_games = game_speeds.iter().filter(|g| g.client_ip == client_ip).count();
+                let active_games = game_speeds
+                    .iter()
+                    .filter(|g| g.client_ip == client_ip)
+                    .count();
 
                 ClientSpeedInfo {
                     client_ip,
@@ -770,7 +818,11 @@ impl SpeedTracker {
             })
             .collect();
 
-        client_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
+        client_speeds.sort_by(|a, b| {
+            b.bytes_per_second
+                .partial_cmp(&a.bytes_per_second)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         DownloadSpeedSnapshot {
             timestamp_utc: now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
@@ -796,19 +848,22 @@ impl SpeedTracker {
             "SELECT p.\"ChunkBaseUrl\", COALESCE(m.\"Name\", p.\"Name\") as \"GameName\" \
              FROM \"EpicCdnPatterns\" p \
              LEFT JOIN \"EpicGameMappings\" m ON p.\"AppId\" = m.\"AppId\" \
-             ORDER BY LENGTH(p.\"ChunkBaseUrl\") DESC"
+             ORDER BY LENGTH(p.\"ChunkBaseUrl\") DESC",
         )
         .fetch_all(&self.pool)
         .await;
 
         match result {
             Ok(rows) => {
-                self.epic_patterns = rows.iter()
+                self.epic_patterns = rows
+                    .iter()
                     .filter_map(|row| {
                         let chunk_base_url: Option<String> = row.get("ChunkBaseUrl");
                         let game_name: Option<String> = row.get("GameName");
                         match (chunk_base_url, game_name) {
-                            (Some(url), Some(name)) => Some((url.trim_end_matches('/').to_string(), name)),
+                            (Some(url), Some(name)) => {
+                                Some((url.trim_end_matches('/').to_string(), name))
+                            }
                             _ => None,
                         }
                     })
@@ -834,7 +889,9 @@ impl SpeedTracker {
         self.load_epic_patterns().await;
 
         // Match URL against patterns (longest first for most specific match)
-        let result = self.epic_patterns.iter()
+        let result = self
+            .epic_patterns
+            .iter()
             .find(|(chunk_base, _)| url.contains(chunk_base.as_str()))
             .map(|(_, name)| name.clone());
 
@@ -858,14 +915,15 @@ impl SpeedTracker {
             "SELECT p.\"UrlFragment\", COALESCE(m.\"Title\", p.\"Title\") AS \"Title\" \
              FROM \"XboxCdnPatterns\" p \
              LEFT JOIN \"XboxGameMappings\" m ON p.\"ProductId\" = m.\"ProductId\" \
-             ORDER BY LENGTH(p.\"UrlFragment\") DESC"
+             ORDER BY LENGTH(p.\"UrlFragment\") DESC",
         )
         .fetch_all(&self.pool)
         .await;
 
         match result {
             Ok(rows) => {
-                self.xbox_patterns = rows.iter()
+                self.xbox_patterns = rows
+                    .iter()
                     .filter_map(|row| {
                         let fragment: Option<String> = row.get("UrlFragment");
                         let title: Option<String> = row.get("Title");
@@ -875,7 +933,9 @@ impl SpeedTracker {
                             // canonicalizer) and the C# resolver (XboxMappingService.IsValidFragment).
                             // A malformed / short / non-GUID fragment would `contains()`-match generic
                             // wsus URLs and relabel Windows Update traffic as a game.
-                            (Some(frag), Some(name)) if cache_utils::is_valid_xbox_fragment(&frag) => {
+                            (Some(frag), Some(name))
+                                if cache_utils::is_valid_xbox_fragment(&frag) =>
+                            {
                                 Some((frag, name))
                             }
                             _ => None,
@@ -908,7 +968,9 @@ impl SpeedTracker {
         // case-sensitive match here would inconsistently miss real Xbox content. ASCII lowercasing
         // is exact for these paths; the per-URL cache means each unique URL is lowercased once.
         let url_lower = url.to_ascii_lowercase();
-        let result = self.xbox_patterns.iter()
+        let result = self
+            .xbox_patterns
+            .iter()
             .find(|(fragment, _)| url_lower.contains(&fragment.to_ascii_lowercase()))
             .map(|(_, name)| name.clone());
 
@@ -987,7 +1049,11 @@ fn build_game_speed_info(
     speed_divisor: f64,
 ) -> GameSpeedInfo {
     let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
-    let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
+    let cache_hit_bytes: i64 = entries
+        .iter()
+        .filter(|e| e.is_cache_hit)
+        .map(|e| e.bytes_sent)
+        .sum();
     let cache_miss_bytes = total_bytes - cache_hit_bytes;
     let cache_hit_percent = if total_bytes > 0 {
         (cache_hit_bytes as f64 / total_bytes as f64) * 100.0
@@ -1047,7 +1113,8 @@ where
             // row may carry an AppId with no AppName yet); borrow the missing name/app
             // from a sibling depot so the merged row never loses what a split row had.
             if game_name.is_none() || game_app_id.is_none() {
-                let mut sibling_depots: Vec<u32> = entries.iter().filter_map(|e| e.depot_id).collect();
+                let mut sibling_depots: Vec<u32> =
+                    entries.iter().filter_map(|e| e.depot_id).collect();
                 sibling_depots.sort_unstable();
                 sibling_depots.dedup();
                 for depot_id in sibling_depots {
@@ -1063,8 +1130,19 @@ where
                     }
                 }
             }
-            let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
-            build_game_speed_info(entries, rep_depot_id, client_ip, service, game_name, game_app_id, speed_divisor)
+            let service = entries
+                .first()
+                .map(|e| e.service.clone())
+                .unwrap_or_default();
+            build_game_speed_info(
+                entries,
+                rep_depot_id,
+                client_ip,
+                service,
+                game_name,
+                game_app_id,
+                speed_divisor,
+            )
         })
         .collect()
 }
@@ -1121,8 +1199,14 @@ async fn main() -> Result<()> {
         eprintln!("           files) is discovered and tailed; access.log is not assumed.");
         eprintln!();
         eprintln!("Database connection is configured via DATABASE_URL environment variable.");
-        eprintln!("Outputs JSON speed snapshots to stdout every {}ms", BROADCAST_INTERVAL_MS);
-        eprintln!("Uses a rolling window sized to each log's delivery cadence (min {}s)", WINDOW_SECONDS);
+        eprintln!(
+            "Outputs JSON speed snapshots to stdout every {}ms",
+            BROADCAST_INTERVAL_MS
+        );
+        eprintln!(
+            "Uses a rolling window sized to each log's delivery cadence (min {}s)",
+            WINDOW_SECONDS
+        );
         // No ProgressReporter/envelope here by design (this bin is a continuous snapshot
         // stream, not a discrete lifecycle operation - see emit_json_line docs). Returning
         // Err (instead of process::exit(1)) still surfaces the fatal reason: anyhow's
@@ -1193,8 +1277,14 @@ mod tests {
     #[test]
     fn collapses_same_app_depots_into_one_row_with_summed_bytes() {
         let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
-        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
-        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 2000)]);
+        groups.insert(
+            (1001, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1001, 1000)],
+        );
+        groups.insert(
+            (1002, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1002, 2000)],
+        );
 
         // PRE-FIX behavior (original :415-423): one row per bucket => the duplicate bug.
         let pre_fix: Vec<_> = groups
@@ -1202,10 +1292,22 @@ mod tests {
             .into_iter()
             .map(|((depot_id, client_ip), entries)| {
                 let (name, app) = cs2_resolver(depot_id);
-                build_game_speed_info(entries, depot_id, client_ip, "steam".to_string(), name, app, WINDOW_SECONDS as f64)
+                build_game_speed_info(
+                    entries,
+                    depot_id,
+                    client_ip,
+                    "steam".to_string(),
+                    name,
+                    app,
+                    WINDOW_SECONDS as f64,
+                )
             })
             .collect();
-        assert_eq!(pre_fix.len(), 2, "pre-fix: two depots of one game render as two rows");
+        assert_eq!(
+            pre_fix.len(),
+            2,
+            "pre-fix: two depots of one game render as two rows"
+        );
 
         // POST-FIX behavior: collapsed to a single row with combined throughput.
         let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
@@ -1223,8 +1325,14 @@ mod tests {
     #[test]
     fn unresolved_depots_stay_separate() {
         let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
-        groups.insert((5001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 5001, 500)]);
-        groups.insert((5002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 5002, 500)]);
+        groups.insert(
+            (5001, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 5001, 500)],
+        );
+        groups.insert(
+            (5002, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 5002, 500)],
+        );
 
         let rows = collapse_depot_groups(groups, none_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 2, "two unknown depots must not merge");
@@ -1234,8 +1342,14 @@ mod tests {
     #[test]
     fn same_app_different_clients_stay_separate() {
         let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
-        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
-        groups.insert((1001, "10.0.0.2".to_string()), vec![steam_entry("10.0.0.2", 1001, 1000)]);
+        groups.insert(
+            (1001, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1001, 1000)],
+        );
+        groups.insert(
+            (1001, "10.0.0.2".to_string()),
+            vec![steam_entry("10.0.0.2", 1001, 1000)],
+        );
 
         let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 2, "per-client separation is intentional");
@@ -1256,11 +1370,21 @@ mod tests {
             }
         }
         let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
-        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
-        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 2000)]);
+        groups.insert(
+            (1001, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1001, 1000)],
+        );
+        groups.insert(
+            (1002, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1002, 2000)],
+        );
 
         let rows = collapse_depot_groups(groups, partial_resolver, WINDOW_SECONDS as f64);
-        assert_eq!(rows.len(), 1, "partial resolution must not split one game across rows");
+        assert_eq!(
+            rows.len(),
+            1,
+            "partial resolution must not split one game across rows"
+        );
         let row = &rows[0];
         assert_eq!(row.total_bytes, 3000);
         assert_eq!(row.game_app_id, Some(730));
@@ -1275,20 +1399,35 @@ mod tests {
     #[test]
     fn representative_depot_tie_breaks_to_smaller_depot() {
         let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
-        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 500)]);
-        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 500)]);
+        groups.insert(
+            (1001, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1001, 500)],
+        );
+        groups.insert(
+            (1002, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1002, 500)],
+        );
 
         let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].depot_id, 1001, "equal bytes tie-breaks to the smaller depot id");
+        assert_eq!(
+            rows[0].depot_id, 1001,
+            "equal bytes tie-breaks to the smaller depot id"
+        );
     }
 
     #[test]
     fn representative_depot_is_the_highest_byte_depot() {
         let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
         // 1001 contributes far more bytes than 1002, so it must be the representative.
-        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 9000)]);
-        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 100)]);
+        groups.insert(
+            (1001, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1001, 9000)],
+        );
+        groups.insert(
+            (1002, "10.0.0.1".to_string()),
+            vec![steam_entry("10.0.0.1", 1002, 100)],
+        );
 
         let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 1);
@@ -1670,14 +1809,20 @@ mod tests {
 
         // Delivery span 4s > base window, so the window widens: ceil(4 + WINDOW_SECONDS) = 6.
         let w = tracker.effective_window_secs();
-        assert_eq!(w, 6, "a 4s delivery span widens the window to cover the flush gap");
+        assert_eq!(
+            w, 6,
+            "a 4s delivery span widens the window to cover the flush gap"
+        );
 
         // Fixed 2s window: the burst was delivered entirely in the past, so the window is empty and
         // the source reads inactive - exactly the flicker this change removes.
         let fixed_start = base - Duration::seconds(WINDOW_SECONDS);
         let (_, _, fixed_active) =
             headline_aggregates(&tracker.entries, fixed_start, WINDOW_SECONDS as f64);
-        assert!(!fixed_active, "the fixed 2s window empties between buffered flushes");
+        assert!(
+            !fixed_active,
+            "the fixed 2s window empties between buffered flushes"
+        );
 
         // Adaptive window: still covers the burst, so the source stays active, and speed divides by
         // observed coverage (newest in-window timestamp minus window_start), not the whole window.
@@ -1768,8 +1913,14 @@ mod tests {
         // First delivery: a single line (zero intra-batch span).
         append_bytes(
             &steam,
-            detailed_steam_line_at("10.0.0.2", 654321, 1000, "MISS", base - Duration::seconds(40))
-                .as_bytes(),
+            detailed_steam_line_at(
+                "10.0.0.2",
+                654321,
+                1000,
+                "MISS",
+                base - Duration::seconds(40),
+            )
+            .as_bytes(),
         );
         tracker.read_new_entries(&tracked[0]).unwrap();
 

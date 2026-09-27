@@ -196,6 +196,116 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
+    public void BatchProgress_AggregatesCountsAndNeverRegresses()
+    {
+        var batch = new LogProcessingBatchState { ChildCount = 2 };
+
+        Assert.Equal(25, RustLogProcessorService.ScaleBatchProgress(batch, 50));
+        batch.CurrentEntriesProcessed = 3;
+        batch.CurrentLinesProcessed = 5;
+        batch.CurrentTotalLines = 8;
+        batch.CurrentBytesProcessed = 100;
+        batch.CurrentTotalBytes = 200;
+        RustLogProcessorService.RecordBatchChild(
+            batch,
+            "alpha",
+            succeeded: false,
+            new LogProcessingProgress
+            {
+                EntriesSaved = 4,
+                LinesParsed = 6,
+                TotalLines = 9,
+                BytesProcessed = 110,
+                TotalBytes = 210
+            });
+
+        Assert.Equal(50, batch.PercentComplete);
+        Assert.Equal(4, batch.EntriesProcessed);
+        Assert.Equal(6, batch.LinesProcessed);
+        Assert.Equal(9, batch.TotalLines);
+        Assert.Equal(110, batch.BytesProcessed);
+        Assert.Equal(210, batch.TotalBytes);
+        Assert.Equal("alpha", batch.FailedDatasourceName);
+        Assert.Equal(60, RustLogProcessorService.ScaleBatchProgress(batch, 20));
+        Assert.Equal(60, RustLogProcessorService.ScaleBatchProgress(batch, 10));
+
+        RustLogProcessorService.RecordBatchChild(
+            batch,
+            "beta",
+            succeeded: true,
+            new LogProcessingProgress
+            {
+                EntriesSaved = 7,
+                LinesParsed = 11,
+                TotalLines = 13,
+                BytesProcessed = 220,
+                TotalBytes = 230
+            });
+
+        Assert.Equal(100, batch.PercentComplete);
+        Assert.Equal(11, batch.EntriesProcessed);
+        Assert.Equal(17, batch.LinesProcessed);
+        Assert.Equal(22, batch.TotalLines);
+        Assert.Equal(330, batch.BytesProcessed);
+        Assert.Equal(440, batch.TotalBytes);
+        Assert.Equal("alpha", batch.FailedDatasourceName);
+    }
+
+    [Fact]
+    public void FailedBatch_PublishesOneAggregateTerminal()
+    {
+        using var fixture = new ProcessorFixture();
+        var begin = typeof(RustLogProcessorService).GetMethod("BeginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var operationId = (Guid)begin.Invoke(fixture.Processor, null)!;
+        var batch = new LogProcessingBatchState
+        {
+            ChildCount = 2,
+            CompletedChildren = 2,
+            EntriesProcessed = 11,
+            LinesProcessed = 17,
+            PercentComplete = 100,
+            FailedDatasourceName = "alpha"
+        };
+
+        fixture.Processor.CompleteBatchOperation(
+            operationId,
+            batch,
+            cancelled: false,
+            batchFinished: true);
+        fixture.Processor.CompleteBatchOperation(
+            operationId,
+            batch,
+            cancelled: false,
+            batchFinished: true);
+
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
+        Assert.False(complete.Success);
+        Assert.Equal(OperationStatus.Failed, complete.Status);
+        Assert.Equal(11, complete.EntriesProcessed);
+        Assert.Equal(17, complete.LinesProcessed);
+        Assert.Contains("alpha", complete.Message, StringComparison.Ordinal);
+        Assert.Null(fixture.Processor.CurrentOperationId);
+        Assert.False(fixture.Processor.IsProcessing);
+    }
+
+    [Fact]
+    public void Status_ExposesOnlyTheActiveDatasource()
+    {
+        using var fixture = new ProcessorFixture();
+        var processing = typeof(RustLogProcessorService).GetProperty(nameof(RustLogProcessorService.IsProcessing))!;
+        var datasource = typeof(RustLogProcessorService).GetField("_currentDatasourceName", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        processing.SetValue(fixture.Processor, true);
+        datasource.SetValue(fixture.Processor, "alpha");
+        Assert.Equal("alpha", fixture.Processor.GetStatus().DatasourceName);
+
+        datasource.SetValue(fixture.Processor, null);
+        Assert.Null(fixture.Processor.GetStatus().DatasourceName);
+        processing.SetValue(fixture.Processor, false);
+        Assert.Null(fixture.Processor.GetStatus().DatasourceName);
+    }
+
+    [Fact]
     public async Task ExternalCompletionBeforeWorkerFailure_PreservesTheNextRun()
     {
         using var fixture = new ProcessorFixture();

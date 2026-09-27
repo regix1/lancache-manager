@@ -145,10 +145,9 @@ pub fn discover_log_files<P: AsRef<Path>>(
 
                 // Now check if the suffix after base_name is a valid rotation number
                 let rotation_suffix = &name_without_compression[base_name.len()..];
-                if rotation_suffix.starts_with('.') {
-                    let number_part = &rotation_suffix[1..]; // Skip the '.'
-                                                             // Only accept if it's a valid number (e.g., "1", "2", "10")
-                                                             // This excludes .old, .backup, etc.
+                if let Some(number_part) = rotation_suffix.strip_prefix('.') {
+                    // Only accept if it's a valid number (e.g., "1", "2", "10")
+                    // This excludes .old, .backup, etc.
                     if !number_part.is_empty() && number_part.chars().all(|c| c.is_ascii_digit()) {
                         log_files.push(LogFile::from_path(path));
                     }

@@ -18,10 +18,10 @@ use lancache_processor::progress_utils;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 
+use cache_utils::{detect_filesystem_type, FilesystemType};
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::progress_events;
-use cache_utils::{detect_filesystem_type, FilesystemType};
 use progress_events::ProgressReporter;
 
 /// Cache clear utility - clears all cache directories
@@ -73,6 +73,7 @@ struct ProgressData {
 }
 
 impl ProgressData {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         is_processing: bool,
         percent_complete: f64,
@@ -111,10 +112,7 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn delete_directory_contents(
-    dir_path: &Path,
-    files_counter: &AtomicU64,
-) -> Result<()> {
+fn delete_directory_contents(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
@@ -129,11 +127,7 @@ fn delete_directory_contents(
     };
 
     // Fast recursive deletion - NO metadata reads for speed
-    fn delete_recursive(
-        root: &Path,
-        dir: &Path,
-        files_counter: &AtomicU64,
-    ) -> Result<()> {
+    fn delete_recursive(root: &Path, dir: &Path, files_counter: &AtomicU64) -> Result<()> {
         if dir.is_dir() {
             for entry_result in fs::read_dir(dir)? {
                 let entry = entry_result?;
@@ -148,7 +142,10 @@ fn delete_directory_contents(
                     }
                 };
                 if file_type.is_symlink() {
-                    eprintln!("skipping unsafe path {}: symlink not allowed", path.display());
+                    eprintln!(
+                        "skipping unsafe path {}: symlink not allowed",
+                        path.display()
+                    );
                     continue;
                 }
 
@@ -187,10 +184,7 @@ fn delete_directory_contents(
     Ok(())
 }
 
-fn delete_directory_full(
-    dir_path: &Path,
-    files_counter: &AtomicU64,
-) -> Result<()> {
+fn delete_directory_full(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
@@ -286,7 +280,9 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
 
             // Ignore error if another thread set it first.
             let _ = EMPTY_TEMPLATE.set(path);
-            EMPTY_TEMPLATE.get().expect("empty template directory should be set")
+            EMPTY_TEMPLATE
+                .get()
+                .expect("empty template directory should be set")
         }
     };
 
@@ -317,7 +313,10 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
                 eprintln!("Parsed {} deleted files from rsync stats", deleted);
                 files_counter.fetch_add(deleted, Ordering::Relaxed);
             } else {
-                eprintln!("Warning: Could not parse deleted file count from rsync stats for {}", dir_path.display());
+                eprintln!(
+                    "Warning: Could not parse deleted file count from rsync stats for {}",
+                    dir_path.display()
+                );
             }
 
             // Check if directory still contains entries (e.g., rsync couldn't remove them).
@@ -349,10 +348,7 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
 }
 
 #[cfg(not(target_os = "linux"))]
-fn delete_directory_rsync(
-    _dir_path: &Path,
-    _files_counter: &AtomicU64,
-) -> Result<()> {
+fn delete_directory_rsync(_dir_path: &Path, _files_counter: &AtomicU64) -> Result<()> {
     anyhow::bail!(
         "Rsync mode is only supported on Linux. Please switch to 'Preserve Structure' or 'Fast Mode' mode."
     );
@@ -369,14 +365,19 @@ fn parse_rsync_deleted_files(stats: &str) -> Option<u64> {
         // Try multiple formats that rsync might use
         if let Some(rest) = trimmed.strip_prefix("Number of deleted files:") {
             let value_part = rest.trim().split_whitespace().next()?;
-            eprintln!("  Found 'Number of deleted files:' with value: {}", value_part);
+            eprintln!(
+                "  Found 'Number of deleted files:' with value: {}",
+                value_part
+            );
             if let Ok(value) = value_part.replace(",", "").parse::<u64>() {
                 return Some(value);
             }
         }
 
         // Alternative format: "deleted: 12345"
-        if trimmed.to_lowercase().starts_with("deleted:") || trimmed.to_lowercase().contains("files deleted:") {
+        if trimmed.to_lowercase().starts_with("deleted:")
+            || trimmed.to_lowercase().contains("files deleted:")
+        {
             eprintln!("  Found alternative deleted format: {}", trimmed);
             for word in trimmed.split_whitespace() {
                 if let Ok(value) = word.replace(",", "").parse::<u64>() {
@@ -426,7 +427,13 @@ fn get_available_bytes(_path: &Path) -> Result<u64> {
     Ok(0)
 }
 
-fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str, reporter: &Arc<ProgressReporter>) -> Result<(usize, usize)> {
+fn clear_cache(
+    cache_path: &str,
+    progress_path: &Path,
+    thread_count: usize,
+    delete_mode: &str,
+    reporter: &Arc<ProgressReporter>,
+) -> Result<(usize, usize)> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
     eprintln!("Cache path: {}", cache_path);
@@ -471,10 +478,12 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| {
-            path.is_dir() && path.file_name()
-                .and_then(|n| n.to_str())
-                .map(is_hex)
-                .unwrap_or(false)
+            path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(is_hex)
+                    .unwrap_or(false)
         })
         .collect();
 
@@ -578,9 +587,11 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
                 // Log active directories if any
                 if active_count > 0 {
-                    eprintln!("Active: {} directories being processed: [{}]",
-                             active_count,
-                             active_snapshot.join(", "));
+                    eprintln!(
+                        "Active: {} directories being processed: [{}]",
+                        active_count,
+                        active_snapshot.join(", ")
+                    );
                 }
 
                 let progress = ProgressData::new(
@@ -619,47 +630,56 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let active_for_workers = Arc::clone(&active_dirs);
     pool.install(|| {
         hex_dirs.par_iter().for_each(|dir| {
-        // Cooperative cancellation: skip new hex-dirs if cancel was requested.
-        // An in-flight remove_dir_all finishes (not interruptible mid-call); no new dir starts.
-        if cancel::is_cancelled() {
-            return;
-        }
-
-        let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
-        let dir_name_str = dir_name.to_string();
-
-        // Add to active list
-        active_for_workers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(dir_name_str.clone());
-
-        eprintln!("Processing directory {}", dir_name);
-
-        let result = match delete_mode {
-            "full" => delete_directory_full(dir, &total_files_deleted),
-            "rsync" => delete_directory_rsync(dir, &total_files_deleted),
-            _ => delete_directory_contents(dir, &total_files_deleted),
-        };
-
-        // Remove from active list
-        active_for_workers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .retain(|d| d != &dir_name_str);
-
-        match result {
-            Ok(()) => {
-                // Increment counter AFTER processing completes
-                let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
-                eprintln!("Completed directory {} ({}/{})", dir_name, processed, total_dirs);
+            // Cooperative cancellation: skip new hex-dirs if cancel was requested.
+            // An in-flight remove_dir_all finishes (not interruptible mid-call); no new dir starts.
+            if cancel::is_cancelled() {
+                return;
             }
-            Err(e) => {
-                // Still increment on error so we don't get stuck
-                let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
-                eprintln!("Warning: Failed to clear directory {} ({}/{}): {}", dir_name, processed, total_dirs, e);
+
+            let dir_name = dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+            let dir_name_str = dir_name.to_string();
+
+            // Add to active list
+            active_for_workers
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(dir_name_str.clone());
+
+            eprintln!("Processing directory {}", dir_name);
+
+            let result = match delete_mode {
+                "full" => delete_directory_full(dir, &total_files_deleted),
+                "rsync" => delete_directory_rsync(dir, &total_files_deleted),
+                _ => delete_directory_contents(dir, &total_files_deleted),
+            };
+
+            // Remove from active list
+            active_for_workers
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .retain(|d| d != &dir_name_str);
+
+            match result {
+                Ok(()) => {
+                    // Increment counter AFTER processing completes
+                    let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
+                    eprintln!(
+                        "Completed directory {} ({}/{})",
+                        dir_name, processed, total_dirs
+                    );
+                }
+                Err(e) => {
+                    // Still increment on error so we don't get stuck
+                    let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
+                    eprintln!(
+                        "Warning: Failed to clear directory {} ({}/{}): {}",
+                        dir_name, processed, total_dirs, e
+                    );
+                }
             }
-        }
         });
     });
 
@@ -670,8 +690,15 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     // An in-flight remove_dir_all may have finished; no new dirs were started after the flag.
     if cancel::is_cancelled() {
         let processed = dirs_processed.load(Ordering::Relaxed);
-        let percent = if total_dirs > 0 { (processed as f64 / total_dirs as f64) * 100.0 } else { 0.0 };
-        eprintln!("Cancellation confirmed — processed {}/{} hex dirs, exiting.", processed, total_dirs);
+        let percent = if total_dirs > 0 {
+            (processed as f64 / total_dirs as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!(
+            "Cancellation confirmed — processed {}/{} hex dirs, exiting.",
+            processed, total_dirs
+        );
         let progress = ProgressData::new(
             true,
             percent,
@@ -715,7 +742,11 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     eprintln!("\nCache clear completed!");
     eprintln!("  Directories processed: {}", final_dirs);
     eprintln!("  Files deleted: {}", final_files);
-    eprintln!("  Bytes deleted: {} ({:.2} GB)", final_bytes, final_bytes as f64 / 1_073_741_824.0);
+    eprintln!(
+        "  Bytes deleted: {} ({:.2} GB)",
+        final_bytes,
+        final_bytes as f64 / 1_073_741_824.0
+    );
     eprintln!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());
 
     // Final progress
@@ -792,7 +823,10 @@ fn main() -> anyhow::Result<()> {
     let fs_type = detect_filesystem_type(cache_dir);
     let is_network_fs = fs_type.is_network();
 
-    eprintln!("Filesystem type: {:?} (network: {})", fs_type, is_network_fs);
+    eprintln!(
+        "Filesystem type: {:?} (network: {})",
+        fs_type, is_network_fs
+    );
 
     // Get delete mode, with recommendation for network filesystems
     let delete_mode = if let Some(ref mode) = args.delete_mode {
@@ -807,7 +841,9 @@ fn main() -> anyhow::Result<()> {
         // Default to rsync for network filesystems on Linux
         #[cfg(target_os = "linux")]
         {
-            eprintln!("Network filesystem detected - defaulting to 'rsync' mode (optimal for NFS/SMB)");
+            eprintln!(
+                "Network filesystem detected - defaulting to 'rsync' mode (optimal for NFS/SMB)"
+            );
             "rsync"
         }
         #[cfg(not(target_os = "linux"))]
@@ -820,19 +856,33 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Thread count: use provided value or auto-detect based on mode and filesystem
-    let thread_count = args.thread_count.unwrap_or_else(|| get_optimal_thread_count(delete_mode, fs_type));
+    let thread_count = args
+        .thread_count
+        .unwrap_or_else(|| get_optimal_thread_count(delete_mode, fs_type));
 
     if is_network_fs {
-        eprintln!("Using reduced parallelism ({} threads) for network filesystem", thread_count);
+        eprintln!(
+            "Using reduced parallelism ({} threads) for network filesystem",
+            thread_count
+        );
     }
 
     eprintln!("Thread count: {} (mode: {})", thread_count, delete_mode);
 
-    match clear_cache(cache_path, progress_path, thread_count, delete_mode, &reporter) {
+    match clear_cache(
+        cache_path,
+        progress_path,
+        thread_count,
+        delete_mode,
+        &reporter,
+    ) {
         Ok((final_dirs, total_dirs)) => {
             // Same final counts the last write_progress call persisted to the file -
             // no more hardcoded zeros on the stdout complete event.
-            reporter.emit_complete("signalr.cacheClear.progress", json!({ "processed": final_dirs, "totalDirs": total_dirs, "activeCount": 0usize }));
+            reporter.emit_complete(
+                "signalr.cacheClear.progress",
+                json!({ "processed": final_dirs, "totalDirs": total_dirs, "activeCount": 0usize }),
+            );
             Ok(())
         }
         Err(e) => {

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Tests;
@@ -102,6 +103,27 @@ public sealed class RustLogProcessorRefreshContractTests
     }
 
     [Fact]
+    public void IngestionScopesDuplicatesAndActiveDownloadsToDatasource()
+    {
+        var source = ReadRepositorySource(["rust-processor", "src", "log_processor.rs"]);
+
+        Assert.Contains("WHERE \"Datasource\" = $6", source, StringComparison.Ordinal);
+        Assert.Contains("WHERE \\\"Id\\\" = $10 AND \\\"Datasource\\\" = $11", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\\"Datasource\\\" IS NULL", source, StringComparison.Ordinal);
+
+        var activeStatements = source.Split('\n')
+            .Where(line =>
+                line.Contains("\\\"Downloads\\\"", StringComparison.Ordinal) &&
+                line.Contains("\\\"IsActive\\\"", StringComparison.Ordinal) &&
+                (line.Contains("SELECT", StringComparison.Ordinal) || line.Contains("UPDATE", StringComparison.Ordinal)))
+            .ToArray();
+
+        Assert.Equal(10, activeStatements.Length);
+        Assert.All(activeStatements, statement =>
+            Assert.Contains("\\\"Datasource\\\" = $", statement, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void NotifyAllAsyncInvalidatesLiveCacheBeforeTheHubSend()
     {
         var source = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
@@ -175,14 +197,25 @@ public sealed class RustLogProcessorRefreshContractTests
 
     private static string ReadSource(params string[] pathSegments)
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        return ReadRepositorySource(["Api", "LancacheManager", .. pathSegments]);
+    }
+
+    private static string ReadRepositorySource(
+        string[] pathSegments,
+        [CallerFilePath] string sourcePath = "")
+    {
+        var directory = new DirectoryInfo(Path.GetDirectoryName(sourcePath)!);
         while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
         {
             directory = directory.Parent;
         }
 
-        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
-        var path = Path.Combine([root, "Api", "LancacheManager", .. pathSegments]);
+        if (directory is null)
+        {
+            throw new DirectoryNotFoundException("Repository root not found");
+        }
+
+        var path = Path.Combine([directory.FullName, .. pathSegments]);
         return File.ReadAllText(path);
     }
 }

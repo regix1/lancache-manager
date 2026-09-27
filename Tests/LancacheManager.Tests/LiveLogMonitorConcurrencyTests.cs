@@ -13,6 +13,20 @@ public class LiveLogMonitorConcurrencyTests
     private const int NginxAccessLogFlushSeconds = 5;
 
     [Fact]
+    public void RateLimit_UsesEachDatasourceTimestamp()
+    {
+        var now = new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc);
+        var lastProcessTimes = new Dictionary<string, DateTime>
+        {
+            ["alpha"] = now,
+            ["beta"] = now.AddSeconds(-10)
+        };
+
+        Assert.Equal(0d, LiveLogMonitorService.SecondsSinceLastProcess(lastProcessTimes, "alpha", now));
+        Assert.Equal(10d, LiveLogMonitorService.SecondsSinceLastProcess(lastProcessTimes, "beta", now));
+    }
+
+    [Fact]
     public void TheTrickleFlush_WaitsLongerThanNginxHoldsALine()
     {
         // The wait a small download pays before its row exists. Dropping it below nginx's own flush

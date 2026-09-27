@@ -36,7 +36,6 @@ import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
-import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
@@ -152,10 +151,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
-  const configuredDatasources = useMemo<DatasourceInfo[]>(
-    () => resolveDatasources(config),
-    [config]
-  );
+  const configuredDatasources = config.dataSources;
   const datasourceInfoByName = useMemo<Map<string, DatasourceInfo>>(
     () => new Map(configuredDatasources.map((ds) => [ds.name, ds])),
     [configuredDatasources]
@@ -173,6 +169,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const countsRequestRef = useRef(0);
 
   // Client-only selection of (datasource::service) pairs for the "Remove Selected"
   // batch. Toggling a checkbox never hits the network - the batch runs only on confirm.
@@ -265,13 +262,16 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       markLoaded();
       return;
     }
+    const request = ++countsRequestRef.current;
     beginLoad(forceRefresh);
     setLoadError(null);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
+      if (request !== countsRequestRef.current) return;
       setDatasourceCounts(dsCounts);
       markLoaded();
     } catch (err: unknown) {
+      if (request !== countsRequestRef.current) return;
       // markFailed only stops the spinner, which on its own reads as "this card has no logs".
       console.error('Failed to load log data:', getErrorMessage(err));
       setLoadError(getErrorMessage(err));
@@ -593,7 +593,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                       path={ds.logsPath}
                       isExpanded={isExpanded}
                       onToggle={() => toggleDatasourceExpanded(ds.datasource)}
-                      enabled={ds.enabled && ds.logsWritable}
+                      enabled={ds.enabled}
                       statusBadge={`${formatCount(totalEntries)} ${t('management.logRemoval.labels.entries')}`}
                       statusIcons={
                         layoutLabel ? (
@@ -651,11 +651,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                   })}
                                   selectDisabled={selectionDisabled}
                                   clearTooltip={
-                                    !nginxReopenGate.available
-                                      ? nginxReopenMessage
-                                      : isBareMetalLayout
-                                        ? t('management.logRemoval.bareMetal.clearTooltip')
-                                        : undefined
+                                    !ds.logsWritable
+                                      ? t('management.directoryNotice.logsReadOnlyTitle')
+                                      : nginxReopenGate.messageKey
+                                        ? nginxReopenMessage
+                                        : isBareMetalLayout
+                                          ? t('management.logRemoval.bareMetal.clearTooltip')
+                                          : undefined
                                   }
                                 />
                               );
@@ -696,8 +698,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                           {/* Delete entire log file button */}
                           <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
                             <NginxReopenActionGate
-                              available={nginxReopenGate.available}
-                              tooltip={nginxReopenMessage}
+                              available={nginxReopenGate.available && ds.logsWritable}
+                              tooltip={
+                                !ds.logsWritable
+                                  ? t('management.directoryNotice.logsReadOnlyTitle')
+                                  : nginxReopenMessage
+                              }
                             >
                               <Button
                                 variant="filled"

@@ -211,11 +211,13 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
   const [config, setConfig] = useState<Config | null>(null);
   const [error, setError] = useState<ConfigLoadError | null>(null);
   const configRef = useRef<Config | null>(null);
+  const configRequestRef = useRef(0);
   configRef.current = config;
 
   const loadConfig = useCallback(
     async (options?: { isRefresh?: boolean }): Promise<void> => {
       const isRefresh = options?.isRefresh ?? false;
+      const request = ++configRequestRef.current;
       if (!isRefresh) {
         setError(null);
       }
@@ -231,12 +233,14 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
           ApiService.getFetchOptions({ signal: controller.signal })
         );
         const data = await ApiService.handleResponse<Config>(response);
+        if (request !== configRequestRef.current) return;
         // Written before the children render, because this provider gates them and a consumer that
         // reads the server zone during its first render would otherwise seed itself from the
         // browser's zone and correct it a render later.
         setServerTimezone(data.timeZone);
         setConfig(data);
       } catch (err: unknown) {
+        if (request !== configRequestRef.current) return;
         if (isRefresh && configRef.current) {
           // Background refresh - keep serving the last-good cached config. Deliberately silent;
           // not user-actionable and the app already has working config to render.
@@ -265,9 +269,16 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
     await loadConfig({ isRefresh: true });
   }, [loadConfig]);
 
-  const updateConfig = useCallback((patch: Partial<Config>) => {
-    setConfig((prev) => (prev ? { ...prev, ...patch } : prev));
-  }, []);
+  const updateConfig = useCallback(
+    (patch: Partial<Config> | ((current: Config) => Partial<Config> | null)) => {
+      setConfig((prev) => {
+        if (!prev) return prev;
+        const resolved = typeof patch === 'function' ? patch(prev) : patch;
+        return resolved === null ? prev : { ...prev, ...resolved };
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     void loadConfig();

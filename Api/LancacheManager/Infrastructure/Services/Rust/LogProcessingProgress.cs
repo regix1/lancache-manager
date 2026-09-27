@@ -88,3 +88,21 @@ public class LogProcessingProgress : RustProgressBase
     [JsonPropertyName("files_with_errors")]
     public List<string> FilesWithErrors { get; set; } = new();
 }
+
+public sealed class LogProcessingBatchState
+{
+    public required int ChildCount { get; init; }
+    public int CompletedChildren { get; set; }
+    public long EntriesProcessed { get; set; }
+    public long LinesProcessed { get; set; }
+    public long TotalLines { get; set; }
+    public long BytesProcessed { get; set; }
+    public long TotalBytes { get; set; }
+    public long CurrentEntriesProcessed { get; set; }
+    public long CurrentLinesProcessed { get; set; }
+    public long CurrentTotalLines { get; set; }
+    public long CurrentBytesProcessed { get; set; }
+    public long CurrentTotalBytes { get; set; }
+    public double PercentComplete { get; set; }
+    public string? FailedDatasourceName { get; set; }
+}

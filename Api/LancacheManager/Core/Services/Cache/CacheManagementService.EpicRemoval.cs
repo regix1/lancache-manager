@@ -41,6 +41,10 @@ public partial class CacheManagementService
                 targetDescription: $"Epic game '{gameName}'",
                 rustProcessName: "cache_epic_remove",
                 outputReadLabel: "EpicGameRemoval",
+                removalSelection: new RemovalSelection(
+                    Array.Empty<string>(),
+                    RemovalKind.Epic,
+                    GameName: gameName),
                 aggregatedReport: new GameCacheRemovalReport { GameAppId = 0, GameName = gameName },
                 cancellationToken: cancellationToken,
                 onProgress: onProgress,

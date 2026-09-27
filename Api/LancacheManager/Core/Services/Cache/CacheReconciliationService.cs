@@ -1393,6 +1393,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int datasourcesFailed = 0;
 
             var allDatasources = _datasourceService.GetDatasources().ToList();
+            var physicalDatasources = allDatasources
+                .Where(datasource => !string.IsNullOrWhiteSpace(datasource.LogPath) &&
+                    Directory.Exists(datasource.LogPath))
+                .ToList();
+            await using var reopenChecks = await _nginxLogRotationService.PrepareReopenChecksAsync(
+                physicalDatasources,
+                expectsPublication: true,
+                stoppingToken);
             var totalDatasources = Math.Max(1, allDatasources.Count);
             var dsIndex = 0;
 
@@ -1422,7 +1430,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 {
                     args += $" --stem-positions \"{stemPositionsPath}\"";
                 }
+                await using var reopenCheck = reopenChecks.Take(datasource.Name) ??
+                    await _nginxLogRotationService.PrepareReopenCheckAsync(
+                        new[] { datasource },
+                        NginxLogRotationService.GetAffectedLogPaths(datasource),
+                        expectsPublication: true,
+                        stoppingToken);
+                _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
+                NginxLogRotationService.AttachPublicationCheck(reopenCheck, startInfo);
+                var childStarted = false;
+                var reopenCompleted = false;
 
                 _logger.LogInformation(
                     "[EvictedLogPurge] Running {RunDescription} for datasource '{Datasource}': {Binary} {Args}",
@@ -1441,6 +1459,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         (options.ProgressSpanPercent * dsIndex / totalDatasources);
                     var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
 
+                    childStarted = true;
                     var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                         startInfo,
                         operationId,
@@ -1475,12 +1494,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         },
                         "cache_purge_log_entries");
 
-                    await _rustProcessHelper.DeleteTempFileAsync(progressJsonPath);
-                    if (stemPositionsPath != null)
-                    {
-                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
-                    }
-
                     if (purgeResult.ExitCode != 0)
                     {
                         datasourcesFailed++;
@@ -1509,50 +1522,90 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                 "any purged lines could not adjust the saved log positions",
                                 datasource.Name);
                         }
-                        dsIndex++;
-                        continue;
+                        var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                            reopenCheck,
+                            physicalChange: true,
+                            CancellationToken.None);
+                        reopenCompleted = true;
+                        if (!failedReopen.Success)
+                        {
+                            throw new IOException(failedReopen.ErrorMessage!);
+                        }
+                        throw new InvalidOperationException(
+                            $"Log purge failed for datasource '{datasource.Name}' with exit code {purgeResult.ExitCode}");
                     }
 
-                    try
+                    var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
+                        outputJsonPath,
+                        $"cache_purge_log_entries/{datasource.Name}");
+                    var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                        reopenCheck,
+                        report.LinesRemoved > 0,
+                        stoppingToken);
+                    reopenCompleted = true;
+                    if (!reopenResult.Success)
                     {
-                        var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
-                            outputJsonPath,
-                            $"cache_purge_log_entries/{datasource.Name}");
-                        totalLinesRemoved += report.LinesRemoved;
-                        _stateService.ReduceLogPositionsAfterPurge(
-                            datasource.Name,
-                            report.LogLinesRemovedBeforePositionBySource,
-                            report.LogLinesRemovedBySource);
-                        datasourcesProcessed++;
-                        _logger.LogInformation(
-                            "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
-                            options.SuccessDescription,
-                            report.LinesRemoved,
-                            datasource.Name,
-                            report.PermissionErrors);
+                        throw new InvalidOperationException(reopenResult.ErrorMessage!);
                     }
-                    catch (Exception reportEx)
-                    {
-                        datasourcesProcessed++;
-                        _logger.LogWarning(
-                            reportEx,
-                            "[EvictedRemoval] {SuccessDescription} succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable; " +
-                            "any purged lines could not adjust the saved log positions",
-                            options.SuccessDescription,
-                            datasource.Name);
-                    }
+                    totalLinesRemoved += report.LinesRemoved;
+                    _stateService.ReduceLogPositionsAfterPurge(
+                        datasource.Name,
+                        report.LogLinesRemovedBeforePositionBySource,
+                        report.LogLinesRemovedBySource);
+                    datasourcesProcessed++;
+                    _logger.LogInformation(
+                        "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
+                        options.SuccessDescription,
+                        report.LinesRemoved,
+                        datasource.Name,
+                        report.PermissionErrors);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException error)
                 {
+                    if (childStarted && !reopenCompleted)
+                    {
+                        var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                            reopenCheck,
+                            physicalChange: true,
+                            CancellationToken.None);
+                        if (!failedReopen.Success)
+                        {
+                            throw new AggregateException(
+                                error,
+                                new IOException(failedReopen.ErrorMessage!));
+                        }
+                    }
                     throw;
                 }
                 catch (Exception innerEx)
                 {
+                    if (childStarted && !reopenCompleted)
+                    {
+                        var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                            reopenCheck,
+                            physicalChange: true,
+                            CancellationToken.None);
+                        if (!failedReopen.Success)
+                        {
+                            throw new AggregateException(
+                                innerEx,
+                                new IOException(failedReopen.ErrorMessage!));
+                        }
+                    }
                     datasourcesFailed++;
                     _logger.LogWarning(
                         innerEx,
-                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' - DB deletes will still proceed",
+                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}'",
                         datasource.Name);
+                    throw;
+                }
+                finally
+                {
+                    await _rustProcessHelper.DeleteTempFileAsync(progressJsonPath);
+                    if (stemPositionsPath != null)
+                    {
+                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+                    }
                 }
 
                 dsIndex++;
@@ -1573,12 +1626,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 var cacheManagementService = _serviceProvider.GetRequiredService<CacheManagementService>();
                 await cacheManagementService.InvalidateServiceCountsAsync();
 
-                // Reopening nginx remains best-effort after a successful log rewrite.
-                var rotationResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
-                if (!rotationResult.Success)
-                {
-                    _logger.LogWarning("Failed to signal nginx to reopen logs: {Error}", rotationResult.ErrorMessage);
-                }
             }
 
             return new EvictedLogPurgeSummary(totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
@@ -1648,12 +1695,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         try
         {
-            // Step -1 (Fix 2): Rewrite nginx access.log files to drop entries for every evicted game
-            // BEFORE deleting LogEntries/Downloads from the database. If we skipped this, a future
-            // `ResetLogPosition` + full log re-parse would resurrect the evicted games because their
-            // URLs still exist in the on-disk access.log. The rewrite is a best-effort optimization:
-            // if the Rust binary fails we log a WARNING and continue - correctness of the DB delete
-            // is preserved either way.
+            // Rewrite nginx access.log files before deleting LogEntries or Downloads. A later
+            // full re-parse would otherwise restore evicted games from URLs that remain on disk.
+            // A failed rewrite blocks the database deletion so the two stores stay consistent.
             await PurgeLogEntriesAsync(context, opId, stoppingToken);
 
             // Removal-driven cleanup: the bulk path (Remove mode auto-scan and the controller-
@@ -1683,6 +1727,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
+                    if (context.Database.IsNpgsql())
+                    {
+                        await context.Database.ExecuteSqlRawAsync(
+                            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                            stoppingToken);
+                        await context.Database.ExecuteSqlRawAsync(
+                            "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                            stoppingToken);
+                    }
+
                     // Step 1: delete evicted detection rows so the frontend list clears.
                     await ReportRemovalProgressAsync(
                         opId,
@@ -1858,8 +1912,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Called by <see cref="RemoveEvictedRecordsAsync"/> BEFORE the DB LogEntries/Downloads deletes
     /// so a future `ResetLogPosition` + full log re-parse cannot resurrect the evicted games.
     ///
-    /// Best-effort: if the Rust binary fails we log a warning but still allow the DB deletes to
-    /// proceed - the only loss is that a later full re-parse could re-create the rows.
+    /// A failed Rust rewrite blocks the database deletion because a later full re-parse could
+    /// recreate the removed rows.
     /// </summary>
     private async Task PurgeLogEntriesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken)
     {
@@ -1951,9 +2005,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (Exception ex)
         {
-            // Best-effort: log and continue so DB deletes still run.
-            _logger.LogWarning(ex,
-                "[EvictedLogPurge] Unexpected error during bulk log purge - DB deletes will still proceed");
+            throw new InvalidOperationException("Bulk evicted-log purge failed", ex);
         }
     }
 
@@ -2265,9 +2317,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         try
         {
-            // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
-            // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort -
-            // failures are logged as warnings and do not block the DB delete.
+            // Rewrite nginx access.log files before deleting this entity's LogEntries or Downloads.
+            // A failed rewrite blocks the database deletion so the two stores stay consistent.
             await PurgeLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken, namedGameName);
 
             int logEntriesDeleted = 0;
@@ -2291,6 +2342,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
+                    if (context.Database.IsNpgsql())
+                    {
+                        await context.Database.ExecuteSqlRawAsync(
+                            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                            stoppingToken);
+                        await context.Database.ExecuteSqlRawAsync(
+                            "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                            stoppingToken);
+                    }
+
                     prefillAppsDeleted = 0;
                     prefillDepotsDeleted = 0;
                     logEntriesDeleted = 0;
@@ -2660,7 +2721,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Entity-scoped variant of <see cref="PurgeLogEntriesAsync"/>. Rewrites nginx access.log
     /// files to drop entries belonging only to the specified entity's evicted downloads.
-    /// Best-effort: failures are logged as warnings and do not block the DB delete.
+    /// A failed rewrite blocks the database deletion so a later full re-parse cannot restore rows.
     /// </summary>
     private async Task PurgeLogEntriesForEntityAsync(
         AppDbContext context,
@@ -2862,10 +2923,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (Exception ex)
         {
-            // Best-effort: log and continue so DB deletes still run.
-            _logger.LogWarning(ex,
-                "[EvictedLogPurge] Unexpected error during entity log purge ({Scope} '{Key}') - DB deletes will still proceed",
-                scope, key);
+            throw new InvalidOperationException(
+                $"Evicted-log purge failed for {scope} '{key}'",
+                ex);
         }
     }
 

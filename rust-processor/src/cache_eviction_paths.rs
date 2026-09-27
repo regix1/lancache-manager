@@ -531,7 +531,13 @@ mod tests {
         let root = Path::new("cache");
         let datasources = [datasource("monolithic", root, "monolithic")];
         let roots = DatasourceRoots::from_configs(&datasources);
-        let key = ProbeKey::new("steam", "/content".to_string(), Some("monolithic"), 0, &roots);
+        let key = ProbeKey::new(
+            "steam",
+            "/content".to_string(),
+            Some("monolithic"),
+            0,
+            &roots,
+        );
         let files = indexed_root(root, []);
 
         assert!(!key.has_cache_file(&files));
@@ -544,7 +550,13 @@ mod tests {
         let root = Path::new("cache");
         let datasources = [datasource("monolithic", root, "monolithic")];
         let roots = DatasourceRoots::from_configs(&datasources);
-        let key = ProbeKey::new("steam", "/content".to_string(), Some("monolithic"), 0, &roots);
+        let key = ProbeKey::new(
+            "steam",
+            "/content".to_string(),
+            Some("monolithic"),
+            0,
+            &roots,
+        );
         let files = indexed_root(root, [1]);
 
         assert!(key.can_verify_absence(&files));

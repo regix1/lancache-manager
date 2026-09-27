@@ -1475,14 +1475,11 @@ fn chunk_end(start: u64) -> u64 {
 /// one level up (stopping at `cache_dir`). Uses `safe_path_under_root` as a guard before
 /// any removal. Returns the count of directories successfully removed.
 #[allow(dead_code)]
-pub fn cleanup_empty_directories(
-    cache_dir: &Path,
-    dirs_to_check: HashSet<PathBuf>,
-) -> usize {
+pub fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
     let mut removed_count = 0;
 
     let mut sorted_dirs: Vec<PathBuf> = dirs_to_check.into_iter().collect();
-    sorted_dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()));
+    sorted_dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
 
     for dir in sorted_dirs {
         // Canonical-under-root guard: refuses symlinks, paths outside root.
@@ -1535,10 +1532,10 @@ pub fn cleanup_empty_directories(
 ///      8-4-4-4-12 hex GUID.
 ///   2. Prefill-daemon traffic pulled direct from assets1.xboxlive.com (tagged `xboxlive`):
 ///      `/<digit>/<guid>/<guid>/<version>.<guid>/<packageName>` — no marker, but >=2 GUIDs.
-/// A fragment is usable if it matches EITHER shape. Everything else (empty / `/` / generic-wsus /
-/// single-GUID paths) is rejected so a malformed DB row can never `contains()`-match unrelated
-/// Windows Update / Xbox Live traffic and relabel it as a game. Pure byte scan (no regex) to keep
-/// the ingest/speed hot paths allocation-free.
+///      A fragment is usable if it matches EITHER shape. Everything else (empty / `/` / generic-wsus /
+///      single-GUID paths) is rejected so a malformed DB row can never `contains()`-match unrelated
+///      Windows Update / Xbox Live traffic and relabel it as a game. Pure byte scan (no regex) to keep
+///      the ingest/speed hot paths allocation-free.
 ///
 /// Shared by both `log_processor` (the primary canonicalizer) and `speed_tracker` so the two Xbox
 /// pattern loaders apply ONE identical shape check — there is exactly one implementation. Kept

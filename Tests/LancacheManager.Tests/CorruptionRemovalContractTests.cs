@@ -421,7 +421,7 @@ public sealed class CorruptionRemovalContractTests
                 cancelled: outcome == OperationStatus.Cancelled);
         };
         var core = typeof(CacheController).GetMethod("RunCorruptionRemovalCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var run = (Task<bool>)core.Invoke(fixture.Controller, [selection, fixture.Datasources, registered, bulk])!;
+        var run = (Task<bool>)core.Invoke(fixture.Controller, [selection, fixture.Datasources, registered, bulk, null])!;
         await reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(run.IsCompleted);
         Assert.Equal(0, bulkType.GetField("SucceededServices")!.GetValue(bulk));
@@ -720,6 +720,7 @@ public sealed class CorruptionRemovalContractTests
                 var logPath = Path.Combine(_root, name, "logs");
                 Directory.CreateDirectory(cachePath);
                 Directory.CreateDirectory(logPath);
+                File.WriteAllText(Path.Combine(logPath, "access.log"), "[steam] fixture\n");
                 settings[$"LanCache:DataSources:{index}:Name"] = name;
                 settings[$"LanCache:DataSources:{index}:CachePath"] = cachePath;
                 settings[$"LanCache:DataSources:{index}:LogPath"] = logPath;
@@ -822,7 +823,7 @@ public sealed class CorruptionRemovalContractTests
         {
             var selection = await Detection.GetRemovalSelectionAsync(ScanId, service);
             var core = typeof(CacheController).GetMethod("RunCorruptionRemovalCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var run = (Task<bool>)core.Invoke(Controller, [selection, Datasources, null, bulk])!;
+            var run = (Task<bool>)core.Invoke(Controller, [selection, Datasources, null, bulk, null])!;
             _runs.Add(run);
             return await run;
         }
@@ -908,6 +909,7 @@ public sealed class CorruptionRemovalContractTests
     private sealed class RemovalPipe : IAsyncDisposable
     {
         private readonly string _name = "corruption-" + Guid.NewGuid().ToString("N");
+        private readonly string _directory;
         private readonly List<Process> _processes = [];
         private NamedPipeServerStream? _pipe;
         private StreamReader? _reader;
@@ -915,6 +917,7 @@ public sealed class CorruptionRemovalContractTests
 
         public RemovalPipe(string directory)
         {
+            _directory = directory;
             File.WriteAllText(Path.Combine(directory, "corruption-pipe"), _name);
             _pipe = new NamedPipeServerStream(_name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         }
@@ -942,6 +945,33 @@ public sealed class CorruptionRemovalContractTests
 
         public async Task SendAsync(string checkpoint, int? exitCode = null)
         {
+            if (exitCode == 0)
+            {
+                foreach (var checkPath in Directory.EnumerateFiles(_directory, "nginx_log_check_*.json"))
+                {
+                    var check = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                        await File.ReadAllTextAsync(checkPath),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                    var result = new NginxPublicationResult(
+                        check.Valid,
+                        check.Files.Select(file => new NginxPublicationRecord(
+                            file.TargetPath,
+                            file.OriginalIdentity,
+                            null,
+                            file.OriginalIdentity,
+                            Changed: false,
+                            Deleted: false)).ToList());
+                    var resultPath = Path.Combine(
+                        _directory,
+                        Path.GetFileName(checkPath).Replace(
+                            "nginx_log_check_",
+                            "nginx_log_result_",
+                            StringComparison.Ordinal));
+                    await File.WriteAllTextAsync(
+                        resultPath,
+                        JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                }
+            }
             using var document = JsonDocument.Parse(checkpoint);
             await _writer!.WriteLineAsync(JsonSerializer.Serialize(new { Checkpoint = document.RootElement, ExitCode = exitCode }))
                 .WaitAsync(TimeSpan.FromSeconds(10));

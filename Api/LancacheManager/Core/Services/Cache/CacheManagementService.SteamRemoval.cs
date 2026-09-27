@@ -29,6 +29,10 @@ public partial class CacheManagementService
                 targetDescription: $"AppID {gameAppId}",
                 rustProcessName: "game_cache_remover",
                 outputReadLabel: "GameRemoval",
+                removalSelection: new RemovalSelection(
+                    Array.Empty<string>(),
+                    RemovalKind.Steam,
+                    GameAppId: gameAppId),
                 aggregatedReport: new GameCacheRemovalReport { GameAppId = gameAppId },
                 cancellationToken: cancellationToken,
                 onProgress: onProgress,
