@@ -240,13 +240,18 @@ public class GameDetectionVisibilityRaceTests
     {
         using var ctx = new ServiceContext();
 
-        // A silent run is registered, then ages past the 30-minute stale threshold.
+        // A silent run is registered, then its worker exits while the tracker row remains active.
         var stale = new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled);
         var staleId = await ctx.Service.StartDetectionAsync(stale, incremental: true);
         Assert.NotNull(staleId);
-        ctx.Tracker.BackdateStartedAt(staleId!.Value, TimeSpan.FromMinutes(31));
+        var current = ((Guid, Task)?)typeof(GameCacheDetectionService)
+            .GetField("_currentDetectionTask", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(ctx.Service);
+        Assert.NotNull(current);
+        Assert.Equal(staleId!.Value, current.Value.Item1);
+        await current.Value.Item2;
 
-        // A visible manual start arrives; its stale-cleanup pass completes the aged silent run.
+        // A visible manual start arrives; its stale-cleanup pass completes the abandoned silent run.
         var visible = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var newId = await ctx.Service.StartDetectionAsync(visible, incremental: true);
         Assert.NotNull(newId);
@@ -434,18 +439,6 @@ public class GameDetectionVisibilityRaceTests
                     return null;
                 default:
                     return DefaultReturnValue(targetMethod);
-            }
-        }
-
-        internal void BackdateStartedAt(Guid id, TimeSpan age)
-        {
-            lock (_sync)
-            {
-                var op = _active.FirstOrDefault(o => o.Id == id);
-                if (op != null)
-                {
-                    op.StartedAt = DateTime.UtcNow - age;
-                }
             }
         }
 
