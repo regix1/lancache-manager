@@ -1,6 +1,8 @@
 //! Utility functions for service name normalization and URL filtering
 //! This ensures consistent service names and URL handling across all modules
 
+use crate::parser::parse_cachelog_json;
+
 /// User-Agent marker carried by every server-side probe the manager itself sends through the
 /// cache (Status Check heartbeat and HTTPS-redirect checks). Lines carrying it are synthetic
 /// traffic, never client downloads. Must stay in sync with ProbeUserAgent in the C# side's
@@ -67,6 +69,11 @@ pub fn normalize_service_name(service: &str) -> String {
 /// Format: [service] ...
 #[allow(dead_code)]
 pub fn extract_service_from_line(line: &str) -> Option<String> {
+    if line.starts_with('{') {
+        let record = parse_cachelog_json(line)?;
+        return Some(normalize_service_name(&record.cache_identifier));
+    }
+
     if line.starts_with('[') {
         if let Some(end_idx) = line.find(']') {
             let service = &line[1..end_idx];
@@ -76,9 +83,53 @@ pub fn extract_service_from_line(line: &str) -> Option<String> {
     None
 }
 
+/// Match a cachelog record's explicit service without treating other line contents as identity.
+/// Bracketed text decodes only the tag so invalid bytes elsewhere remain harmless. JSON uses the
+/// same typed decoder and normalization as ingestion and service extraction.
+pub fn line_matches_service(raw_line: &[u8], service_lower: &str) -> bool {
+    let trimmed = raw_line
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .map(|start| &raw_line[start..])
+        .unwrap_or_default();
+
+    if trimmed.first() == Some(&b'{') {
+        let line = String::from_utf8_lossy(trimmed);
+        return extract_service_from_line(line.trim())
+            .is_some_and(|service| service == service_lower);
+    }
+
+    if trimmed.first() != Some(&b'[') {
+        return false;
+    }
+    let Some(end) = trimmed.iter().position(|byte| *byte == b']') else {
+        return false;
+    };
+    std::str::from_utf8(&trimmed[1..end])
+        .map(normalize_service_name)
+        .is_ok_and(|service| service == service_lower)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn json_line(service: &str) -> String {
+        serde_json::json!({
+            "cache_identifier": service,
+            "remote_addr": "192.0.2.40",
+            "time_local": "12/Sep/2026:18:22:34 +1000",
+            "method": "GET",
+            "path": "/content/file",
+            "status": "200",
+            "bytes_sent": 1,
+            "user_agent": "Fixture/1.0",
+            "upstream_cache_status": "HIT",
+            "host": "cdn.example.test",
+            "http_range": "-"
+        })
+        .to_string()
+    }
 
     #[test]
     fn normalize_localhost_variants() {
@@ -129,5 +180,28 @@ mod tests {
             Some("steam".to_string())
         );
         assert_eq!(extract_service_from_line("no bracket"), None);
+    }
+
+    #[test]
+    fn extract_service_from_json_uses_typed_record() {
+        let line = json_line("XboxLive");
+        assert_eq!(
+            extract_service_from_line(&line),
+            Some("xboxlive".to_string())
+        );
+        assert!(line_matches_service(line.as_bytes(), "xboxlive"));
+        assert!(!line_matches_service(line.as_bytes(), "wsus"));
+
+        let blank = json_line("   ");
+        assert_eq!(extract_service_from_line(&blank), None);
+        assert!(!line_matches_service(blank.as_bytes(), "xboxlive"));
+        assert!(!line_matches_service(b"{malformed JSON}\n", "xboxlive"));
+    }
+
+    #[test]
+    fn line_matches_service_keeps_bracketed_byte_tolerance() {
+        let line = b"  [Steam] 192.0.2.40 / - - - [time] \xff\n";
+        assert!(line_matches_service(line, "steam"));
+        assert!(!line_matches_service(line, "epicgames"));
     }
 }

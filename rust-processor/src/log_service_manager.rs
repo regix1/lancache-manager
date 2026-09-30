@@ -18,6 +18,7 @@ use lancache_processor::log_purge;
 use lancache_processor::log_reader;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
+use lancache_processor::service_utils::line_matches_service;
 // The production binary does not use riot_hosts; it is compiled only for the test build, where the
 // shared parser_http_detailed test suite resolves a Riot CDN host through `crate::riot_hosts`.
 use lancache_processor::service_utils;
@@ -206,28 +207,6 @@ fn write_progress(
 // Use the shared service extraction utility for consistency
 fn extract_service_from_line(line: &str) -> Option<String> {
     service_utils::extract_service_from_line(line)
-}
-
-/// Byte-level equivalent of `extract_service_from_line(line.trim()) == Some(service_lower)`.
-/// Only the `[service]` tag is UTF-8 decoded, so the hot rewrite loop can work on raw
-/// line bytes without validating the whole line. A line that is not valid UTF-8 in its
-/// tag (or has no tag) can never match a service and is passed through unchanged.
-fn line_matches_service(raw_line: &[u8], service_lower: &str) -> bool {
-    let mut start = 0;
-    while start < raw_line.len() && raw_line[start].is_ascii_whitespace() {
-        start += 1;
-    }
-    let trimmed = &raw_line[start..];
-    if trimmed.first() != Some(&b'[') {
-        return false;
-    }
-    let Some(end) = trimmed.iter().position(|&b| b == b']') else {
-        return false;
-    };
-    match std::str::from_utf8(&trimmed[1..end]) {
-        Ok(tag) => service_utils::normalize_service_name(tag) == service_lower,
-        Err(_) => false,
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1953,6 +1932,23 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
+    fn json_line(service: &str) -> String {
+        serde_json::json!({
+            "cache_identifier": service,
+            "remote_addr": "192.0.2.40",
+            "time_local": "12/Sep/2026:18:22:34 +1000",
+            "method": "GET",
+            "path": "/content/file",
+            "status": "200",
+            "bytes_sent": 1,
+            "user_agent": "Fixture/1.0",
+            "upstream_cache_status": "HIT",
+            "host": "cdn.example.test",
+            "http_range": "-"
+        })
+        .to_string()
+    }
+
     fn write_gzip(path: &Path, contents: &[u8]) {
         let file = fs::File::create(path).expect("create gzip fixture");
         let mut encoder = GzEncoder::new(file, Compression::default());
@@ -1992,6 +1988,11 @@ mod tests {
         // No tag / unterminated tag -> never matches
         assert!(!line_matches_service(b"no tag here", "steam"));
         assert!(!line_matches_service(b"[unterminated", "steam"));
+
+        let json = json_line("Steam");
+        assert!(line_matches_service(json.as_bytes(), "steam"));
+        assert!(!line_matches_service(json.as_bytes(), "epicgames"));
+        assert!(!line_matches_service(b"{malformed JSON}\n", "steam"));
     }
 
     #[test]
@@ -2093,6 +2094,31 @@ mod tests {
         let progress = read_progress(&progress_path);
         assert_eq!(progress["fallback_lines"], 1);
         assert_eq!(progress["service_counts"]["wsus"], 2);
+    }
+
+    #[test]
+    fn count_services_includes_typed_json_identity() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let contents = format!(
+            "[steam] tagged text\n{}\n{}\n{{malformed JSON}}\n",
+            json_line("Steam"),
+            json_line("XboxLive")
+        );
+        fs::write(directory.path().join("access.log"), contents).expect("write access log");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let counts = count_services(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &reporter,
+            None,
+        )
+        .expect("count services");
+
+        assert_eq!(counts.get("steam"), Some(&2));
+        assert_eq!(counts.get("xboxlive"), Some(&1));
+        assert_eq!(counts.len(), 2);
     }
 
     #[test]

@@ -376,8 +376,14 @@ impl RemovalPrefilter {
     /// `normalize_url` collapses consecutive slashes, so the stored target URL
     /// may not appear literally in the raw line (false-negative hazard).
     pub(crate) fn is_candidate(&self, raw_line: &[u8]) -> bool {
+        let json_record = raw_line
+            .iter()
+            .find(|byte| !byte.is_ascii_whitespace())
+            .is_some_and(|byte| *byte == b'{');
         match &self.automaton {
-            Some(automaton) => line_contains_double_slash(raw_line) || automaton.is_match(raw_line),
+            Some(automaton) => {
+                json_record || line_contains_double_slash(raw_line) || automaton.is_match(raw_line)
+            }
             None => true,
         }
     }
@@ -963,22 +969,7 @@ pub fn remove_all_log_entries_for_service(
         log_dir,
         service,
         &prefilter,
-        |raw_line, _| {
-            let trimmed = raw_line
-                .iter()
-                .position(|byte| !byte.is_ascii_whitespace())
-                .map(|start| &raw_line[start..])
-                .unwrap_or_default();
-            if trimmed.first() != Some(&b'[') {
-                return false;
-            }
-            let Some(end) = trimmed.iter().position(|byte| *byte == b']') else {
-                return false;
-            };
-            std::str::from_utf8(&trimmed[1..end])
-                .map(service_utils::normalize_service_name)
-                .is_ok_and(|tag| tag == normalized_service)
-        },
+        |raw_line, _| service_utils::line_matches_service(raw_line, &normalized_service),
         stem_positions,
     )
 }
@@ -1196,6 +1187,115 @@ mod tests {
         output
     }
 
+    fn write_gzip(path: &Path, contents: &[u8]) {
+        let file = fs::File::create(path).expect("create gzip fixture");
+        let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+        encoder.write_all(contents).expect("write gzip fixture");
+        encoder.finish().expect("finish gzip fixture");
+    }
+
+    fn write_zstd(path: &Path, contents: &[u8]) {
+        let file = fs::File::create(path).expect("create zstd fixture");
+        let mut encoder = zstd::Encoder::new(file, 1).expect("create zstd fixture");
+        encoder.write_all(contents).expect("write zstd fixture");
+        encoder.finish().expect("finish zstd fixture");
+    }
+
+    fn json_log_line(service: &str, path: &str, bytes_sent: i64) -> String {
+        serde_json::json!({
+            "cache_identifier": service,
+            "remote_addr": "192.0.2.40",
+            "time_local": "01/Jan/2024:00:00:00 +0000",
+            "method": "GET",
+            "path": path,
+            "status": "206",
+            "bytes_sent": bytes_sent,
+            "user_agent": "Fixture/1.0",
+            "upstream_cache_status": "MISS",
+            "host": "cdn.example.test",
+            "http_range": "bytes=1048576-2097151"
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn service_removal_handles_json_across_plain_gzip_and_zstd() {
+        let dir = tempfile::tempdir().expect("create fixture directory");
+        let text_target = log_line("/xbox/text", "HIT").replacen("[steam]", "[xboxlive]", 1);
+        let text_neighbor = log_line("/steam/keep", "HIT");
+        let json_target = json_log_line("xboxlive", "/xbox/json", 2048);
+        let escaped_service = json_target.replace("xboxlive", "xbox\\u006cive");
+        let json_neighbor = json_log_line("wsus", "/wsus/keep", 4096);
+        let malformed = r#"{"cache_identifier":"xboxlive"}"#;
+
+        fs::write(
+            dir.path().join("access.log"),
+            format!("{text_target}\n{text_neighbor}\n"),
+        )
+        .expect("write plain fixture");
+        write_gzip(
+            &dir.path().join("access.log.1.gz"),
+            format!("{escaped_service}\n{malformed}\n").as_bytes(),
+        );
+        write_zstd(
+            &dir.path().join("access.log.2.zst"),
+            format!("{json_target}\n{json_neighbor}\n").as_bytes(),
+        );
+
+        let positions = HashMap::from([("access.log".to_string(), 6)]);
+        let outcome = remove_all_log_entries_for_service(dir.path(), "xboxlive", Some(&positions))
+            .expect("remove xboxlive records");
+
+        assert_eq!(outcome.lines_removed, 3);
+        assert_eq!(
+            outcome.lines_removed_by_stem,
+            HashMap::from([("access.log".to_string(), 3)])
+        );
+        assert_eq!(
+            outcome.lines_removed_before_position_by_stem,
+            HashMap::from([("access.log".to_string(), 3)])
+        );
+        assert_eq!(
+            read_log_file(&dir.path().join("access.log")),
+            format!("{text_neighbor}\n")
+        );
+        assert_eq!(
+            read_log_file(&dir.path().join("access.log.1.gz")),
+            format!("{malformed}\n")
+        );
+        assert_eq!(
+            read_log_file(&dir.path().join("access.log.2.zst")),
+            format!("{json_neighbor}\n")
+        );
+    }
+
+    #[test]
+    fn exact_removal_decodes_escaped_json_without_deleting_neighbor() {
+        let dir = tempfile::tempdir().expect("create fixture directory");
+        let path = dir.path().join("access.log");
+        let target = r#"{"cache_identifier":"steam","remote_addr":"192.168.1.50","time_local":"01/Jan/2024:00:00:00 +0000","method":"GET","path":"\u002fsame.bin","status":"206","bytes_sent":1024,"user_agent":"Fixture/1.0","upstream_cache_status":"MISS","host":"cdn.example.test","http_range":"bytes=1048576-2097151"}"#;
+        let neighbor = r#"{"cache_identifier":"steam","remote_addr":"192.168.1.50","time_local":"01/Jan/2024:00:00:00 +0000","method":"GET","path":"\u002fsame.bin","status":"206","bytes_sent":2048,"user_agent":"Fixture/1.0","upstream_cache_status":"MISS","host":"cdn.example.test","http_range":"bytes=1048576-2097151"}"#;
+        fs::write(&path, format!("{target}\n{neighbor}\n")).expect("write JSON fixture");
+
+        let matcher = ExactLogMatcher::new([target_observation()]);
+        let prefilter = matcher.prefilter().expect("create exact prefilter");
+        let outcome = rewrite_matching_log_entries_strict(
+            dir.path(),
+            "exact JSON evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+            None,
+        )
+        .expect("rewrite exact JSON evidence");
+
+        assert_eq!(outcome.lines_removed, 1);
+        assert_eq!(
+            fs::read_to_string(path).expect("read fixture"),
+            format!("{neighbor}\n")
+        );
+    }
+
     #[test]
     fn exact_matcher_keeps_same_url_with_different_observation_identity() {
         let dir = tempfile::tempdir().unwrap();
@@ -1303,18 +1403,8 @@ mod tests {
         let gzip_path = dir.path().join("access.log.1.gz");
         let zstd_path = dir.path().join("access.log.2.zst");
 
-        {
-            let file = fs::File::create(&gzip_path).unwrap();
-            let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
-            encoder.write_all(contents.as_bytes()).unwrap();
-            encoder.finish().unwrap();
-        }
-        {
-            let file = fs::File::create(&zstd_path).unwrap();
-            let mut encoder = zstd::Encoder::new(file, 1).unwrap();
-            encoder.write_all(contents.as_bytes()).unwrap();
-            encoder.finish().unwrap();
-        }
+        write_gzip(&gzip_path, contents.as_bytes());
+        write_zstd(&zstd_path, contents.as_bytes());
 
         let matcher = ExactLogMatcher::new([target_observation()]);
         let prefilter = matcher.prefilter().unwrap();
