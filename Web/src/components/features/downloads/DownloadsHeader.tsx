@@ -13,6 +13,8 @@ import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRefreshThrottle } from '@hooks/useRefreshThrottle';
+import { useRefreshRate } from '@contexts/useRefreshRate';
 import { getErrorMessage } from '@utils/error';
 import type { SpeedHistorySnapshot } from '../../../types';
 
@@ -28,6 +30,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const { speedSnapshot, gameSpeeds, activeDownloadCount, totalActiveClients } = useSpeed();
   const activity = useActivityStatus();
   const { timeRange } = useTimeFilter();
+  const { getRefreshInterval } = useRefreshRate();
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
@@ -51,20 +54,28 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     }
   }, []);
 
+  const scheduleHistoryRefresh = useRefreshThrottle(getRefreshInterval);
+  // A live pass sends these events about once a second. The history uses the same cadence as the
+  // other live surfaces instead of requesting its 24-hour aggregate once per event.
+  const handleHistoryEvent = useCallback(
+    () => scheduleHistoryRefresh(() => void fetchHistory()),
+    [scheduleHistoryRefresh, fetchHistory]
+  );
+
   // Fetch history on mount and listen for refresh events
   // Note: Speed data comes from SpeedContext (single source of truth)
   useEffect(() => {
     fetchHistory();
 
     // Listen for data refresh events to update history
-    signalR.on('DownloadsRefresh', fetchHistory);
-    signalR.on('LogProcessingComplete', fetchHistory);
+    signalR.on('DownloadsRefresh', handleHistoryEvent);
+    signalR.on('LogProcessingComplete', handleHistoryEvent);
 
     return () => {
-      signalR.off('DownloadsRefresh', fetchHistory);
-      signalR.off('LogProcessingComplete', fetchHistory);
+      signalR.off('DownloadsRefresh', handleHistoryEvent);
+      signalR.off('LogProcessingComplete', handleHistoryEvent);
     };
-  }, [signalR, fetchHistory]);
+  }, [signalR, fetchHistory, handleHistoryEvent]);
 
   // Refresh events emitted while the connection was down are gone, so refetch on reconnect.
   useReconnectRefetch(signalR.isConnected, fetchHistory);

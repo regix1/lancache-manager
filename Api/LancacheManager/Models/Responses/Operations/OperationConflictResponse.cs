@@ -17,10 +17,10 @@ public sealed class OperationConflictResponse
     /// i18n key for the localized reason (e.g. <c>"errors.conflict.duplicate"</c>,
     /// <c>"errors.conflict.overlappingEntity"</c>).
     /// </summary>
-    public string StageKey { get; init; } = string.Empty;
+    public required string StageKey { get; init; }
 
-    /// <summary>English fallback message for legacy clients that do not consume <see cref="StageKey"/>.</summary>
-    public string Error { get; init; } = string.Empty;
+    /// <summary>Optional legacy English prose retained for existing conflict paths.</summary>
+    public string? Error { get; init; }
 
     /// <summary>Id of the active blocking operation (null for scan-style "already running" globals).</summary>
     public Guid? ActiveOperationId { get; init; }

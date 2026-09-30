@@ -67,6 +67,7 @@ export const NOTIFICATION_REGISTRY = [
 export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`);
 
   const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+    '@/i18n': i18nUrl,
     '@utils/constants': constantsUrl
   });
   const cancelUrl = await compileToUrl('../src/components/common/notificationCancel.ts', {

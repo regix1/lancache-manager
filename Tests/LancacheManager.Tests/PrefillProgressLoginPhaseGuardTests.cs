@@ -655,7 +655,7 @@ public class PrefillProgressLoginPhaseGuardTests
             => Task.FromResult(new AppDbContext(_options));
     }
 
-    private sealed class BlockingDbContextFactory : IDbContextFactory<AppDbContext>
+    internal sealed class BlockingDbContextFactory : IDbContextFactory<AppDbContext>
     {
         private readonly DbContextOptions<AppDbContext> _options;
         private int _asyncCreateCount;
@@ -670,6 +670,8 @@ public class PrefillProgressLoginPhaseGuardTests
 
         public TaskCompletionSource<bool> ReleaseFirstCreate { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int AsyncCreateCount => Volatile.Read(ref _asyncCreateCount);
 
         public AppDbContext CreateDbContext() => new(_options);
 

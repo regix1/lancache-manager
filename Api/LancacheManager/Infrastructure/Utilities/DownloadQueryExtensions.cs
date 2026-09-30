@@ -38,15 +38,16 @@ public static class DownloadQueryExtensions
     }
 
     /// <summary>
-    /// Bounds a query to an optional unix-seconds window on <c>StartTimeUtc</c>. Either bound may
-    /// be absent; an absent bound leaves that side open, matching the live/all-time views.
+    /// Bounds a query to an optional unix-seconds window. A download is in the window when it was
+    /// active in it; the start-time arm keeps rows whose end was never set. This matches the
+    /// sparkline, hourly, and event-compare queries. Either bound may be absent.
     /// </summary>
     public static IQueryable<Download> ApplyTimeRange(this IQueryable<Download> query, long? startTime, long? endTime)
     {
         if (startTime.HasValue)
         {
             var startDate = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= startDate);
+            query = query.Where(d => d.EndTimeUtc >= startDate || d.StartTimeUtc >= startDate);
         }
 
         if (endTime.HasValue)

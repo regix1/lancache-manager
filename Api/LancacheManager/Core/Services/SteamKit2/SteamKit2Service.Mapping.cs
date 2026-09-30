@@ -1,3 +1,4 @@
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
@@ -502,7 +503,14 @@ public partial class SteamKit2Service
 
             if (updated > 0 || (replace && totalDownloads > 0))
             {
-                await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
+                var detached = await SaveDepotMappingsAsync(scopedDb.DbContext, cancellationToken);
+                if (detached > 0)
+                {
+                    updated = Math.Max(0, updated - detached);
+                    _logger.LogInformation(
+                        "Depot mapping apply skipped {Count} downloads merged or removed meanwhile",
+                        detached);
+                }
                 scopedDb.DbContext.ChangeTracker.Clear();
                 _logger.LogInformation($"Updated {updated} downloads with game information, {notFound} not found");
 
@@ -543,6 +551,55 @@ public partial class SteamKit2Service
         {
             _logger.LogError(ex, "Error updating downloads with depot mappings");
             throw;
+        }
+    }
+
+    private async Task<int> SaveDepotMappingsAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var detached = 0;
+        while (true)
+        {
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return detached;
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                var modified = db.ChangeTracker.Entries<Download>()
+                    .Where(entry => entry.State == EntityState.Modified)
+                    .ToList();
+                var ids = modified.Select(entry => entry.Entity.Id).ToList();
+                var existing = (await db.Downloads
+                        .AsNoTracking()
+                        .Where(download => ids.Contains(download.Id))
+                        .Select(download => download.Id)
+                        .ToListAsync(cancellationToken))
+                    .ToHashSet();
+
+                // A failed entry is gone because Download has no concurrency token. The existence
+                // check also detaches every other vanished row, so each retry removes at least one
+                // failed entry and normally saves the remaining rows on the next attempt.
+                var gone = modified
+                    .Where(entry => !existing.Contains(entry.Entity.Id))
+                    .Select(entry => entry.Entity)
+                    .Concat(ex.Entries.Select(entry => entry.Entity).OfType<Download>())
+                    .Distinct()
+                    .ToList();
+                if (gone.Count == 0)
+                {
+                    throw;
+                }
+
+                foreach (var download in gone)
+                {
+                    db.Entry(download).State = EntityState.Detached;
+                }
+
+                detached += gone.Count;
+            }
         }
     }
 }

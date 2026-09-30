@@ -30,6 +30,7 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   dashboard_cache_warmer: 'common.notifications.titles.dashboardCacheWarmer',
   bulk_removal: 'common.notifications.titles.bulkRemoval',
   prefill_login: 'common.notifications.titles.prefillLogin',
+  download_history_upgrade: 'common.notifications.titles.downloadHistoryUpgrade',
   // A one-shot error toast rather than an operation, so it carries no operation eyebrow.
   steam_session_error: null,
   generic: null

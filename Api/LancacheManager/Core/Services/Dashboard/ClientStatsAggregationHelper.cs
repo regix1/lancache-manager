@@ -38,7 +38,8 @@ public static class ClientStatsAggregationHelper
                 // Min start and max end feed the client-side duration span below.
                 MinStartTimeUtc = g.Min(d => d.StartTimeUtc),
                 MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
-                LastActivityUtc = g.Max(d => d.StartTimeUtc)
+                // One row spans the download session; an unset end falls back to its start.
+                LastActivityUtc = g.Max(d => d.EndTimeUtc > d.StartTimeUtc ? d.EndTimeUtc : d.StartTimeUtc)
             })
             .ToListAsync(ct);
 

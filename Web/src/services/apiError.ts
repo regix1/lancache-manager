@@ -1,11 +1,10 @@
 import { APP_EVENTS } from '@utils/constants';
+import i18n from '@/i18n';
 /**
  * The frontend error taxonomy and single typed API error.
  *
- * This module is intentionally dependency-free (it imports nothing from the app) so that both the
- * heavy `api.service.ts` and the small sibling services (`auth`, `preferences`, `theme`) can pull
- * it in without a circular dependency and without dragging the whole API surface
- * into their bundle. See the error-handling standard (§4.1).
+ * This module owns shared API error classification and translates canonical typed conflicts at
+ * the HTTP boundary without importing the higher-level error renderer back into the API layer.
  */
 
 /**
@@ -45,7 +44,7 @@ export interface ApiErrorData {
 export interface OperationConflictBody {
   code: string;
   stageKey: string;
-  error: string;
+  error?: string;
   activeOperationId?: string | null;
   activeOperationType?: string | null;
   activeOperationScope?: string | null;
@@ -111,6 +110,13 @@ function pickErrorMessage(body: ApiErrorData | null, rawText: string, response: 
     if (typeof body.error === 'string' && body.error.trim()) {
       return body.error;
     }
+    if (
+      body.code === 'OPERATION_CONFLICT' &&
+      typeof body.stageKey === 'string' &&
+      body.stageKey.trim()
+    ) {
+      return i18n.t(body.stageKey, body.context ?? undefined);
+    }
   }
   return `HTTP ${response.status}: ${rawText || response.statusText}`;
 }
@@ -149,7 +155,18 @@ export async function buildApiError(response: Response): Promise<ApiError> {
   let cause: unknown;
   if (status === 409) {
     const conflict = body;
-    if (conflict && (conflict.code === 'OPERATION_CONFLICT' || conflict.stageKey)) {
+    if (conflict?.code === 'OPERATION_CONFLICT') {
+      if (typeof conflict.stageKey !== 'string' || !conflict.stageKey.trim()) {
+        return new ApiError({
+          status,
+          kind: 'parse',
+          body: null,
+          cause: conflict,
+          message: i18n.t('common.errors.invalidJsonResponse')
+        });
+      }
+      cause = conflict;
+    } else if (conflict?.stageKey) {
       cause = conflict;
     }
   }

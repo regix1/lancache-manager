@@ -626,6 +626,69 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task ApplyingMappingsSavesRowsAfterTwoConsecutiveDeletions()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        long[] ids;
+        await using (var seed = fixture.Database.Factory.CreateDbContext())
+        {
+            var downloads = Enumerable.Range(1, 4)
+                .Select(index => new Download
+                {
+                    Service = "steam",
+                    ClientIp = $"127.0.0.{index}",
+                    StartTimeUtc = DateTime.UtcNow.AddMinutes(-10),
+                    EndTimeUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUrl = $"https://steam.example.test/depot/{index}",
+                    DepotId = 10,
+                    IsActive = false
+                })
+                .ToList();
+            seed.Downloads.AddRange(downloads);
+            await seed.SaveChangesAsync();
+            ids = downloads.Select(download => download.Id).ToArray();
+        }
+
+        var step = 0;
+        fixture.Recorder.Clear();
+        fixture.Recorder.OnExecuting = command =>
+        {
+            if (step == 0 && command.CommandText.Contains("UPDATE \"Downloads\"", StringComparison.Ordinal))
+            {
+                using var concurrent = fixture.Database.Factory.CreateDbContext();
+                concurrent.Downloads.Where(download => download.Id == ids[1]).ExecuteDelete();
+                step = 1;
+                return;
+            }
+
+            if (step == 1
+                && command.CommandText.Contains("SELECT", StringComparison.Ordinal)
+                && command.CommandText.Contains("\"Downloads\"", StringComparison.Ordinal))
+            {
+                step = 2;
+                return;
+            }
+
+            if (step == 2 && command.CommandText.Contains("UPDATE \"Downloads\"", StringComparison.Ordinal))
+            {
+                using var concurrent = fixture.Database.Factory.CreateDbContext();
+                concurrent.Downloads.Where(download => download.Id == ids[2]).ExecuteDelete();
+                step = 3;
+            }
+        };
+
+        await fixture.Service.ManuallyApplyDepotMappingsAsync();
+
+        Assert.Equal(3, step);
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var saved = await db.Downloads.OrderBy(download => download.Id).ToListAsync();
+        Assert.Equal(new[] { ids[0], ids[3] }, saved.Select(download => download.Id).ToArray());
+        Assert.All(saved, download => Assert.Equal("Old owner", download.GameName));
+        Assert.Equal(2, Get<int>(fixture.Service, "_emitDownloadsUpdated"));
+    }
+
+    [Fact]
     public async Task HttpFailurePreservesThePreviousCatalog()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -796,6 +859,7 @@ public sealed class DepotImportTests
         public SteamKit2Service Service { get; }
         public UnifiedOperationTracker Tracker { get; }
         public RecordingNotifications Events { get; }
+        public RecordingCommandInterceptor Recorder { get; } = new();
         public string Source { get; set; } = Snapshot(200);
         public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
         public Func<CancellationToken, Task<string>>? Download { get; set; }
@@ -816,7 +880,9 @@ public sealed class DepotImportTests
             State = StateTestMethods.CreateStateService(Root);
             StateFile = Path.Combine(paths.GetStateDirectory(), "state.json");
             var registrations = new ServiceCollection();
-            var options = new DbContextOptionsBuilder<AppDbContext>(Database.Options).AddInterceptors(new ReadFailure(this)).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>(Database.Options)
+                .AddInterceptors(new ReadFailure(this), Recorder)
+                .Options;
             registrations.AddScoped(_ => new AppDbContext(options));
             registrations.AddSingleton<GameImageFetchService>(_ => _images);
             _services = registrations.BuildServiceProvider();

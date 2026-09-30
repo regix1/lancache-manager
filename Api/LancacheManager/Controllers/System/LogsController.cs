@@ -471,43 +471,66 @@ public class LogsController : ControllerBase
             });
         }
 
-        IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
-            ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
-            : _datasourceService.GetDatasources();
-
-        long totalLines = 0;
-        foreach (var ds in datasources)
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
         {
-            // Persist only after this datasource's Rust process has completed successfully. A
-            // failure or cancellation therefore cannot overwrite its state with a fallback zero.
-            // The count inventories EVERY source series (access.log AND per-service files) and
-            // reports complete-record counts per stem, which seed the per-stem checkpoints.
-            var countResult = await _rustProcessHelper.CountLogLinesAsync(
-                ds.LogPath,
-                cancellationToken);
-            var lineCount = countResult.LinesProcessed;
-
-            _stateRepository.SetLogSourcePositions(ds.Name, countResult.SourceLineCounts);
-            _stateRepository.SetLogPosition(ds.Name, lineCount);
-            _stateRepository.SetLogTotalLines(ds.Name, lineCount);
-            totalLines += lineCount;
-
-            if (lineCount > 0)
-                _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
-            else
-                _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
+            return Conflict(conflict);
         }
 
-        if (!isSingleDatasource)
-            _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
-
-        return Ok(new LogPositionResponse
+        var reservation = await _rustLogProcessorService.TryReserveProcessingGateAsync();
+        if (reservation is null)
         {
-            Message = isSingleDatasource
-                ? $"Log position reset to end of file for '{datasourceName}'"
-                : "Log position reset to end of file",
-            Position = totalLines
-        });
+            return Conflict(ApiResponse.Error(
+                "Log processing is currently running. Stop it or let it finish, then reset the position."));
+        }
+
+        try
+        {
+            IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
+                ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
+                : _datasourceService.GetDatasources();
+
+            long totalLines = 0;
+            foreach (var ds in datasources)
+            {
+                // Counting can take seconds on large or compressed logs. The reservation prevents a
+                // live pass from ingesting the lines being skipped and a purge from lowering positions
+                // before this older count writes them.
+                var countResult = await _rustProcessHelper.CountLogLinesAsync(
+                    ds.LogPath,
+                    cancellationToken);
+                var lineCount = countResult.LinesProcessed;
+
+                _rustLogProcessorService.ClearResume(ds.Name);
+                _stateRepository.SetLogSourcePositions(ds.Name, countResult.SourceLineCounts);
+                _stateRepository.SetLogPosition(ds.Name, lineCount);
+                _stateRepository.SetLogTotalLines(ds.Name, lineCount);
+                totalLines += lineCount;
+
+                if (lineCount > 0)
+                    _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
+                else
+                    _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
+            }
+
+            if (!isSingleDatasource)
+                _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
+
+            return Ok(new LogPositionResponse
+            {
+                Message = isSingleDatasource
+                    ? $"Log position reset to end of file for '{datasourceName}'"
+                    : "Log position reset to end of file",
+                Position = totalLines
+            });
+        }
+        finally
+        {
+            _rustLogProcessorService.ReleaseProcessingGate(reservation.Value);
+        }
     }
 
     /// <summary>

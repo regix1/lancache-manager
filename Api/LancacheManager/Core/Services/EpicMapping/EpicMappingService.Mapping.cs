@@ -1,10 +1,13 @@
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services.EpicMapping;
 
 public partial class EpicMappingService
 {
+    private UnmatchedResolveScan? _lastUnmatchedScan;
+
     /// <summary>
     /// Resolve Epic downloads that don't have game names yet.
     /// Matches download URLs against stored EpicCdnPatterns.
@@ -24,15 +27,47 @@ public partial class EpicMappingService
         // A row that kept its app id but lost its name is a candidate too. Clearing every GameName
         // (a full Steam scan, or the mapping reset arm) left Epic rows with an id and no name, and
         // cache detection needs both columns filled to bucket the row, so re-offer them here.
-        // Count the candidates before loading them: the log pass calls this after every run, and on
-        // a cache with no Epic traffic there is never anything to name, so the common case costs one
-        // count instead of a tracked load plus the well-known pattern seed.
-        var unresolvedCount = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && (string.IsNullOrEmpty(d.EpicAppId) || d.GameName == null) && d.LastUrl != null, ct);
+        // Summarize the candidates before loading them: the log pass calls this after every run, and
+        // on a cache with no Epic traffic there is never anything to name. An active download's end
+        // moves on every pass, so only inactive candidates contribute an end; the final URL of a
+        // session that ended is still examined once.
+        var candidates = await db.Downloads
+            .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && (string.IsNullOrEmpty(d.EpicAppId) || d.GameName == null) && d.LastUrl != null)
+            .GroupBy(d => 1)
+            .Select(g => new
+            {
+                Count = g.Count(),
+                InactiveCount = g.Sum(d => d.IsActive ? 0 : 1),
+                MaxId = g.Max(d => d.Id),
+                IdSum = g.Sum(d => d.Id),
+                MaxInactiveEnd = g.Max(d => d.IsActive ? (DateTime?)null : d.EndTimeUtc)
+            })
+            .SingleOrDefaultAsync(ct);
+
+        var unresolvedCount = candidates?.Count ?? 0;
 
         if (unresolvedCount == 0)
         {
             _logger.LogInformation("No unresolved Epic downloads to match against CDN patterns");
+            return 0;
+        }
+
+        var catalog = await db.EpicCdnPatterns
+            .CountAsync(p => !string.IsNullOrEmpty(p.AppId), ct);
+        var catalogSeenUtc = await db.EpicCdnPatterns
+            .Where(p => !string.IsNullOrEmpty(p.AppId))
+            .MaxAsync(p => (DateTime?)p.LastSeenAtUtc, ct);
+        var scan = new UnmatchedResolveScan(
+            unresolvedCount,
+            candidates!.InactiveCount,
+            candidates.MaxId,
+            candidates.IdSum,
+            candidates.MaxInactiveEnd,
+            catalog,
+            catalogSeenUtc);
+        if (_lastUnmatchedScan == scan)
+        {
+            _logger.LogDebug("Epic resolver skipped an unchanged unmatched scan");
             return 0;
         }
 
@@ -75,8 +110,16 @@ public partial class EpicMappingService
             .Where(p => !string.IsNullOrEmpty(p.AppId))
             .OrderByDescending(p => p.ChunkBaseUrl.Length)
             .ToListAsync(ct);
+        scan = scan with
+        {
+            Catalog = patterns.Count,
+            CatalogSeenUtc = patterns.Count == 0
+                ? null
+                : patterns.Max(p => (DateTime?)p.LastSeenAtUtc)
+        };
         if (patterns.Count == 0)
         {
+            _lastUnmatchedScan = scan;
             _logger.LogWarning(
                 "No Epic CDN patterns available for resolution. {Count} unresolved downloads exist but cannot be matched. " +
                 "Log in with Epic in the Integrations section to collect CDN patterns.",
@@ -124,7 +167,22 @@ public partial class EpicMappingService
 
         if (resolvedCount > 0)
         {
-            await db.SaveChangesAsync(ct);
+            try
+            {
+                // The one-time download-history merge can delete a tracked row in the background.
+                // A later pass reloads the surviving candidates after a zero-row tracked update.
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                _lastUnmatchedScan = null;
+                _logger.LogInformation(
+                    ex,
+                    "Epic resolve skipped: a download it loaded was merged or removed meanwhile; the next pass resolves again");
+                return 0;
+            }
+
+            _lastUnmatchedScan = null;
             _logger.LogInformation("Resolved {Count}/{Total} Epic downloads to game names",
                 resolvedCount, unresolvedDownloads.Count);
 
@@ -137,6 +195,7 @@ public partial class EpicMappingService
         }
         else
         {
+            _lastUnmatchedScan = scan;
             _logger.LogWarning(
                 "0 of {Count} unresolved Epic downloads matched any of {PatternCount} CDN patterns. " +
                 "URL format may not match stored patterns.",

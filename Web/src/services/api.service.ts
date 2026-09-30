@@ -223,8 +223,8 @@ export interface RetroDownloadDto {
   startTimeUtc: string;
   /** Latest download end time in the group (UTC, ISO 8601 string) */
   endTimeUtc: string;
-  /** Latest download start time in the group (UTC, ISO 8601 string). The grouped views label and
-   *  order their rows by this, not by the latest end time. */
+  /** Latest download start time in the group (UTC, ISO 8601 string). Grouped Downloads use the
+   *  later of this value and endTimeUtc for displayed activity and chronological ordering. */
   lastStartTimeUtc: string;
   /** Steam depot ID, null if non-Steam */
   depotId: number | null;

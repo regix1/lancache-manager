@@ -180,6 +180,7 @@ test('scheduled Activity reads each running run slot limit from that run own con
 const i18nStub = moduleUrl('export default globalThis.testTranslator;');
 
 const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+  '@/i18n': i18nStub,
   '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
 });
 

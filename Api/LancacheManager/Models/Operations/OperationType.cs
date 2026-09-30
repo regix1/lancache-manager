@@ -43,7 +43,9 @@ public enum OperationType
     BattleNetMapping,
     RiotMapping,
     PrefillLogin,
-    CacheFileCount
+    CacheFileCount,
+    // One-time rewrite of download history that older versions wrote; global in OperationConflictChecker.
+    DownloadHistoryUpgrade
 }
 
 /// <summary>
@@ -115,6 +117,7 @@ public static class OperationTypeExtensions
         OperationType.RiotMapping => "riotMapping",
         OperationType.PrefillLogin => "prefillLogin",
         OperationType.CacheFileCount => "cacheFileCount",
+        OperationType.DownloadHistoryUpgrade => "downloadHistoryUpgrade",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

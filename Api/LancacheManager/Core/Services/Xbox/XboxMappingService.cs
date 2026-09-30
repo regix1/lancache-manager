@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,11 +20,10 @@ namespace LancacheManager.Core.Services.Xbox;
 /// <c>Service='xbox'</c> + <c>GameName=&lt;title&gt;</c> + <c>XboxProductId=&lt;id&gt;</c> with
 /// <c>GameAppId</c>/<c>EpicAppId</c> NULL. <c>XboxProductId</c> is metadata only (art + GUID→name).
 ///
-/// IMPORTANT - this is BACKFILL of INACTIVE rows ONLY. The Rust ingest path is the primary,
-/// active-session-safe canonicalizer; the active-session lookup keys on the raw <c>Downloads.Service</c>,
-/// so re-tagging an ACTIVE row here would split the download. Unmatched <c>wsus</c> stays generic
-/// Windows Update and is NEVER relabeled (the fragment-shape guard below is what prevents a
-/// <c>Contains("")</c> from mislabeling ALL Windows Update traffic).
+/// This backfill renames inactive rows only. Ingest can continue a row that ended within five
+/// minutes of log time, so the write re-checks that each row is still inactive and unnamed after
+/// matching. Unmatched <c>wsus</c> stays generic Windows Update and is never relabeled; the
+/// fragment-shape guard below prevents an empty fragment from matching Windows Update traffic.
 /// </summary>
 public class XboxMappingService
 {
@@ -50,6 +50,7 @@ public class XboxMappingService
     private readonly ISignalRNotificationService _notifications;
     private readonly XboxApiDirectClient _apiClient;
     private readonly ILogger<XboxMappingService> _logger;
+    private UnmatchedResolveScan? _lastUnmatchedScan;
 
     // Serializes catalog merges. Two Xbox sessions authenticating concurrently each fire a detached
     // MergeDaemonCatalogAsync on its own DbContext; both would read empty dedup dicts, both INSERT the
@@ -99,6 +100,16 @@ public class XboxMappingService
             .OrderByDescending(p => p.UrlFragment.Length)
             .ToList();
 
+        var titledMappings = await db.XboxGameMappings
+            .AsNoTracking()
+            .CountAsync(m => m.Title != null && m.Title.Trim() != "", ct);
+        if (validPatterns.Count == 0 && titledMappings == 0)
+        {
+            // Nothing in either catalog can name a row. Keep product-id recovery available when a
+            // titled mapping exists, without reading generic Windows Update download history.
+            return 0;
+        }
+
         // Candidate rows: still tagged wsus (DO-client traffic), OR any xbox-ish service with no game
         // name - that covers xboxlive (prefill-daemon traffic direct from assets1.xboxlive.com) and an
         // already-canonicalized xbox row whose GameName was wiped by a Steam PICS scan or a database
@@ -108,15 +119,66 @@ public class XboxMappingService
         // active rows), so we never touch them here.
         const string wsusServicePattern = "%wsus%";
         const string xboxServicePattern = "%xbox%";
+        // An active download's end moves on every pass, so only inactive candidates contribute an
+        // end; the final URL of a session that ended is still examined once.
         var candidates = await db.Downloads
             .Where(d => (EF.Functions.Like(d.Service, wsusServicePattern)
                             || EF.Functions.Like(d.Service, xboxServicePattern))
                         && d.GameName == null
                         && d.LastUrl != null
                         && !d.IsActive)
+            .GroupBy(d => 1)
+            .Select(g => new
+            {
+                Count = g.Count(),
+                InactiveCount = g.Sum(d => d.IsActive ? 0 : 1),
+                MaxId = g.Max(d => d.Id),
+                IdSum = g.Sum(d => d.Id),
+                MaxInactiveEnd = g.Max(d => d.IsActive ? (DateTime?)null : d.EndTimeUtc)
+            })
+            .SingleOrDefaultAsync(ct);
+
+        if (candidates == null)
+        {
+            return 0;
+        }
+
+        var titledMappingsSeenUtc = await db.XboxGameMappings
+            .AsNoTracking()
+            .Where(m => m.Title != null && m.Title.Trim() != "")
+            .MaxAsync(m => (DateTime?)m.LastSeenAtUtc, ct);
+        var patternSeenUtc = validPatterns.Count == 0
+            ? null
+            : validPatterns.Max(p => (DateTime?)p.LastSeenAtUtc);
+        var catalogSeenUtc = patternSeenUtc is null
+            || (titledMappingsSeenUtc is not null && titledMappingsSeenUtc > patternSeenUtc)
+                ? titledMappingsSeenUtc
+                : patternSeenUtc;
+        var scan = new UnmatchedResolveScan(
+            candidates.Count,
+            candidates.InactiveCount,
+            candidates.MaxId,
+            candidates.IdSum,
+            candidates.MaxInactiveEnd,
+            validPatterns.Count + titledMappings,
+            catalogSeenUtc);
+        if (_lastUnmatchedScan == scan)
+        {
+            _logger.LogDebug("Xbox resolver skipped an unchanged unmatched scan");
+            return 0;
+        }
+
+        var candidateRows = await db.Downloads
+            .AsNoTracking()
+            .Where(d => (EF.Functions.Like(d.Service, wsusServicePattern)
+                            || EF.Functions.Like(d.Service, xboxServicePattern))
+                        && d.GameName == null
+                        && d.LastUrl != null
+                        && !d.IsActive)
+            .Select(d => new { d.Id, d.LastUrl, d.XboxProductId })
             .ToListAsync(ct);
 
-        if (candidates.Count == 0)
+        if (candidateRows.Count == 0)
         {
             return 0;
         }
@@ -125,7 +187,7 @@ public class XboxMappingService
         // title is one lookup away and needs no URL match. The Downloads page resolves such a row's
         // name from this same table at read time, so without this step it shows a title the
         // detection queries never see.
-        var productIds = candidates
+        var productIds = candidateRows
             .Where(d => !string.IsNullOrEmpty(d.XboxProductId))
             .Select(d => d.XboxProductId!)
             .Distinct()
@@ -139,19 +201,15 @@ public class XboxMappingService
                 .Where(m => !string.IsNullOrWhiteSpace(m.Title))
                 .ToDictionary(m => m.ProductId, m => m.Title);
 
-        var resolvedCount = 0;
-        var resolvedProductIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var matches = new List<(long Id, string Title, string? ProductId, string? LastUrl, string? ResolvedProductId)>();
         var unmatchedSampleLogged = false;
 
-        foreach (var download in candidates)
+        foreach (var download in candidateRows)
         {
             if (!string.IsNullOrEmpty(download.XboxProductId)
                 && titlesByProductId.TryGetValue(download.XboxProductId, out var storedTitle))
             {
-                download.Service = "xbox";
-                download.GameName = storedTitle;
-                resolvedCount++;
-                resolvedProductIds.Add(download.XboxProductId);
+                matches.Add((download.Id, storedTitle, null, download.LastUrl, download.XboxProductId));
                 continue;
             }
 
@@ -172,22 +230,57 @@ public class XboxMappingService
 
             // Canonicalize to the Xbox named-game identity. GameAppId/EpicAppId stay NULL; the
             // detection-side sentinel of 0 is applied where detection rows are created, not here.
-            download.Service = "xbox";
-            download.GameName = match.Title;
-            download.XboxProductId = match.ProductId;
-            resolvedCount++;
-            resolvedProductIds.Add(match.ProductId);
+            matches.Add((download.Id, match.Title, match.ProductId, download.LastUrl, match.ProductId));
+        }
+
+        if (matches.Count == 0)
+        {
+            _lastUnmatchedScan = scan;
+            return 0;
+        }
+
+        var resolvedCount = 0;
+        var resolvedProductIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in matches.GroupBy(match => (match.Title, match.ProductId)))
+        {
+            var ids = group.Select(match => match.Id).ToList();
+            var title = group.Key.Title;
+            var productId = group.Key.ProductId;
+            var rows = db.Downloads
+                .Where(d => ids.Contains(d.Id) && !d.IsActive && d.GameName == null);
+            if (productId != null)
+            {
+                var urls = group.Select(match => match.LastUrl).Distinct().ToList();
+                rows = rows.Where(d => urls.Contains(d.LastUrl!));
+            }
+
+            var renamed = await rows.ExecuteUpdateAsync(setters => setters
+                .SetProperty(d => d.Service, "xbox")
+                .SetProperty(d => d.GameName, title)
+                .SetProperty(d => d.XboxProductId, d => productId ?? d.XboxProductId), ct);
+            resolvedCount += renamed;
+            if (renamed > 0)
+            {
+                foreach (var resolvedProductId in group
+                             .Select(match => match.ResolvedProductId)
+                             .Where(id => id != null))
+                {
+                    resolvedProductIds.Add(resolvedProductId!);
+                }
+            }
         }
 
         if (resolvedCount == 0)
         {
+            // A merge or ingest update changed the rows after projection. Reload them next pass.
+            _lastUnmatchedScan = null;
             return 0;
         }
 
-        await db.SaveChangesAsync(ct);
+        _lastUnmatchedScan = null;
         _logger.LogInformation(
             "Re-tagged {Count}/{Total} wsus/xbox downloads to Xbox titles",
-            resolvedCount, candidates.Count);
+            resolvedCount, candidateRows.Count);
 
         // Best-effort: fetch banner art for the newly-resolved products via DisplayCatalog and
         // store it on the XboxGameMapping (keyed by ProductId). A failure here never blocks the

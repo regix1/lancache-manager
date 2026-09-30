@@ -24,7 +24,6 @@ public class DownloadsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IStateService _stateRepository;
     private readonly IEventsService _eventsService;
-    private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext context,
@@ -35,7 +34,8 @@ public class DownloadsController : ControllerBase
         _context = context;
         _stateRepository = stateRepository;
         _eventsService = eventsService;
-        _logger = logger;
+        // Keep the constructor contract used by direct callers; failures now log only at middleware.
+        _ = logger;
     }
 
     /// <summary>
@@ -168,7 +168,8 @@ public class DownloadsController : ControllerBase
         var baseQuery = _context.Downloads
             .AsNoTracking()
             .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
-            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+            .Where(d => (d.EndTimeUtc >= startDate || d.StartTimeUtc >= startDate)
+                && d.StartTimeUtc <= endDate);
 
         baseQuery = baseQuery.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
 
@@ -244,8 +245,13 @@ public class DownloadsController : ControllerBase
     /// </remarks>
     [HttpGet("retro")]
     [ProducesResponseType(typeof(RetroDownloadResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync([FromQuery] RetroDownloadQuery query)
+    // A Downloads tab that replaces or abandons its request stops the server queries behind it.
+    public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync(
+        [FromQuery] RetroDownloadQuery query,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         const int maxPageSize = 200;
 
         // Clamp page size
@@ -254,14 +260,12 @@ public class DownloadsController : ControllerBase
 
         // A cascade delete removes the event's EventDownloads rows, so an unknown id would
         // otherwise flow through BuildRetroBaseQuery as an empty (but 200 OK) result instead of
-        // a clear signal that the id is gone. Checked outside the try below so the throw reaches
-        // GlobalExceptionMiddleware instead of being swallowed into an empty response.
+        // a clear signal that the id is gone.
         if (query.EventId.HasValue)
         {
-            await _eventsService.GetByIdOrThrowAsync(query.EventId.Value, "Event");
+            await _eventsService.GetByIdOrThrowAsync(query.EventId.Value, "Event", cancellationToken);
         }
 
-        try
         {
             // ShowClean keeps evicted rows in the list but suppresses the badge and dimming, the
             // same way the row-level download list does. Hide/Remove already dropped those rows
@@ -284,12 +288,12 @@ public class DownloadsController : ControllerBase
 
             if (pageInSql)
             {
-                var groupCount = await BuildRetroGroupedQuery(query).CountAsync();
+                var groupCount = await BuildRetroGroupedQuery(query).CountAsync(cancellationToken);
                 // Nothing merged or dropped rows after the aggregate, so every download behind the
                 // page's groups is a download the base query returned. Counting those directly is
                 // the same number the in-memory path sums off the rows it is holding anyway.
-                var downloadCount = await BuildRetroBaseQuery(query).CountAsync();
-                var pageRows = await BuildRetroPagedQuery(query).ToListAsync();
+                var downloadCount = await BuildRetroBaseQuery(query).CountAsync(cancellationToken);
+                var pageRows = await BuildRetroPagedQuery(query).ToListAsync(cancellationToken);
 
                 await GameNameResolver.ResolveAsync(_context, pageRows, HttpContext.RequestAborted);
 
@@ -301,7 +305,7 @@ public class DownloadsController : ControllerBase
                         r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
                         StringComparer.Ordinal);
 
-                await FillDownloadIdsAsync(query, pageItems, pagePairs);
+                await FillDownloadIdsAsync(query, pageItems, pagePairs, cancellationToken);
 
                 return Ok(new RetroDownloadResponse
                 {
@@ -322,7 +326,7 @@ public class DownloadsController : ControllerBase
                 .OrderBy(r => r.DepotId)
                 .ThenBy(r => r.ClientIp)
                 .ThenBy(r => r.RowKey)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             // Resolve game names at group level over the same shared resolver the dashboard
             // batch uses, so both views pick the same owner when a depot has multiple mappings.
@@ -633,8 +637,8 @@ public class DownloadsController : ControllerBase
                 .ThenBy(g => g.IsActive ? g.StartTimeUtc : DateTime.MaxValue)
                 .ThenBy(g => bucketByFrequency && g.RequestCount == 1 ? 1 : 0);
 
-            // The grouped Downloads views order by the newest member's START time; retro orders by
-            // the group's latest END time. One list, two columns, chosen per request.
+            // Finished grouped Downloads rows order by their latest activity, while retro orders by
+            // the group's latest end. An older end falls back to the newest member start.
             //
             // The two sorts that order text order the text on screen, not the key underneath it: a
             // nameless service row shows its service's title rather than the bare service, and the
@@ -656,10 +660,14 @@ public class DownloadsController : ControllerBase
                         StringComparer.OrdinalIgnoreCase)
                     .ToList(),
                 "service" => bucketed.ThenBy(g => ServiceBreakdownMerger.NormalizeXboxService(g.Service))
-                    .ThenByDescending(g => query.MergeAcrossServices ? g.LastStartTimeUtc : g.EndTimeUtc)
+                    .ThenByDescending(g => query.MergeAcrossServices
+                        ? (g.EndTimeUtc > g.LastStartTimeUtc ? g.EndTimeUtc : g.LastStartTimeUtc)
+                        : g.EndTimeUtc)
                     .ToList(),
                 // "recent" and "latest" are both pure chronological (newest first)
-                _ => bucketed.ThenByDescending(g => query.MergeAcrossServices ? g.LastStartTimeUtc : g.EndTimeUtc).ToList(),
+                _ => bucketed.ThenByDescending(g => query.MergeAcrossServices
+                    ? (g.EndTimeUtc > g.LastStartTimeUtc ? g.EndTimeUtc : g.LastStartTimeUtc)
+                    : g.EndTimeUtc).ToList(),
             };
 
             // Paginate from the post-merge list
@@ -673,11 +681,11 @@ public class DownloadsController : ControllerBase
                 .Take(query.PageSize)
                 .ToList();
 
-            await FillDownloadIdsAsync(query, items, pairsByRowId);
+            await FillDownloadIdsAsync(query, items, pairsByRowId, cancellationToken);
 
             if (query.MergeAcrossServices)
             {
-                await FillPrimaryDownloadsAsync(query, items, newestMemberByRowId);
+                await FillPrimaryDownloadsAsync(query, items, newestMemberByRowId, cancellationToken);
             }
 
             return Ok(new RetroDownloadResponse
@@ -689,14 +697,6 @@ public class DownloadsController : ControllerBase
                 CurrentPage = query.Page,
                 PageSize = query.PageSize
             });
-        }
-        // A client that navigates away cancels HttpContext.RequestAborted, which the name
-        // resolution above observes. That is not a failure to report as an empty page, so it is
-        // left to the middleware, which answers 499 without logging an error.
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogError(ex, "Error getting retro downloads");
-            return Ok(new RetroDownloadResponse());
         }
     }
 
@@ -833,7 +833,8 @@ public class DownloadsController : ControllerBase
             var endDate = query.EndTime.HasValue
                 ? query.EndTime.Value.FromUnixSeconds()
                 : DateTime.UtcNow;
-            baseQuery = baseQuery.Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+            baseQuery = baseQuery.Where(d => (d.EndTimeUtc >= startDate || d.StartTimeUtc >= startDate)
+                && d.StartTimeUtc <= endDate);
         }
 
         // Filter: event tag (only downloads associated with the event)
@@ -1031,7 +1032,8 @@ public class DownloadsController : ControllerBase
     private async Task FillPrimaryDownloadsAsync(
         RetroDownloadQuery query,
         List<RetroDownloadDto> pageItems,
-        Dictionary<string, RetroDownloadDto> newestMemberByRowId)
+        Dictionary<string, RetroDownloadDto> newestMemberByRowId,
+        CancellationToken cancellationToken)
     {
         var pairs = new HashSet<(long DepotId, string ClientIp)>();
         var primaryIdByRowId = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -1060,7 +1062,7 @@ public class DownloadsController : ControllerBase
                          && depotIdList.Contains(d.DepotId.Value)
                          && clientIpList.Contains(d.ClientIp))
                 .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp, d.StartTimeUtc })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             foreach (var pairGroup in candidates
                          .Where(c => pairs.Contains((c.DepotId, c.ClientIp)))
@@ -1089,7 +1091,7 @@ public class DownloadsController : ControllerBase
         var rows = await _context.Downloads
             .AsNoTracking()
             .Where(d => primaryIds.Contains(d.Id))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         await GameNameResolver.ResolveAsync(_context, rows, HttpContext.RequestAborted);
 
@@ -1164,7 +1166,8 @@ public class DownloadsController : ControllerBase
     private async Task FillDownloadIdsAsync(
         RetroDownloadQuery query,
         List<RetroDownloadDto> pageItems,
-        Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId)
+        Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId,
+        CancellationToken cancellationToken)
     {
         var neededPairs = new HashSet<(long DepotId, string ClientIp)>();
         foreach (var item in pageItems)
@@ -1186,7 +1189,7 @@ public class DownloadsController : ControllerBase
                      && depotIdList.Contains(d.DepotId.Value)
                      && clientIpList.Contains(d.ClientIp))
             .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
         foreach (var row in detailRows)

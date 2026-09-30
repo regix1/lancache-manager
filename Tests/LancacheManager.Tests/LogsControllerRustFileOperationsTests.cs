@@ -21,6 +21,8 @@ public sealed class LogsControllerRustFileOperationsTests
     {
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 17);
+        fixture.WriteResume("alpha", "alpha-resume");
+        fixture.WriteResume("beta", "beta-resume");
 
         var result = await fixture.Controller.ResetDatasourceLogPositionAsync(
             "alpha",
@@ -30,6 +32,8 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(0, response.Position);
         Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
         Assert.Empty(fixture.RustHelper.CountRequests);
+        Assert.False(File.Exists(fixture.ResumePath("alpha")));
+        Assert.True(File.Exists(fixture.ResumePath("beta")));
     }
 
     [Fact]
@@ -38,6 +42,8 @@ public sealed class LogsControllerRustFileOperationsTests
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 17);
         fixture.State.SetLogPosition("beta", 19);
+        fixture.WriteResume("alpha", "alpha-resume");
+        fixture.WriteResume("beta", "beta-resume");
 
         var result = await fixture.Controller.ResetLogPositionAsync(
             new UpdateLogPositionRequest { Position = 0 });
@@ -47,12 +53,16 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(0, fixture.State.GetLogPosition("beta"));
         Assert.Empty(fixture.RustHelper.CountRequests);
+        Assert.False(File.Exists(fixture.ResumePath("alpha")));
+        Assert.False(File.Exists(fixture.ResumePath("beta")));
     }
 
     [Fact]
     public async Task ResetToEnd_CountsEachDatasourceOnceAndReturnsAggregateAsync()
     {
         using var fixture = new ControllerFixture();
+        fixture.WriteResume("alpha", "alpha-resume");
+        fixture.WriteResume("beta", "beta-resume");
         fixture.RustHelper.CountHandler = (path, _) => Task.FromResult(
             new LogLineCountResult(path == fixture.AlphaLogPath ? 3 : 5, 1, new Dictionary<string, long>()));
 
@@ -65,6 +75,8 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(5, fixture.State.GetLogPosition("beta"));
         Assert.Equal(5, fixture.State.GetLogTotalLines("beta"));
         Assert.Equal(new[] { fixture.AlphaLogPath, fixture.BetaLogPath }, fixture.RustHelper.CountRequests);
+        Assert.False(File.Exists(fixture.ResumePath("alpha")));
+        Assert.False(File.Exists(fixture.ResumePath("beta")));
     }
 
     [Fact]
@@ -73,6 +85,7 @@ public sealed class LogsControllerRustFileOperationsTests
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 12);
         fixture.State.SetLogTotalLines("alpha", 13);
+        fixture.WriteResume("alpha", "alpha-resume");
         fixture.RustHelper.CountHandler = (_, _) =>
             throw new RustProcessException("log_service_manager", 1, "fixture failure", "count-lines");
 
@@ -81,6 +94,7 @@ public sealed class LogsControllerRustFileOperationsTests
 
         Assert.Equal(12, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(13, fixture.State.GetLogTotalLines("alpha"));
+        Assert.True(File.Exists(fixture.ResumePath("alpha")));
     }
 
     [Fact]
@@ -89,6 +103,7 @@ public sealed class LogsControllerRustFileOperationsTests
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 21);
         fixture.State.SetLogTotalLines("alpha", 22);
+        fixture.WriteResume("alpha", "alpha-resume");
         fixture.RustHelper.CountHandler = (_, cancellationToken) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -105,6 +120,7 @@ public sealed class LogsControllerRustFileOperationsTests
 
         Assert.Equal(21, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(22, fixture.State.GetLogTotalLines("alpha"));
+        Assert.True(File.Exists(fixture.ResumePath("alpha")));
     }
 
     [Fact]
@@ -113,6 +129,8 @@ public sealed class LogsControllerRustFileOperationsTests
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("beta", 30);
         fixture.State.SetLogTotalLines("beta", 31);
+        fixture.WriteResume("alpha", "alpha-resume");
+        fixture.WriteResume("beta", "beta-resume");
         fixture.RustHelper.CountHandler = (path, _) =>
         {
             if (path == fixture.AlphaLogPath)
@@ -130,6 +148,162 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(4, fixture.State.GetLogTotalLines("alpha"));
         Assert.Equal(30, fixture.State.GetLogPosition("beta"));
         Assert.Equal(31, fixture.State.GetLogTotalLines("beta"));
+        Assert.False(File.Exists(fixture.ResumePath("alpha")));
+        Assert.True(File.Exists(fixture.ResumePath("beta")));
+    }
+
+    [Fact]
+    public async Task ResetToEnd_HoldsProcessingGateWhileCountRunsAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 7);
+        fixture.WriteResume("alpha", "alpha-resume");
+        var countStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCount = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.RustHelper.CountHandler = async (path, _) =>
+        {
+            countStarted.TrySetResult(true);
+            await releaseCount.Task;
+            return new LogLineCountResult(
+                7,
+                1,
+                new Dictionary<string, long> { ["access.log"] = 7 });
+        };
+
+        var reset = fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = 1 });
+        await countStarted.Task;
+
+        Assert.True(fixture.Processor.IsProcessing);
+        Assert.False(await fixture.Processor.StartProcessingAsync(
+            fixture.AlphaLogPath,
+            liveIngest: true,
+            datasourceName: "alpha"));
+        var conflict = await fixture.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+        Assert.NotNull(conflict);
+        Assert.Equal(nameof(OperationType.LogProcessing), conflict!.ActiveOperationType);
+
+        releaseCount.TrySetResult(true);
+        var result = await reset;
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
+        Assert.False(File.Exists(fixture.ResumePath("alpha")));
+        Assert.False(fixture.Processor.IsProcessing);
+        Assert.Empty(fixture.Tracker.GetActiveOperations());
+    }
+
+    [Fact]
+    public async Task ProcessingCleanupCannotClearResetReservationAsync()
+    {
+        using var fixture = new ControllerFixture();
+        var reservation = await fixture.Processor.TryReserveProcessingGateAsync();
+        Assert.NotNull(reservation);
+
+        SetRunFlag(fixture.Processor, false);
+
+        Assert.True(fixture.Processor.IsProcessing);
+        fixture.Processor.ReleaseProcessingGate(reservation.Value);
+        Assert.False(fixture.Processor.IsProcessing);
+    }
+
+    [Fact]
+    public void StaleReservationReleaseCannotClearRunningPass()
+    {
+        using var fixture = new ControllerFixture();
+        SetRunFlag(fixture.Processor, true);
+
+        fixture.Processor.ReleaseProcessingGate(Guid.NewGuid());
+
+        Assert.True(fixture.Processor.IsProcessing);
+        SetRunFlag(fixture.Processor, false);
+    }
+
+    [Fact]
+    public async Task ResetToEnd_ActiveLogProcessingConflictDoesNotCountAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.Tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Existing log processing",
+            new CancellationTokenSource());
+
+        var result = await fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = 1 });
+
+        Assert.IsType<ConflictObjectResult>(result);
+        Assert.Empty(fixture.RustHelper.CountRequests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResetToEnd_DownloadHistoryUpgradeReturnsTypedConflictAsync(bool resetAll)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 17);
+        fixture.State.SetLogPosition("beta", 19);
+        var blockerId = fixture.Tracker.RegisterOperation(
+            OperationType.DownloadHistoryUpgrade,
+            "Upgrading download history",
+            new CancellationTokenSource());
+
+        var result = resetAll
+            ? await fixture.Controller.ResetLogPositionAsync(request: null)
+            : await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", request: null);
+
+        var response = Assert.IsType<OperationConflictResponse>(
+            Assert.IsType<ConflictObjectResult>(result).Value);
+        Assert.Equal("OPERATION_CONFLICT", response.Code);
+        Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", response.StageKey);
+        Assert.Null(response.Error);
+        Assert.Equal(blockerId, response.ActiveOperationId);
+        Assert.Equal(nameof(OperationType.DownloadHistoryUpgrade), response.ActiveOperationType);
+        Assert.Equal("bulk", response.ActiveOperationScope);
+        Assert.NotNull(response.Context);
+        Assert.Equal(nameof(OperationType.DownloadHistoryUpgrade), response.Context["activeType"]);
+        Assert.Empty(fixture.RustHelper.CountRequests);
+        Assert.Equal(17, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(19, fixture.State.GetLogPosition("beta"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResetToEnd_CacheSizeScanPreservesLegacyConflictAsync(bool resetAll)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 17);
+        fixture.State.SetLogPosition("beta", 19);
+        var blockerId = fixture.Tracker.RegisterOperation(
+            OperationType.CacheSizeScan,
+            "Cache file scan",
+            new CancellationTokenSource());
+
+        var result = resetAll
+            ? await fixture.Controller.ResetLogPositionAsync(request: null)
+            : await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", request: null);
+
+        var response = Assert.IsType<OperationConflictResponse>(
+            Assert.IsType<ConflictObjectResult>(result).Value);
+        Assert.Equal("OPERATION_CONFLICT", response.Code);
+        Assert.Equal("errors.conflict.heavyOperationActive", response.StageKey);
+        Assert.Equal(
+            "Cannot start LogProcessing: a CacheSizeScan data operation is in progress.",
+            response.Error);
+        Assert.Equal(blockerId, response.ActiveOperationId);
+        Assert.Equal(nameof(OperationType.CacheSizeScan), response.ActiveOperationType);
+        Assert.Equal("bulk", response.ActiveOperationScope);
+        Assert.NotNull(response.Context);
+        Assert.Equal(nameof(OperationType.CacheSizeScan), response.Context["activeType"]);
+        Assert.Empty(fixture.RustHelper.CountRequests);
+        Assert.Equal(17, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(19, fixture.State.GetLogPosition("beta"));
     }
 
     [Fact]
@@ -203,6 +377,14 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Empty(fixture.RustHelper.DeleteRequests);
     }
 
+    private static void SetRunFlag(RustLogProcessorService processor, bool value)
+    {
+        typeof(RustLogProcessorService)
+            .GetProperty(nameof(RustLogProcessorService.IsProcessing))!
+            .GetSetMethod(nonPublic: true)!
+            .Invoke(processor, new object[] { value });
+    }
+
     private sealed class ControllerFixture : IDisposable
     {
         private readonly string _root;
@@ -235,6 +417,8 @@ public sealed class LogsControllerRustFileOperationsTests
 
             var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
             ((PathResolverProxy)(object)pathResolver).Root = _root;
+            OperationsPath = pathResolver.GetOperationsDirectory();
+            Directory.CreateDirectory(OperationsPath);
 
             Datasources = new DatasourceService(
                 configuration,
@@ -243,7 +427,13 @@ public sealed class LogsControllerRustFileOperationsTests
             State = CreateStateService(_root, configuration, pathResolver);
             RustHelper = new FakeRustProcessHelper(pathResolver);
 
-            var rustProcessor = new RustLogProcessorService(
+            Tracker = new UnifiedOperationTracker(
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<UnifiedOperationTracker>.Instance);
+            Checker = new OperationConflictChecker(
+                Tracker,
+                NullLogger<OperationConflictChecker>.Instance);
+            Processor = new RustLogProcessorService(
                 NullLogger<RustLogProcessorService>.Instance,
                 pathResolver,
                 notifications: null!,
@@ -251,7 +441,7 @@ public sealed class LogsControllerRustFileOperationsTests
                 serviceProvider: null!,
                 RustHelper,
                 Datasources,
-                operationTracker: null!);
+                Tracker);
             var nginxRotation = new NginxLogRotationService(
                 NullLogger<NginxLogRotationService>.Instance,
                 configuration,
@@ -259,7 +449,7 @@ public sealed class LogsControllerRustFileOperationsTests
                 pathResolver);
 
             Controller = new LogsController(
-                rustProcessor,
+                Processor,
                 rustLogRemovalService: null!,
                 NullLogger<LogsController>.Instance,
                 pathResolver,
@@ -267,19 +457,33 @@ public sealed class LogsControllerRustFileOperationsTests
                 Datasources,
                 State,
                 nginxRotation,
-                conflictChecker: null!,
+                Checker,
                 operationQueue: null!);
         }
 
         public string AlphaLogPath { get; }
         public string BetaLogPath { get; }
+        public string OperationsPath { get; }
         public DatasourceService Datasources { get; }
         public StateService State { get; }
         public FakeRustProcessHelper RustHelper { get; }
+        public RustLogProcessorService Processor { get; }
+        public UnifiedOperationTracker Tracker { get; }
+        public OperationConflictChecker Checker { get; }
         public LogsController Controller { get; }
+
+        public string ResumePath(string datasourceName) =>
+            Path.Combine(OperationsPath, $"rust_resume_{datasourceName}.json");
+
+        public void WriteResume(string datasourceName, string contents) =>
+            File.WriteAllText(ResumePath(datasourceName), contents);
 
         public void Dispose()
         {
+            foreach (var operation in Tracker.GetActiveOperations())
+            {
+                Tracker.CompleteOperation(operation.Id, success: false, error: "Disposed test fixture");
+            }
             Directory.Delete(_root, recursive: true);
         }
 

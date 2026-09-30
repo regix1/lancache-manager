@@ -336,4 +336,9 @@ else
         fi
         run_postgres_sql "CREATE DATABASE $PGDATABASE_IDENTIFIER OWNER $PGUSER_IDENTIFIER;"
     fi
+
+    # JIT compilation costs more than it saves on this workload's short queries. ALTER SYSTEM
+    # persists in postgresql.auto.conf, so existing clusters get it too; it is idempotent.
+    run_postgres_sql "ALTER SYSTEM SET jit = off;"
+    run_postgres_sql "SELECT pg_reload_conf();"
 fi

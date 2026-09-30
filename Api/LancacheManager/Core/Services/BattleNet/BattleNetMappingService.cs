@@ -35,6 +35,7 @@ public class BattleNetMappingService
     private readonly ILogger<BattleNetMappingService> _logger;
     private readonly Lazy<TactCatalog> _catalog;
     private readonly SemaphoreSlim _resolveGate = new(1, 1);
+    private UnmatchedResolveScan? _lastUnmatchedScan;
 
     public BattleNetMappingService(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -63,17 +64,44 @@ public class BattleNetMappingService
             await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
             const string blizzardServicePattern = "%blizzard%";
 
-            // Count the candidates before loading them: the log pass calls this after every run, and
-            // on a cache with no Blizzard traffic there is never anything to name, so the common case
-            // costs one count instead of a tracked load of every matching row.
-            var unresolvedCount = await db.Downloads
-                .CountAsync(d => EF.Functions.Like(d.Service, blizzardServicePattern)
-                                 && d.GameName == null
-                                 && d.LastUrl != null, ct);
+            // Summarize the candidates before loading them: the log pass calls this after every run,
+            // and on a cache with no Blizzard traffic there is never anything to name. An active
+            // download's end moves on every pass, so only inactive candidates contribute an end; the
+            // final URL of a session that ended is still examined once.
+            var candidates = await db.Downloads
+                .Where(d => EF.Functions.Like(d.Service, blizzardServicePattern)
+                            && d.GameName == null
+                            && d.LastUrl != null)
+                .GroupBy(d => 1)
+                .Select(g => new
+                {
+                    Count = g.Count(),
+                    InactiveCount = g.Sum(d => d.IsActive ? 0 : 1),
+                    MaxId = g.Max(d => d.Id),
+                    IdSum = g.Sum(d => d.Id),
+                    MaxInactiveEnd = g.Max(d => d.IsActive ? (DateTime?)null : d.EndTimeUtc)
+                })
+                .SingleOrDefaultAsync(ct);
+
+            var unresolvedCount = candidates?.Count ?? 0;
 
             if (unresolvedCount == 0)
             {
                 _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
+                return 0;
+            }
+
+            var scan = new UnmatchedResolveScan(
+                unresolvedCount,
+                candidates!.InactiveCount,
+                candidates.MaxId,
+                candidates.IdSum,
+                candidates.MaxInactiveEnd,
+                0,
+                null);
+            if (_lastUnmatchedScan == scan)
+            {
+                _logger.LogDebug("Blizzard resolver skipped an unchanged unmatched scan");
                 return 0;
             }
 
@@ -135,6 +163,7 @@ public class BattleNetMappingService
 
             if (matches.Count == 0)
             {
+                _lastUnmatchedScan = scan;
                 _logger.LogInformation("No unnamed Blizzard downloads matched the embedded TACT catalog");
                 return 0;
             }
@@ -185,6 +214,7 @@ public class BattleNetMappingService
                     "signalr.battleNetMapping.saving",
                     Context());
                 await db.SaveChangesAsync(reporter.Token);
+                _lastUnmatchedScan = null;
                 await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                 {
                     source = "blizzard-download-resolution",
@@ -193,6 +223,18 @@ public class BattleNetMappingService
                 await reporter.CompleteAsync(success: true, context: Context());
 
                 return resolvedCount;
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // The one-time download-history merge can delete a tracked row in the background.
+                // A later pass reloads the surviving candidates after a zero-row tracked update.
+                _lastUnmatchedScan = null;
+                resolvedCount = 0;
+                _logger.LogInformation(
+                    ex,
+                    "Blizzard resolve skipped: a download it loaded was merged or removed meanwhile; the next pass resolves again");
+                await reporter.CompleteAsync(success: true, context: Context());
+                return 0;
             }
             catch (OperationCanceledException)
             {

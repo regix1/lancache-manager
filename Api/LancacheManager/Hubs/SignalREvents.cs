@@ -24,6 +24,8 @@ public static class SignalREvents
 
     // Downloads
     public const string DownloadsRefresh = "DownloadsRefresh";
+    // Sent once when the one-time download-history merge finishes so every range refetches.
+    public const string DownloadHistoryMergeComplete = "DownloadHistoryMergeComplete";
     /// <summary>
     /// The answer to "would a cache scan be refused right now" has changed. Carries no payload on
     /// purpose: the receiver re-reads GET /api/speeds/scan-blocked, so nothing about a hidden

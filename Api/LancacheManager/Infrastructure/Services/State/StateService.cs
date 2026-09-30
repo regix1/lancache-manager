@@ -630,6 +630,80 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// Records what one finished ingest pass changed in a single state write, and skips the
+    /// write when nothing changed and the previous write reached disk.
+    /// </summary>
+    public void RecordLogIngestPass(
+        string datasourceName,
+        Dictionary<string, long>? positions,
+        long? totalLines,
+        LogIngestDiagnostics? diagnostics)
+    {
+        lock (_lock)
+        {
+            var current = GetState();
+            var positionsChanged = positions != null
+                && (!current.LogProcessing.DatasourceSourcePositions.TryGetValue(datasourceName, out var currentPositions)
+                    || currentPositions.Count != positions.Count
+                    || positions.Any(pair => !currentPositions.TryGetValue(pair.Key, out var offset)
+                        || offset != pair.Value));
+            var totalChanged = totalLines.HasValue
+                && (!current.LogProcessing.DatasourceTotalLines.TryGetValue(datasourceName, out var currentTotal)
+                    || currentTotal != totalLines.Value);
+            var processedChanged = !current.HasProcessedLogs;
+
+            if (!positionsChanged
+                && !totalChanged
+                && !processedChanged
+                && diagnostics == null
+                && _consecutiveFailures == 0)
+            {
+                return;
+            }
+
+            // UpdateState clones shallowly, so a failed save leaves memory ahead of disk.
+            // _consecutiveFailures remains non-zero until a later save writes the whole cached state.
+            UpdateState(state =>
+            {
+                if (positions != null)
+                {
+                    state.LogProcessing.DatasourceSourcePositions[datasourceName] =
+                        new Dictionary<string, long>(positions);
+                    state.LogProcessing.DatasourcePositions[datasourceName] = positions.Values.Sum();
+                    state.LogProcessing.LastUpdated = DateTime.UtcNow;
+                    if (datasourceName == "default")
+                    {
+                        state.LogProcessing.Position = positions.Values.Sum();
+                    }
+                }
+
+                if (totalLines.HasValue)
+                {
+                    state.LogProcessing.DatasourceTotalLines[datasourceName] = totalLines.Value;
+                    state.LogProcessing.LastUpdated = DateTime.UtcNow;
+                }
+
+                if (diagnostics != null)
+                {
+                    if (state.LogProcessing.DatasourceDiagnostics.TryGetValue(datasourceName, out var existing))
+                    {
+                        diagnostics.MissingSourcesMessage = existing.MissingSourcesMessage;
+                    }
+                    state.LogProcessing.DatasourceDiagnostics[datasourceName] = diagnostics;
+                    state.LogProcessing.LastUpdated = DateTime.UtcNow;
+                }
+
+                state.HasProcessedLogs = true;
+            });
+        }
+
+        lock (_signalLock)
+        {
+            _logsProcessedSignal.TrySetResult(true);
+        }
+    }
+
+    /// <summary>
     /// Sets or clears the live monitor's missing-sources warning for a datasource without
     /// touching the run counters.
     /// </summary>

@@ -215,26 +215,57 @@ public class RetroSortRuleTests
     }
 
     /// <summary>
-    /// One list, two time columns. The grouped Downloads views order on the newest member's start;
-    /// the retro view orders on the group's latest end. The three games here have opposite orders
-    /// under the two columns, so a request that reads the wrong one gets the page backwards.
+    /// An older end represents a session without a later completion value. In that case the grouped
+    /// Downloads views fall back to the newest member start.
     /// </summary>
     [Theory]
     [InlineData("latest")]
     [InlineData("service")]
     public async Task MergeAcrossServicesOrdersOnTheNewestMemberStart(string sort)
     {
-        var rows = ThreeGamesWhoseStartsAndEndsDisagree();
+        var rows = new List<Download>
+        {
+            NewDownload(1, "steam", "10.0.0.1", 5001, "Ares", At(13, 0), At(9, 30), 100, 0),
+            NewDownload(2, "steam", "10.0.0.1", 5002, "Boreas", At(9, 0), At(8, 0), 100, 0),
+            NewDownload(3, "steam", "10.0.0.1", 5003, "Cronos", At(11, 0), At(10, 0), 100, 0)
+        };
 
         var merged = await GetPageAsync(
             new RetroDownloadQuery { Sort = sort, GroupByGame = true, MergeAcrossServices = true },
             rows);
         Assert.Equal(["Ares", "Cronos", "Boreas"], NamesOf(merged));
+        Assert.All(merged.Items, item => Assert.True(item.EndTimeUtc < item.LastStartTimeUtc));
+    }
+
+    /// <summary>
+    /// Finished merged rows use the same later end-or-start activity that the browser displays.
+    /// The opposing start and end orders catch the former start-only behavior, while the unmerged
+    /// request keeps the retro view's end-only order.
+    /// </summary>
+    [Theory]
+    [InlineData("newest")]
+    [InlineData("latest")]
+    [InlineData("recent")]
+    [InlineData("service")]
+    public async Task MergeAcrossServicesOrdersOnTheLatestActivity(string sort)
+    {
+        var rows = ThreeGamesWhoseStartsAndEndsDisagree();
+
+        var merged = await GetPageAsync(
+            new RetroDownloadQuery { Sort = sort, GroupByGame = true, MergeAcrossServices = true },
+            rows);
+        Assert.Equal(["Boreas", "Cronos", "Ares"], NamesOf(merged));
+        Assert.Equal(
+            [At(20, 0), At(15, 0), At(13, 10)],
+            merged.Items.Select(item => item.EndTimeUtc > item.LastStartTimeUtc
+                ? item.EndTimeUtc
+                : item.LastStartTimeUtc));
 
         var retro = await GetPageAsync(
             new RetroDownloadQuery { Sort = sort, GroupByGame = true },
             rows);
-        Assert.Equal(["Boreas", "Cronos", "Ares"], NamesOf(retro));
+        Assert.Equal(["Boreas", "Ares", "Cronos"], NamesOf(retro));
+        Assert.Equal([At(20, 0), At(13, 10), At(10, 0)], retro.Items.Select(item => item.EndTimeUtc));
     }
 
     /// <summary>
@@ -292,7 +323,7 @@ public class RetroSortRuleTests
     [
         NewDownload(1, "steam", "10.0.0.1", 5001, "Ares", At(13, 0), At(13, 10), 100, 0),
         NewDownload(2, "steam", "10.0.0.1", 5002, "Boreas", At(9, 0), At(20, 0), 100, 0),
-        NewDownload(3, "steam", "10.0.0.1", 5003, "Cronos", At(11, 0), At(15, 0), 100, 0)
+        NewDownload(3, "steam", "10.0.0.1", 5003, "Cronos", At(15, 0), At(10, 0), 100, 0)
     ];
 
     /// <summary>

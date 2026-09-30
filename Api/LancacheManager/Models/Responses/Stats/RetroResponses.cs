@@ -32,8 +32,8 @@ public class RetroDownloadDto
     /// <summary>Latest download end time in the group (UTC)</summary>
     public DateTime EndTimeUtc { get; set; }
 
-    /// <summary>Latest download start time in the group (UTC). Distinct from EndTimeUtc: the
-    /// grouped Downloads views order and label their groups by the newest member's start.</summary>
+    /// <summary>Latest download start time in the group (UTC). The grouped Downloads views display
+    /// and chronologically order groups by the later of this value and EndTimeUtc.</summary>
     public DateTime LastStartTimeUtc { get; set; }
 
     /// <summary>Steam depot ID, null if non-Steam</summary>

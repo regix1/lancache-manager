@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Represents a discovered log file with metadata for sorting
@@ -7,7 +8,6 @@ use std::path::{Path, PathBuf};
 pub struct LogFile {
     pub path: PathBuf,
     pub rotation_number: Option<u32>,
-    #[allow(dead_code)]
     pub is_compressed: bool,
 }
 
@@ -155,6 +155,21 @@ pub fn discover_log_files<P: AsRef<Path>>(
             }
         }
     }
+
+    // During logrotate's compression window, one rotation exists as both a complete plain file
+    // and an archive that is still being written. Logrotate removes the plain file afterwards.
+    // Keeping the plain copy here gives every consumer one series and one line count.
+    let plain_rotations: HashSet<u32> = log_files
+        .iter()
+        .filter(|log_file| !log_file.is_compressed)
+        .filter_map(|log_file| log_file.rotation_number)
+        .collect();
+    log_files.retain(|log_file| {
+        !(log_file.is_compressed
+            && log_file
+                .rotation_number
+                .is_some_and(|number| plain_rotations.contains(&number)))
+    });
 
     // Sort from oldest to newest
     log_files.sort();

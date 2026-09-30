@@ -185,12 +185,43 @@ test('the membership answers come from the row, not from the one download it car
   );
 });
 
-// firstSeen is the group's earliest start and lastSeen its newest member's START. The row also
-// carries an end time, and using it here would label a group with an instant no session began at.
-test('the group is stamped with the newest member start, not the latest end', () => {
+// A grouped row spans complete sessions. Its last activity is the later of the newest start and
+// latest end; an unset end represented by an older value still falls back to the newest start.
+test('the group is stamped with the later end or start as its last activity', () => {
   const group = toDownloadGroup(row(), [download()]);
   assert.equal(group.firstSeen, '2026-08-08T09:00:00Z');
-  assert.equal(group.lastSeen, '2026-08-08T10:00:00Z');
+  assert.equal(group.lastSeen, '2026-08-08T10:05:00Z');
+
+  const unfinished = toDownloadGroup(row({ endTimeUtc: '2026-08-08T09:55:00Z' }), [download()]);
+  assert.equal(unfinished.lastSeen, '2026-08-08T10:00:00Z');
+});
+
+test('server activity order survives mapping when latest starts disagree', () => {
+  const laterEnd = row({
+    id: 'game-Later End',
+    appName: 'Later End',
+    startTimeUtc: '2026-08-08T08:00:00Z',
+    lastStartTimeUtc: '2026-08-08T09:00:00Z',
+    endTimeUtc: '2026-08-08T12:00:00Z'
+  });
+  const laterStart = row({
+    id: 'game-Later Start',
+    appName: 'Later Start',
+    startTimeUtc: '2026-08-08T10:00:00Z',
+    lastStartTimeUtc: '2026-08-08T11:00:00Z',
+    endTimeUtc: '2026-08-08T10:30:00Z'
+  });
+
+  const page = buildPage([laterEnd, laterStart]);
+
+  assert.deepEqual(
+    page.map((group) => group.id),
+    ['game-Later End', 'game-Later Start']
+  );
+  assert.deepEqual(
+    page.map((group) => group.lastSeen),
+    ['2026-08-08T12:00:00Z', '2026-08-08T11:00:00Z']
+  );
 });
 
 test('a collapsed group renders from the one download the server sent with it', () => {

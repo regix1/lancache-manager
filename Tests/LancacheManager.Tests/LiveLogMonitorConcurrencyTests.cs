@@ -39,6 +39,37 @@ public class LiveLogMonitorConcurrencyTests
                 + $"nginx's {NginxAccessLogFlushSeconds}s access-log flush");
     }
 
+    [Fact]
+    public void TheLastProcessTimeIsStampedWhenThePassEnds()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            EndpointAuthorizationHost.FindRepositoryRoot(),
+            "Api",
+            "LancacheManager",
+            "Core",
+            "Services",
+            "Logs",
+            "LiveLogMonitorService.cs"));
+        const string assignment = "_lastProcessTime[datasource.Name] = DateTime.UtcNow;";
+
+        Assert.Equal(1, source.Split("_lastProcessTime[datasource.Name] =", StringSplitOptions.None).Length - 1);
+        Assert.Contains("internal const int MaxSecondsBeforeTrickleFlush = 7;", source, StringComparison.Ordinal);
+        Assert.Contains("private readonly int _minSecondsBetweenProcessing = 1;", source, StringComparison.Ordinal);
+
+        var start = source.IndexOf("StartProcessingAsync(", StringComparison.Ordinal);
+        var finallyBlock = source.IndexOf("finally", start, StringComparison.Ordinal);
+        var blockStart = source.IndexOf('{', finallyBlock);
+        var stamp = source.IndexOf(assignment, StringComparison.Ordinal);
+        var processingEnd = source.IndexOf("_isProcessing = false;", stamp, StringComparison.Ordinal);
+        var blockEnd = source.IndexOf('}', processingEnd);
+
+        Assert.True(start >= 0);
+        Assert.True(finallyBlock > start);
+        Assert.True(blockStart < stamp);
+        Assert.True(stamp < processingEnd);
+        Assert.True(processingEnd < blockEnd);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(LiveLogMonitorService.MaxConcurrentCorruptionIngestionBytes)]
@@ -98,6 +129,7 @@ public class LiveLogMonitorConcurrencyTests
 
     private static OperationConflictResponse ConflictFor(OperationType activeType) => new()
     {
-        ActiveOperationType = activeType.ToString()
+        ActiveOperationType = activeType.ToString(),
+        StageKey = "errors.conflict.heavyOperationActive"
     };
 }

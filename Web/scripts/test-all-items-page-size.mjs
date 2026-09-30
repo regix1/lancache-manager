@@ -169,6 +169,10 @@ const runFetchEffect = ({ pageSize, mockMode = false, endpoint, options = {} }) 
         pageSize: 0
       },
       hasInitialDataRef: { current: false },
+      requestInFlightRef: { current: false },
+      reloadPendingRef: { current: false },
+      followUpQueuedRef: { current: false },
+      setRefreshVersion: () => undefined,
       setData: (value) => calls.setData.push(value),
       setError: (value) => calls.setError.push(value),
       setIsFetching: (value) => calls.setIsFetching.push(value),

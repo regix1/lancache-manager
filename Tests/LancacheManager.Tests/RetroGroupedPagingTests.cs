@@ -83,9 +83,8 @@ public class RetroGroupedPagingTests
     }
 
     /// <summary>
-    /// The group's own start times: the earliest member start names the group, the latest member
-    /// start is what the recent sort orders on. The retro view orders on the latest END time, so
-    /// these are two different columns over the same members.
+    /// The group's own start times stay on the wire: the earliest member start names the group,
+    /// and the latest member start supports the displayed activity fallback when no later end exists.
     /// </summary>
     [Fact]
     public async Task AGroupCarriesBothItsEarliestAndItsLatestMemberStart()
@@ -164,21 +163,99 @@ public class RetroGroupedPagingTests
     }
 
     /// <summary>
-    /// The recent sort orders on the latest member start, newest first, which is the order the
-    /// views show by default.
+    /// When every stored end predates its member start, the default sort falls back to the latest
+    /// member start, newest first.
     /// </summary>
     [Fact]
     public async Task TheDefaultSortOrdersOnTheLatestMemberStart()
     {
+        var rows = Seed();
+        foreach (var row in rows)
+        {
+            row.EndTimeUtc = row.Service == "wsus"
+                ? row.StartTimeUtc.AddHours(-3)
+                : row.StartTimeUtc.AddMinutes(-5);
+        }
+
         var response = await GetGroupedPageAsync(new RetroDownloadQuery
         {
             GroupByGame = true,
             MergeAcrossServices = true
-        });
+        }, rows);
 
         Assert.Equal(
             ["service-wsus", "service-steam", "game-Rocket League", "game-appid-620"],
             response.Items.Select(i => i.Id));
+        Assert.All(response.Items, item => Assert.True(item.EndTimeUtc < item.LastStartTimeUtc));
+    }
+
+    /// <summary>
+    /// The actual PostgreSQL endpoint sorts before it slices the merged rows. One row per page
+    /// proves that newest and service ordering use displayed activity without dropping or repeating
+    /// a group at page boundaries.
+    /// </summary>
+    [Fact]
+    public async Task MergedActivitySortPagesEveryFinishedGroupOnce()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var day = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+        var ares = NewDownload(1, "steam", "10.0.0.1", 5001, null, "Ares", day.AddHours(13), 100, 0);
+        ares.EndTimeUtc = day.AddHours(13).AddMinutes(10);
+        var boreas = NewDownload(2, "steam", "10.0.0.2", 5002, null, "Boreas", day.AddHours(9), 100, 0);
+        boreas.EndTimeUtc = day.AddHours(20);
+        var cronos = NewDownload(3, "steam", "10.0.0.3", 5003, null, "Cronos", day.AddHours(15), 100, 0);
+        cronos.EndTimeUtc = day.AddHours(10);
+
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.Downloads.AddRange(ares, boreas, cronos);
+            await seed.SaveChangesAsync();
+        }
+
+        await using var context = database.Factory.CreateDbContext();
+        var controller = NewController(context);
+
+        foreach (var sort in new string?[] { null, "newest", "latest", "recent", "service" })
+        {
+            var names = new List<string>();
+            var activity = new List<DateTime>();
+            for (var pageNumber = 1; pageNumber <= 3; pageNumber++)
+            {
+                var query = new RetroDownloadQuery
+                {
+                    GroupByGame = true,
+                    MergeAcrossServices = true,
+                    Page = pageNumber,
+                    PageSize = 1
+                };
+                if (sort is not null)
+                {
+                    query.Sort = sort;
+                }
+
+                var result = await controller.GetRetroDownloadsAsync(query);
+                var page = Assert.IsType<RetroDownloadResponse>(
+                    Assert.IsType<OkObjectResult>(result.Result).Value);
+                var item = Assert.Single(page.Items);
+
+                Assert.Equal(3, page.TotalItems);
+                Assert.Equal(3, page.TotalDownloads);
+                Assert.Equal(3, page.TotalPages);
+                Assert.Equal(pageNumber, page.CurrentPage);
+                Assert.Equal(1, page.PageSize);
+
+                names.Add(item.AppName);
+                activity.Add(item.EndTimeUtc > item.LastStartTimeUtc
+                    ? item.EndTimeUtc
+                    : item.LastStartTimeUtc);
+            }
+
+            Assert.Equal(["Boreas", "Cronos", "Ares"], names);
+            Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(
+                [day.AddHours(20), day.AddHours(15), day.AddHours(13).AddMinutes(10)],
+                activity);
+        }
     }
 
     /// <summary>

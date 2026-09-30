@@ -95,6 +95,7 @@ const { createComponent } = await import(reactStubUrl);
 const { isIntegrationReason } = await import(await compileToUrl('../src/types.ts'));
 const { ApiError } = await import(
   await compileToUrl('../src/services/apiError.ts', {
+    '@/i18n': toUrl('export default { t: (key) => key };'),
     '@utils/constants': toUrl('export const APP_EVENTS = {};')
   })
 );

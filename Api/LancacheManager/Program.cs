@@ -804,6 +804,10 @@ builder.Services.AddSingleton<LancacheManager.Core.Services.BattleNet.BattleNetM
 // unnamed Blizzard downloads immediately instead of waiting for the next ingest batch.
 builder.Services.AddDatabaseBackedHostedService<LancacheManager.Infrastructure.Services.BattleNetMappingStartupResolveService>(databaseAvailable);
 
+// One-time download-history upgrade. Hosted services start at app.Run after migrations, and this
+// job also waits for the startup cleanup before it reads or merges download rows.
+builder.Services.AddDatabaseBackedHostedService<LancacheManager.Infrastructure.Services.DownloadHistoryUpgradeService>(databaseAvailable);
+
 // Register XboxApiDirectClient for direct HTTP calls to the public Microsoft Store DisplayCatalog
 // (no auth, no Docker) - used to fetch Xbox game banner art by ProductId at mapping time.
 builder.Services.AddHttpClient<LancacheManager.Core.Services.Xbox.XboxApiDirectClient>();

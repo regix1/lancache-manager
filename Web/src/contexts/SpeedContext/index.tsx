@@ -13,6 +13,7 @@ import { SpeedContext } from './SpeedContext.types';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { APP_EVENTS } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
+import { DISCONNECTED_POLL_MS } from './constants';
 
 // Expiry for an accepted ACTIVE snapshot: the remaining server-side rolling window plus a
 // grace period, capped near the tracker's maximum adaptive window (15s) plus grace. If no
@@ -20,9 +21,6 @@ import { getErrorMessage } from '@utils/error';
 // forever (SignalR gap, tracker death, dropped trailing-zero broadcast).
 const EXPIRY_GRACE_MS = 2000;
 const EXPIRY_CAP_MS = 17000;
-// REST fallback cadence while the SignalR socket is not connected.
-const DISCONNECTED_POLL_MS = 5000;
-
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();

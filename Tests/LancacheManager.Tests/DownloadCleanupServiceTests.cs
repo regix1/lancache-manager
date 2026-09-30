@@ -1,7 +1,15 @@
+using System.Data.Common;
+using System.Reflection;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
@@ -75,6 +83,784 @@ public class DownloadCleanupServiceTests
 
         Assert.Contains("origin", orphans);
         Assert.DoesNotContain("steam", orphans);
+    }
+
+    [Fact]
+    public async Task PeriodicCleanupWaitsForIngestAndReadsCommittedContinuationAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        now = now.AddTicks(-(now.Ticks % 10));
+        List<long> ids;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var first = NewCleanupDownload("10.0.0.31", now.AddMinutes(-2), now.AddMinutes(-2));
+            var second = NewCleanupDownload("10.0.0.32", now.AddMinutes(-2), now.AddMinutes(-2));
+            seed.Downloads.AddRange(first, second);
+            await seed.SaveChangesAsync();
+            ids = [first.Id, second.Id];
+        }
+
+        var recorder = new RecordingCommandInterceptor();
+        var options = RetryOptions(database, recorder);
+        await using var cleanupContext = new AppDbContext(options);
+        await cleanupContext.Database.OpenConnectionAsync();
+        var cleanupPid = ((NpgsqlConnection)cleanupContext.Database.GetDbConnection()).ProcessID;
+
+        await using var ingest = new NpgsqlConnection(ConnectionString(database));
+        await ingest.OpenAsync();
+        await using var ingestTransaction = await ingest.BeginTransactionAsync();
+        await LockDownloadsAsync(ingest, ingestTransaction, CancellationToken.None);
+
+        var cleanupTask = RunPeriodicAsync(cleanupContext, CancellationToken.None);
+        var committed = false;
+        try
+        {
+            await WaitForDownloadLockAsync(ConnectionString(database), cleanupPid);
+            Assert.DoesNotContain(recorder.Commands, command => IsCleanupSelect(command));
+
+            await WriteContinuationAsync(
+                ingest,
+                ingestTransaction,
+                ids,
+                now,
+                CancellationToken.None);
+            await ingestTransaction.CommitAsync();
+            committed = true;
+        }
+        finally
+        {
+            if (!committed)
+            {
+                await ingestTransaction.RollbackAsync();
+            }
+
+            await cleanupTask;
+        }
+
+        await AssertContinuationAsync(database, ids, now);
+    }
+
+    [Fact]
+    public async Task PeriodicCleanupMakesIngestWaitAtTheTableBoundaryAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        now = now.AddTicks(-(now.Ticks % 10));
+        List<long> ids;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var first = NewCleanupDownload("10.0.0.33", now.AddMinutes(-2), now.AddMinutes(-2));
+            var second = NewCleanupDownload("10.0.0.34", now.AddMinutes(-2), now.AddMinutes(-2));
+            seed.Downloads.AddRange(first, second);
+            await seed.SaveChangesAsync();
+            ids = [first.Id, second.Id];
+        }
+
+        var selected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = 0;
+        var gate = new CleanupCommandGate
+        {
+            ReaderFinished = async (command, cancellationToken) =>
+            {
+                if (IsCleanupSelect(command) && Interlocked.Exchange(ref held, 1) == 0)
+                {
+                    selected.TrySetResult();
+                    await release.Task.WaitAsync(cancellationToken);
+                }
+            }
+        };
+        var options = RetryOptions(database, gate);
+        await using var cleanupContext = new AppDbContext(options);
+        var cleanupTask = RunPeriodicAsync(cleanupContext, CancellationToken.None);
+
+        await using var ingest = new NpgsqlConnection(ConnectionString(database));
+        await ingest.OpenAsync();
+        await using var ingestTransaction = await ingest.BeginTransactionAsync();
+        Task ingestTask = Task.CompletedTask;
+        try
+        {
+            await selected.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            ingestTask = ContinueDownloadsAsync(
+                ingest,
+                ingestTransaction,
+                ids,
+                now,
+                CancellationToken.None);
+            await WaitForDownloadLockAsync(ConnectionString(database), ingest.ProcessID);
+            Assert.False(ingestTask.IsCompleted);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await cleanupTask;
+            await ingestTask;
+        }
+
+        await AssertContinuationAsync(database, ids, now);
+    }
+
+    [Fact]
+    public async Task ProtectedSelectionPreventsAContinuationCommitUntilCleanupCommitsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        now = now.AddTicks(-(now.Ticks % 10));
+        long id;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var row = NewCleanupDownload("10.0.0.35", now.AddMinutes(-2), now.AddMinutes(-2));
+            seed.Downloads.Add(row);
+            await seed.SaveChangesAsync();
+            id = row.Id;
+        }
+
+        var selected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = 0;
+        var gate = new CleanupCommandGate
+        {
+            ReaderFinished = async (command, cancellationToken) =>
+            {
+                if (IsCleanupSelect(command) && Interlocked.Exchange(ref held, 1) == 0)
+                {
+                    selected.TrySetResult();
+                    await release.Task.WaitAsync(cancellationToken);
+                }
+            }
+        };
+        var options = RetryOptions(database, gate);
+        await using var cleanupContext = new AppDbContext(options);
+        var cleanupTask = RunPeriodicAsync(cleanupContext, CancellationToken.None);
+
+        await using var ingest = new NpgsqlConnection(ConnectionString(database));
+        await ingest.OpenAsync();
+        await using var ingestTransaction = await ingest.BeginTransactionAsync();
+        Task ingestTask = Task.CompletedTask;
+        try
+        {
+            await selected.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            ingestTask = ContinueDownloadsAsync(
+                ingest,
+                ingestTransaction,
+                [id],
+                now,
+                CancellationToken.None);
+            await WaitForDownloadLockAsync(ConnectionString(database), ingest.ProcessID);
+            Assert.False(ingestTask.IsCompleted);
+
+            await using var observer = database.Factory.CreateDbContext();
+            var beforeCommit = await observer.Downloads.SingleAsync(row => row.Id == id);
+            Assert.Equal("/stale", beforeCommit.LastUrl);
+            Assert.True(beforeCommit.IsActive);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await cleanupTask;
+            await ingestTask;
+        }
+
+        await AssertContinuationAsync(database, [id], now);
+    }
+
+    [Fact]
+    public async Task RetryLocksAgainAndSelectsFreshRowsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        now = now.AddTicks(-(now.Ticks % 10));
+        List<long> ids;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var first = NewCleanupDownload("10.0.0.36", now.AddMinutes(-2), now.AddMinutes(-2));
+            var second = NewCleanupDownload("10.0.0.37", now.AddMinutes(-2), now.AddMinutes(-2));
+            seed.Downloads.AddRange(first, second);
+            await seed.SaveChangesAsync();
+            ids = [first.Id, second.Id];
+        }
+
+        var secondLock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lockAttempts = 0;
+        var updateAttempts = 0;
+        var events = new List<string>();
+        var gate = new CleanupCommandGate
+        {
+            NonQueryStarting = async (command, cancellationToken) =>
+            {
+                if (IsDownloadsLock(command))
+                {
+                    lock (events)
+                    {
+                        events.Add("lock");
+                    }
+
+                    if (Interlocked.Increment(ref lockAttempts) == 2)
+                    {
+                        secondLock.TrySetResult();
+                        await release.Task.WaitAsync(cancellationToken);
+                    }
+                }
+                else if (IsCleanupUpdate(command))
+                {
+                    lock (events)
+                    {
+                        events.Add("update");
+                    }
+
+                    if (Interlocked.Increment(ref updateAttempts) == 1)
+                    {
+                        throw new PostgresException(
+                            "Injected transient cleanup failure",
+                            "ERROR",
+                            "ERROR",
+                            PostgresErrorCodes.SerializationFailure);
+                    }
+                }
+            },
+            ReaderFinished = (command, _) =>
+            {
+                if (IsCleanupSelect(command))
+                {
+                    lock (events)
+                    {
+                        events.Add("select");
+                    }
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+        var options = RetryOptions(database, gate);
+        await using var cleanupContext = new AppDbContext(options);
+        var cleanupTask = RunPeriodicAsync(cleanupContext, CancellationToken.None);
+
+        try
+        {
+            await secondLock.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await using var ingest = new NpgsqlConnection(ConnectionString(database));
+            await ingest.OpenAsync();
+            await using var ingestTransaction = await ingest.BeginTransactionAsync();
+            await ContinueDownloadsAsync(
+                ingest,
+                ingestTransaction,
+                ids,
+                now,
+                CancellationToken.None);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await cleanupTask;
+        }
+
+        Assert.Equal(2, lockAttempts);
+        Assert.Equal(1, updateAttempts);
+        Assert.Equal(["lock", "select", "update", "lock", "select"], events);
+        await AssertContinuationAsync(database, ids, now);
+    }
+
+    [Fact]
+    public async Task PeriodicCleanupUsesTenRowBatchesWithoutTrackingSelectedDownloadsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        var eligibleIds = new List<long>();
+        long unrelatedId;
+        long inactiveId;
+        long recentDefaultId;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var eligibleRows = new List<Download>();
+            for (var index = 0; index < 22; index++)
+            {
+                var row = NewCleanupDownload(
+                    $"10.0.1.{index + 1}",
+                    now.AddMinutes(-3).AddSeconds(index),
+                    now.AddMinutes(-2).AddSeconds(index));
+                row.CacheHitBytes = 100 + index;
+                row.CacheMissBytes = 200 + index;
+                row.LastUrl = $"/stale/{index}";
+                seed.Downloads.Add(row);
+                eligibleRows.Add(row);
+            }
+
+            var neverUpdated = NewCleanupDownload(
+                "10.0.1.30",
+                now.AddMinutes(-3),
+                default);
+            neverUpdated.LastUrl = "/never-updated";
+            seed.Downloads.Add(neverUpdated);
+
+            var unrelated = NewCleanupDownload(
+                "10.0.1.31",
+                now.AddSeconds(-10),
+                now.AddSeconds(-10));
+            unrelated.LastUrl = "/recent";
+            seed.Downloads.Add(unrelated);
+
+            var inactive = NewCleanupDownload(
+                "10.0.1.32",
+                now.AddMinutes(-3),
+                now.AddMinutes(-2));
+            inactive.IsActive = false;
+            inactive.LastUrl = "/inactive";
+            seed.Downloads.Add(inactive);
+
+            var recentDefault = NewCleanupDownload(
+                "10.0.1.33",
+                now.AddSeconds(-30),
+                default);
+            recentDefault.LastUrl = "/recent-default";
+            seed.Downloads.Add(recentDefault);
+
+            await seed.SaveChangesAsync();
+            eligibleIds.AddRange(eligibleRows.Select(row => row.Id));
+            eligibleIds.Add(neverUpdated.Id);
+            unrelatedId = unrelated.Id;
+            inactiveId = inactive.Id;
+            recentDefaultId = recentDefault.Id;
+        }
+
+        var batchSizes = new List<int>();
+        var gate = new CleanupCommandGate
+        {
+            NonQueryStarting = (command, _) =>
+            {
+                if (IsCleanupUpdate(command))
+                {
+                    batchSizes.Add(CleanupIdCount(command));
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+        var options = RetryOptions(database, gate);
+        await using var cleanupContext = new AppDbContext(options);
+        var unrelatedTracked = await cleanupContext.Downloads.SingleAsync(row => row.Id == unrelatedId);
+        unrelatedTracked.LastUrl = "/unsaved";
+
+        await RunPeriodicAsync(cleanupContext, CancellationToken.None);
+
+        Assert.Equal([10, 10, 3], batchSizes);
+        var tracked = Assert.Single(cleanupContext.ChangeTracker.Entries<Download>());
+        Assert.Equal(unrelatedId, tracked.Entity.Id);
+        Assert.Equal(EntityState.Modified, tracked.State);
+
+        await using var check = database.Factory.CreateDbContext();
+        var eligible = await check.Downloads
+            .Where(row => eligibleIds.Contains(row.Id))
+            .OrderBy(row => row.Id)
+            .ToListAsync();
+        Assert.Equal(23, eligible.Count);
+        Assert.All(eligible, row => Assert.False(row.IsActive));
+        for (var index = 0; index < 22; index++)
+        {
+            var row = eligible.Single(item => item.Id == eligibleIds[index]);
+            Assert.Equal(100L + index, row.CacheHitBytes);
+            Assert.Equal(200L + index, row.CacheMissBytes);
+            Assert.Equal($"/stale/{index}", row.LastUrl);
+        }
+        Assert.Equal("/never-updated", eligible.Single(row => row.Id == eligibleIds[^1]).LastUrl);
+        Assert.Equal("/recent", (await check.Downloads.SingleAsync(row => row.Id == unrelatedId)).LastUrl);
+        Assert.True((await check.Downloads.SingleAsync(row => row.Id == unrelatedId)).IsActive);
+        Assert.False((await check.Downloads.SingleAsync(row => row.Id == inactiveId)).IsActive);
+        Assert.True((await check.Downloads.SingleAsync(row => row.Id == recentDefaultId)).IsActive);
+    }
+
+    [Fact]
+    public async Task CleanupBatchKeepsRowsAtBothCutoffBoundariesActiveAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var cutoff = new DateTime(2026, 9, 30, 12, 0, 0, DateTimeKind.Utc);
+        var staleCutoff = cutoff.AddSeconds(-45);
+        long exactEndId;
+        long exactStartId;
+        long oldEndId;
+        long oldStartId;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var exactEnd = NewCleanupDownload(
+                "10.0.2.1",
+                cutoff.AddMinutes(-2),
+                cutoff);
+            var exactStart = NewCleanupDownload(
+                "10.0.2.2",
+                staleCutoff,
+                default);
+            var oldEnd = NewCleanupDownload(
+                "10.0.2.3",
+                cutoff.AddMinutes(-2),
+                cutoff.AddTicks(-1));
+            var oldStart = NewCleanupDownload(
+                "10.0.2.4",
+                staleCutoff.AddTicks(-1),
+                default);
+            seed.Downloads.AddRange(exactEnd, exactStart, oldEnd, oldStart);
+            await seed.SaveChangesAsync();
+            exactEndId = exactEnd.Id;
+            exactStartId = exactStart.Id;
+            oldEndId = oldEnd.Id;
+            oldStartId = oldStart.Id;
+        }
+
+        await using (var run = new AppDbContext(RetryOptions(database)))
+        {
+            Assert.Equal(2, await DownloadCleanupService.CleanupBatchAsync(
+                run,
+                cutoff,
+                staleCutoff,
+                10,
+                CancellationToken.None));
+        }
+
+        await using var check = database.Factory.CreateDbContext();
+        Assert.True((await check.Downloads.SingleAsync(row => row.Id == exactEndId)).IsActive);
+        Assert.True((await check.Downloads.SingleAsync(row => row.Id == exactStartId)).IsActive);
+        Assert.False((await check.Downloads.SingleAsync(row => row.Id == oldEndId)).IsActive);
+        Assert.False((await check.Downloads.SingleAsync(row => row.Id == oldStartId)).IsActive);
+    }
+
+    [Fact]
+    public async Task CancellingWhileWaitingForTheTableLockReleasesTheTransactionAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.Downloads.Add(NewCleanupDownload(
+                "10.0.3.1",
+                now.AddMinutes(-2),
+                now.AddMinutes(-2)));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var blocker = new NpgsqlConnection(ConnectionString(database));
+        await blocker.OpenAsync();
+        await using var blockerTransaction = await blocker.BeginTransactionAsync();
+        await LockDownloadsAsync(blocker, blockerTransaction, CancellationToken.None);
+
+        await using var cleanupContext = new AppDbContext(RetryOptions(database));
+        await cleanupContext.Database.OpenConnectionAsync();
+        var cleanupPid = ((NpgsqlConnection)cleanupContext.Database.GetDbConnection()).ProcessID;
+        using var stopping = new CancellationTokenSource();
+        var cleanupTask = DownloadCleanupService.CleanupBatchAsync(
+            cleanupContext,
+            now.AddSeconds(-15),
+            now.AddSeconds(-60),
+            10,
+            stopping.Token);
+
+        try
+        {
+            await WaitForDownloadLockAsync(ConnectionString(database), cleanupPid);
+            stopping.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cleanupTask);
+        }
+        finally
+        {
+            stopping.Cancel();
+            await blockerTransaction.RollbackAsync();
+            try
+            {
+                await cleanupTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        await AssertDownloadLockAvailableAsync(ConnectionString(database));
+    }
+
+    [Fact]
+    public async Task CancellingAfterSelectionKeepsCommittedBatchesAndReleasesTheTransactionAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.Downloads.AddRange(Enumerable.Range(1, 11)
+                .Select(index => NewCleanupDownload(
+                    $"10.0.4.{index}",
+                    now.AddMinutes(-2),
+                    now.AddMinutes(-2))));
+            await seed.SaveChangesAsync();
+        }
+
+        var selected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var selections = 0;
+        var gate = new CleanupCommandGate
+        {
+            ReaderFinished = async (command, cancellationToken) =>
+            {
+                if (IsCleanupSelect(command) && Interlocked.Increment(ref selections) == 2)
+                {
+                    selected.TrySetResult();
+                    await release.Task.WaitAsync(cancellationToken);
+                }
+            }
+        };
+        var options = RetryOptions(database, gate);
+        await using var cleanupContext = new AppDbContext(options);
+        using var stopping = new CancellationTokenSource();
+        var cleanupTask = RunPeriodicAsync(cleanupContext, stopping.Token);
+
+        try
+        {
+            await selected.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            stopping.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cleanupTask);
+        }
+        finally
+        {
+            stopping.Cancel();
+            release.TrySetResult();
+            try
+            {
+                await cleanupTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        await using (var check = database.Factory.CreateDbContext())
+        {
+            Assert.Equal(10, await check.Downloads.CountAsync(row => !row.IsActive));
+            Assert.Equal(1, await check.Downloads.CountAsync(row => row.IsActive));
+        }
+
+        await AssertDownloadLockAvailableAsync(ConnectionString(database));
+    }
+
+    [Fact]
+    public async Task StartupCleanupUsesBoundedBatchesWhileStartAndReadersStayAvailableAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        var eligibleIds = new List<long>();
+        long recentId;
+        long neverUpdatedId;
+        long app0Id;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            var eligibleRows = new List<Download>();
+            for (var index = 0; index < 21; index++)
+            {
+                var row = NewCleanupDownload(
+                    $"10.0.5.{index + 1}",
+                    now.AddMinutes(-2),
+                    now.AddMinutes(-2));
+                seed.Downloads.Add(row);
+                eligibleRows.Add(row);
+            }
+
+            var recent = NewCleanupDownload(
+                "10.0.5.30",
+                now.AddSeconds(-10),
+                now.AddSeconds(-10));
+            var neverUpdated = NewCleanupDownload(
+                "10.0.5.31",
+                now.AddSeconds(-30),
+                default);
+            var app0 = NewCleanupDownload(
+                "10.0.5.32",
+                now.AddSeconds(-10),
+                now.AddSeconds(-10));
+            app0.GameAppId = 0;
+            seed.Downloads.AddRange(recent, neverUpdated, app0);
+            await seed.SaveChangesAsync();
+            eligibleIds.AddRange(eligibleRows.Select(row => row.Id));
+            recentId = recent.Id;
+            neverUpdatedId = neverUpdated.Id;
+            app0Id = app0.Id;
+        }
+
+        var selected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = 0;
+        var batchSizes = new List<int>();
+        var gate = new CleanupCommandGate
+        {
+            NonQueryStarting = (command, _) =>
+            {
+                if (IsCleanupUpdate(command)
+                    && command.Parameters.Cast<DbParameter>()
+                        .Any(parameter => parameter.Value is IEnumerable<long>))
+                {
+                    batchSizes.Add(CleanupIdCount(command));
+                }
+
+                return Task.CompletedTask;
+            },
+            ReaderFinished = async (command, cancellationToken) =>
+            {
+                if (IsCleanupSelect(command) && Interlocked.Exchange(ref held, 1) == 0)
+                {
+                    selected.TrySetResult();
+                    await release.Task.WaitAsync(cancellationToken);
+                }
+            }
+        };
+        var options = RetryOptions(database, gate);
+        var startup = CreateStartupService(options);
+        await using var services = startup.Services;
+        using var service = startup.Service;
+        var started = false;
+        try
+        {
+            var startTask = service.StartAsync(CancellationToken.None);
+            await startTask;
+            started = true;
+            await selected.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.True(startTask.IsCompletedSuccessfully);
+            Assert.False(service.StartupCleanupFinished.IsCompleted);
+            await using var reader = database.Factory.CreateDbContext();
+            Assert.Equal(24, await reader.Downloads.CountAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+            release.TrySetResult();
+            await service.StartupCleanupFinished.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            release.TrySetResult();
+            if (started)
+            {
+                await service.StopAsync(CancellationToken.None);
+            }
+            Directory.Delete(startup.Root, recursive: true);
+        }
+
+        Assert.Equal([10, 10, 1], batchSizes);
+        await using (var check = database.Factory.CreateDbContext())
+        {
+            Assert.Equal(21, await check.Downloads.CountAsync(
+                row => eligibleIds.Contains(row.Id) && !row.IsActive));
+            Assert.True((await check.Downloads.SingleAsync(row => row.Id == recentId)).IsActive);
+            Assert.True((await check.Downloads.SingleAsync(row => row.Id == neverUpdatedId)).IsActive);
+            Assert.False((await check.Downloads.SingleAsync(row => row.Id == app0Id)).IsActive);
+        }
+
+        var messages = startup.Logger.Entries.Select(entry => entry.Message).ToList();
+        var checking = messages.IndexOf("Checking for stale active downloads...");
+        var found = messages.IndexOf("Found 21 stale active downloads");
+        var marked = messages.IndexOf("Marked 21 stale downloads as complete");
+        var completed = messages.IndexOf("Initial database cleanup complete");
+        Assert.True(checking >= 0);
+        Assert.True(checking < found);
+        Assert.True(found < marked);
+        Assert.True(marked < completed);
+    }
+
+    [Fact]
+    public async Task StartupFailureReleasesTheCompletionSignalAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var gate = new CleanupCommandGate
+        {
+            NonQueryStarting = (command, _) =>
+            {
+                if (IsDownloadsLock(command))
+                {
+                    throw new InvalidOperationException("Injected startup cleanup failure");
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+        var startup = CreateStartupService(RetryOptions(database, gate));
+        await using var services = startup.Services;
+        using var service = startup.Service;
+        var started = false;
+        try
+        {
+            await service.StartAsync(CancellationToken.None);
+            started = true;
+            await service.StartupCleanupFinished.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            if (started)
+            {
+                await service.StopAsync(CancellationToken.None);
+            }
+            Directory.Delete(startup.Root, recursive: true);
+        }
+
+        var failure = Assert.Single(startup.Logger.Entries, entry =>
+            entry.Level == LogLevel.Error
+            && entry.Message == "Error during initial cleanup");
+        Assert.IsType<InvalidOperationException>(failure.Exception);
+    }
+
+    [Fact]
+    public async Task StoppingStartupWhileItWaitsForTheTableLockReleasesTheCompletionSignalAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.Downloads.Add(NewCleanupDownload(
+                "10.0.6.1",
+                now.AddMinutes(-2),
+                now.AddMinutes(-2)));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var blocker = new NpgsqlConnection(ConnectionString(database));
+        await blocker.OpenAsync();
+        await using var blockerTransaction = await blocker.BeginTransactionAsync();
+        await LockDownloadsAsync(blocker, blockerTransaction, CancellationToken.None);
+
+        var lockRequested = new TaskCompletionSource<int>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new CleanupCommandGate
+        {
+            NonQueryStarting = (command, _) =>
+            {
+                if (IsDownloadsLock(command)
+                    && command.Connection is NpgsqlConnection connection)
+                {
+                    lockRequested.TrySetResult(connection.ProcessID);
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+        var startup = CreateStartupService(RetryOptions(database, gate));
+        await using var services = startup.Services;
+        using var service = startup.Service;
+        Task stopTask = Task.CompletedTask;
+        var started = false;
+        try
+        {
+            await service.StartAsync(CancellationToken.None);
+            started = true;
+            var cleanupPid = await lockRequested.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitForDownloadLockAsync(ConnectionString(database), cleanupPid);
+            Assert.False(service.StartupCleanupFinished.IsCompleted);
+
+            stopTask = service.StopAsync(CancellationToken.None);
+            await stopTask.WaitAsync(TimeSpan.FromSeconds(10));
+            await service.StartupCleanupFinished;
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+            if (started)
+            {
+                await stopTask;
+            }
+            Directory.Delete(startup.Root, recursive: true);
+        }
+
+        Assert.True(service.StartupCleanupFinished.IsCompletedSuccessfully);
+        await AssertDownloadLockAvailableAsync(ConnectionString(database));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -508,6 +1294,284 @@ public class DownloadCleanupServiceTests
     // Helpers
     // ---------------------------------------------------------------------------------------------
 
+    private static DbContextOptions<AppDbContext> RetryOptions(
+        TestDatabase database,
+        params IInterceptor[] interceptors)
+    {
+        return new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(
+                ConnectionString(database),
+                settings => settings.EnableRetryOnFailure(3, TimeSpan.Zero, null))
+            .AddInterceptors(interceptors)
+            .Options;
+    }
+
+    private static string ConnectionString(TestDatabase database)
+    {
+        using var context = database.Factory.CreateDbContext();
+        return context.Database.GetConnectionString()!;
+    }
+
+    private static async Task RunPeriodicAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        using var service = new DownloadCleanupService(
+            services,
+            NullLogger<DownloadCleanupService>.Instance,
+            new ConfigurationBuilder().Build(),
+            cacheManagementService: null!,
+            datasourceService: null!,
+            NullProxy<IStateService>());
+        var method = typeof(DownloadCleanupService).GetMethod(
+            "CleanupStaleDownloadsAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)method.Invoke(service, [context, cancellationToken])!;
+    }
+
+    private static (
+        ServiceProvider Services,
+        DownloadCleanupService Service,
+        CapturingLogger<DownloadCleanupService> Logger,
+        string Root) CreateStartupService(DbContextOptions<AppDbContext> options)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"download-cleanup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "disabled",
+                ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "cache"),
+                ["LanCache:DataSources:0:LogPath"] = Path.Combine(root, "logs"),
+                ["LanCache:DataSources:0:Enabled"] = "false"
+            })
+            .Build();
+        var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)paths).Root = root;
+        var state = NullProxy<IStateService>();
+        var datasources = new DatasourceService(
+            configuration,
+            paths,
+            NullLogger<DatasourceService>.Instance);
+        var services = new ServiceCollection()
+            .AddScoped(_ => new AppDbContext(options))
+            .BuildServiceProvider();
+        var cache = new CacheManagementService(
+            configuration,
+            NullLogger<CacheManagementService>.Instance,
+            paths,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            datasources,
+            state,
+            new TestDbContextFactory(options),
+            gameCacheDetectionService: null!,
+            NullProxy<IUnifiedOperationTracker>(),
+            NullProxy<ISignalRNotificationService>(),
+            NullProxy<ILancacheEnvFileReader>(),
+            NullProxy<IOperationConflictChecker>(),
+            new DatasourceCapabilityService(datasources),
+            CacheScanGateHarness.Idle());
+        var logger = new CapturingLogger<DownloadCleanupService>();
+        var service = new DownloadCleanupService(
+            services,
+            logger,
+            configuration,
+            cache,
+            datasources,
+            state);
+        return (services, service, logger, root);
+    }
+
+    private static T NullProxy<T>() where T : class =>
+        DispatchProxy.Create<T, NullReturningProxy>();
+
+    private static Download NewCleanupDownload(
+        string clientIp,
+        DateTime start,
+        DateTime end) => new()
+        {
+            Service = "steam",
+            ClientIp = clientIp,
+            StartTimeUtc = start,
+            EndTimeUtc = end,
+            CacheHitBytes = 10,
+            CacheMissBytes = 20,
+            IsActive = true,
+            IsEvicted = false,
+            GameAppId = 1,
+            Datasource = "default",
+            LastUrl = "/stale"
+        };
+
+    private static async Task LockDownloadsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "LOCK TABLE \"Downloads\" IN ROW EXCLUSIVE MODE",
+            connection,
+            transaction);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ContinueDownloadsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        IReadOnlyList<long> ids,
+        DateTime endTime,
+        CancellationToken cancellationToken)
+    {
+        await LockDownloadsAsync(connection, transaction, cancellationToken);
+        await WriteContinuationAsync(
+            connection,
+            transaction,
+            ids,
+            endTime,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task WriteContinuationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        IReadOnlyList<long> ids,
+        DateTime endTime,
+        CancellationToken cancellationToken)
+    {
+        for (var index = 0; index < ids.Count; index++)
+        {
+            var url = $"/continued/{ids[index]}";
+            await using (var update = new NpgsqlCommand("""
+                UPDATE "Downloads"
+                SET "EndTimeUtc" = @endTime,
+                    "CacheHitBytes" = @cacheHitBytes,
+                    "CacheMissBytes" = @cacheMissBytes,
+                    "LastUrl" = @url,
+                    "IsActive" = TRUE
+                WHERE "Id" = @id
+                """, connection, transaction))
+            {
+                update.Parameters.AddWithValue("endTime", endTime);
+                update.Parameters.AddWithValue("cacheHitBytes", 110L + index);
+                update.Parameters.AddWithValue("cacheMissBytes", 220L + index);
+                update.Parameters.AddWithValue("url", url);
+                update.Parameters.AddWithValue("id", ids[index]);
+                Assert.Equal(1, await update.ExecuteNonQueryAsync(cancellationToken));
+            }
+
+            await using var insert = new NpgsqlCommand("""
+                INSERT INTO "LogEntries"
+                    ("Timestamp", "ClientIp", "Service", "Method", "Url", "StatusCode",
+                     "BytesServed", "CacheStatus", "Datasource", "DownloadId", "CreatedAt")
+                SELECT @endTime, d."ClientIp", d."Service", 'GET', @url, 200,
+                       @bytesServed, 'HIT', d."Datasource", d."Id", @endTime
+                FROM "Downloads" d
+                WHERE d."Id" = @id
+                """, connection, transaction);
+            insert.Parameters.AddWithValue("endTime", endTime);
+            insert.Parameters.AddWithValue("url", url);
+            insert.Parameters.AddWithValue("bytesServed", 330L + (index * 2));
+            insert.Parameters.AddWithValue("id", ids[index]);
+            Assert.Equal(1, await insert.ExecuteNonQueryAsync(cancellationToken));
+        }
+    }
+
+    private static async Task AssertContinuationAsync(
+        TestDatabase database,
+        List<long> ids,
+        DateTime endTime)
+    {
+        await using var context = database.Factory.CreateDbContext();
+        for (var index = 0; index < ids.Count; index++)
+        {
+            var row = await context.Downloads.SingleAsync(download => download.Id == ids[index]);
+            Assert.True(row.IsActive);
+            Assert.Equal(endTime, row.EndTimeUtc);
+            Assert.Equal(110L + index, row.CacheHitBytes);
+            Assert.Equal(220L + index, row.CacheMissBytes);
+            Assert.Equal($"/continued/{ids[index]}", row.LastUrl);
+        }
+
+        var logs = await context.LogEntries.OrderBy(entry => entry.DownloadId).ToListAsync();
+        Assert.Equal(ids.Count, logs.Count);
+        Assert.All(logs, entry =>
+        {
+            Assert.NotNull(entry.DownloadId);
+            Assert.Contains(entry.DownloadId.Value, ids);
+        });
+    }
+
+    private static async Task WaitForDownloadLockAsync(
+        string connectionString,
+        int processId)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        for (var attempt = 0; attempt < 1000; attempt++)
+        {
+            await using var command = new NpgsqlCommand("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_locks l
+                    JOIN pg_class c ON c.oid = l.relation
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = current_schema()
+                      AND c.relname = 'Downloads'
+                      AND l.pid = @processId
+                      AND NOT l.granted)
+                """, connection);
+            command.Parameters.AddWithValue("processId", processId);
+            if ((bool)(await command.ExecuteScalarAsync())!)
+            {
+                return;
+            }
+
+            await Task.Delay(5);
+        }
+
+        throw new TimeoutException("The Downloads table lock did not enter PostgreSQL wait state");
+    }
+
+    private static async Task AssertDownloadLockAvailableAsync(string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await LockDownloadsAsync(connection, transaction, watchdog.Token);
+        await transaction.RollbackAsync(CancellationToken.None);
+    }
+
+    private static bool IsDownloadsLock(DbCommand command) =>
+        command.CommandText.StartsWith(
+            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+            StringComparison.Ordinal);
+
+    private static bool IsCleanupSelect(DbCommand command) =>
+        IsCleanupSelect(command.CommandText);
+
+    private static bool IsCleanupSelect(string command) =>
+        command.StartsWith("SELECT d.\"Id\"", StringComparison.Ordinal)
+        && command.Contains("d.\"IsActive\"", StringComparison.Ordinal)
+        && command.Contains("LIMIT", StringComparison.Ordinal);
+
+    private static bool IsCleanupUpdate(DbCommand command) =>
+        command.CommandText.StartsWith("UPDATE \"Downloads\"", StringComparison.Ordinal)
+        && command.CommandText.Contains("\"IsActive\"", StringComparison.Ordinal);
+
+    private static int CleanupIdCount(DbCommand command)
+    {
+        var idSets = command.Parameters
+            .Cast<DbParameter>()
+            .Select(parameter => parameter.Value)
+            .OfType<IEnumerable<long>>()
+            .ToList();
+        return Assert.Single(idSets).Count();
+    }
+
     private static async Task VerifyDatasourceNormalizationAsync(DbContextOptions<AppDbContext> options)
     {
         const string alphaClient = "10.0.0.11";
@@ -709,4 +1773,47 @@ public class DownloadCleanupServiceTests
         DiscoveredAtUtc = DateTime.UtcNow,
         LastSeenAtUtc = DateTime.UtcNow
     };
+
+    private sealed class CleanupCommandGate : DbCommandInterceptor
+    {
+        public Func<DbCommand, CancellationToken, Task>? NonQueryStarting { get; init; }
+
+        public Func<DbCommand, CancellationToken, Task>? ReaderFinished { get; init; }
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData evt,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (NonQueryStarting is not null)
+            {
+                await NonQueryStarting(command, cancellationToken);
+            }
+
+            return await base.NonQueryExecutingAsync(
+                command,
+                evt,
+                result,
+                cancellationToken);
+        }
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData evt,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (ReaderFinished is not null)
+            {
+                await ReaderFinished(command, cancellationToken);
+            }
+
+            return await base.ReaderExecutedAsync(
+                command,
+                evt,
+                result,
+                cancellationToken);
+        }
+    }
 }

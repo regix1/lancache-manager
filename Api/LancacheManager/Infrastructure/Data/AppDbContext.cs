@@ -133,7 +133,8 @@ public class AppDbContext : DbContext
             .HasIndex(l => l.DownloadId)
             .HasDatabaseName("IX_LogEntries_DownloadId");
 
-        // Composite index for efficient duplicate detection during reprocessing
+        // DownloadHistoryUpgradeService adds md5(COALESCE("HttpRange", '')) as the seventh database
+        // index key; EF cannot express it, so do not restore the database index to these six properties.
         modelBuilder.Entity<LogEntryRecord>()
             .HasIndex(l => new { l.ClientIp, l.Service, l.Timestamp, l.Url, l.BytesServed, l.Datasource })
             .HasDatabaseName("IX_LogEntries_DuplicateCheck");

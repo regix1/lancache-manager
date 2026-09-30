@@ -251,6 +251,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     // logs. The scheduled sweep remains the retry path for those.
     private readonly HashSet<long> _artTriggerAttemptedAppIds = new();
     private readonly object _artTriggerLock = new();
+    private (long MaxDownloadId, int SteamImages)? _lastArtScan;
 
     /// <summary>
     /// Starts a fetch pass when a download has a Steam game identity but no stored banner yet.
@@ -258,10 +259,21 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// SteamKit2 mapping trigger never fires for games it identified, and their banners would
     /// otherwise stay blank until the next scheduled tick up to half an hour later.
     /// </summary>
-    public async Task StartFetchForMissingArtAsync(CancellationToken ct)
+    public async Task StartFetchForMissingArtAsync(bool gameNamesChanged, CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var maxDownloadId = await db.Downloads.MaxAsync(d => (long?)d.Id, ct) ?? 0;
+        var steamImages = await db.GameImages.CountAsync(g => g.Service == "steam", ct);
+        var scanKey = (MaxDownloadId: maxDownloadId, SteamImages: steamImages);
+
+        lock (_artTriggerLock)
+        {
+            if (!gameNamesChanged && _lastArtScan == scanKey)
+            {
+                return;
+            }
+        }
 
         // Same filter as the Steam phase, so a trigger never starts a pass that finds nothing.
         var steamAppIds = await db.Downloads
@@ -289,6 +301,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     anyNew = true;
                 }
             }
+
+            // A pass that only continued downloads did not grow the named Steam-app set. Names
+            // written elsewhere are found by the scheduled sweep.
+            _lastArtScan = anyNew ? null : scanKey;
         }
 
         if (anyNew)

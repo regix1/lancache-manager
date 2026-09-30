@@ -1,10 +1,12 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace LancacheManager.Controllers;
 
@@ -17,6 +19,16 @@ namespace LancacheManager.Controllers;
 public class DataMigrationController : ControllerBase
 {
     private static readonly SemaphoreSlim _importStartLock = new(1, 1);
+
+    /// <summary>
+    /// Counts downloads of the same client, datasource, service and depot that contain the source
+    /// row's full interval. A merged history has one row per download, so importing its older
+    /// per-pass rows again would count their bytes twice. A raw wsus or xboxlive row matches a row
+    /// already renamed to xbox.
+    /// </summary>
+    internal const string ImportCoveredRowSql = "SELECT COUNT(*) FROM \"Downloads\" WHERE \"Id\" <= @existingMaxId AND \"ClientIp\" = @clientIp AND lower(\"Datasource\") = lower(@datasource) AND \"DepotId\" IS NOT DISTINCT FROM @depotId AND (\"DepotId\" IS NOT NULL OR \"GameAppId\" IS NOT DISTINCT FROM @gameAppId) AND (lower(\"Service\") = lower(@service) OR (lower(@service) IN ('wsus', 'xboxlive') AND \"Service\" = 'xbox')) AND \"StartTimeUtc\" <= @startTimeUtc AND \"EndTimeUtc\" >= @endTimeUtc";
+
+    internal Func<Task>? BatchCommitted { get; init; }
 
     private readonly ILogger<DataMigrationController> _logger;
     private readonly ISignalRNotificationService _notifications;
@@ -138,6 +150,13 @@ public class DataMigrationController : ControllerBase
             using var targetConn = new NpgsqlConnection(targetConnectionString);
             await targetConn.OpenAsync();
 
+            long existingMaxId;
+            using (var maxIdCmd = targetConn.CreateCommand())
+            {
+                maxIdCmd.CommandText = "SELECT COALESCE(MAX(\"Id\"), 0) FROM \"Downloads\"";
+                existingMaxId = Convert.ToInt64(await maxIdCmd.ExecuteScalarAsync());
+            }
+
             // Get total count from source
             using (var countCmd = sourceConn.CreateCommand())
             {
@@ -159,6 +178,7 @@ public class DataMigrationController : ControllerBase
 
             // Read and insert in batches
             var offset = 0;
+            var planInvalidated = false;
             while (true)
             {
                 // Check for cancellation between batches
@@ -177,6 +197,7 @@ public class DataMigrationController : ControllerBase
 
                 using var reader = await readCmd.ExecuteReaderAsync();
                 var hasRecords = false;
+                var batchChanged = false;
 
                 using var transaction = targetConn.BeginTransaction();
 
@@ -212,6 +233,7 @@ public class DataMigrationController : ControllerBase
                         {
                             if (overwriteExisting)
                             {
+                                // Keep accumulated history unless the source covers the current interval and byte totals.
                                 using var updateCmd = targetConn.CreateCommand();
                                 updateCmd.Transaction = transaction;
                                 updateCmd.CommandText = @"
@@ -219,7 +241,10 @@ public class DataMigrationController : ControllerBase
                                         ""Service"" = @service, ""EndTimeUtc"" = @endTimeUtc,
                                         ""CacheHitBytes"" = @cacheHitBytes, ""CacheMissBytes"" = @cacheMissBytes,
                                         ""IsActive"" = @isActive, ""DepotId"" = @depotId, ""GameAppId"" = @gameAppId, ""Datasource"" = @datasource
-                                    WHERE ""ClientIp"" = @clientIp AND ""StartTimeUtc"" = @startTimeUtc";
+                                    WHERE ""ClientIp"" = @clientIp AND ""StartTimeUtc"" = @startTimeUtc
+                                      AND ""EndTimeUtc"" <= @endTimeUtc
+                                      AND ""CacheHitBytes"" <= @cacheHitBytes
+                                      AND ""CacheMissBytes"" <= @cacheMissBytes";
                                 updateCmd.Parameters.AddWithValue("@service", service);
                                 updateCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
                                 updateCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
@@ -230,8 +255,16 @@ public class DataMigrationController : ControllerBase
                                 updateCmd.Parameters.AddWithValue("@datasource", datasource);
                                 updateCmd.Parameters.AddWithValue("@clientIp", clientIp);
                                 updateCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
-                                await updateCmd.ExecuteNonQueryAsync();
-                                recordsImported++;
+                                var updated = await updateCmd.ExecuteNonQueryAsync();
+                                if (updated > 0)
+                                {
+                                    recordsImported++;
+                                    batchChanged = true;
+                                }
+                                else
+                                {
+                                    recordsSkipped++;
+                                }
                             }
                             else
                             {
@@ -240,25 +273,54 @@ public class DataMigrationController : ControllerBase
                         }
                         else
                         {
-                            using var insertCmd = targetConn.CreateCommand();
-                            insertCmd.Transaction = transaction;
-                            insertCmd.CommandText = @"
-                                INSERT INTO ""Downloads"" (""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"",
-                                    ""CacheHitBytes"", ""CacheMissBytes"", ""IsActive"", ""DepotId"", ""GameAppId"", ""Datasource"")
-                                VALUES (@service, @clientIp, @startTimeUtc, @endTimeUtc,
-                                    @cacheHitBytes, @cacheMissBytes, @isActive, @depotId, @gameAppId, @datasource)";
-                            insertCmd.Parameters.AddWithValue("@service", service);
-                            insertCmd.Parameters.AddWithValue("@clientIp", clientIp);
-                            insertCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
-                            insertCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
-                            insertCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
-                            insertCmd.Parameters.AddWithValue("@cacheMissBytes", cacheMissBytes);
-                            insertCmd.Parameters.AddWithValue("@isActive", isActive);
-                            insertCmd.Parameters.AddWithValue("@depotId", (object?)depotId ?? DBNull.Value);
-                            insertCmd.Parameters.AddWithValue("@gameAppId", (object?)gameAppId ?? DBNull.Value);
-                            insertCmd.Parameters.AddWithValue("@datasource", datasource);
-                            await insertCmd.ExecuteNonQueryAsync();
-                            recordsImported++;
+                            using var coveredCmd = targetConn.CreateCommand();
+                            coveredCmd.Transaction = transaction;
+                            coveredCmd.CommandText = ImportCoveredRowSql;
+                            coveredCmd.Parameters.AddWithValue("@clientIp", clientIp);
+                            coveredCmd.Parameters.AddWithValue("@datasource", datasource);
+                            coveredCmd.Parameters.AddWithValue("@service", service);
+                            coveredCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
+                            coveredCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
+                            coveredCmd.Parameters.AddWithValue("@existingMaxId", existingMaxId);
+                            coveredCmd.Parameters.Add(
+                                new NpgsqlParameter("depotId", NpgsqlDbType.Bigint)
+                                {
+                                    Value = (object?)depotId ?? DBNull.Value
+                                });
+                            coveredCmd.Parameters.Add(
+                                new NpgsqlParameter("gameAppId", NpgsqlDbType.Bigint)
+                                {
+                                    Value = (object?)gameAppId ?? DBNull.Value
+                                });
+                            var covered = Convert.ToInt32(await coveredCmd.ExecuteScalarAsync()) > 0;
+
+                            if (covered)
+                            {
+                                recordsSkipped++;
+                            }
+                            else
+                            {
+                                using var insertCmd = targetConn.CreateCommand();
+                                insertCmd.Transaction = transaction;
+                                insertCmd.CommandText = @"
+                                    INSERT INTO ""Downloads"" (""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"",
+                                        ""CacheHitBytes"", ""CacheMissBytes"", ""IsActive"", ""DepotId"", ""GameAppId"", ""Datasource"")
+                                    VALUES (@service, @clientIp, @startTimeUtc, @endTimeUtc,
+                                        @cacheHitBytes, @cacheMissBytes, @isActive, @depotId, @gameAppId, @datasource)";
+                                insertCmd.Parameters.AddWithValue("@service", service);
+                                insertCmd.Parameters.AddWithValue("@clientIp", clientIp);
+                                insertCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
+                                insertCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
+                                insertCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
+                                insertCmd.Parameters.AddWithValue("@cacheMissBytes", cacheMissBytes);
+                                insertCmd.Parameters.AddWithValue("@isActive", isActive);
+                                insertCmd.Parameters.AddWithValue("@depotId", (object?)depotId ?? DBNull.Value);
+                                insertCmd.Parameters.AddWithValue("@gameAppId", (object?)gameAppId ?? DBNull.Value);
+                                insertCmd.Parameters.AddWithValue("@datasource", datasource);
+                                await insertCmd.ExecuteNonQueryAsync();
+                                recordsImported++;
+                                batchChanged = true;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -268,7 +330,24 @@ public class DataMigrationController : ControllerBase
                     }
                 }
 
+                var invalidatePlan = batchChanged && !planInvalidated;
+                if (invalidatePlan)
+                {
+                    using var dropPlanCmd = targetConn.CreateCommand();
+                    dropPlanCmd.Transaction = transaction;
+                    dropPlanCmd.CommandText = DownloadHistoryUpgradeSql.DropPlan;
+                    await dropPlanCmd.ExecuteNonQueryAsync();
+                }
+
                 transaction.Commit();
+                if (invalidatePlan)
+                {
+                    planInvalidated = true;
+                }
+                if (batchChanged && BatchCommitted is not null)
+                {
+                    await BatchCommitted();
+                }
 
                 // Send progress notification after each batch
                 var recordsProcessed = (ulong)offset + (ulong)batchSize;

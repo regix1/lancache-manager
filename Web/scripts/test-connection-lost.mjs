@@ -33,6 +33,7 @@ globalThis.connectionLostTestState = state;
 const i18nStub = moduleUrl('export default { t: (key) => key };');
 
 const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+  '@/i18n': i18nStub,
   '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
 });
 const { buildApiError } = await import(apiErrorUrl);

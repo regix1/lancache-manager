@@ -96,7 +96,8 @@ public class ClientHostnamesController : ControllerBase
             .Select(g => new
             {
                 ClientIp = g.Key,
-                LastActivityUtc = g.Max(d => d.StartTimeUtc)
+                // One row spans the download session; an unset end falls back to its start.
+                LastActivityUtc = g.Max(d => d.EndTimeUtc > d.StartTimeUtc ? d.EndTimeUtc : d.StartTimeUtc)
             })
             .OrderByDescending(c => c.LastActivityUtc)
             // One row past the cap on purpose: the lookup applies the same cap itself, and handing

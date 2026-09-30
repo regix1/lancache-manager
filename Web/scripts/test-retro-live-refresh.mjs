@@ -148,9 +148,13 @@ export const useSignalR = () => ({
 
 const apiStubSource = `
 export const calls = [];
+export const control = { hold: false, pending: [] };
 const ApiService = {
-  getRetroDownloads: (params) => {
-    calls.push(params);
+  getRetroDownloads: (params, signal) => {
+    calls.push({ ...params, signal });
+    if (control.hold) {
+      return new Promise((resolve, reject) => control.pending.push({ resolve, reject, signal }));
+    }
     return Promise.resolve({
       items: [],
       totalItems: 0,
@@ -208,7 +212,7 @@ export default {
 
 const { createComponent } = await import(reactUrl);
 const { hub } = await import(signalRUrl);
-const { calls } = await import(apiUrl);
+const { calls, control } = await import(apiUrl);
 const { header } = await import(timeFilterUrl);
 const { SIGNALR_REFRESH_EVENTS } = await import(eventsUrl);
 
@@ -257,6 +261,7 @@ const PROPS = {
  */
 const mountRetro = ({ isConnected = true, timeRange = 'live' } = {}) => {
   calls.length = 0;
+  control.pending.length = 0;
   hub.handlers.clear();
   hub.isConnected = isConnected;
   header.timeRange = timeRange;
@@ -278,10 +283,85 @@ const mountRetro = ({ isConnected = true, timeRange = 'live' } = {}) => {
 
 // Long enough to clear the interval the stub reports, by a margin.
 const DEBOUNCE_WAIT_MS = REFRESH_INTERVAL_MS + 200;
+const response = (items = [], page = 1) => ({
+  items,
+  totalItems: items.length,
+  totalDownloads: items.length,
+  totalPages: 1,
+  currentPage: page,
+  pageSize: 50
+});
+
+test('live events fold into one request after the request in flight settles', async () => {
+  control.hold = true;
+  const retro = mountRetro();
+  assert.equal(calls.length, 1, 'the mount request is running');
+
+  hub.emit('DownloadsRefresh');
+  hub.emit('DownloadsRefresh');
+  hub.emit('DownloadsRefresh');
+  await delay(DEBOUNCE_WAIT_MS);
+  assert.equal(calls.length, 1, 'events do not replace the running request');
+  assert.equal(calls[0].signal.aborted, false);
+
+  control.pending.shift().resolve(response());
+  await delay(0);
+  assert.equal(calls.length, 2, 'one follow-up starts after the held request settles');
+  control.pending.shift().resolve(response());
+  await delay(0);
+  assert.equal(calls.length, 2, 'no further request starts without another event');
+
+  retro.unmount();
+  control.hold = false;
+});
+
+test('a page change and a reconnect still replace a request in flight', () => {
+  control.hold = true;
+  const pageChange = mountRetro();
+  pageChange.setProps({ page: 2 });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].signal.aborted, true, 'the page change aborts the old page');
+  assert.equal(calls[1].page, 2);
+  pageChange.unmount();
+
+  const reconnect = mountRetro({ isConnected: false });
+  hub.isConnected = true;
+  reconnect.render();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].signal.aborted, true, 'the reconnect replaces the unanswered request');
+  assert.equal(calls[1].signal.aborted, false);
+  reconnect.unmount();
+  control.hold = false;
+});
+
+test('a failed refresh keeps rows and starts the follow-up queued during it', async () => {
+  control.hold = true;
+  const retro = mountRetro();
+  const previous = { id: 'kept-row' };
+  control.pending.shift().resolve(response([previous]));
+  await delay(0);
+  assert.deepEqual(retro.getResult().items, [previous]);
+
+  hub.emit('DownloadsRefresh');
+  assert.equal(calls.length, 2);
+  hub.emit('DownloadsRefresh');
+  await delay(DEBOUNCE_WAIT_MS);
+  control.pending.shift().reject(new Error('server failure'));
+  await delay(0);
+
+  assert.deepEqual(retro.getResult().items, [previous], 'the previous response remains visible');
+  assert.equal(retro.getResult().error?.message, 'server failure');
+  assert.equal(calls.length, 3, 'the queued event starts one follow-up after failure');
+  retro.unmount();
+  control.hold = false;
+});
 
 test('a refresh event asks for the page again, with nothing on the page touched', async () => {
   const component = mountRetro();
   assert.equal(calls.length, 1, 'the mount fetch');
+  // The fold keeps an event that arrives during the mount request for one follow-up. Let the
+  // mount settle so this case continues to cover the idle leading refresh.
+  await delay(0);
 
   hub.emit('DownloadsRefresh');
   assert.equal(
@@ -290,12 +370,17 @@ test('a refresh event asks for the page again, with nothing on the page touched'
     'the first event fetches on arrival: nothing has run for a whole interval, so a finished ' +
       'download must not sit behind a timer the other views do not wait out either'
   );
-  assert.deepEqual(calls[1], calls[0], 'the same page and filters are asked for again');
+  const { signal: firstSignal, ...firstQuery } = calls[0];
+  const { signal: secondSignal, ...secondQuery } = calls[1];
+  assert.ok(firstSignal && secondSignal);
+  assert.deepEqual(secondQuery, firstQuery, 'the same page and filters are asked for again');
   component.unmount();
 });
 
 test('a second event inside the interval waits, so a burst does not fetch per event', async () => {
   const component = mountRetro();
+  // Let the mount request settle before exercising the throttle's leading and trailing calls.
+  await delay(0);
 
   hub.emit('DownloadsRefresh');
   assert.equal(calls.length, 2, 'the first one goes straight out');
@@ -441,28 +526,27 @@ test('the container never gains page-fading during a background refresh', async 
   retro.unmount();
 });
 
-test('a background refresh clears a fade left behind by the fetch it aborted', async () => {
+test('a background refresh folds behind a page fetch and clears its fade after it settles', async () => {
   const retro = mountRetro();
   await delay(0);
 
   retro.setProps({ page: 2 });
   assert.equal(retro.getResult().isFetching, true, 'a page change is user-initiated, so it fades');
 
-  // The bump aborts that page fetch before it settles, and an aborted request returns from the
-  // settle handler without clearing the flag. The background run that replaces it has to clear the
-  // flag itself, or the table stays faded for the whole refresh.
+  // This event now folds instead of aborting the page request. The user-requested fade remains
+  // until that page answers, and the queued background follow-up does not turn it back on.
   hub.emit('DownloadsRefresh');
   assert.equal(
     retro.getResult().isFetching,
-    false,
-    'an aborted page fetch must not leave the table faded across the background refresh'
+    true,
+    'the event does not abort the page request that owns the fade'
   );
 
   await delay(0);
   assert.equal(
     retro.getResult().isFetching,
     false,
-    'and stays false once the background fetch settles'
+    'the page settles and its queued background follow-up does not fade the table'
   );
   retro.unmount();
 });

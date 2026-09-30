@@ -94,6 +94,7 @@ const loadApi = async (nonce) => {
     `// ${nonce}\nexport const hasRecentUserInteraction = () => false;`
   );
   const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+    '@/i18n': i18nUrl,
     '@utils/constants': constantsUrl
   });
   const reasonUrl = await compileToUrl('../src/types.ts');

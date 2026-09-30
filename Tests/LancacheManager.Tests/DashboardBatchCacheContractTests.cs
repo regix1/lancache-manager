@@ -1,8 +1,11 @@
+using System.Collections;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
@@ -11,6 +14,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 namespace LancacheManager.Tests;
@@ -139,24 +145,24 @@ public sealed class DashboardBatchCacheContractTests
         var lookup = source.IndexOf("_memoryCache.TryGetValue(cacheKey", StringComparison.Ordinal);
         Assert.True(lookup > loopStart, "the cache must be re-checked on every pass through the single-flight loop");
 
-        var myLazyCtor = source.IndexOf("new Lazy<Task<DashboardBatchResponse>>(", StringComparison.Ordinal);
-        Assert.True(myLazyCtor > lookup, "the Lazy must be constructed - inertly - before any dictionary lookup, never inside a GetOrAdd value factory");
+        var flightConstructor = source.IndexOf("new BatchFlight(", lookup, StringComparison.Ordinal);
+        Assert.True(flightConstructor > lookup, "the flight must be constructed before any dictionary lookup");
         Assert.True(
             source.Contains("LazyThreadSafetyMode.ExecutionAndPublication", StringComparison.Ordinal),
-            "the Lazy must use ExecutionAndPublication so exactly one thread ever runs the factory and every other caller blocks on the same result");
+            "the flight's Lazy must use ExecutionAndPublication so exactly one thread runs its build");
 
-        var getOrAdd = source.IndexOf("_inflight.GetOrAdd(cacheKey, myLazy)", StringComparison.Ordinal);
-        Assert.True(getOrAdd > myLazyCtor, "GetOrAdd must be called with the already-constructed Lazy via the plain-value overload, never a factory delegate that could run more than once");
+        var getOrAdd = source.IndexOf("_inflight.GetOrAdd(batchKey, candidate)", StringComparison.Ordinal);
+        Assert.True(getOrAdd > flightConstructor, "GetOrAdd must receive the already-constructed flight through the plain-value overload");
 
-        var ownershipCheck = source.IndexOf("ReferenceEquals(stored, myLazy)", StringComparison.Ordinal);
-        Assert.True(ownershipCheck > getOrAdd, "ownership must be determined deterministically by comparing the stored Lazy against this caller's own, never inferred from a factory side effect");
+        var ownershipCheck = source.IndexOf("ReferenceEquals(stored, candidate)", StringComparison.Ordinal);
+        Assert.True(ownershipCheck > getOrAdd, "ownership must compare the stored flight with this caller's candidate");
     }
 
     [Fact]
     public void SingleFlightCleanupRemovesOnlyTheCompletedFlightsOwnEntry()
     {
         var source = BatchServiceSource();
-        const string removeText = "_inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));";
+        const string removeText = "_inflight.TryRemove(new KeyValuePair<string, BatchFlight>(flightKey, flight));";
 
         var occurrences = 0;
         var searchFrom = 0;
@@ -170,13 +176,14 @@ public sealed class DashboardBatchCacheContractTests
 
         Assert.Equal(1, occurrences);
 
-        var removeIndex = source.IndexOf(removeText, StringComparison.Ordinal);
+        var runFlight = source.IndexOf("private async Task<DashboardBatchResponse> RunFlightAsync(", StringComparison.Ordinal);
+        var removeIndex = source.IndexOf(removeText, runFlight, StringComparison.Ordinal);
         var finallyIndex = source.LastIndexOf("finally", removeIndex, StringComparison.Ordinal);
-        var ifMine = source.LastIndexOf("if (mine)", removeIndex, StringComparison.Ordinal);
+        Assert.True(runFlight >= 0 && finallyIndex > runFlight, "the build must retire its own exact registration in its finally block");
 
-        Assert.True(
-            finallyIndex >= 0 && ifMine > finallyIndex,
-            "the single removal must sit in a finally guarded by ownership, so the caller that created the flight retires it on success, on fault and on its own cancellation, a joiner never removes a flight that is still running for someone else, and the exact stored key+value pair is what gets retired");
+        var detach = source.IndexOf("stored.Detach();", StringComparison.Ordinal);
+        finallyIndex = source.LastIndexOf("finally", detach, StringComparison.Ordinal);
+        Assert.True(detach > 0 && finallyIndex > 0, "each attached reader must detach in a finally block");
     }
 
     [Fact]
@@ -185,17 +192,21 @@ public sealed class DashboardBatchCacheContractTests
         var source = BatchServiceSource();
 
         Assert.True(
-            source.Contains("await stored.Value.WaitAsync(ct)", StringComparison.Ordinal),
+            source.Contains("await stored.Build.Value.WaitAsync(ct)", StringComparison.Ordinal),
             "every caller must wait on its own token via WaitAsync instead of awaiting the shared flight directly");
+        Assert.DoesNotContain("await stored.Build.Value;", source, StringComparison.Ordinal);
 
-        var ownCancelCatch = source.IndexOf("catch (OperationCanceledException) when (ct.IsCancellationRequested)", StringComparison.Ordinal);
-        Assert.True(ownCancelCatch >= 0, "a caller's OWN cancellation must be distinguished from a foreign one and rethrown immediately");
+        Assert.Contains(
+            "catch (OperationCanceledException) when (ct.IsCancellationRequested)",
+            source,
+            StringComparison.Ordinal);
 
-        var ifMine = source.IndexOf("if (mine)", ownCancelCatch, StringComparison.Ordinal);
-        Assert.True(ifMine > ownCancelCatch, "the failure branch must distinguish whether this caller owns the failed flight before deciding to rethrow or retry");
+        var attachedWait = source.LastIndexOf("await stored.Build.Value.WaitAsync(ct)", StringComparison.Ordinal);
+        var ifMine = source.IndexOf("if (mine)", attachedWait, StringComparison.Ordinal);
+        Assert.True(ifMine > attachedWait, "the attached-reader failure branch must distinguish whether this caller owns the failed flight");
 
         var rethrow = source.IndexOf("throw;", ifMine, StringComparison.Ordinal);
-        Assert.True(rethrow > ifMine, "a caller whose OWN fresh flight failed must rethrow directly instead of retrying forever on a repeatable fault");
+        Assert.True(rethrow > ifMine, "a caller whose own registered flight faulted must rethrow instead of retrying it");
     }
 
     [Fact]
@@ -215,6 +226,125 @@ public sealed class DashboardBatchCacheContractTests
 
         var attemptIncrement = source.IndexOf("attempt++;", StringComparison.Ordinal);
         Assert.True(attemptIncrement > capCheck, "every failed contested iteration must advance the attempt counter, and that increment must sit after the cap check so a subsequent pass through the loop observes the updated count");
+    }
+
+    [Fact]
+    public async Task ABumpDuringABuildQueuesOneFollowUpInsteadOfASecondBuild()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"dashboard-flight-bump-{Guid.NewGuid():N}")
+            .Options;
+        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var service = BatchServiceWith(contexts, cache);
+
+        var first = service.GetBatchAsync(null, null, null, "UTC", false, CancellationToken.None);
+        await contexts.FirstCreateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var oneFanOut = contexts.AsyncCreateCount;
+
+        service.InvalidateLiveCache();
+        var second = service.GetBatchAsync(null, null, null, "UTC", false, CancellationToken.None);
+
+        try
+        {
+            Assert.Equal(oneFanOut, contexts.AsyncCreateCount);
+        }
+        finally
+        {
+            contexts.ReleaseFirstCreate.TrySetResult(true);
+        }
+
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(oneFanOut * 2, contexts.AsyncCreateCount);
+    }
+
+    [Fact]
+    public async Task TheBuildSurvivesItsCreatorLeavingWhileAnotherReaderWaits()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"dashboard-flight-shared-{Guid.NewGuid():N}")
+            .Options;
+        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var service = BatchServiceWith(contexts, cache);
+        using var firstCancellation = new CancellationTokenSource();
+        using var secondCancellation = new CancellationTokenSource();
+
+        var first = service.GetBatchAsync(null, null, null, "UTC", false, firstCancellation.Token);
+        await contexts.FirstCreateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var oneFanOut = contexts.AsyncCreateCount;
+        var second = service.GetBatchAsync(null, null, null, "UTC", false, secondCancellation.Token);
+
+        firstCancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await first);
+        Assert.Equal(oneFanOut, contexts.AsyncCreateCount);
+
+        contexts.ReleaseFirstCreate.TrySetResult(true);
+        var response = await second.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(response);
+        Assert.Equal(oneFanOut, contexts.AsyncCreateCount);
+    }
+
+    [Fact]
+    public async Task TheLastReaderLeavingCancelsTheBuild()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"dashboard-flight-cancel-{Guid.NewGuid():N}")
+            .Options;
+        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var service = BatchServiceWith(contexts, cache);
+        using var cancellation = new CancellationTokenSource();
+
+        var request = service.GetBatchAsync(null, null, null, "UTC", false, cancellation.Token);
+        await contexts.FirstCreateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var build = ActiveBuild(service);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await request);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await build);
+        Assert.False(contexts.ReleaseFirstCreate.Task.IsCompleted);
+        Assert.Equal(0, ActiveFlightCount(service));
+    }
+
+    [Fact]
+    public async Task AResetCompletionInvalidatesEveryRangeBeforeItIsSent()
+    {
+        var calls = new List<string>();
+        var batches = CreateProxy<IDashboardBatchService>((method, _) =>
+        {
+            calls.Add(method.Name);
+            return DefaultReturn(method.ReturnType);
+        });
+        using var services = new ServiceCollection()
+            .AddSingleton(batches)
+            .BuildServiceProvider();
+        var notifications = new SignalRNotificationService(
+            null!, null!, null!, null!, null!, null!,
+            NullLogger<SignalRNotificationService>.Instance,
+            services);
+
+        await notifications.NotifyAllAsync(
+            SignalREvents.DatabaseResetProgress,
+            ResetProgress(OperationStatus.Completed));
+        Assert.Equal(new[] { nameof(IDashboardBatchService.InvalidateAllCache) }, calls);
+
+        calls.Clear();
+        await notifications.NotifyAllAsync(
+            SignalREvents.DatabaseResetProgress,
+            ResetProgress(OperationStatus.Failed));
+        Assert.Equal(new[] { nameof(IDashboardBatchService.InvalidateAllCache) }, calls);
+
+        calls.Clear();
+        await notifications.NotifyAllAsync(
+            SignalREvents.DatabaseResetProgress,
+            ResetProgress(OperationStatus.Running));
+        Assert.Empty(calls);
+
+        await notifications.NotifyAllAsync(SignalREvents.DownloadHistoryMergeComplete);
+        Assert.Equal(new[] { nameof(IDashboardBatchService.InvalidateAllCache) }, calls);
     }
 
     [Fact]
@@ -519,28 +649,6 @@ public sealed class DashboardBatchCacheContractTests
         Assert.Contains(
             "_detectionDataService.LoadDetectionAsync(cancellationToken)",
             detectionSource,
-            StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The retro endpoint resolves game names under HttpContext.RequestAborted, so a reader that
-    /// navigates away cancels it. Reporting that as an empty page hands the client a success with
-    /// no rows in it; the cancellation belongs to the middleware, which answers 499 for it.
-    /// </summary>
-    [Fact]
-    public void TheRetroEndpointDoesNotReportACanceledRequestAsAnEmptyPage()
-    {
-        var source = ReadSource("Controllers", "Downloads", "DownloadsController.cs");
-
-        var logIndex = source.IndexOf("Error getting retro downloads", StringComparison.Ordinal);
-        Assert.True(logIndex > 0, "the retro handler no longer logs under this message");
-
-        var catchIndex = source.LastIndexOf("catch (Exception ex)", logIndex, StringComparison.Ordinal);
-        Assert.True(catchIndex > 0, "the retro handler no longer catches Exception");
-
-        Assert.StartsWith(
-            "catch (Exception ex) when (ex is not OperationCanceledException)",
-            source[catchIndex..],
             StringComparison.Ordinal);
     }
 
@@ -890,6 +998,84 @@ public sealed class DashboardBatchCacheContractTests
             CacheMissBytes = cacheMissBytes,
             IsActive = isActive
         };
+
+    private static DashboardBatchService BatchServiceWith(
+        PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory contexts,
+        MemoryCache cache)
+    {
+        var service = (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
+        var inflightField = typeof(DashboardBatchService)
+            .GetField("_inflight", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        inflightField.SetValue(service, Activator.CreateInstance(inflightField.FieldType));
+        SetBatchField(service, "_memoryCache", cache);
+        SetBatchField(
+            service,
+            "_memoryCacheOptions",
+            Options.Create(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 }));
+        SetBatchField(service, "_liveCacheEviction", new CancellationTokenSource());
+        SetBatchField(service, "_detectionCacheEviction", new CancellationTokenSource());
+        SetBatchField(service, "_dbContextFactory", contexts);
+        SetBatchField(
+            service,
+            "_stateRepository",
+            CreateProxy<IStateService>((method, _) => method.Name switch
+            {
+                nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+                nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+                _ when method.ReturnType == typeof(string) => "show",
+                _ => DefaultReturn(method.ReturnType)
+            }));
+        SetBatchField(service, "_configuration", new ConfigurationBuilder().Build());
+        SetBatchField(service, "_logger", NullLogger<DashboardBatchService>.Instance);
+        SetBatchField(service, "_wireJsonOptions", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        return service;
+    }
+
+    private static void SetBatchField(DashboardBatchService service, string name, object value)
+        => typeof(DashboardBatchService)
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, value);
+
+    private static int ActiveFlightCount(DashboardBatchService service)
+    {
+        var inflight = typeof(DashboardBatchService)
+            .GetField("_inflight", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(service)!;
+        return (int)inflight.GetType().GetProperty("Count")!.GetValue(inflight)!;
+    }
+
+    private static Task<DashboardBatchResponse> ActiveBuild(DashboardBatchService service)
+    {
+        var inflight = (IEnumerable)typeof(DashboardBatchService)
+            .GetField("_inflight", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(service)!;
+
+        foreach (var entry in inflight)
+        {
+            var flight = entry.GetType().GetProperty("Value")!.GetValue(entry)!;
+            var build = (Lazy<Task<DashboardBatchResponse>>)flight.GetType()
+                .GetProperty("Build")!
+                .GetValue(flight)!;
+            return build.Value;
+        }
+
+        throw new InvalidOperationException("No dashboard build is active");
+    }
+
+    private static DatabaseResetProgress ResetProgress(OperationStatus status) => new(
+        OperationId: null,
+        IsProcessing: status == OperationStatus.Running,
+        PercentComplete: status == OperationStatus.Running ? 50 : 100,
+        Status: status,
+        StageKey: "database.reset",
+        Message: null,
+        TablesCleared: null,
+        TotalTables: null,
+        FilesDeleted: null,
+        Timestamp: DateTime.UtcNow,
+        Context: new Dictionary<string, object?>());
 
     private static DashboardBatchService BatchServiceOver(DbContextOptions<AppDbContext> options)
     {

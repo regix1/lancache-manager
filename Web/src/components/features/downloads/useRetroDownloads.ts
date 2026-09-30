@@ -217,19 +217,36 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
 
   // Preserve previous data across fetches (placeholderData: keepPreviousData semantics).
   const hasInitialDataRef = useRef<boolean>(false);
+  const requestInFlightRef = useRef<boolean>(false);
+  const reloadPendingRef = useRef<boolean>(false);
+  // Between a settle queuing its follow-up and the effect starting it, an event must fold into that
+  // follow-up instead of bumping the version again and aborting it.
+  const followUpQueuedRef = useRef<boolean>(false);
   // Lets the fetch effect tell a background SignalR-driven refetch (only refreshVersion changed)
   // apart from a user-initiated one (a page/filter/sort dependency changed): the fade below is
   // wanted for the latter and must stay off for the former.
   const prevRefreshVersionRef = useRef<number>(refreshVersion);
 
-  // Stable, so the subscription below re-runs only when the connection's own callbacks change.
+  // A refresh event that lands while a request is running, or while its follow-up has not started,
+  // folds into one later request. Page, filter and sort changes still replace through cleanup.
   const reload = useCallback((): void => {
+    if (requestInFlightRef.current || followUpQueuedRef.current) {
+      reloadPendingRef.current = true;
+      return;
+    }
+    setRefreshVersion((version) => version + 1);
+  }, []);
+
+  // A reconnect replaces the running request because a response sent before the connection
+  // dropped may never arrive.
+  const reloadReplacingRequest = useCallback((): void => {
+    reloadPendingRef.current = false;
     setRefreshVersion((version) => version + 1);
   }, []);
 
   // Events raised while the socket was down are never delivered, so a genuine reconnect refetches
   // rather than leaving whatever was on screen when the connection dropped.
-  useReconnectRefetch(isConnected, reload);
+  useReconnectRefetch(isConnected, reloadReplacingRequest);
 
   useEffect(() => {
     // The provider stops the socket and drops its held messages while mock mode is on, so no
@@ -274,6 +291,9 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       // set, the busy indicator the page draws from isFetching stays on for the rest of the visit.
       setIsFetching(false);
       setIsLoading(false);
+      requestInFlightRef.current = false;
+      reloadPendingRef.current = false;
+      followUpQueuedRef.current = false;
       return;
     }
 
@@ -313,10 +333,15 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       setError(null);
       setIsFetching(false);
       setIsLoading(false);
+      requestInFlightRef.current = false;
+      reloadPendingRef.current = false;
+      followUpQueuedRef.current = false;
       return;
     }
 
     const controller = new AbortController();
+    requestInFlightRef.current = true;
+    followUpQueuedRef.current = false;
 
     // Written on every run rather than only on user-initiated ones. The settle below returns early
     // on an aborted request, so a user fetch that a version bump cancels partway leaves the flag
@@ -365,6 +390,12 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       .finally(() => {
         if (controller.signal.aborted) {
           return;
+        }
+        requestInFlightRef.current = false;
+        if (reloadPendingRef.current) {
+          reloadPendingRef.current = false;
+          followUpQueuedRef.current = true;
+          setRefreshVersion((version) => version + 1);
         }
         setIsFetching(false);
         setIsLoading(false);

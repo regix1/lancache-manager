@@ -875,9 +875,12 @@ const DownloadsTab: React.FC = () => {
         cacheMissBytes: row.cacheMissBytes,
         clientsSet: new Set(row.clientIps),
         firstSeen: row.startTimeUtc,
-        // The newest member's START time. The row also carries the group's latest END time, which
-        // is what the retro table shows in its own column and is a different instant.
-        lastSeen: row.lastStartTimeUtc,
+        // A download is one row for its whole session, so its latest traffic is its latest end. A
+        // row whose end was never set reports its newest start.
+        lastSeen:
+          Date.parse(row.endTimeUtc) > Date.parse(row.lastStartTimeUtc)
+            ? row.endTimeUtc
+            : row.lastStartTimeUtc,
         count: row.requestCount,
         isEvicted: row.isEvicted,
         isPartiallyEvicted: row.isPartiallyEvicted,

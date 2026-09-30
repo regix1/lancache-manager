@@ -60,24 +60,31 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         var activeService = ServiceForScope(activeScope);
         var newService = ServiceForScope(newScope);
 
-        // ---- 1. Global-catastrophic: DatabaseReset / CacheClearing ----
+        // ---- 1. Global operations ----
         // Any new op is blocked by an active global; a new global blocks any active op.
-        if (activeOp.Type == OperationType.DatabaseReset || activeOp.Type == OperationType.CacheClearing)
+        if (IsGlobal(activeOp.Type))
         {
             return BuildResponse(activeOp, activeScope,
-                stageKey: "errors.conflict.globalOperationActive",
-                englishError: $"Cannot start {newType}: a {activeOp.Type} operation is in progress.",
+                stageKey: activeOp.Type == OperationType.DownloadHistoryUpgrade
+                    ? "errors.conflict.downloadHistoryUpgradeActive"
+                    : "errors.conflict.globalOperationActive",
+                englishError: activeOp.Type == OperationType.DownloadHistoryUpgrade
+                    || newType == OperationType.DownloadHistoryUpgrade
+                        ? null
+                        : $"Cannot start {newType}: a {activeOp.Type} operation is in progress.",
                 context: new Dictionary<string, object?>
                 {
                     ["activeType"] = activeOp.Type.ToString()
                 });
         }
 
-        if (newType == OperationType.DatabaseReset || newType == OperationType.CacheClearing)
+        if (IsGlobal(newType))
         {
             return BuildResponse(activeOp, activeScope,
                 stageKey: "errors.conflict.globalOperationActive",
-                englishError: $"Cannot start {newType}: another operation ({activeOp.Type}) is still running.",
+                englishError: newType == OperationType.DownloadHistoryUpgrade
+                    ? null
+                    : $"Cannot start {newType}: another operation ({activeOp.Type}) is still running.",
                 context: new Dictionary<string, object?>
                 {
                     ["activeType"] = activeOp.Type.ToString()
@@ -187,7 +194,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         // Cache-mutating ops would race the walker and skew its results, and the eviction scan
         // is a second full-disk walk that should not run concurrently. Read-only detections are
         // tolerated (they were never blocked before and don't mutate cache files).
-        // CacheClearing/DatabaseReset pairings are already handled by section 1 above.
+        // Global-operation pairings are already handled by section 1 above.
         if (newType == OperationType.CacheSizeScan)
         {
             if (activeOp.Type == OperationType.CacheSizeScan)
@@ -525,7 +532,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     /// <summary>
     /// Full-sweep data operations that must run one at a time (section 1a). Each spawns a
     /// Rust worker over the whole log file / cache tree. CorruptionDetection is always a bulk scan.
-    /// DatabaseReset/CacheClearing are excluded only because section 1 blocks them earlier.
+    /// Global operations are excluded only because section 1 blocks them earlier.
     /// </summary>
     private static bool IsHeavyDataOp(OperationType type, ConflictScope scope) => type switch
     {
@@ -541,7 +548,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     /// <summary>
     /// Operation types that may not overlap a CacheSizeScan (in either direction):
     /// everything that deletes cache files plus the eviction scan's full-disk walk.
-    /// CacheClearing/DatabaseReset are excluded only because section 1 blocks them earlier.
+    /// Global operations are excluded only because section 1 blocks them earlier.
     /// </summary>
     private static bool ConflictsWithCacheSizeScan(OperationType type) =>
         type is OperationType.GameRemoval
@@ -556,6 +563,11 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             or OperationType.CorruptionRemoval
             or OperationType.EvictionRemoval;
 
+    private static bool IsGlobal(OperationType type) =>
+        type is OperationType.DatabaseReset
+            or OperationType.CacheClearing
+            or OperationType.DownloadHistoryUpgrade;
+
     private static string? GetGameName(OperationInfo op) => op.Metadata switch
     {
         RemovalMetrics m => m.EntityName,
@@ -567,7 +579,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         OperationInfo activeOp,
         ConflictScope activeScope,
         string stageKey,
-        string englishError,
+        string? englishError,
         Dictionary<string, object?>? context)
     {
         return new OperationConflictResponse

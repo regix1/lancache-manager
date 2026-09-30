@@ -34,7 +34,8 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   cacheSnapshot: 'cache_snapshot',
   operationHistoryCleanup: 'operation_history_cleanup',
   dashboardCacheWarmer: 'dashboard_cache_warmer',
-  prefillLogin: 'prefill_login'
+  prefillLogin: 'prefill_login',
+  downloadHistoryUpgrade: 'download_history_upgrade'
 };
 
 /**

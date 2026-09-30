@@ -46,9 +46,9 @@ struct ProgressData {
     /// Lines in the fallback-access.log series. Reported separately, never as a service.
     #[serde(skip_serializing_if = "Option::is_none")]
     fallback_lines: Option<u64>,
-    /// Count of source files whose count stopped at an unreadable member. When present, the
-    /// line and source counts describe only a clean prefix, so the total is partial rather
-    /// than authoritative. Omitted (and treated as zero) when every source read cleanly.
+    /// Count of members with open/read trouble or an unterminated rotated record. When present,
+    /// the line and source counts are the best available complete-record totals rather than an
+    /// authoritative total. Omitted (and treated as zero) when every member read cleanly.
     #[serde(skip_serializing_if = "Option::is_none")]
     files_with_errors: Option<u64>,
     /// Removed-line counts per stem for the REWRITTEN (monolithic) sources only; deleted
@@ -123,9 +123,8 @@ impl ProgressData {
         self
     }
 
-    /// Marks the count partial when at least one source stopped at an unreadable member. A
-    /// zero count is left unset so a clean run keeps the original progress shape (the field is
-    /// only serialized when it actually signals a partial total).
+    /// Marks the count partial when at least one member had a reportable problem. A zero count is
+    /// left unset so a clean run keeps the original progress shape.
     fn with_files_with_errors(mut self, files_with_errors: u64) -> Self {
         self.files_with_errors = if files_with_errors > 0 {
             Some(files_with_errors)
@@ -214,8 +213,8 @@ struct LineCountOutcome {
     lines_processed: u64,
     files_processed: usize,
     cancelled: bool,
-    /// Count of source files that stopped at an unreadable member; when greater than zero the
-    /// returned counts describe only a clean prefix and the total is partial, not authoritative.
+    /// Count of members with a reportable problem; when greater than zero the returned complete
+    /// record count is the best available total rather than an authoritative total.
     files_with_errors: u64,
     /// Complete-record count per logical source stem.
     source_line_counts: HashMap<String, u64>,
@@ -232,6 +231,65 @@ struct CompleteRecordCount {
     lines: u64,
     ended_incomplete: bool,
     cancelled: bool,
+    read_error: Option<String>,
+}
+
+impl CompleteRecordCount {
+    fn into_lines(self) -> Result<u64> {
+        match self.read_error {
+            Some(error) => Err(anyhow::Error::msg(error)),
+            None => Ok(self.lines),
+        }
+    }
+}
+
+/// What one member adds to its source's line count, the problem to report for it, and whether
+/// the source stops after it.
+#[derive(Debug, PartialEq, Eq)]
+struct MemberCount {
+    lines: u64,
+    problem: Option<String>,
+    stop_source: bool,
+    cancelled: bool,
+}
+
+fn member_count(rotated: bool, result: Result<CompleteRecordCount>) -> MemberCount {
+    match result {
+        Ok(outcome) if outcome.cancelled => MemberCount {
+            lines: outcome.lines,
+            problem: None,
+            stop_source: false,
+            cancelled: true,
+        },
+        Ok(outcome) if outcome.read_error.is_some() => MemberCount {
+            lines: if rotated { outcome.lines } else { 0 },
+            problem: outcome.read_error,
+            stop_source: !rotated,
+            cancelled: false,
+        },
+        Ok(outcome) if outcome.ended_incomplete => MemberCount {
+            lines: outcome.lines,
+            problem: if rotated {
+                Some("ends with an unterminated record".to_string())
+            } else {
+                None
+            },
+            stop_source: !rotated,
+            cancelled: false,
+        },
+        Ok(outcome) => MemberCount {
+            lines: outcome.lines,
+            problem: None,
+            stop_source: false,
+            cancelled: false,
+        },
+        Err(error) => MemberCount {
+            lines: 0,
+            problem: Some(format!("{error:#}")),
+            stop_source: !rotated,
+            cancelled: false,
+        },
+    }
 }
 
 /// Resolve a log path (directory or explicit file) into its logical sources. A directory
@@ -268,17 +326,15 @@ fn resolve_sources(log_path: &str) -> Result<Vec<LogSource>> {
 /// of a live file is NOT counted: a position seeded past it would skip the finished line
 /// on the next processing run. The outcome also preserves the partial complete-record
 /// count on cancellation and reports whether an unterminated record stopped the file.
-fn count_complete_records_in_file<F, T>(
-    path: &Path,
+fn count_complete_records<R>(
     bytes_processed: &mut u64,
-    is_cancelled: &F,
-    tick: &mut T,
+    is_cancelled: &dyn Fn() -> bool,
+    tick: &mut dyn FnMut(u64, u64) -> Result<()>,
+    mut read_until_newline: R,
 ) -> Result<CompleteRecordCount>
 where
-    F: Fn() -> bool,
-    T: FnMut(u64, u64) -> Result<()>,
+    R: FnMut(&mut Vec<u8>) -> Result<usize>,
 {
-    let mut reader = LogFileReader::open(path)?;
     let mut line: Vec<u8> = Vec::with_capacity(1024);
     let mut file_lines = 0u64;
     let mut ended_incomplete = false;
@@ -288,10 +344,21 @@ where
                 lines: file_lines,
                 ended_incomplete,
                 cancelled: true,
+                read_error: None,
             });
         }
         line.clear();
-        let bytes_read = reader.read_until_newline(&mut line)?;
+        let bytes_read = match read_until_newline(&mut line) {
+            Ok(bytes_read) => bytes_read,
+            Err(error) => {
+                return Ok(CompleteRecordCount {
+                    lines: file_lines,
+                    ended_incomplete: false,
+                    cancelled: false,
+                    read_error: Some(format!("{error:#}")),
+                });
+            }
+        };
         if bytes_read == 0 {
             break;
         }
@@ -307,6 +374,19 @@ where
         lines: file_lines,
         ended_incomplete,
         cancelled: false,
+        read_error: None,
+    })
+}
+
+fn count_complete_records_in_file(
+    path: &Path,
+    bytes_processed: &mut u64,
+    is_cancelled: &dyn Fn() -> bool,
+    tick: &mut dyn FnMut(u64, u64) -> Result<()>,
+) -> Result<CompleteRecordCount> {
+    let mut reader = LogFileReader::open(path)?;
+    count_complete_records(bytes_processed, is_cancelled, tick, |line| {
+        reader.read_until_newline(line)
     })
 }
 
@@ -376,6 +456,33 @@ fn count_log_lines<F>(
 ) -> Result<LineCountOutcome>
 where
     F: Fn() -> bool,
+{
+    count_log_lines_with(
+        log_path,
+        progress_path,
+        reporter,
+        datasource_name,
+        is_cancelled,
+        count_complete_records_in_file,
+    )
+}
+
+fn count_log_lines_with<F, C>(
+    log_path: &str,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    datasource_name: Option<&str>,
+    is_cancelled: F,
+    count_file: C,
+) -> Result<LineCountOutcome>
+where
+    F: Fn() -> bool,
+    C: Fn(
+        &Path,
+        &mut u64,
+        &dyn Fn() -> bool,
+        &mut dyn FnMut(u64, u64) -> Result<()>,
+    ) -> Result<CompleteRecordCount>,
 {
     if is_cancelled() {
         return finish_cancelled_line_count(
@@ -473,49 +580,46 @@ where
                 Ok(())
             };
 
-            // These counts seed per-stem positions (reset-to-end / fresh install), so a
-            // seeded value must describe one clean PREFIX of the stem's series: stop the
-            // source at the first unreadable or unterminated member. The next processing
-            // run re-reads from the prefix and dedup absorbs any overlap.
-            match count_complete_records_in_file(
-                &log_file.path,
-                &mut bytes_processed,
-                &is_cancelled,
-                &mut tick,
-            ) {
-                Ok(outcome) if outcome.cancelled => {
-                    return finish_cancelled_line_count(
-                        progress_path,
-                        reporter,
-                        datasource_name,
-                        lines_processed + source_lines + outcome.lines,
-                        files_processed,
-                        files_with_errors,
-                        source_counts_through_current(
-                            &source_line_counts,
-                            &source.stem,
-                            source_lines + outcome.lines,
-                        ),
-                    );
-                }
-                Ok(outcome) => {
-                    files_processed += 1;
-                    source_lines += outcome.lines;
-                    if outcome.ended_incomplete {
-                        break;
-                    }
-                }
-                Err(error) => {
-                    files_processed += 1;
-                    // An unreadable member truncates this source at its clean prefix. Record it so
-                    // the returned total is reported as partial instead of looking authoritative.
-                    files_with_errors += 1;
-                    eprintln!(
-                        "WARNING: Corrupted log file {} stops this source's count at its last clean prefix: {error:#}",
-                        log_file.path.display()
-                    );
-                    break;
-                }
+            // Counting keeps complete readable records from a rotated member and continues through
+            // newer members. Current-file read errors keep the clean-prefix boundary. A scalar count
+            // has no saved per-member proof, so a later processor pass can conservatively replay
+            // newer members after an unreadable rotation.
+            let count = member_count(
+                log_file.rotation_number.is_some(),
+                count_file(
+                    &log_file.path,
+                    &mut bytes_processed,
+                    &is_cancelled,
+                    &mut tick,
+                ),
+            );
+            if count.cancelled {
+                return finish_cancelled_line_count(
+                    progress_path,
+                    reporter,
+                    datasource_name,
+                    lines_processed + source_lines + count.lines,
+                    files_processed,
+                    files_with_errors,
+                    source_counts_through_current(
+                        &source_line_counts,
+                        &source.stem,
+                        source_lines + count.lines,
+                    ),
+                );
+            }
+
+            files_processed += 1;
+            if let Some(problem) = count.problem {
+                files_with_errors += 1;
+                eprintln!(
+                    "WARNING: Log file {} could not deliver every complete record: {problem}",
+                    log_file.path.display()
+                );
+            }
+            source_lines += count.lines;
+            if count.stop_source {
+                break;
             }
         }
 
@@ -856,7 +960,7 @@ fn count_services(
                             &|| false,
                             &mut tick,
                         )?
-                        .lines;
+                        .into_lines()?;
                         lines_processed += file_lines;
                         match &source.kind {
                             SourceKind::Service(service) => {
@@ -1034,15 +1138,17 @@ fn remove_service_from_logs(
             // Count complete records first so the removal report matches the counts the
             // service-count UI showed for this source.
             let mut bytes_sink = 0u64;
-            let lines_in_file = count_complete_records_in_file(
+            let lines_in_file = match count_complete_records_in_file(
                 &log_file.path,
                 &mut bytes_sink,
                 &|| false,
                 &mut |_, _| Ok(()),
             )
-            .ok()
-            .map(|outcome| outcome.lines)
-            .unwrap_or(0);
+            .and_then(CompleteRecordCount::into_lines)
+            {
+                Ok(lines) => lines,
+                Err(_) => 0,
+            };
 
             match fs::remove_file(&log_file.path) {
                 Ok(()) => {
@@ -1090,8 +1196,8 @@ fn remove_service_from_logs(
                     &|| false,
                     &mut |_, _| Ok(()),
                 )
+                .and_then(CompleteRecordCount::into_lines)
                 .ok()
-                .map(|outcome| outcome.lines)
             })
             .sum::<u64>();
         let outcome = log_purge::remove_all_log_entries_for_service(
@@ -1949,9 +2055,9 @@ mod tests {
         .to_string()
     }
 
-    fn write_gzip(path: &Path, contents: &[u8]) {
+    fn write_gzip(path: &Path, contents: &[u8], compression: Compression) {
         let file = fs::File::create(path).expect("create gzip fixture");
-        let mut encoder = GzEncoder::new(file, Compression::default());
+        let mut encoder = GzEncoder::new(file, compression);
         encoder
             .write_all(contents)
             .expect("write gzip fixture contents");
@@ -1965,6 +2071,27 @@ mod tests {
             .write_all(contents)
             .expect("write zstd fixture contents");
         encoder.finish().expect("finish zstd fixture");
+    }
+
+    fn count_with_read_failure(
+        path: &Path,
+        bytes_processed: &mut u64,
+        is_cancelled: &dyn Fn() -> bool,
+        tick: &mut dyn FnMut(u64, u64) -> Result<()>,
+        after_lines: u64,
+    ) -> Result<CompleteRecordCount> {
+        let mut reader = LogFileReader::open(path)?;
+        let mut lines_read = 0u64;
+        count_complete_records(bytes_processed, is_cancelled, tick, |line| {
+            if lines_read == after_lines {
+                anyhow::bail!("injected read failure");
+            }
+            let bytes_read = reader.read_until_newline(line)?;
+            if line.ends_with(b"\n") {
+                lines_read += 1;
+            }
+            Ok(bytes_read)
+        })
     }
 
     fn read_progress(path: &Path) -> serde_json::Value {
@@ -2002,7 +2129,11 @@ mod tests {
         // must not be counted (a position seeded past it would skip the finished line).
         fs::write(directory.path().join("access.log"), b"one\ntwo").expect("write current log");
         fs::write(directory.path().join("access.log.1"), b"three\n").expect("write rotated log");
-        write_gzip(&directory.path().join("access.log.2.gz"), b"four\nfive\n");
+        write_gzip(
+            &directory.path().join("access.log.2.gz"),
+            b"four\nfive\n",
+            Compression::default(),
+        );
         // .zst rotations are part of the processed series now (the old reset count
         // silently excluded them, desyncing the seeded position from the processor).
         write_zstd(&directory.path().join("access.log.3.zst"), b"zero\n");
@@ -2030,6 +2161,281 @@ mod tests {
         assert_eq!(progress["files_processed"], 4);
         assert_eq!(progress["source_line_counts"]["access.log"], 5);
         assert!(progress.get("service_counts").is_none());
+    }
+
+    #[test]
+    fn count_log_lines_keeps_plain_rotation_when_compressed_twin_exists() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("access.log.1"), b"one\ntwo\nthree\n")
+            .expect("write plain rotation");
+        write_gzip(
+            &directory.path().join("access.log.1.gz"),
+            b"duplicate-one\nduplicate-two\nduplicate-three\nduplicate-four\nduplicate-five\n",
+            Compression::default(),
+        );
+        fs::write(directory.path().join("access.log"), b"four\nfive\n").expect("write current log");
+
+        let discovered =
+            discover_log_files(directory.path(), "access.log").expect("discover rotation series");
+        let names: Vec<_> = discovered
+            .iter()
+            .map(|log_file| {
+                log_file
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("UTF-8 fixture name")
+            })
+            .collect();
+        assert_eq!(names, vec!["access.log.1", "access.log"]);
+
+        let progress_path = directory.path().join("progress.json");
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+        )
+        .expect("count de-duplicated series");
+
+        assert_eq!(result.lines_processed, 5);
+        assert_eq!(result.files_processed, 2);
+        assert_eq!(result.source_line_counts.get("access.log"), Some(&5));
+        assert_eq!(result.files_with_errors, 0);
+    }
+
+    #[test]
+    fn member_count_applies_the_rotated_and_current_rules() {
+        let complete = |lines| CompleteRecordCount {
+            lines,
+            ended_incomplete: false,
+            cancelled: false,
+            read_error: None,
+        };
+        assert_eq!(
+            member_count(true, Ok(complete(3))),
+            MemberCount {
+                lines: 3,
+                problem: None,
+                stop_source: false,
+                cancelled: false,
+            }
+        );
+
+        let cancelled = CompleteRecordCount {
+            lines: 4,
+            ended_incomplete: false,
+            cancelled: true,
+            read_error: None,
+        };
+        assert_eq!(
+            member_count(false, Ok(cancelled)),
+            MemberCount {
+                lines: 4,
+                problem: None,
+                stop_source: false,
+                cancelled: true,
+            }
+        );
+
+        for rotated in [true, false] {
+            let open = member_count(rotated, Err(anyhow::anyhow!("open failed")));
+            assert_eq!(open.lines, 0);
+            assert_eq!(open.problem.as_deref(), Some("open failed"));
+            assert_eq!(open.stop_source, !rotated);
+
+            let read = member_count(
+                rotated,
+                Ok(CompleteRecordCount {
+                    lines: 7,
+                    ended_incomplete: false,
+                    cancelled: false,
+                    read_error: Some("read failed".to_string()),
+                }),
+            );
+            assert_eq!(read.lines, if rotated { 7 } else { 0 });
+            assert_eq!(read.problem.as_deref(), Some("read failed"));
+            assert_eq!(read.stop_source, !rotated);
+
+            let incomplete = member_count(
+                rotated,
+                Ok(CompleteRecordCount {
+                    lines: 2,
+                    ended_incomplete: true,
+                    cancelled: false,
+                    read_error: None,
+                }),
+            );
+            assert_eq!(incomplete.lines, 2);
+            assert_eq!(
+                incomplete.problem.as_deref(),
+                rotated.then_some("ends with an unterminated record")
+            );
+            assert_eq!(incomplete.stop_source, !rotated);
+        }
+    }
+
+    #[test]
+    fn count_log_lines_continues_after_unterminated_rotated_member() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(
+            directory.path().join("access.log.1"),
+            b"a1\na2\na3-cut-mid-lin",
+        )
+        .expect("write unterminated rotation");
+        fs::write(directory.path().join("access.log"), b"a3\na4\n").expect("write current log");
+        let progress_path = directory.path().join("progress.json");
+
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+        )
+        .expect("count through unterminated rotation");
+
+        assert_eq!(result.lines_processed, 4);
+        assert_eq!(result.files_processed, 2);
+        assert_eq!(result.source_line_counts.get("access.log"), Some(&4));
+        assert_eq!(result.files_with_errors, 1);
+
+        fs::write(directory.path().join("access.log.1"), b"a1\na2\na3\n")
+            .expect("complete rotated tail");
+        fs::write(directory.path().join("access.log"), b"a3\na4\na5\n")
+            .expect("append current record");
+
+        let completed = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+        )
+        .expect("count completed rotation");
+
+        assert_eq!(completed.lines_processed, 6);
+        assert_eq!(completed.files_processed, 2);
+        assert_eq!(completed.source_line_counts.get("access.log"), Some(&6));
+        assert_eq!(completed.files_with_errors, 0);
+    }
+
+    #[test]
+    fn count_log_lines_continues_after_injected_rotated_read_failure() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let rotated = directory.path().join("access.log.1");
+        fs::write(&rotated, b"old-one\nold-two\n").expect("write rotated log");
+        fs::write(directory.path().join("access.log"), b"new-one\nnew-two\n")
+            .expect("write current log");
+        let progress_path = directory.path().join("progress.json");
+
+        let result = count_log_lines_with(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+            |path, bytes_processed, is_cancelled, tick| {
+                if path == rotated {
+                    count_with_read_failure(path, bytes_processed, is_cancelled, tick, 0)
+                } else {
+                    count_complete_records_in_file(path, bytes_processed, is_cancelled, tick)
+                }
+            },
+        )
+        .expect("count after rotated read failure");
+
+        assert_eq!(result.lines_processed, 2);
+        assert_eq!(result.files_processed, 2);
+        assert_eq!(result.source_line_counts.get("access.log"), Some(&2));
+        assert_eq!(result.files_with_errors, 1);
+    }
+
+    #[test]
+    fn count_log_lines_stops_at_injected_current_read_failure() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let current = directory.path().join("access.log");
+        fs::write(&current, b"one\ntwo\n").expect("write current log");
+        let progress_path = directory.path().join("progress.json");
+
+        let result = count_log_lines_with(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+            |path, bytes_processed, is_cancelled, tick| {
+                if path == current {
+                    count_with_read_failure(path, bytes_processed, is_cancelled, tick, 1)
+                } else {
+                    count_complete_records_in_file(path, bytes_processed, is_cancelled, tick)
+                }
+            },
+        )
+        .expect("count current read failure");
+
+        assert_eq!(result.lines_processed, 0);
+        assert_eq!(result.files_processed, 1);
+        assert_eq!(result.source_line_counts.get("access.log"), Some(&0));
+        assert_eq!(result.files_with_errors, 1);
+    }
+
+    #[test]
+    fn count_log_lines_keeps_records_before_truncated_rotation_error() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let compressed = directory.path().join("access.log.2.gz");
+        let contents = (0..200)
+            .map(|number| format!("record-{number:03}\n"))
+            .collect::<String>();
+        write_gzip(&compressed, contents.as_bytes(), Compression::none());
+        let compressed_length = fs::metadata(&compressed)
+            .expect("read compressed fixture length")
+            .len();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&compressed)
+            .expect("open compressed fixture for truncation")
+            .set_len(compressed_length * 3 / 5)
+            .expect("truncate compressed fixture");
+        fs::write(directory.path().join("access.log.1"), b"one\ntwo\nthree\n")
+            .expect("write newer rotation");
+        fs::write(directory.path().join("access.log"), b"four\nfive\n").expect("write current log");
+
+        let mut reader = LogFileReader::open(&compressed).expect("open truncated rotation");
+        let mut line = Vec::new();
+        let mut readable_records = 0u64;
+        let mut read_failed = false;
+        loop {
+            line.clear();
+            match reader.read_until_newline(&mut line) {
+                Ok(0) => break,
+                Ok(_) if line.ends_with(b"\n") => readable_records += 1,
+                Ok(_) => break,
+                Err(_) => {
+                    read_failed = true;
+                    break;
+                }
+            }
+        }
+        assert!(read_failed, "truncated gzip must report a read error");
+
+        let progress_path = directory.path().join("progress.json");
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+        )
+        .expect("count through truncated rotation");
+
+        assert_eq!(result.lines_processed, readable_records + 5);
+        assert_eq!(
+            result.source_line_counts.get("access.log"),
+            Some(&(readable_records + 5))
+        );
+        assert_eq!(result.files_with_errors, 1);
     }
 
     #[test]
@@ -2245,9 +2651,8 @@ mod tests {
     #[test]
     fn count_log_lines_stops_source_at_corrupt_member_to_keep_prefix() {
         let directory = tempfile::tempdir().expect("create fixture directory");
-        // The corrupt member is OLDER than the current file, so the seeded position must
-        // stop at the prefix BEFORE it — counting the newer file would seed a position
-        // that describes a series with a hole and later skips real records.
+        // A rotated member cannot recover, so its unreadable suffix is reported and newer
+        // members continue. This matches the processor's position accounting.
         fs::write(directory.path().join("access.log"), b"good\n").expect("write current log");
         fs::write(
             directory.path().join("access.log.1.gz"),
@@ -2266,9 +2671,9 @@ mod tests {
         )
         .expect("count around corrupt rotation");
 
-        assert_eq!(result.lines_processed, 0);
-        assert_eq!(result.files_processed, 1);
-        assert_eq!(result.source_line_counts.get("access.log"), Some(&0));
+        assert_eq!(result.lines_processed, 1);
+        assert_eq!(result.files_processed, 2);
+        assert_eq!(result.source_line_counts.get("access.log"), Some(&1));
         assert_eq!(result.files_with_errors, 1);
         assert_eq!(read_progress(&progress_path)["status"], "completed");
         assert_eq!(read_progress(&progress_path)["files_with_errors"], 1);
@@ -2279,8 +2684,8 @@ mod tests {
         let directory = tempfile::tempdir().expect("create fixture directory");
         // One per-service source is fully readable and must keep its exact count.
         fs::write(directory.path().join("steam-access.log"), b"a\nb\n").expect("write readable");
-        // Another source's older rotation is a corrupt gzip: that source stops at its clean
-        // prefix (zero lines) and the whole count is marked partial, never all-or-nothing.
+        // Another source's older rotation is corrupt. Its readable prefix is retained, the
+        // problem is reported, and the current member still contributes its record.
         fs::write(directory.path().join("blizzard-access.log"), b"newer\n").expect("write current");
         fs::write(
             directory.path().join("blizzard-access.log.1.gz"),
@@ -2299,20 +2704,21 @@ mod tests {
         )
         .expect("count with one unreadable source");
 
-        // The readable source's count survives; only the unreadable source is truncated.
+        // The readable source's count survives and the unreadable source's current file counts.
         assert_eq!(result.source_line_counts.get("steam-access.log"), Some(&2));
         assert_eq!(
             result.source_line_counts.get("blizzard-access.log"),
-            Some(&0)
+            Some(&1)
         );
-        assert_eq!(result.lines_processed, 2);
+        assert_eq!(result.lines_processed, 3);
+        assert_eq!(result.files_processed, 3);
         assert!(!result.cancelled);
         // Exactly one source hit an unreadable member, so the total is partial.
         assert_eq!(result.files_with_errors, 1);
 
         let progress = read_progress(&progress_path);
         assert_eq!(progress["status"], "completed");
-        assert_eq!(progress["lines_processed"], 2);
+        assert_eq!(progress["lines_processed"], 3);
         assert_eq!(progress["files_with_errors"], 1);
     }
 

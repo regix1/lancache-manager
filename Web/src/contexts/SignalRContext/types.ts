@@ -40,6 +40,7 @@ export interface SignalRProviderProps {
 export const SIGNALR_EVENTS = [
   // Downloads
   'DownloadsRefresh',
+  'DownloadHistoryMergeComplete',
   'DownloadSpeedUpdate',
   'CacheScanBlockedChanged',
 
@@ -318,6 +319,8 @@ export const SIGNALR_REFRESH_EVENTS = [
   'DownloadsRefresh',
   'LogProcessingComplete',
   // User action completions
+  // The one-time download-history merge deletes rows that every range may list.
+  'DownloadHistoryMergeComplete',
   'DepotMappingComplete',
   'LogRemovalComplete',
   'CorruptionRemovalComplete',

@@ -72,7 +72,13 @@ function applyFilters(downloads: Download[], filters: SessionFilters): Download[
 
   if (filters.timeRange !== 'all') {
     const cutoff = Date.now() - TIME_RANGE_MS[filters.timeRange];
-    result = result.filter((d) => new Date(d.startTimeUtc).getTime() >= cutoff);
+    // Keep downloads active since the cutoff, including those that began earlier and ended inside
+    // the selected period.
+    result = result.filter(
+      (d) =>
+        new Date(d.startTimeUtc).getTime() >= cutoff ||
+        (d.endTimeUtc !== null && new Date(d.endTimeUtc).getTime() >= cutoff)
+    );
   }
 
   const sorted = [...result];

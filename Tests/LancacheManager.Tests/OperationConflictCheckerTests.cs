@@ -3,11 +3,146 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace LancacheManager.Tests;
 
 public class OperationConflictCheckerTests
 {
+    [Fact]
+    public async Task Blocks_EveryNewOperation_When_DownloadHistoryUpgrade_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var blockerId = RegisterBulkOperation(
+            tracker.Tracker,
+            OperationType.DownloadHistoryUpgrade,
+            "Upgrading download history");
+
+        var operationTypes = Enum.GetValues<OperationType>();
+        for (var index = 0; index < operationTypes.Length; index++)
+        {
+            var requestedType = operationTypes[index];
+            var requestedScope = index % 2 == 0
+                ? ConflictScope.Bulk()
+                : ConflictScope.NamedGame("blizzard", "Diablo IV");
+
+            var response = await tracker.Checker.CheckAsync(
+                requestedType,
+                requestedScope,
+                CancellationToken.None);
+
+            Assert.NotNull(response);
+            Assert.Equal("OPERATION_CONFLICT", response!.Code);
+            Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", response.StageKey);
+            Assert.False(string.IsNullOrWhiteSpace(response.StageKey));
+            Assert.Null(response.Error);
+            Assert.Equal(blockerId, response.ActiveOperationId);
+            Assert.Equal(nameof(OperationType.DownloadHistoryUpgrade), response.ActiveOperationType);
+            Assert.Equal("bulk", response.ActiveOperationScope);
+        }
+    }
+
+    [Fact]
+    public async Task Blocks_DownloadHistoryUpgrade_When_AnyOperation_IsActiveAsync()
+    {
+        foreach (var activeType in Enum.GetValues<OperationType>())
+        {
+            using var tracker = new TrackerHarness();
+            var blockerId = RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
+
+            var response = await tracker.Checker.CheckAsync(
+                OperationType.DownloadHistoryUpgrade,
+                ConflictScope.Bulk(),
+                CancellationToken.None);
+
+            Assert.NotNull(response);
+            Assert.Equal("OPERATION_CONFLICT", response!.Code);
+            Assert.Equal(
+                activeType == OperationType.DownloadHistoryUpgrade
+                    ? "errors.conflict.downloadHistoryUpgradeActive"
+                    : "errors.conflict.globalOperationActive",
+                response.StageKey);
+            Assert.False(string.IsNullOrWhiteSpace(response.StageKey));
+            Assert.Null(response.Error);
+            Assert.Equal(blockerId, response.ActiveOperationId);
+            Assert.Equal(activeType.ToString(), response.ActiveOperationType);
+            Assert.Equal("bulk", response.ActiveOperationScope);
+        }
+    }
+
+    [Fact]
+    public async Task Waiting_DownloadHistoryUpgrade_DoesNotBlockAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(
+            tracker.Tracker,
+            OperationType.DownloadHistoryUpgrade,
+            "Upgrading download history",
+            OperationStatus.Waiting);
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Theory]
+    [InlineData(OperationType.CacheClearing, OperationType.LogProcessing,
+        "Cannot start LogProcessing: a CacheClearing operation is in progress.")]
+    [InlineData(OperationType.DatabaseReset, OperationType.LogProcessing,
+        "Cannot start LogProcessing: a DatabaseReset operation is in progress.")]
+    [InlineData(OperationType.LogProcessing, OperationType.CacheClearing,
+        "Cannot start CacheClearing: another operation (LogProcessing) is still running.")]
+    [InlineData(OperationType.LogProcessing, OperationType.DatabaseReset,
+        "Cannot start DatabaseReset: another operation (LogProcessing) is still running.")]
+    public async Task ExistingGlobalConflictsKeepLegacyEnglishErrorAsync(
+        OperationType activeType,
+        OperationType requestedType,
+        string expectedError)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
+
+        var response = await tracker.Checker.CheckAsync(
+            requestedType,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.globalOperationActive", response!.StageKey);
+        Assert.Equal(expectedError, response.Error);
+
+        var json = JsonSerializer.Serialize(response, ConflictJsonOptions());
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(expectedError, document.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task UpgradeConflictSerializationOmitsLegacyEnglishErrorAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(
+            tracker.Tracker,
+            OperationType.DownloadHistoryUpgrade,
+            "Upgrading download history");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame("blizzard", "Diablo IV"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        var json = JsonSerializer.Serialize(response, ConflictJsonOptions());
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal("OPERATION_CONFLICT", document.RootElement.GetProperty("code").GetString());
+        Assert.Equal(
+            "errors.conflict.downloadHistoryUpgradeActive",
+            document.RootElement.GetProperty("stageKey").GetString());
+        Assert.False(document.RootElement.TryGetProperty("error", out _));
+    }
 
 
     [Fact]
@@ -352,12 +487,26 @@ public class OperationConflictCheckerTests
 
 
 
-    private static void RegisterBulkOperation(UnifiedOperationTracker tracker, OperationType type, string name)
+    private static Guid RegisterBulkOperation(
+        UnifiedOperationTracker tracker,
+        OperationType type,
+        string name,
+        OperationStatus initialStatus = OperationStatus.Running)
     {
         // Bulk-scope heavy ops (LogProcessing / GameDetection / EvictionScan / CacheSizeScan)
         // register without metadata, so DeriveScope falls back to Bulk().
-        tracker.RegisterOperation(type, name, new CancellationTokenSource());
+        return tracker.RegisterOperation(
+            type,
+            name,
+            new CancellationTokenSource(),
+            initialStatus: initialStatus);
     }
+
+    private static JsonSerializerOptions ConflictJsonOptions() => new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     private static void RegisterBulkCorruptionDetection(UnifiedOperationTracker tracker)
     {

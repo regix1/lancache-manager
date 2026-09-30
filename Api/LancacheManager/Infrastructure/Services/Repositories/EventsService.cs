@@ -133,7 +133,8 @@ public class EventsService : IEventsService
             // Get downloads within the event time window
             downloads = await _context.Downloads
                 .AsNoTracking()
-                .Where(d => d.StartTimeUtc >= evt.StartTimeUtc && d.StartTimeUtc <= evt.EndTimeUtc)
+                .Where(d => d.StartTimeUtc <= evt.EndTimeUtc
+                    && (d.EndTimeUtc >= evt.StartTimeUtc || d.StartTimeUtc >= evt.StartTimeUtc))
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }
@@ -195,13 +196,12 @@ public class EventsService : IEventsService
 
         foreach (var evt in activeEvents)
         {
-            // Get downloads within the event time window that are not yet tagged
-            // IMPORTANT: Only tag downloads that occurred AFTER the event was created
-            // This prevents retroactively tagging old downloads when an event is created
-            // with a start time in the past
+            // A download is tagged when it was active during the event and after the event was
+            // created. A running download contributes its earlier bytes, while an event created
+            // with a past start does not claim downloads that ended before it existed.
             var untaggedDownloads = await _context.Downloads
-                .Where(d => d.StartTimeUtc >= evt.StartTimeUtc && d.StartTimeUtc <= evt.EndTimeUtc)
-                .Where(d => d.StartTimeUtc >= evt.CreatedAtUtc) // Only tag downloads that occurred after event creation
+                .Where(d => d.StartTimeUtc <= evt.EndTimeUtc && d.EndTimeUtc >= evt.StartTimeUtc)
+                .Where(d => d.EndTimeUtc >= evt.CreatedAtUtc)
                 .Where(d => !_context.EventDownloads.Any(ed => ed.EventId == evt.Id && ed.DownloadId == d.Id))
                 .Select(d => d.Id)
                 .ToListAsync(cancellationToken);

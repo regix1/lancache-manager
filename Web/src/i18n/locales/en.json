@@ -367,7 +367,8 @@
         "operationHistoryCleanup": "Operation History Cleanup",
         "dashboardCacheWarmer": "Dashboard Cache Warmer",
         "bulkRemoval": "Bulk Removal",
-        "prefillLogin": "Prefill Sign-In"
+        "prefillLogin": "Prefill Sign-In",
+        "downloadHistoryUpgrade": "Download History Upgrade"
       },
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
@@ -392,6 +393,7 @@
       "cancelEvictionRemoval": "Cancel eviction removal",
       "cancelBulkRemoval": "Cancel bulk removal",
       "cancelPrefillLogin": "Cancel sign-in",
+      "cancelDownloadHistoryUpgrade": "Cancel download history upgrade",
       "cancelOperationAria": "Cancel operation",
       "forceKillOperation": "Click again to force kill",
       "forceStop": "Force stop",
@@ -7430,6 +7432,10 @@
     }
   },
   "signalr": {
+    "downloadHistoryUpgrade": {
+      "indexing": "Rebuilding the duplicate check index",
+      "merging": "Merging split download rows"
+    },
     "generic": {
       "unknown": "Operation in progress...",
       "failed": "Operation failed",
@@ -8023,7 +8029,8 @@
       "bulkActive": "A bulk operation is in flight. Wait for it to complete.",
       "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked.",
       "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations.",
-      "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes."
+      "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes.",
+      "downloadHistoryUpgradeActive": "The one-time download history upgrade is running. Try again when it finishes."
     },
     "corruption": {
       "scanIdRequired": "A corruption scan ID is required",

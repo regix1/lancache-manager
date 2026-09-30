@@ -45,6 +45,7 @@ export type NotificationType =
   | 'dashboard_cache_warmer'
   | 'bulk_removal'
   | 'prefill_login'
+  | 'download_history_upgrade'
   | 'steam_session_error'
   | 'generic';
 

@@ -28,6 +28,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     private readonly Meter _meter;
     private readonly Stopwatch _uptimeStopwatch;
     private readonly string _version;
+    private readonly Func<long> _timestamp;
 
     // Thread-safe storage for metric values
     private readonly ConcurrentDictionary<string, ServiceMetrics> _serviceMetrics = new();
@@ -92,6 +93,8 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
 
     // Time tracking
     private long _lastUpdateTimestamp;
+    private long _lastScrapeTicks;
+    private long _lastRefreshTicks;
 
     private class HourlyMetrics
     {
@@ -240,8 +243,18 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         IServiceProvider serviceProvider,
         ILogger<LancacheMetricsService> logger,
         IConfiguration configuration)
-        : base(serviceProvider, logger, configuration)
+        : this(serviceProvider, logger, configuration, Stopwatch.GetTimestamp)
     {
+    }
+
+    internal LancacheMetricsService(
+        IServiceProvider services,
+        ILogger<LancacheMetricsService> logger,
+        IConfiguration configuration,
+        Func<long> timestamp)
+        : base(services, logger, configuration)
+    {
+        _timestamp = timestamp;
         _uptimeStopwatch = Stopwatch.StartNew();
 
         // Get version from environment or assembly
@@ -258,7 +271,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         _meter.CreateObservableGauge(
             "lancache_info",
-            () => new Measurement<int>(1, new KeyValuePair<string, object?>("version", _version)),
+            // The exporter collects each observable instrument only during a permitted scrape, so
+            // this callback is the scrape signal and the authentication middleware stays unchanged.
+            () =>
+            {
+                RecordScrape();
+                return new Measurement<int>(1, new KeyValuePair<string, object?>("version", _version));
+            },
             description: "LANCache Manager information"
         );
 
@@ -817,10 +836,27 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
+    internal void RecordScrape() =>
+        Interlocked.Exchange(ref _lastScrapeTicks, _timestamp());
+
+    internal static bool ShouldRefresh(long lastScrapeTicks, long lastRefreshTicks) =>
+        lastRefreshTicks == 0 || lastScrapeTicks > lastRefreshTicks;
+
     protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
+        // A refresh runs several whole-table aggregates, and only a scrape reads their values. The
+        // existing interval still drives this check; the first refresh runs so the first scrape is
+        // populated, and a scrape during a refresh makes the following interval run again.
+        if (!ShouldRefresh(
+                Interlocked.Read(ref _lastScrapeTicks),
+                Interlocked.Read(ref _lastRefreshTicks)))
+        {
+            return;
+        }
+        Interlocked.Exchange(ref _lastRefreshTicks, _timestamp());
+
         _updateCount++;
         await UpdateMetricsAsync(scopedServices, stoppingToken);
 
@@ -879,6 +915,25 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
                 HitBytes = g.Sum(row => row.CacheHitBytes),
                 Downloads = g.LongCount()
             };
+    }
+
+    /// <summary>
+    /// Daily cache growth for downloads active during the window. A download that began earlier
+    /// counts on the first day with its full bytes, so the total includes every overlapping row.
+    /// </summary>
+    internal static IQueryable<DailyGrowthRow> DailyGrowthQuery(
+        IQueryable<Download> downloads,
+        DateTime sevenDaysAgo)
+    {
+        return downloads
+            .Where(d => d.EndTimeUtc >= sevenDaysAgo || d.StartTimeUtc >= sevenDaysAgo)
+            .GroupBy(d => sevenDaysAgo <= d.StartTimeUtc ? d.StartTimeUtc.Date : sevenDaysAgo.Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new DailyGrowthRow
+            {
+                Date = g.Key,
+                GrowthBytes = g.Sum(d => d.CacheMissBytes)
+            });
     }
 
     private async Task UpdateMetricsAsync(IServiceProvider scopedServices, CancellationToken cancellationToken)
@@ -1150,15 +1205,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         // CACHE GROWTH METRICS (7-day period)
         // ============================================
-        var dailyGrowth = await downloads
-            .Where(d => d.StartTimeUtc >= sevenDaysAgo)
-            .GroupBy(d => d.StartTimeUtc.Date)
-            .OrderBy(g => g.Key)
-            .Select(g => new
-            {
-                Date = g.Key,
-                GrowthBytes = g.Sum(d => d.CacheMissBytes)
-            })
+        var dailyGrowth = await DailyGrowthQuery(downloads, sevenDaysAgo)
             .ToListAsync(cancellationToken);
 
         if (dailyGrowth.Count >= 2)

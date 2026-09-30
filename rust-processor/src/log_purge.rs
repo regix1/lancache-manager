@@ -50,9 +50,9 @@ const LOG_RESULT_ENV: &str = "LANCACHE_LOG_RESULT";
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct FileIdentity {
-    first: u64,
-    second: u64,
+pub struct FileIdentity {
+    pub first: u64,
+    pub second: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -88,7 +88,15 @@ struct PublicationResult {
 }
 
 #[cfg(windows)]
-fn file_identity(path: &Path) -> Result<FileIdentity> {
+pub fn file_identity(path: &Path) -> Result<FileIdentity> {
+    let file = File::open(path)
+        .with_context(|| format!("failed to open identity handle for {}", path.display()))?;
+    file_identity_of(&file)
+        .with_context(|| format!("failed to read identity for {}", path.display()))
+}
+
+#[cfg(windows)]
+pub fn file_identity_of(file: &File) -> Result<FileIdentity> {
     use std::os::windows::io::AsRawHandle;
 
     #[repr(C)]
@@ -113,15 +121,12 @@ fn file_identity(path: &Path) -> Result<FileIdentity> {
         ) -> i32;
     }
 
-    let file = File::open(path)
-        .with_context(|| format!("failed to open identity handle for {}", path.display()))?;
     let mut information = std::mem::MaybeUninit::<ByHandleFileInformation>::uninit();
     let succeeded = unsafe {
         GetFileInformationByHandle(file.as_raw_handle().cast(), information.as_mut_ptr())
     };
     if succeeded == 0 {
-        return Err(std::io::Error::last_os_error())
-            .with_context(|| format!("failed to read identity for {}", path.display()));
+        return Err(std::io::Error::last_os_error()).context("failed to read file identity");
     }
     let information = unsafe { information.assume_init() };
     Ok(FileIdentity {
@@ -131,7 +136,7 @@ fn file_identity(path: &Path) -> Result<FileIdentity> {
 }
 
 #[cfg(unix)]
-fn file_identity(path: &Path) -> Result<FileIdentity> {
+pub fn file_identity(path: &Path) -> Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
 
     let attributes = std::fs::metadata(path)
@@ -142,8 +147,24 @@ fn file_identity(path: &Path) -> Result<FileIdentity> {
     })
 }
 
+#[cfg(unix)]
+pub fn file_identity_of(file: &File) -> Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+
+    let attributes = file.metadata().context("failed to read file identity")?;
+    Ok(FileIdentity {
+        first: attributes.dev(),
+        second: attributes.ino(),
+    })
+}
+
 #[cfg(not(any(windows, unix)))]
-fn file_identity(_path: &Path) -> Result<FileIdentity> {
+pub fn file_identity(_path: &Path) -> Result<FileIdentity> {
+    anyhow::bail!("file identity is unsupported on this platform")
+}
+
+#[cfg(not(any(windows, unix)))]
+pub fn file_identity_of(_file: &File) -> Result<FileIdentity> {
     anyhow::bail!("file identity is unsupported on this platform")
 }
 
@@ -999,6 +1020,33 @@ mod tests {
     use chrono::DateTime;
     use std::fs;
     use std::io::Write;
+
+    #[cfg(unix)]
+    #[test]
+    fn path_and_handle_identity_follow_the_same_unix_file() {
+        let directory = tempfile::tempdir().expect("create identity fixture");
+        let path = directory.path().join("access.log");
+        let moved = directory.path().join("access.log.1");
+        fs::write(&path, b"old\n").expect("write identity fixture");
+        let opened = File::open(&path).expect("open identity fixture");
+        let original = file_identity_of(&opened).expect("read handle identity");
+
+        assert_eq!(file_identity(&path).expect("read path identity"), original);
+        fs::rename(&path, &moved).expect("rename identity fixture");
+        assert_eq!(
+            file_identity(&moved).expect("read renamed path identity"),
+            original
+        );
+        fs::write(&path, b"replacement\n").expect("write replacement fixture");
+        assert_ne!(
+            file_identity(&path).expect("read replacement identity"),
+            original
+        );
+        assert_eq!(
+            file_identity_of(&opened).expect("reread handle identity"),
+            original
+        );
+    }
 
     #[test]
     fn purge_counts_split_per_stem_and_sum_across_a_rotation_series() {

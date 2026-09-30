@@ -1457,6 +1457,47 @@ public class RustLogRemovalService
                 .Select(name => name.ToLowerInvariant())
                 .ToList();
 
+            var deleted = await DeleteServiceHistoryAsync(context, serviceLower, datasourceNames);
+            result.LogEntriesDeleted = deleted.LogEntriesDeleted;
+            _logger.LogInformation("Deleted {Count} LogEntries for service {Service}", result.LogEntriesDeleted, service);
+
+            result.DownloadsDeleted = deleted.DownloadsDeleted;
+            _logger.LogInformation("Deleted {Count} Downloads for service {Service}", result.DownloadsDeleted, service);
+
+            result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted;
+            result.Success = true;
+            result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries";
+
+            _logger.LogInformation("Database cleanup completed for service {Service}: {Message}", service, result.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during database cleanup for service {Service}", service);
+            result.Success = false;
+            result.Message = $"Error: {ex.Message}";
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Deletes one service's LogEntries and Downloads for the given datasources in one transaction
+    /// run by the execution strategy, after checking that no entry belongs to another datasource.
+    /// Throws <see cref="InvalidDataException"/> on that mismatch.
+    /// </summary>
+    internal static async Task<(int LogEntriesDeleted, int DownloadsDeleted)> DeleteServiceHistoryAsync(
+        AppDbContext context,
+        string serviceLower,
+        IReadOnlyList<string> datasourceNames)
+    {
+        // Large set-based deletes can exceed Npgsql's 30-second default. A command timeout would
+        // otherwise retry the whole transaction while the ordered table locks are held.
+        context.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
+
+        // The pooled context can retry transient database failures only when it owns the complete
+        // transaction. EF rejects a user transaction outside this retry block at the first query.
+        return await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
             await using var transaction = await context.Database.BeginTransactionAsync();
             if (context.Database.IsNpgsql())
             {
@@ -1479,35 +1520,19 @@ public class RustLogRemovalService
                     "Selected service history contains a log entry attributed to a different datasource");
             }
 
-            result.LogEntriesDeleted = await context.LogEntries
+            var logEntriesDeleted = await context.LogEntries
                 .Where(logEntry =>
                     logEntry.Service.ToLower() == serviceLower &&
                     datasourceNames.Contains(logEntry.Datasource.ToLower()))
                 .ExecuteDeleteAsync();
-            _logger.LogInformation("Deleted {Count} LogEntries for service {Service}", result.LogEntriesDeleted, service);
 
-            // Delete Downloads for this service
-            result.DownloadsDeleted = await context.Downloads
+            var downloadsDeleted = await context.Downloads
                 .Where(d =>
                     d.Service.ToLower() == serviceLower &&
                     datasourceNames.Contains(d.Datasource.ToLower()))
                 .ExecuteDeleteAsync();
             await transaction.CommitAsync();
-            _logger.LogInformation("Deleted {Count} Downloads for service {Service}", result.DownloadsDeleted, service);
-
-            result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted;
-            result.Success = true;
-            result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries";
-
-            _logger.LogInformation("Database cleanup completed for service {Service}: {Message}", service, result.Message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during database cleanup for service {Service}", service);
-            result.Success = false;
-            result.Message = $"Error: {ex.Message}";
-        }
-
-        return result;
+            return (logEntriesDeleted, downloadsDeleted);
+        });
     }
 }

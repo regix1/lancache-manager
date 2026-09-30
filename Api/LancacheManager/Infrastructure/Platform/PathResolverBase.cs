@@ -102,6 +102,13 @@ public abstract class PathResolverBase : IPathResolver
             {
                 try
                 {
+                    var fileName = Path.GetFileName(file);
+                    if (fileName.StartsWith("rust_resume_", StringComparison.Ordinal)
+                        && fileName.EndsWith(".json", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     var fileInfo = new FileInfo(file);
                     if (fileInfo.LastWriteTimeUtc < cutoffTime)
                     {

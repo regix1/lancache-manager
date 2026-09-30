@@ -38,6 +38,13 @@ public class RustLogProcessorService
     // would bound how many are alive. A tick that loses this gate does no work and returns.
     private readonly SemaphoreSlim _postPassLock = new(1, 1);
 
+    private long? _steamNamesDrainedAtMaxId;
+    private (long MaxDownloadId, int Catalog, DateTime? CatalogSeenUtc)? _lastEpicImageScan;
+
+    // An image task that loses _postPassLock does no image work. Keep the pending resolve across
+    // tasks until one takes the lock and runs the Epic image scan.
+    private int _epicRowsResolvedPending;
+
     // Signaled at the RegisterOperation call inside the processor so StartBackgroundProcessingAsync
     // can return the assigned operationId without polling. Class-field is safe because _startLock
     // gates IsProcessing = true, so there is at most one in-flight start at a time.
@@ -50,7 +57,11 @@ public class RustLogProcessorService
         string? Message,
         string? StageKey);
 
-    public bool IsProcessing { get; private set; }
+    // A pass sets the run flag; reset-to-end holds the reservation. They are separate fields so no run
+    // writer can clear a reservation and releasing a reservation cannot clear a running pass's flag.
+    private bool _isProcessingRun;
+    private Guid? _processingGateReservation;
+    public bool IsProcessing { get => _isProcessingRun || _processingGateReservation is not null; private set => _isProcessingRun = value; }
     public Guid? CurrentOperationId => _currentOperationId;
 
     public Task<Guid?> StartAllInBackgroundAsync()
@@ -425,6 +436,7 @@ public class RustLogProcessorService
         // leaving stale stem offsets behind would resurrect them via the positions file.
         foreach (var ds in _datasourceService.GetDatasources())
         {
+            ClearResume(ds.Name);
             _stateService.SetLogSourcePositions(ds.Name, new Dictionary<string, long>());
             _stateService.SetLogPosition(ds.Name, 0);
         }
@@ -438,9 +450,18 @@ public class RustLogProcessorService
     /// </summary>
     public void ResetLogPosition(string datasourceName)
     {
+        ClearResume(datasourceName);
         _stateService.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateService.SetLogPosition(datasourceName, 0);
         _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
+    }
+
+    public void ClearResume(string datasourceName)
+    {
+        var resumePath = Path.Combine(
+            _pathResolver.GetOperationsDirectory(),
+            $"rust_resume_{datasourceName}.json");
+        File.Delete(resumePath);
     }
 
     /// <summary>
@@ -839,22 +860,26 @@ public class RustLogProcessorService
                 });
             }
 
-            // Auto-import PICS data if database is sparse but JSON file exists
-            // Depot mappings should be set up via initialization flow before log processing
-            // Check depot count asynchronously without blocking startup
-            _ = Task.Run(async () =>
+            // A live pass runs about once a second, and this count exists only for the log line.
+            if (!liveIngest)
             {
-                try
+                // Auto-import PICS data if database is sparse but JSON file exists
+                // Depot mappings should be set up via initialization flow before log processing
+                // Check depot count asynchronously without blocking startup
+                _ = Task.Run(async () =>
                 {
-                    using var scopedDb = _serviceProvider.CreateScopedDbContext();
-                    var depotCount = await scopedDb.DbContext.SteamDepotMappings.CountAsync();
-                    _logger.LogInformation("Starting log processing with {DepotCount} depot mappings available", depotCount);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to check depot count before log processing");
-                }
-            });
+                    try
+                    {
+                        using var scopedDb = _serviceProvider.CreateScopedDbContext();
+                        var depotCount = await scopedDb.DbContext.SteamDepotMappings.CountAsync();
+                        _logger.LogInformation("Starting log processing with {DepotCount} depot mappings available", depotCount);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to check depot count before log processing");
+                    }
+                });
+            }
 
             // Start Rust process
             // Now passing log directory instead of single file path
@@ -1115,13 +1140,21 @@ public class RustLogProcessorService
                     return false;
                 }
 
-                PersistIngestDiagnostics(datasourceName!, finalProgress!, startPositions);
-
                 // A partial run saved what it could but hit per-file errors: positions are
-                // NOT persisted (the next run re-reads; dedup absorbs the overlap) and the
-                // operation surfaces as failed-with-detail, never plain success.
+                // persisted for every stem Rust reached, and the operation surfaces as
+                // failed-with-detail, never plain success.
                 if (finalProgress!.TerminalStatus == "partial")
                 {
+                    PersistIngestDiagnostics(datasourceName!, finalProgress, startPositions);
+                    var mergedPositions = MergedSourcePositions(datasourceName!, finalProgress);
+                    if (mergedPositions != null)
+                    {
+                        // Rust reports what it read for each reached stem. A rotated member error can
+                        // lower that value, while a current-file or database error never publishes a
+                        // value below the pass's start. Saving the map avoids replaying completed files.
+                        _stateService.SetLogSourcePositions(datasourceName!, mergedPositions);
+                    }
+
                     var partialMessage =
                         $"Log processing finished with {finalProgress.FilesWithErrors.Count} file error(s); " +
                         $"{finalProgress.EntriesSaved} entries were saved";
@@ -1145,6 +1178,7 @@ public class RustLogProcessorService
                 // future terminal value) must never persist positions or report success.
                 if (finalProgress.TerminalStatus is not ("completed" or "completed_with_warnings"))
                 {
+                    PersistIngestDiagnostics(datasourceName!, finalProgress, startPositions);
                     var unexpectedMessage =
                         $"Log processing ended with unexpected status '{finalProgress.TerminalStatus}'";
                     _logger.LogError("{Message}", unexpectedMessage);
@@ -1164,27 +1198,13 @@ public class RustLogProcessorService
                 // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {
-                    // Persist the per-stem checkpoints atomically from the validated terminal
-                    // checkpoint (never from a mid-run snapshot). The terminal map is MERGED
-                    // over existing state: a stem whose files were briefly absent this run must
-                    // keep its old checkpoint, not replay from zero when it reopens. Explicit
-                    // lifecycle paths (service removal, delete-file, resets) are the only
-                    // places checkpoints are removed. The legacy aggregate position is kept in
-                    // sync inside SetLogSourcePositions; total lines comes from Rust to avoid
-                    // C# recounting all log files.
-                    if (finalProgress.SourcePositions.Count > 0)
-                    {
-                        var mergedPositions = _stateService.GetLogSourcePositions(datasourceName!);
-                        foreach (var (stem, offset) in finalProgress.SourcePositions)
-                        {
-                            mergedPositions[stem] = offset;
-                        }
-                        _stateService.SetLogSourcePositions(datasourceName!, mergedPositions);
-                        _stateService.SetLogTotalLines(datasourceName!, finalProgress.TotalLines);
-                    }
-
-                    // Mark that logs have been processed at least once to enable guest mode
-                    _stateService.SetHasProcessedLogs(true);
+                    var mergedPositions = MergedSourcePositions(datasourceName!, finalProgress);
+                    var diagnostics = IngestDiagnosticsFor(finalProgress, startPositions);
+                    _stateService.RecordLogIngestPass(
+                        datasourceName!,
+                        mergedPositions,
+                        mergedPositions is null ? null : finalProgress.TotalLines,
+                        diagnostics);
 
                     // A live pass sends no final progress, for the same load reason as its started event.
                     if (!liveIngest)
@@ -1240,6 +1260,7 @@ public class RustLogProcessorService
                     var resolved = await epicMappingService.ResolveDownloadsAsync();
                     if (resolved > 0)
                     {
+                        Interlocked.Exchange(ref _epicRowsResolvedPending, 1);
                         _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
                     }
                 }
@@ -1273,11 +1294,9 @@ public class RustLogProcessorService
                     _logger.LogWarning(ex, "Failed to resolve Blizzard downloads (non-fatal)");
                 }
 
-                // Resolve Xbox / Microsoft Store downloads the same way. The Rust ingest path is the
-                // primary, active-session-safe canonicalizer (wsus -> Service='xbox'); this post-pass
-                // is BACKFILL ONLY for already-ingested, still-wsus INACTIVE rows the daemon later
-                // contributed a CDN pattern for. The service re-tags inactive rows only (re-tagging an
-                // active row would split the in-flight download) and no-ops when nothing matches.
+                // Rust ingest continues rows that ended within five minutes of the log time. The Xbox
+                // backfill renames a row only through a conditional update that re-checks that the row
+                // is inactive and unnamed at write time.
                 try
                 {
                     var xboxMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
@@ -1285,24 +1304,6 @@ public class RustLogProcessorService
                     if (resolvedXbox > 0)
                     {
                         _logger.LogInformation("Re-tagged {Count} wsus downloads to Xbox titles after log processing", resolvedXbox);
-                    }
-
-                    // Backfill DisplayCatalog banner URLs for any Xbox mapping still missing art so
-                    // log-driven banners self-heal a transient first-fetch miss. This is a URL-only
-                    // DisplayCatalog lookup (no image binaries), so it is safe inside the ingest
-                    // pipeline; best-effort so a backfill failure can never break log processing.
-                    try
-                    {
-                        await xboxMappingService.BackfillMissingBannerArtAsync();
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Shutdown/cancellation - let it propagate, do not treat as a non-fatal backfill error.
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to backfill Xbox banner art (non-fatal)");
                     }
                 }
                 catch (Exception ex)
@@ -1327,16 +1328,11 @@ public class RustLogProcessorService
                         // see InvalidateLiveCache.)
                         await Task.Delay(500);
 
-                        // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
-                        // Only fetch Steam images when new entries were saved (requires Steam API calls)
-                        if (finalProgress?.EntriesSaved > 0)
-                        {
-                            await FetchMissingGameNamesAsync();
-                        }
-
-                        // Fetch images for resolved Epic downloads unconditionally - new resolutions
-                        // may have occurred above even without new log entries
-                        await FetchMissingEpicImagesAsync();
+                        var namedCount = finalProgress?.EntriesSaved > 0
+                            ? await FetchMissingGameNamesAsync()
+                            : 0;
+                        var epicRowsResolved = Interlocked.Exchange(ref _epicRowsResolvedPending, 0) != 0;
+                        await FetchMissingEpicImagesAsync(epicRowsResolved);
 
                         // The Rust processor maps depots itself, so the SteamKit2 mapping trigger never
                         // fires for games it identified. Start a banner pass when one of them has no
@@ -1345,7 +1341,9 @@ public class RustLogProcessorService
                         {
                             using var imageFetchScope = _serviceProvider.CreateScope();
                             var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
-                            await imageFetchService.StartFetchForMissingArtAsync(CancellationToken.None);
+                            await imageFetchService.StartFetchForMissingArtAsync(
+                                namedCount > 0,
+                                CancellationToken.None);
                         }
                         catch (Exception ex)
                         {
@@ -1503,6 +1501,56 @@ public class RustLogProcessorService
         }
     }
 
+    /// <summary>
+    /// Holds the processing gate for reset-to-end while it counts the logs and writes the end
+    /// positions. Returns null when a pass is running. Registers a hidden tracked LogProcessing
+    /// operation, so every path that asks the conflict checker sees the count.
+    /// </summary>
+    internal async Task<Guid?> TryReserveProcessingGateAsync()
+    {
+        await _startLock.WaitAsync();
+        try
+        {
+            if (IsProcessing)
+            {
+                return null;
+            }
+
+            var reservationId = _operationTracker.RegisterOperation(
+                OperationType.LogProcessing,
+                "Reset log position to end",
+                new CancellationTokenSource(),
+                notice: new RunNotice(NotificationMode.Hidden, RunTrigger.Manual));
+            _processingGateReservation = reservationId;
+            return reservationId;
+        }
+        finally
+        {
+            _startLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Completes the reservation's operation and reopens the gate if this reservation still holds it.
+    /// </summary>
+    internal void ReleaseProcessingGate(Guid reservationId)
+    {
+        _startLock.Wait();
+        try
+        {
+            if (_processingGateReservation == reservationId)
+            {
+                _processingGateReservation = null;
+            }
+        }
+        finally
+        {
+            _startLock.Release();
+        }
+
+        _operationTracker.CompleteOperation(reservationId, success: true);
+    }
+
     private Task MonitorProgressAsync(
         string progressPath,
         CancellationToken cancellationToken,
@@ -1611,6 +1659,17 @@ public class RustLogProcessorService
     private void PersistIngestDiagnostics(
         string datasourceName, LogProcessingProgress progress, Dictionary<string, long> startPositions)
     {
+        var diagnostics = IngestDiagnosticsFor(progress, startPositions);
+        if (diagnostics != null)
+        {
+            _stateService.SetLogIngestDiagnostics(datasourceName, diagnostics);
+        }
+    }
+
+    private static LogIngestDiagnostics? IngestDiagnosticsFor(
+        LogProcessingProgress progress,
+        Dictionary<string, long> startPositions)
+    {
         var examinedNewInput = progress.SourcePositions.Count > 0
             ? progress.SourcePositions.Any(kvp =>
                 kvp.Value > startPositions.GetValueOrDefault(kvp.Key, 0))
@@ -1626,10 +1685,10 @@ public class RustLogProcessorService
 
         if (!hasAnomalies && !examinedNewInput)
         {
-            return;
+            return null;
         }
 
-        _stateService.SetLogIngestDiagnostics(datasourceName, new LogIngestDiagnostics
+        return new LogIngestDiagnostics
         {
             Layout = progress.Layout,
             TerminalStatus = progress.TerminalStatus,
@@ -1641,21 +1700,43 @@ public class RustLogProcessorService
             IncompleteFinalRecords = progress.IncompleteFinalRecords,
             FilesWithErrors = new List<string>(progress.FilesWithErrors),
             LastRunUtc = DateTime.UtcNow
-        });
+        };
     }
 
-        /// <summary>
+    private Dictionary<string, long>? MergedSourcePositions(
+        string datasourceName,
+        LogProcessingProgress progress)
+    {
+        if (progress.SourcePositions.Count == 0)
+        {
+            return null;
+        }
+
+        var mergedPositions = _stateService.GetLogSourcePositions(datasourceName);
+        foreach (var (stem, offset) in progress.SourcePositions)
+        {
+            mergedPositions[stem] = offset;
+        }
+
+        return mergedPositions;
+    }
+
+    /// <summary>
     /// Fetches game names for downloads that have a GameAppId but no GameName.
     /// Image bytes are fetched exclusively by <see cref="GameImageFetchService"/> (3-tier pipeline).
     /// This method only updates GameName, which GameImageFetchService does not enrich.
     /// </summary>
-    private async Task FetchMissingGameNamesAsync()
+    private async Task<int> FetchMissingGameNamesAsync()
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
+            var maxDownloadId = await context.Downloads.MaxAsync(d => (long?)d.Id) ?? 0;
+            if (_steamNamesDrainedAtMaxId == maxDownloadId)
+            {
+                return 0;
+            }
 
             // Find downloads that have GameAppId but missing game name - image bytes are now
             // fetched exclusively by GameImageFetchService (3-tier pipeline). We only update
@@ -1667,9 +1748,14 @@ public class RustLogProcessorService
 
             if (downloadsNeedingName.Count == 0)
             {
-                return;
+                _steamNamesDrainedAtMaxId = maxDownloadId;
+                return 0;
             }
 
+            // Steam returns a name for every app, including a fallback when its lookup fails, so
+            // successful rows are never asked twice. A continuation can add an app id to an old row;
+            // the next inserted download advances this key and makes that row eligible again.
+            var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
             _logger.LogInformation("Fetching game names for {Count} downloads", downloadsNeedingName.Count);
 
             int updated = 0;
@@ -1700,10 +1786,17 @@ public class RustLogProcessorService
                 // NOTE: We do not send DownloadsRefresh here - the main completion handler
                 // already sends DownloadsRefresh (live ingest) or LogProcessingComplete (interactive).
             }
+
+            _steamNamesDrainedAtMaxId = downloadsNeedingName.Count < 50
+                && updated == downloadsNeedingName.Count
+                ? maxDownloadId
+                : null;
+            return updated;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error fetching missing game names - this is non-critical");
+            return 0;
         }
     }
 
@@ -1711,11 +1804,21 @@ public class RustLogProcessorService
     /// Sets GameImageUrl on Epic downloads that have been resolved to games but are missing images.
     /// Looks up image URLs from the EpicGameMappings table.
     /// </summary>
-    private async Task FetchMissingEpicImagesAsync()
+    private async Task FetchMissingEpicImagesAsync(bool epicRowsResolvedThisPass)
     {
         try
         {
             using var scopedDb = _serviceProvider.CreateScopedDbContext();
+            var maxDownloadId = await scopedDb.DbContext.Downloads.MaxAsync(d => (long?)d.Id) ?? 0;
+            var catalog = await scopedDb.DbContext.EpicGameMappings.CountAsync(m => m.ImageUrl != null);
+            var catalogSeenUtc = await scopedDb.DbContext.EpicGameMappings
+                .Where(m => m.ImageUrl != null)
+                .MaxAsync(m => (DateTime?)m.LastSeenAtUtc);
+            var scanKey = (MaxDownloadId: maxDownloadId, Catalog: catalog, CatalogSeenUtc: catalogSeenUtc);
+            if (!epicRowsResolvedThisPass && _lastEpicImageScan == scanKey)
+            {
+                return;
+            }
 
             // Find Epic downloads that have EpicAppId but missing GameImageUrl
             var downloadsNeedingImages = await scopedDb.DbContext.Downloads
@@ -1724,7 +1827,10 @@ public class RustLogProcessorService
                 .ToListAsync();
 
             if (downloadsNeedingImages.Count == 0)
+            {
+                _lastEpicImageScan = scanKey;
                 return;
+            }
 
             // Load all Epic game mappings with image URLs for lookup
             var imageLookup = await scopedDb.DbContext.EpicGameMappings
@@ -1746,6 +1852,8 @@ public class RustLogProcessorService
                 await scopedDb.DbContext.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} Epic downloads with game images", updated);
             }
+
+            _lastEpicImageScan = updated == 0 ? scanKey : null;
         }
         catch (Exception ex)
         {

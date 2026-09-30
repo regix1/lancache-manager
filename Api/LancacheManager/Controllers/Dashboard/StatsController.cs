@@ -621,7 +621,7 @@ public class StatsController : ControllerBase
             var cutoffTime = TimeUtils.ParseTimePeriod(since);
             if (cutoffTime.HasValue)
             {
-                query = query.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+                query = query.Where(d => d.EndTimeUtc >= cutoffTime.Value || d.StartTimeUtc >= cutoffTime.Value);
             }
         }
         // No filter = all data (consistent with dashboard)

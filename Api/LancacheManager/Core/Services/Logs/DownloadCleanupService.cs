@@ -11,6 +11,16 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     private readonly CacheManagementService _cacheManagementService;
     private readonly DatasourceService _datasourceService;
     private readonly IStateService _stateService;
+    private readonly TaskCompletionSource _startupCleanupFinished =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Completes when the startup cleanup has ended, whatever its outcome, or when the first
+    /// periodic run starts. The one-time download-history upgrade waits for it because the startup
+    /// cleanup's tracked saves and normalizations ask no conflict checker, and a merge batch must
+    /// not delete a row they loaded.
+    /// </summary>
+    public Task StartupCleanupFinished => _startupCleanupFinished.Task;
 
     protected override string ServiceName => "DownloadCleanupService";
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
@@ -33,17 +43,25 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        // Wait for setup to complete so the database is configured
-        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+        try
+        {
+            // Wait for setup to complete so the database is configured
+            await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
-        using var scopedDb = _serviceProvider.CreateScopedDbContext();
-        await InitialCleanupAsync(scopedDb.DbContext, stoppingToken);
+            using var scopedDb = _serviceProvider.CreateScopedDbContext();
+            await InitialCleanupAsync(scopedDb.DbContext, stoppingToken);
+        }
+        finally
+        {
+            _startupCleanupFinished.TrySetResult();
+        }
     }
 
     protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
+        _startupCleanupFinished.TrySetResult();
         var context = scopedServices.GetRequiredService<AppDbContext>();
         await CleanupStaleDownloadsAsync(context, stoppingToken);
     }
@@ -63,26 +81,20 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
         while (true)
         {
-            var staleDownloads = await context.Downloads
-                .Where(d => d.IsActive &&
-                    ((d.EndTimeUtc != default(DateTime) && d.EndTimeUtc < cutoff) ||  // Normal completion check
-                     (d.EndTimeUtc == default(DateTime) && d.StartTimeUtc < staleCutoff))) // Never updated check
-                .Take(batchSize)
-                .ToListAsync(stoppingToken);
+            var staleDownloads = await CleanupBatchAsync(
+                context,
+                cutoff,
+                staleCutoff,
+                batchSize,
+                stoppingToken);
 
-            if (!staleDownloads.Any())
+            if (staleDownloads == 0)
                 break;
 
-            foreach (var download in staleDownloads)
-            {
-                download.IsActive = false;
-            }
-
-            await context.SaveChangesAsync(stoppingToken);
-            totalUpdated += staleDownloads.Count;
+            totalUpdated += staleDownloads;
 
             // Small delay between batches to allow other operations
-            if (staleDownloads.Count == batchSize)
+            if (staleDownloads == batchSize)
                 await Task.Delay(50, stoppingToken);
         }
 
@@ -90,6 +102,43 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         {
             _logger.LogInformation("Marked {Count} downloads as complete (EndTime > 15 seconds old or never updated)", totalUpdated);
         }
+    }
+
+    internal static async Task<int> CleanupBatchAsync(
+        AppDbContext context,
+        DateTime cutoff,
+        DateTime staleCutoff,
+        int batchSize,
+        CancellationToken stoppingToken)
+    {
+        var execution = context.Database.CreateExecutionStrategy();
+        return await execution.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
+
+            await context.Database.ExecuteSqlRawAsync(
+                "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                stoppingToken);
+
+            var staleDownloads = await context.Downloads
+                .Where(d => d.IsActive &&
+                    ((d.EndTimeUtc != default(DateTime) && d.EndTimeUtc < cutoff) ||
+                     (d.EndTimeUtc == default(DateTime) && d.StartTimeUtc < staleCutoff)))
+                .Select(d => d.Id)
+                .Take(batchSize)
+                .ToListAsync(stoppingToken);
+
+            var updated = staleDownloads.Count == 0
+                ? 0
+                : await context.Downloads
+                    .Where(d => staleDownloads.Contains(d.Id))
+                    .ExecuteUpdateAsync(
+                        setters => setters.SetProperty(d => d.IsActive, false),
+                        stoppingToken);
+
+            await transaction.CommitAsync(stoppingToken);
+            return updated;
+        });
     }
 
     private async Task InitialCleanupAsync(AppDbContext context, CancellationToken stoppingToken)
@@ -125,22 +174,30 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             _logger.LogInformation("Checking for stale active downloads...");
             var cutoff = DateTime.UtcNow.AddSeconds(-15);
             var staleCutoff = DateTime.UtcNow.AddSeconds(-60);
-            var staleDownloads = await context.Downloads
-                .Where(d => d.IsActive &&
-                    ((d.EndTimeUtc != default(DateTime) && d.EndTimeUtc < cutoff) ||  // Normal completion check
-                     (d.EndTimeUtc == default(DateTime) && d.StartTimeUtc < staleCutoff))) // Never updated check
-                .ToListAsync(stoppingToken);
+            const int batchSize = 10;
+            var staleDownloads = 0;
 
-            _logger.LogInformation("Found {Count} stale active downloads", staleDownloads.Count);
-
-            if (staleDownloads.Any())
+            while (true)
             {
-                foreach (var download in staleDownloads)
+                var updated = await CleanupBatchAsync(
+                    context,
+                    cutoff,
+                    staleCutoff,
+                    batchSize,
+                    stoppingToken);
+                if (updated == 0)
                 {
-                    download.IsActive = false;
+                    break;
                 }
-                await context.SaveChangesAsync(stoppingToken);
-                _logger.LogInformation("Marked {Count} stale downloads as complete", staleDownloads.Count);
+
+                staleDownloads += updated;
+            }
+
+            _logger.LogInformation("Found {Count} stale active downloads", staleDownloads);
+
+            if (staleDownloads > 0)
+            {
+                _logger.LogInformation("Marked {Count} stale downloads as complete", staleDownloads);
             }
 
             // Note: Image URL backfilling is now handled automatically by PICS during incremental scans

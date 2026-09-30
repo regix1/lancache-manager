@@ -622,8 +622,26 @@ async fn run_scan(
                 .await
                 .with_context(|| "Failed to begin eviction batch transaction")?;
             if !ids_to_evict.is_empty() {
-                update_download_eviction_state_tx(&mut tx, &ids_to_evict, true).await?;
-                total_evicted += ids_to_evict.len();
+                let mut rows = Vec::with_capacity(ids_to_evict.len());
+                for download_id in &ids_to_evict {
+                    let (hit_bytes, miss_bytes) = download_cache_bytes
+                        .get(download_id)
+                        .copied()
+                        .with_context(|| {
+                            format!(
+                                "Download {download_id} is missing byte totals from its scan page"
+                            )
+                        })?;
+                    rows.push((*download_id, hit_bytes, miss_bytes));
+                }
+                let changed = evict_unchanged_downloads_tx(&mut tx, &rows).await? as usize;
+                total_evicted += changed;
+                if changed < rows.len() {
+                    eprintln!(
+                        "[EvictionScan] Left {} changed download(s) for the next scan.",
+                        rows.len() - changed
+                    );
+                }
             }
             if !ids_to_unevict.is_empty() {
                 update_download_eviction_state_tx(&mut tx, &ids_to_unevict, false).await?;
@@ -702,6 +720,38 @@ async fn run_scan(
         files_on_disk: total_files,
         error: None,
     })
+}
+
+/// Marks rows evicted only when they are still the rows the scan judged: inactive, with the
+/// byte totals it read with the page. An ingest pass that continued one of them since the page
+/// read changed its totals or made it active, so it waits for the next scan instead of being
+/// hidden (or, in remove mode, deleted with its log entries) on old evidence.
+async fn evict_unchanged_downloads_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    rows: &[(i64, i64, i64)],
+) -> Result<u64> {
+    let ids: Vec<i64> = rows.iter().map(|(id, _, _)| *id).collect();
+    let hits: Vec<i64> = rows.iter().map(|(_, hit, _)| *hit).collect();
+    let misses: Vec<i64> = rows.iter().map(|(_, _, miss)| *miss).collect();
+    let result = sqlx::query(
+        r#"
+        UPDATE "Downloads" d
+        SET "IsEvicted" = true
+        FROM UNNEST($1::bigint[], $2::bigint[], $3::bigint[]) AS u(id, hit, miss)
+        WHERE d."Id" = u.id
+          AND d."CacheHitBytes" = u.hit
+          AND d."CacheMissBytes" = u.miss
+          AND d."IsActive" = false
+        "#,
+    )
+    .bind(ids)
+    .bind(hits)
+    .bind(misses)
+    .execute(&mut **tx)
+    .await
+    .context("Failed to mark unchanged downloads evicted")?;
+
+    Ok(result.rows_affected())
 }
 
 /// Transaction-scoped variant used by the per-batch transaction in run_scan (rust-3).
@@ -800,10 +850,31 @@ fn write_progress_file(
 mod tests {
     use super::{
         cache_eviction_paths, classify_download, classify_unverifiable, classify_verifiable,
-        download_was_cached, DatasourceConfig, DownloadAction, UnverifiableAction,
-        VerifiableAction,
+        download_was_cached, evict_unchanged_downloads_tx, DatasourceConfig, DownloadAction,
+        UnverifiableAction, VerifiableAction,
     };
     use lancache_processor::cache_utils;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::{PgPool, Row};
+    use uuid::Uuid;
+
+    async fn isolated_pool(test_name: &str) -> Option<(PgPool, String)> {
+        let Ok(connection) = std::env::var("LANCACHE_TEST_DATABASE_URL") else {
+            println!("SKIP (LANCACHE_TEST_DATABASE_URL unset): {test_name}");
+            return None;
+        };
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&connection)
+            .await
+            .expect("connect to isolated test PostgreSQL");
+        let schema = format!("eviction_{}", Uuid::new_v4().simple());
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#))
+            .execute(&pool)
+            .await
+            .expect("create isolated test schema");
+        Some((pool, schema))
+    }
 
     /// Builds a resolved ProbeKey under the given key scheme for the was_cached tests.
     fn scheme_key(key_scheme: &str) -> cache_eviction_paths::ProbeKey {
@@ -821,6 +892,102 @@ mod tests {
             0,
             &roots,
         )
+    }
+
+    #[tokio::test]
+    async fn conditional_eviction_marks_only_unchanged_inactive_rows() {
+        const TEST_NAME: &str = "conditional_eviction_marks_only_unchanged_inactive_rows";
+        let Some((pool, schema)) = isolated_pool(TEST_NAME).await else {
+            return;
+        };
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."Downloads" (
+                "Id" bigint PRIMARY KEY,
+                "CacheHitBytes" bigint NOT NULL,
+                "CacheMissBytes" bigint NOT NULL,
+                "IsActive" boolean NOT NULL,
+                "IsEvicted" boolean NOT NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create Downloads fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."Downloads"
+                ("Id", "CacheHitBytes", "CacheMissBytes", "IsActive", "IsEvicted")
+            VALUES
+                (1, 10, 20, false, false),
+                (2, 30, 40, false, false),
+                (3, 50, 60, false, false)
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("insert Downloads fixture");
+
+        let judged = vec![(1, 10, 20), (2, 30, 40), (3, 50, 60)];
+        sqlx::query(&format!(
+            r#"UPDATE "{schema}"."Downloads" SET "CacheHitBytes" = 31 WHERE "Id" = 2"#
+        ))
+        .execute(&pool)
+        .await
+        .expect("continue one download");
+        sqlx::query(&format!(
+            r#"UPDATE "{schema}"."Downloads" SET "IsActive" = true WHERE "Id" = 3"#
+        ))
+        .execute(&pool)
+        .await
+        .expect("activate one download");
+
+        let mut control = pool.begin().await.expect("begin control transaction");
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *control)
+            .await
+            .expect("select isolated control schema");
+        let control_changed =
+            sqlx::query(r#"UPDATE "Downloads" SET "IsEvicted" = true WHERE "Id" = ANY($1)"#)
+                .bind(vec![1_i64, 2, 3])
+                .execute(&mut *control)
+                .await
+                .expect("run unconditional control update")
+                .rows_affected();
+        control.rollback().await.expect("roll back control update");
+        assert_eq!(control_changed, 3);
+
+        let mut tx = pool
+            .begin()
+            .await
+            .expect("begin eviction fixture transaction");
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *tx)
+            .await
+            .expect("select isolated test schema");
+        let changed = evict_unchanged_downloads_tx(&mut tx, &judged)
+            .await
+            .expect("mark unchanged downloads");
+        tx.commit()
+            .await
+            .expect("commit eviction fixture transaction");
+
+        let rows = sqlx::query(&format!(
+            r#"SELECT "Id", "IsEvicted" FROM "{schema}"."Downloads" ORDER BY "Id""#
+        ))
+        .fetch_all(&pool)
+        .await
+        .expect("read eviction results")
+        .into_iter()
+        .map(|row| (row.get::<i64, _>("Id"), row.get::<bool, _>("IsEvicted")))
+        .collect::<Vec<_>>();
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&pool)
+            .await
+            .expect("drop isolated test schema");
+
+        assert_eq!(changed, 1);
+        assert_eq!(rows, vec![(1, true), (2, false), (3, false)]);
     }
 
     #[test]

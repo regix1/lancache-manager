@@ -377,7 +377,6 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
                 // Start processing
                 _isProcessing = true;
-                _lastProcessTime[datasource.Name] = now;
 
                 try
                 {
@@ -409,6 +408,9 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 }
                 finally
                 {
+                    // The minimum gap and trickle window count from the end of the previous pass,
+                    // so a pass slower than the trickle window is not followed by another at once.
+                    _lastProcessTime[datasource.Name] = DateTime.UtcNow;
                     _isProcessing = false;
                 }
             }

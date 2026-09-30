@@ -120,6 +120,10 @@ const runFetchEffect = ({ mockMode, apiService, options = {} }) => {
         pageSize: 0
       },
       hasInitialDataRef: { current: false },
+      requestInFlightRef: { current: false },
+      reloadPendingRef: { current: false },
+      followUpQueuedRef: { current: false },
+      setRefreshVersion: () => undefined,
       setData: (value) => calls.setData.push(value),
       setError: (value) => calls.setError.push(value),
       setIsFetching: (value) => calls.setIsFetching.push(value),
@@ -397,6 +401,32 @@ test('the time range and the event filter each narrow the set', () => {
   const tagged = rows({ eventId: 9002 });
   assert.ok(tagged.length > 0, 'a mock event must hold rows or its filter looks broken');
   assert.ok(tagged.length < rows().length);
+});
+
+test('merged newest rows follow their displayed activity', () => {
+  const page = retro({ eventId: 9001, sort: 'newest' });
+
+  assert.equal(page.items.length, 3);
+  assert.deepEqual(
+    page.items.map((row) => row.id),
+    ['game-Rocket League', 'game-appid-292030', 'game-appid-271590']
+  );
+  assert.deepEqual(
+    page.items.map((row) => row.appName),
+    ['Rocket League', 'The Witcher 3: Wild Hunt', 'Grand Theft Auto V']
+  );
+
+  const starts = page.items.map((row) => row.startTimeUtc);
+  assert.equal(new Set(starts).size, 1);
+  const sharedStart = Date.parse(starts[0]);
+  assert.deepEqual(
+    page.items.map((row) => (Date.parse(row.lastStartTimeUtc) - sharedStart) / 60_000),
+    [1, 2, 3]
+  );
+  assert.deepEqual(
+    page.items.map((row) => (Date.parse(row.endTimeUtc) - sharedStart) / 60_000),
+    [25, 15, 5]
+  );
 });
 
 test('grouping by game merges one title seen under two services, and by service folds Xbox', () => {

@@ -285,6 +285,34 @@ public sealed class OperationRunPublishingTests
     }
 
     [Fact]
+    public void ASucceededLiveIngestPassSendsAndListsNoRow()
+    {
+        var (tracker, recorder) = CreateRecordingTracker();
+        Guid Pass(bool liveIngest) => tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource(),
+            notice: liveIngest ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled) : null,
+            liveIngest: liveIngest);
+
+        var interactive = Pass(liveIngest: false);
+        tracker.UpdateProgress(interactive, 50, "signalr.logProcessing.progress");
+        tracker.CompleteOperation(interactive, success: true);
+        Assert.Equal(2, SentRows(recorder).Count(row => row.OperationId == interactive));
+
+        var succeeded = Pass(liveIngest: true);
+        tracker.UpdateProgress(succeeded, 50, "signalr.logProcessing.progress");
+        tracker.CompleteOperation(succeeded, success: true);
+        Assert.DoesNotContain(SentRows(recorder), row => row.OperationId == succeeded);
+        Assert.DoesNotContain(tracker.GetRuns().Runs, row => row.OperationId == succeeded);
+
+        var failed = Pass(liveIngest: true);
+        tracker.UpdateProgress(failed, 50, "signalr.logProcessing.progress");
+        tracker.CompleteOperation(failed, success: false, error: "Log processing failed with exit code 1");
+        Assert.True(Assert.Single(SentRows(recorder), row => row.OperationId == failed).Retained);
+    }
+
+    [Fact]
     public void LiveLogIngestRowsAreHiddenAndOnlyItsNewestFailureIsKept()
     {
         var (tracker, recorder) = CreateRecordingTracker();

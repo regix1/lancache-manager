@@ -35,7 +35,8 @@ const TEMPLATES = {
   'signalr.generic.failed': 'Operation failed',
   'signalr.generic.nothingToDo': 'Nothing to do',
   'signalr.generic.skipped': 'Operation skipped',
-  'signalr.generic.unknown': 'Operation in progress...'
+  'signalr.generic.unknown': 'Operation in progress...',
+  'signalr.downloadHistoryUpgrade.merging': 'Merging split download rows'
 };
 const I18N = moduleUrl(`
 const templates = ${JSON.stringify(TEMPLATES)};
@@ -853,6 +854,40 @@ test('a sign-in the daemon refused names its platform, with the server reason be
   failed.push(kept('L', { ...signIn, status: 'failed', error: 'Wrong password' }));
   assert.equal(failed.card('L').message, 'Failed to sign in to Steam');
   assert.equal(failed.card('L').error, 'Wrong password');
+});
+
+test('the download history upgrade draws its card, names its stage and keeps its failure', () => {
+  const browser = new Browser();
+  browser.push(
+    row('U', {
+      operationType: 'downloadHistoryUpgrade',
+      name: 'Upgrading download history',
+      status: 'running',
+      message: 'signalr.downloadHistoryUpgrade.merging'
+    })
+  );
+  assert.deepEqual(browser.drawn(), ['U:download_history_upgrade:running']);
+  assert.equal(browser.card('U').message, 'Merging split download rows');
+
+  const reason =
+    'Download history upgrade stopped: timeout. 1200 rows still wait to merge. It tries again at the next start.';
+  browser.push(
+    kept('U', {
+      operationType: 'downloadHistoryUpgrade',
+      name: 'Upgrading download history',
+      status: 'failed',
+      message: reason,
+      error: reason
+    })
+  );
+  browser.fade();
+  assert.deepEqual(browser.drawn(), ['U:download_history_upgrade:failed']);
+  assert.equal(browser.card('U').message, 'Operation failed');
+  assert.equal(browser.card('U').error, reason);
+  assert.equal(
+    notificationEntries.find((entry) => entry.type === 'download_history_upgrade')?.cancelKind,
+    'serverOp'
+  );
 });
 
 test('a session change ends the earlier session sign-in card with no run list read', () => {

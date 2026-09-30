@@ -894,10 +894,13 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     /// <summary>
     /// True for an operation the browser gets no row for: the scheduled-prefill run-level container,
-    /// whose platforms carry the cards.
+    /// whose platforms carry the cards, or a live-ingest pass that is not a kept ending. Running,
+    /// succeeded, and cancelled live-ingest passes are neither sent nor listed; a failed pass stays
+    /// visible because it is a kept ending.
     /// </summary>
     private static bool HasNoRow(OperationInfo operation) =>
-        operation.Metadata is ScheduledPrefillOperationMetadata;
+        operation.Metadata is ScheduledPrefillOperationMetadata
+        || (operation.LiveIngest && !KeepsUntilClosed(operation));
 
     /// <summary>
     /// The one place that turns an operation into a <see cref="RunVisibility"/>: the notice it was

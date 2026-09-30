@@ -47,6 +47,7 @@ const i18nStub = moduleUrl('export default globalThis.testTranslator;');
 // The real constants module reads `import.meta.env` while it loads, which only vite supplies.
 // `apiError.ts` reads APP_EVENTS from it on the 401 branch alone, and nothing here sends a 401.
 const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+  '@/i18n': i18nStub,
   '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
 });
 
@@ -208,6 +209,45 @@ test('raw HTTP variants keep their sentence and optional structured details', as
   }
   const error = await refusal({ message: '   ', error: '' });
   assert.match(error.message, /^HTTP 400:/);
+});
+
+test('a canonical conflict may use only its localized stage', async () => {
+  const body = {
+    code: 'OPERATION_CONFLICT',
+    stageKey: 'errors.conflict.downloadHistoryUpgradeActive'
+  };
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    const error = await failedWith(409, JSON.stringify(body));
+    assert.equal(error.kind, 'conflict');
+    assert.deepEqual(error.cause, body);
+    assert.equal(error.message, translator.t(body.stageKey));
+  }
+});
+
+test('a canonical conflict without a usable stage is a protocol parse failure', async () => {
+  await translator.changeLanguage('en');
+  for (const stageKey of [undefined, null, '', '   ', 42]) {
+    const body = {
+      code: 'OPERATION_CONFLICT',
+      error: 'English prose cannot replace the required typed stage',
+      ...(stageKey === undefined ? {} : { stageKey })
+    };
+    const error = await failedWith(409, JSON.stringify(body));
+    assert.equal(error.kind, 'parse');
+    assert.equal(error.status, 409);
+    assert.equal(error.body, null);
+    assert.deepEqual(error.cause, body);
+    assert.equal(error.message, en.common.errors.invalidJsonResponse);
+  }
+});
+
+test('a noncanonical 409 keeps its existing stage-only behavior', async () => {
+  const body = { stageKey: 'errors.validation.failed' };
+  const error = await failedWith(409, JSON.stringify(body));
+  assert.equal(error.kind, 'conflict');
+  assert.deepEqual(error.cause, body);
+  assert.match(error.message, /^HTTP 409:/);
 });
 
 test('a refusal that names its reason is read in the reader language', async () => {

@@ -52,7 +52,8 @@ public class SignalRNotificationService : ISignalRNotificationService
         SignalREvents.LogProcessingComplete, SignalREvents.DepotMappingComplete, SignalREvents.LogRemovalComplete,
         SignalREvents.CorruptionRemovalComplete, SignalREvents.ServiceRemovalComplete, SignalREvents.GameDetectionComplete,
         SignalREvents.GameRemovalComplete, SignalREvents.CacheClearingComplete, SignalREvents.CacheScanComplete,
-        SignalREvents.EvictionScanComplete, SignalREvents.EvictionRemovalComplete, SignalREvents.DatabaseResetProgress
+        SignalREvents.EvictionScanComplete, SignalREvents.EvictionRemovalComplete, SignalREvents.DatabaseResetProgress,
+        SignalREvents.DownloadHistoryMergeComplete
     ];
 
     private IClientProxy ClientsFor(string eventName) =>
@@ -121,6 +122,21 @@ public class SignalRNotificationService : ISignalRNotificationService
             // would leave historical batch keys untouched and hand the forced refetch the identical
             // stale entry.
             else if (eventName == SignalREvents.ClientHostnamesChanged)
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
+            // The reset's completed progress is sent after its commit, and a failure after the commit leaves
+            // the rows deleted too. Batches built before it, on any range, still describe the deleted rows, and
+            // a refetch that started mid-reset may already have cached one under the generation the reset's own
+            // ClientGroupsCleared bumped; moving both generations here makes the refetch build from the
+            // committed state.
+            else if (eventName == SignalREvents.DatabaseResetProgress &&
+                     data is DatabaseResetProgress { Status: OperationStatus.Completed or OperationStatus.Failed })
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
+            // The one-time merge deleted rows every range may still hold in a cached batch.
+            else if (eventName == SignalREvents.DownloadHistoryMergeComplete)
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }

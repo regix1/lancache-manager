@@ -53,14 +53,75 @@ public partial class DashboardBatchService : IDashboardBatchService
     private CancellationTokenSource _liveCacheEviction = new();
     private CancellationTokenSource _detectionCacheEviction = new();
 
-    // One flight per cache key so concurrent misses share a single fan-out. Stored as a Lazy
-    // so GetOrAdd's value factory racing under contention never starts more than one recompute:
-    // constructing a Lazy is inert, and only the ONE instance that actually gets stored into the
-    // dictionary ever has its factory invoked. The caller that created the flight retires it on
-    // every exit path - success, fault, and its own cancellation - via the atomic key+value
-    // TryRemove, so a newer flight for the same key is never removed early, a cached failure is
-    // never replayed forever, and an abandoned request never strands its entry here.
-    private readonly ConcurrentDictionary<string, Lazy<Task<DashboardBatchResponse>>> _inflight = new();
+    // One registered flight per view shares a fan-out across every reader, including readers that
+    // captured a newer cache generation. The only unregistered build is the attempt-cap fallback,
+    // reached after two attached flights fault. A build cannot be cancelled while a reader remains
+    // attached, so an attached reader never observes cancellation from another reader leaving.
+    //
+    // A reader returns only a result built from generations at or above the ones it captured. A
+    // newer reader waits for the older registered build without keeping it alive, then retries.
+    // Only a reader that captured its generations before this request and registers after the prior
+    // build ends can make it wait again, and each such reader adds one wait.
+    // The last attached reader cancels unfinished work, and each build retires its own registration
+    // on every outcome so an abandoned view releases its database connections.
+    private readonly ConcurrentDictionary<string, BatchFlight> _inflight = new();
+
+    private sealed class BatchFlight
+    {
+        private readonly object _gate = new();
+        private int _readers;
+
+        public BatchFlight(
+            long liveGeneration,
+            long detectionGeneration,
+            Func<BatchFlight, Task<DashboardBatchResponse>> run)
+        {
+            LiveGeneration = liveGeneration;
+            DetectionGeneration = detectionGeneration;
+            Cancellation = new CancellationTokenSource();
+            Build = new Lazy<Task<DashboardBatchResponse>>(
+                () => run(this),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+        }
+
+        public long LiveGeneration { get; }
+        public long DetectionGeneration { get; }
+        public CancellationTokenSource Cancellation { get; }
+        public Lazy<Task<DashboardBatchResponse>> Build { get; }
+
+        public bool TryAttach()
+        {
+            lock (_gate)
+            {
+                if (_readers < 0)
+                {
+                    return false;
+                }
+
+                _readers++;
+                return true;
+            }
+        }
+
+        public void Detach()
+        {
+            var cancel = false;
+            lock (_gate)
+            {
+                _readers--;
+                if (_readers == 0 && !Build.Value.IsCompleted)
+                {
+                    _readers = -1;
+                    cancel = true;
+                }
+            }
+
+            if (cancel)
+            {
+                Cancellation.Cancel();
+            }
+        }
+    }
 
     public DashboardBatchService(
         CacheManagementService cacheService,
@@ -112,20 +173,13 @@ public partial class DashboardBatchService : IDashboardBatchService
         var isLive = !startTime.HasValue && !endTime.HasValue;
         var liveCacheGeneration = isLive ? Volatile.Read(ref _liveCacheGeneration) : 0;
         var detectionCacheGeneration = Volatile.Read(ref _detectionCacheGeneration);
-        // Read after the generations, so a token captured here is never older than the generation
-        // it is paired with; the generationsAreCurrent check before the write covers the reverse.
-        // The token STRUCT is what travels, never the source: a build can take seconds, an
-        // invalidation lands on a notification thread meanwhile and disposes the source it
-        // displaced, and CancellationTokenSource.Token throws once disposed. A token handed out
-        // before that stays readable, reports itself already cancelled, and the entry is declined.
-        var liveCacheEviction = Volatile.Read(ref _liveCacheEviction).Token;
-        var detectionCacheEviction = Volatile.Read(ref _detectionCacheEviction).Token;
 
         // Shared state used by multiple sub-queries
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
+        var requiredGenerations = (Live: liveCacheGeneration, Detection: detectionCacheGeneration);
 
         // The zone is in the key because it changes the hourly buckets in the response body.
         // Whether client names may appear is part of the key, not a filter applied afterwards: one
@@ -138,25 +192,28 @@ public partial class DashboardBatchService : IDashboardBatchService
         // bump and would keep serving the pre-change clients, services, dashboard, sparklines and
         // hourly sections for the rest of its window. Joined with a character no address carries so
         // the two lists cannot run together into one shared spelling.
+        var batchKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
         var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
 
-        // Concurrent misses for one key share a single fan-out via a Lazy-backed single-flight.
-        // The Lazy is constructed before GetOrAdd (construction is inert - it never invokes
-        // RunSingleFlightAsync), so GetOrAdd's plain-value overload deterministically stores
-        // exactly one Lazy per key; ReferenceEquals against the caller's own Lazy then tells it
-        // whether it created that stored flight or only joined one already in progress. Every
-        // caller waits on its own token, and only the creator retires the entry, in a finally so
-        // that its own cancellation cleans up too - the flight runs on the creator's token, so
-        // there is nobody else left to do it. A joiner that sees the flight end for a reason other
-        // than its own token either rethrows, if it owns the failed flight, or loops back to mint
-        // a fresh attempt, bounding every caller to at most two awaited flights; a Lazy with
-        // ExecutionAndPublication would otherwise replay a thrown exception forever.
         const int MaxContestedFlightAttempts = 2;
         var attempt = 0;
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+
+            liveCacheGeneration = isLive ? Volatile.Read(ref _liveCacheGeneration) : 0;
+            detectionCacheGeneration = Volatile.Read(ref _detectionCacheGeneration);
+            // Read after the generations, so a token captured here is never older than the generation
+            // it is paired with; the generationsAreCurrent check before the write covers the reverse.
+            // The token STRUCT is what travels, never the source: a build can take seconds, an
+            // invalidation lands on a notification thread meanwhile and disposes the source it
+            // displaced, and CancellationTokenSource.Token throws once disposed. A token handed out
+            // before that stays readable, reports itself already cancelled, and the entry is declined.
+            var liveCacheEviction = Volatile.Read(ref _liveCacheEviction).Token;
+            var detectionCacheEviction = Volatile.Read(ref _detectionCacheEviction).Token;
+
+            cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
 
             if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse) && cachedResponse != null)
             {
@@ -177,20 +234,59 @@ public partial class DashboardBatchService : IDashboardBatchService
                     service, client, ct);
             }
 
-            var myLazy = new Lazy<Task<DashboardBatchResponse>>(
-                () => RunSingleFlightAsync(
-                    cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
+            var candidate = new BatchFlight(
+                liveCacheGeneration,
+                detectionCacheGeneration,
+                flight => RunFlightAsync(
+                    batchKey, flight, cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
                     isLive, liveCacheGeneration, detectionCacheGeneration,
                     liveCacheEviction, detectionCacheEviction, includeClientHostnames,
-                    service, client, ct),
-                LazyThreadSafetyMode.ExecutionAndPublication);
-            var stored = _inflight.GetOrAdd(cacheKey, myLazy);
-            var mine = ReferenceEquals(stored, myLazy);
+                    service, client));
+            var stored = _inflight.GetOrAdd(batchKey, candidate);
+            var mine = ReferenceEquals(stored, candidate);
+
+            if (!mine &&
+                (stored.LiveGeneration < requiredGenerations.Live ||
+                 stored.DetectionGeneration < requiredGenerations.Detection))
+            {
+                try
+                {
+                    await stored.Build.Value.WaitAsync(ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // This result predates the request, so only this reader's cancellation matters.
+                }
+
+                continue;
+            }
+
+            if (!stored.TryAttach())
+            {
+                try
+                {
+                    await stored.Build.Value.WaitAsync(ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // The closed flight is leaving the registration; the next loop replaces it.
+                }
+
+                continue;
+            }
 
             try
             {
-                return await stored.Value.WaitAsync(ct);
+                return await stored.Build.Value.WaitAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -211,11 +307,35 @@ public partial class DashboardBatchService : IDashboardBatchService
             }
             finally
             {
-                if (mine)
-                {
-                    _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));
-                }
+                stored.Detach();
             }
+        }
+    }
+
+    private async Task<DashboardBatchResponse> RunFlightAsync(
+        string flightKey,
+        BatchFlight flight,
+        string cacheKey,
+        long? startTime, long? endTime,
+        List<long> eventIdList, string readerTimeZoneId,
+        List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
+        bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
+        CancellationToken liveCacheEviction, CancellationToken detectionCacheEviction,
+        bool includeClientHostnames,
+        string? service, string? client)
+    {
+        try
+        {
+            return await RunSingleFlightAsync(
+                cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
+                hiddenClientIps, statsExcludedOnlyIps, evictedMode,
+                isLive, liveCacheGeneration, detectionCacheGeneration,
+                liveCacheEviction, detectionCacheEviction, includeClientHostnames,
+                service, client, flight.Cancellation.Token);
+        }
+        finally
+        {
+            _inflight.TryRemove(new KeyValuePair<string, BatchFlight>(flightKey, flight));
         }
     }
 
@@ -223,7 +343,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// The actual cache-miss compute path for one single-flight: fans out every sub-query,
     /// assembles the response, and writes it to the memory cache when every section
     /// succeeded and the captured generations are still current. Runs entirely under the
-    /// creator's own token - a follower joining this same task never influences it.
+    /// flight's own token. Individual readers use their request tokens only while waiting.
     /// </summary>
     private async Task<DashboardBatchResponse> RunSingleFlightAsync(
         string cacheKey,
@@ -245,7 +365,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync(), ct);
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
 
-        // Launch remaining queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
+        // Launch remaining queries fully in parallel. Each section creates its own context.
         var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, includeClientHostnames, ct), ct);
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
@@ -951,20 +1071,20 @@ public partial class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// The identities behind the newest <see cref="RecentGamePickRowLimit"/> rows of the range,
-    /// newest first. It says which games the section lists and in what order, and nothing else: the
-    /// rows carry the identity columns and the newest start time of each, and no sums, because a
-    /// slice of the newest rows cannot total a game whose older downloads fall outside it.
+    /// The identities behind the latest-ending <see cref="RecentGamePickRowLimit"/> rows of the
+    /// range. It says which games the section lists and in what order, and nothing else: the rows
+    /// carry the identity columns and latest activity of each, and no sums, because a slice cannot
+    /// total a game whose older downloads fall outside it.
     /// <para>
-    /// An identity that appears in the slice has its newest row in the slice, since the slice is the
-    /// range's newest rows in order. So the start time here is that identity's real newest, which is
-    /// what the ordering rests on.
+    /// The slice uses end time, so a long download that finished recently is included however long
+    /// ago it began. The later SQL ordering by last start only feeds the fold; the visible list uses
+    /// the group's last-seen value, which the fold derives from the latest end.
     /// </para>
     /// </summary>
     private static IQueryable<DashboardGroupRow> BuildRecentPickQuery(IQueryable<Download> query)
     {
         return query
-            .OrderByDescending(d => d.StartTimeUtc)
+            .OrderByDescending(d => d.EndTimeUtc)
             .Take(RecentGamePickRowLimit)
             .GroupBy(d => new
             {
@@ -986,6 +1106,7 @@ public partial class DashboardBatchService : IDashboardBatchService
                 Service = g.Key.Service,
                 ClientIp = g.Key.ClientIp,
                 LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
+                LastEndTimeUtc = g.Max(d => d.EndTimeUtc > d.StartTimeUtc ? d.EndTimeUtc : d.StartTimeUtc),
                 FirstStartTimeUtc = g.Min(d => d.StartTimeUtc),
                 ActiveCount = g.Sum(d => d.IsActive ? 1 : 0)
             })
@@ -1096,6 +1217,7 @@ public partial class DashboardBatchService : IDashboardBatchService
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                 CacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
+                LastEndTimeUtc = g.Max(d => d.EndTimeUtc > d.StartTimeUtc ? d.EndTimeUtc : d.StartTimeUtc),
                 FirstStartTimeUtc = g.Min(d => d.StartTimeUtc),
                 RequestCount = g.Count(),
                 EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0),
@@ -1163,9 +1285,9 @@ public partial class DashboardBatchService : IDashboardBatchService
         {
             group.EvictedCount += row.EvictedCount;
         }
-        if (row.LastStartTimeUtc > group.LastSeen)
+        if (row.LastEndTimeUtc > group.LastSeen)
         {
-            group.LastSeen = row.LastStartTimeUtc;
+            group.LastSeen = row.LastEndTimeUtc;
         }
         group.IsActive |= row.ActiveCount > 0;
         if (row.FirstStartTimeUtc < group.FirstSeen)
@@ -1330,31 +1452,6 @@ public partial class DashboardBatchService : IDashboardBatchService
         public static GroupMemberKey Of(Download row) => new(
             row.GameAppId, row.GameName, row.DepotId,
             row.EpicAppId, row.XboxProductId, row.Service, row.ClientIp);
-    }
-
-    /// <summary>
-    /// One identity-and-client aggregate of the recent pass. It carries the mapping columns as
-    /// well as the sums because <see cref="GameNameResolver"/> resolves names straight onto it, so
-    /// one representative object per group answers both the fold's key and its totals.
-    /// </summary>
-    internal sealed class DashboardGroupRow : IGameNameRow
-    {
-        public long? DepotId { get; init; }
-        public string ClientIp { get; init; } = string.Empty;
-        public string Service { get; init; } = string.Empty;
-        public string? GameName { get; set; }
-        public long? GameAppId { get; set; }
-        public string? EpicAppId { get; init; }
-        public string? XboxProductId { get; init; }
-        public long CacheHitBytes { get; init; }
-        public long CacheMissBytes { get; init; }
-        public DateTime LastStartTimeUtc { get; init; }
-        /// <summary>Earliest start in the group. Unlike the latest one it does not move while the
-        /// group is still downloading, which is what the panel orders its running rows by.</summary>
-        public DateTime FirstStartTimeUtc { get; init; }
-        public int RequestCount { get; init; }
-        public int EvictedCount { get; init; }
-        public int ActiveCount { get; init; }
     }
 
     /// <summary>
@@ -1743,7 +1840,7 @@ public partial class DashboardBatchService : IDashboardBatchService
                 TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
                 TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 TotalDownloads = g.Count(),
-                LastActivityUtc = g.Max(d => d.StartTimeUtc)
+                LastActivityUtc = g.Max(d => d.EndTimeUtc > d.StartTimeUtc ? d.EndTimeUtc : d.StartTimeUtc)
             })
             .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes);
     }

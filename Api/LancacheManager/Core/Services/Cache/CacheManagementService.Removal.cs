@@ -45,32 +45,41 @@ public partial class CacheManagementService
         RemovalSelection selection,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        if (context.Database.IsNpgsql())
-        {
-            await context.Database.ExecuteSqlRawAsync(
-                "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
-                cancellationToken);
-            await context.Database.ExecuteSqlRawAsync(
-                "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
-                cancellationToken);
-        }
+        // Large set-based deletes can exceed Npgsql's 30-second default. A command timeout would
+        // otherwise retry the whole transaction while the ordered table locks are held.
+        context.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
 
-        await ValidateRemovalSelectionAsync(context, selection, cancellationToken);
-        var datasourceNames = selection.DatasourceNames
-            .Select(name => name.ToLowerInvariant())
-            .ToList();
-        var downloads = SelectRemovalDownloads(context, selection);
-        var downloadIds = downloads.Select(download => download.Id);
-        var logEntriesDeleted = await context.LogEntries
-            .Where(logEntry =>
-                datasourceNames.Contains(logEntry.Datasource.ToLower()) &&
-                logEntry.DownloadId.HasValue &&
-                downloadIds.Contains(logEntry.DownloadId.Value))
-            .ExecuteDeleteAsync(cancellationToken);
-        var downloadsDeleted = await downloads.ExecuteDeleteAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return new RemovalCleanupResult(downloadsDeleted, logEntriesDeleted);
+        // The pooled context can retry transient database failures only when it owns the complete
+        // transaction. EF rejects a user transaction outside this retry block at the first query.
+        return await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            if (context.Database.IsNpgsql())
+            {
+                await context.Database.ExecuteSqlRawAsync(
+                    "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                    cancellationToken);
+                await context.Database.ExecuteSqlRawAsync(
+                    "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                    cancellationToken);
+            }
+
+            await ValidateRemovalSelectionAsync(context, selection, cancellationToken);
+            var datasourceNames = selection.DatasourceNames
+                .Select(name => name.ToLowerInvariant())
+                .ToList();
+            var downloads = SelectRemovalDownloads(context, selection);
+            var downloadIds = downloads.Select(download => download.Id);
+            var logEntriesDeleted = await context.LogEntries
+                .Where(logEntry =>
+                    datasourceNames.Contains(logEntry.Datasource.ToLower()) &&
+                    logEntry.DownloadId.HasValue &&
+                    downloadIds.Contains(logEntry.DownloadId.Value))
+                .ExecuteDeleteAsync(cancellationToken);
+            var downloadsDeleted = await downloads.ExecuteDeleteAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new RemovalCleanupResult(downloadsDeleted, logEntriesDeleted);
+        });
     }
 
     internal static IQueryable<Download> SelectRemovalDownloads(

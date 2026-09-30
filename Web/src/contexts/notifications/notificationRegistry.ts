@@ -321,7 +321,8 @@ const CANCEL_TOOLTIP = {
   battleNetGameMapping: 'common.notifications.cancelBattleNetGameMapping',
   riotGameMapping: 'common.notifications.cancelRiotGameMapping',
   bulkRemoval: 'common.notifications.cancelBulkRemoval',
-  prefillLogin: 'common.notifications.cancelPrefillLogin'
+  prefillLogin: 'common.notifications.cancelPrefillLogin',
+  downloadHistoryUpgrade: 'common.notifications.cancelDownloadHistoryUpgrade'
 } as const;
 
 export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
@@ -1634,6 +1635,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'prefill_login',
     cancelKind: 'serverOp',
     cancelTooltipKey: CANCEL_TOOLTIP.prefillLogin,
+    recovery: { kind: 'none' }
+  },
+
+  // The server run row opens and ends this card. This entry gives the card a cancel action that
+  // posts to the operation endpoint; it needs no SignalR events or client recovery.
+  {
+    type: 'download_history_upgrade',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.downloadHistoryUpgrade,
     recovery: { kind: 'none' }
   }
 ];

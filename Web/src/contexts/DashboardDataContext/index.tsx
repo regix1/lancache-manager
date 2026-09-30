@@ -52,6 +52,7 @@ import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useConnectionLost } from '@hooks/useConnectionLost';
 import { getEffectiveTimezone } from '@utils/timezone';
 import { useTimezone } from '@contexts/useTimezone';
+import { DISCONNECTED_POLL_MS } from '@contexts/SpeedContext/constants';
 
 // Null is how the wire spells a failed sub-query, so a thrown fetch applies as a total failure.
 const FAILED_BATCH: DashboardBatchResponse = {
@@ -149,6 +150,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Refs for tracking state
   const isInitialLoad = useRef(true);
   const fetchInProgress = useRef(false);
+  const liveRefetchPendingRef = useRef(false);
+  const liveFollowUpQueuedRef = useRef(false);
+  const [liveFollowUps, setLiveFollowUps] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const scheduleLiveRefresh = useRefreshThrottle(getRefreshInterval);
@@ -476,9 +480,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (abortControllerRef.current === requestController) {
           abortControllerRef.current = null;
         }
-        // Always clear fetch flags - even for superseded requests.
-        // Only the requestId guard on STATE UPDATES (above) prevents stale data.
-        // Flags must always reset or subsequent fetches get permanently blocked.
         const wasSuperseded = currentRequestIdRef.current !== thisRequestId;
         // Clear initial-load flag unconditionally for any initial request. If this
         // request was superseded, the superseding request has taken over - we're
@@ -488,7 +489,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (isInitial) {
           isInitialLoad.current = false;
         }
-        fetchInProgress.current = false;
+        // Only the latest request clears the in-flight flag. A superseded request settles after the
+        // request that replaced it has already set the flag, and clearing it then made every later
+        // event, poll or plain call treat a running request as idle and abort it. The latest request
+        // always reaches this finally (it ends, fails or times out), so the flag cannot stick.
+        if (!wasSuperseded) {
+          fetchInProgress.current = false;
+          if (liveRefetchPendingRef.current) {
+            liveRefetchPendingRef.current = false;
+            liveFollowUpQueuedRef.current = true;
+            setLiveFollowUps((count) => count + 1);
+          }
+        }
         setIsRefreshing(false);
         // Safety net: if we're the latest request but the try/catch returned early
         // without clearing loading (e.g., the requestId check at line 276 returned
@@ -526,11 +538,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Shared with the Retro list through useRefreshThrottle, so every live surface answers on the
       // one refresh-rate setting and a finished download reaches them all at the same moment.
       scheduleLiveRefresh(() => {
-        // Force the fetch: a server refresh event means committed rows exist, so this
-        // request must supersede any in-flight batch that may have started before the
-        // commit (the requestId guard then discards the superseded response). A non-forced
-        // call here could be swallowed by the 250ms debounce or the in-progress guard and
-        // leave a pre-commit response as the final state.
+        // A batch already in flight, or a follow-up already queued, is not aborted: one follow-up
+        // fetch starts after the latest request settles, so a build slower than the gap between
+        // passes still lands, and the follow-up starts after this event's commit.
+        if (fetchInProgress.current || liveFollowUpQueuedRef.current) {
+          liveRefetchPendingRef.current = true;
+          return;
+        }
         fetchAllData({ forceRefresh: true, trigger: `signalr:${eventName || 'unknown'}` });
       });
     };
@@ -559,8 +573,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
       }
 
-      if (status === 'completed') {
-        void fetchAllData({ trigger: 'signalr:DatabaseResetCompleted' });
+      if (status === 'completed' || status === 'failed') {
+        // A request started before the reset commit cannot stand in for this one. The server
+        // invalidates every range before either terminal state because a late failure can follow
+        // the commit that deleted the rows.
+        void fetchAllData({ forceRefresh: true, trigger: 'signalr:DatabaseResetCompleted' });
       }
     };
 
@@ -638,7 +655,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       LogRemovalComplete: () => handleForcedRefreshEvent('LogRemovalComplete'),
       CorruptionRemovalComplete: () => handleForcedRefreshEvent('CorruptionRemovalComplete'),
       ServiceRemovalComplete: () => handleForcedRefreshEvent('ServiceRemovalComplete'),
-      GameRemovalComplete: () => handleForcedRefreshEvent('GameRemovalComplete')
+      GameRemovalComplete: () => handleForcedRefreshEvent('GameRemovalComplete'),
+      // The one-time merge deletes rows that every range may list.
+      DownloadHistoryMergeComplete: () => handleForcedRefreshEvent('DownloadHistoryMergeComplete')
     };
     const throttledEvents = SIGNALR_REFRESH_EVENTS.filter((event) => !(event in dedicatedHandlers));
     const eventHandlers: Record<string, () => void> = {};
@@ -666,6 +685,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
     };
   }, [mockMode, signalR, fetchAllData, clearDetectionState, scheduleLiveRefresh]);
+
+  useEffect(() => {
+    if (liveFollowUps === 0) return;
+    liveFollowUpQueuedRef.current = false;
+    if (currentTimeRangeRef.current !== 'live') return;
+    void fetchAllData({ forceRefresh: true, trigger: 'signalr:follow-up' });
+  }, [liveFollowUps, fetchAllData]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
@@ -846,6 +872,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       trigger: 'signalr-reconnected'
     });
   });
+
+  // While the hub is down no refresh event arrives, so pull a batch for the range on screen at
+  // the same cadence as the speed cards. A plain call returns when another request is in flight.
+  useEffect(() => {
+    if (mockMode || !hasAccess || signalR.isConnected) return;
+    const interval = setInterval(() => {
+      void fetchAllData({ trigger: 'disconnected-poll' });
+    }, DISCONNECTED_POLL_MS);
+    return () => clearInterval(interval);
+  }, [mockMode, hasAccess, signalR.isConnected, fetchAllData]);
 
   // Custom date changes - immediate fetch, no debounce
   useEffect(() => {

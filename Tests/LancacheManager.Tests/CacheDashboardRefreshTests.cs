@@ -289,6 +289,42 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
+    public void ResetCompletionInvalidatesAllDashboardVariantsBeforeBroadcast()
+    {
+        var source = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
+        var branch = source.IndexOf(
+            "eventName == SignalREvents.DatabaseResetProgress",
+            StringComparison.Ordinal);
+        var status = source.IndexOf(
+            "data is DatabaseResetProgress { Status: OperationStatus.Completed or OperationStatus.Failed }",
+            branch,
+            StringComparison.Ordinal);
+        var invalidation = source.IndexOf("InvalidateAllCache()", status, StringComparison.Ordinal);
+        var broadcast = source.IndexOf("ClientsFor(eventName).SendAsync(eventName, data)", StringComparison.Ordinal);
+
+        Assert.True(branch >= 0 && status > branch);
+        Assert.True(invalidation > status && invalidation < broadcast);
+    }
+
+    [Fact]
+    public void DownloadHistoryMergeInvalidatesEveryRangeAndReachesGuestsBeforeBroadcast()
+    {
+        var source = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
+        var guestEvents = source.IndexOf("private static readonly HashSet<string> _guestEvents", StringComparison.Ordinal);
+        var guestEventsEnd = source.IndexOf("private IClientProxy ClientsFor", guestEvents, StringComparison.Ordinal);
+        var guestEvent = source.IndexOf("SignalREvents.DownloadHistoryMergeComplete", guestEvents, StringComparison.Ordinal);
+        var branch = source.IndexOf(
+            "eventName == SignalREvents.DownloadHistoryMergeComplete",
+            guestEventsEnd,
+            StringComparison.Ordinal);
+        var invalidation = source.IndexOf("InvalidateAllCache()", branch, StringComparison.Ordinal);
+        var broadcast = source.IndexOf("ClientsFor(eventName).SendAsync(eventName, data)", StringComparison.Ordinal);
+
+        Assert.True(guestEvent > guestEvents && guestEvent < guestEventsEnd);
+        Assert.True(branch > guestEventsEnd && invalidation > branch && invalidation < broadcast);
+    }
+
+    [Fact]
     public void DashboardBatch_InvalidateAllCache_AdvancesLiveAndDetectionGenerations()
     {
         var interfaceSource = ReadSource("Core", "Interfaces", "IDashboardBatchService.cs");

@@ -797,7 +797,9 @@ function sortMockRetroRows(rows: MockRetroRow[], params: RetroDownloadQueryParam
     Boolean(params.groupByFrequency) &&
     !['service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(sort);
   const chronological = (row: MockRetroRow): string =>
-    params.mergeAcrossServices ? row.lastStartTimeUtc : row.endTimeUtc;
+    params.mergeAcrossServices && row.lastStartTimeUtc > row.endTimeUtc
+      ? row.lastStartTimeUtc
+      : row.endTimeUtc;
 
   const within = (a: MockRetroRow, b: MockRetroRow): number => {
     switch (sort) {

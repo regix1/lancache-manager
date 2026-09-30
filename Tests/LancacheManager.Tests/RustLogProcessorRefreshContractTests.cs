@@ -114,13 +114,29 @@ public sealed class RustLogProcessorRefreshContractTests
         var activeStatements = source.Split('\n')
             .Where(line =>
                 line.Contains("\\\"Downloads\\\"", StringComparison.Ordinal) &&
-                line.Contains("\\\"IsActive\\\"", StringComparison.Ordinal) &&
                 (line.Contains("SELECT", StringComparison.Ordinal) || line.Contains("UPDATE", StringComparison.Ordinal)))
             .ToArray();
 
-        Assert.Equal(10, activeStatements.Length);
+        Assert.Equal(11, activeStatements.Length);
         Assert.All(activeStatements, statement =>
             Assert.Contains("\\\"Datasource\\\" = $", statement, StringComparison.Ordinal));
+        Assert.DoesNotContain("SET \\\"IsActive\\\" = false", source, StringComparison.Ordinal);
+        Assert.Equal(10, CountOccurrences(source, "\\\"IsEvicted\\\" = false"));
+
+        var update = Assert.Single(activeStatements, line =>
+            line.Contains("UPDATE \\\"Downloads\\\"", StringComparison.Ordinal));
+        Assert.Contains("GREATEST(\\\"EndTimeUtc\\\", $1)", update, StringComparison.Ordinal);
+        Assert.Contains("LEAST(\\\"StartTimeUtc\\\", $12)", update, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(source, "LOCK TABLE \\\"Downloads\\\" IN ROW EXCLUSIVE MODE"));
+        Assert.DoesNotContain(activeStatements.Where(line => line.Contains("SELECT", StringComparison.Ordinal)),
+            line => line.Contains("\\\"IsActive\\\" = true", StringComparison.Ordinal));
+        Assert.Equal(2, CountOccurrences(update, "$1 > \\\"EndTimeUtc\\\""));
+        Assert.DoesNotContain("$1 >= \\\"EndTimeUtc\\\"", update, StringComparison.Ordinal);
+        Assert.Contains("\\\"Service\\\" = CASE WHEN \\\"GameName\\\" IS NULL THEN $13 ELSE \\\"Service\\\" END", update, StringComparison.Ordinal);
+
+        var adoption = Assert.Single(activeStatements, line =>
+            line.Contains("strpos(lower(", StringComparison.Ordinal));
+        Assert.Contains("\\\"LogEntries\\\"", adoption, StringComparison.Ordinal);
     }
 
     [Fact]

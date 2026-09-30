@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 use clap::Parser;
@@ -18,7 +18,9 @@ use lancache_processor::cancel;
 use lancache_processor::db;
 use lancache_processor::log_discovery;
 use lancache_processor::log_layout;
+use lancache_processor::log_purge;
 use lancache_processor::log_reader;
+use lancache_processor::log_resume;
 use lancache_processor::models;
 use lancache_processor::parser;
 use lancache_processor::parser_http_detailed;
@@ -26,7 +28,6 @@ use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
 use lancache_processor::riot_hosts;
 use lancache_processor::service_utils;
-use lancache_processor::session;
 use lancache_processor::tact_products;
 use progress_events::ProgressReporter;
 
@@ -67,7 +68,6 @@ use log_reader::LogFileReader;
 use models::*;
 use parser::LogParser;
 use parser_http_detailed::HttpDetailedParser;
-use session::SessionTracker;
 use std::collections::BTreeMap;
 
 /// Version of the positions-file and progress-file contract.
@@ -357,6 +357,7 @@ struct Processor {
     /// Per-stem start offsets from the positions file. None = legacy monolithic mode
     /// (only the access.log series, start_position applies to it exactly as before).
     positions: Option<HashMap<String, u64>>,
+    resume_path: Option<PathBuf>,
     run_id: String,
     /// Presentation-only layout of the discovered sources ("" until discovery runs).
     layout: String,
@@ -369,9 +370,9 @@ struct Processor {
     recognized_ignored_lines: u64,
     incomplete_final_records: u64,
     files_with_errors: Vec<String>,
+    rotated_member_errors: usize,
     parser: LogParser,
     detailed_parser: HttpDetailedParser,
-    session_tracker: SessionTracker,
     total_lines: AtomicU64,
     lines_parsed: AtomicU64,
     entries_saved: AtomicU64,
@@ -414,6 +415,18 @@ struct Processor {
     xbox_url_negative: HashSet<u128>,
     /// Per-URL Xbox POSITIVE resolutions (rare - only matched game URLs), same digest key.
     xbox_url_positive: HashMap<u128, (String, String)>,
+    #[cfg(test)]
+    before_resume_open: Option<Box<dyn FnMut() + Send>>,
+    #[cfg(test)]
+    before_content_open: Option<Box<dyn FnMut(&Path) + Send>>,
+    #[cfg(test)]
+    read_failure: Option<PathBuf>,
+    #[cfg(test)]
+    open_failure: Option<PathBuf>,
+    #[cfg(test)]
+    open_attempts: HashMap<PathBuf, u64>,
+    #[cfg(test)]
+    parsed_records: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -424,11 +437,54 @@ enum ProcessingOutcome {
 
 /// A file result is deliberately typed so cooperative cancellation can never be folded
 /// into the same branch as a fully consumed file by a future caller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum FileProcessingOutcome {
     Completed,
     SourceBlockedByIncompleteRecord,
+    RotatedMemberUnreadable(RotatedMemberProblem),
+    ResumeTargetChanged,
     Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RotatedMemberProblem {
+    kind: RotatedMemberProblemKind,
+    message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RotatedMemberProblemKind {
+    Open,
+    Read,
+    UnterminatedTail,
+}
+
+#[derive(Clone, Default)]
+struct FileResume {
+    offset: u64,
+    expected: Option<(log_purge::FileIdentity, u32)>,
+    opened: Option<log_purge::FileIdentity>,
+    opened_len: Option<u64>,
+    observed_len: Option<u64>,
+    mark: Option<log_resume::FileMark>,
+    held_skip: u64,
+    #[cfg(test)]
+    fail_read: bool,
+}
+
+impl FileResume {
+    fn read_until_newline(
+        &mut self,
+        reader: &mut LogFileReader,
+        buffer: &mut Vec<u8>,
+    ) -> Result<usize> {
+        #[cfg(test)]
+        if self.fail_read {
+            self.fail_read = false;
+            return Err(anyhow::anyhow!("injected read failure"));
+        }
+        reader.read_until_newline(buffer)
+    }
 }
 
 impl Processor {
@@ -456,6 +512,7 @@ impl Processor {
             progress_path,
             start_position,
             positions,
+            resume_path: None,
             run_id,
             layout: String::new(),
             source_positions: BTreeMap::new(),
@@ -466,11 +523,9 @@ impl Processor {
             recognized_ignored_lines: 0,
             incomplete_final_records: 0,
             files_with_errors: Vec::new(),
+            rotated_member_errors: 0,
             parser: LogParser::new(local_tz),
             detailed_parser: HttpDetailedParser::new(local_tz),
-            session_tracker: SessionTracker::new(Duration::from_secs(
-                SESSION_GAP_MINUTES as u64 * 60,
-            )),
             total_lines: AtomicU64::new(0),
             lines_parsed: AtomicU64::new(0),
             entries_saved: AtomicU64::new(0),
@@ -491,6 +546,18 @@ impl Processor {
             last_xbox_pattern_load: None,
             xbox_url_negative: HashSet::new(),
             xbox_url_positive: HashMap::new(),
+            #[cfg(test)]
+            before_resume_open: None,
+            #[cfg(test)]
+            before_content_open: None,
+            #[cfg(test)]
+            read_failure: None,
+            #[cfg(test)]
+            open_failure: None,
+            #[cfg(test)]
+            open_attempts: HashMap::new(),
+            #[cfg(test)]
+            parsed_records: 0,
         }
     }
 
@@ -680,124 +747,370 @@ impl Processor {
         }
 
         // LogEntries table already exists from C# migrations
-        // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
+        // Index IX_LogEntries_DuplicateCheck covers ClientIp, Service, Timestamp, Url,
+        // BytesServed, Datasource, and md5(COALESCE(HttpRange, '')).
 
-        // Process each source's file series in order (oldest to newest).
+        // Public positions stay line counts. The sidecar proves a byte offset within one plain
+        // member; any identity, length, prefix, or CRC doubt falls back to the corrected line skip.
+        let mut resume_file = self
+            .resume_path
+            .as_deref()
+            .map(log_resume::load)
+            .unwrap_or_default();
+
         'sources: for (source_index, source) in sources.iter().enumerate() {
             let start_offset = match &self.positions {
                 None => self.start_position,
                 Some(map) => map.get(&source.stem).copied().unwrap_or(0),
             };
-            let mut lines_to_skip = start_offset;
-            // Complete records consumed across this stem's series (skipped + processed).
-            // This IS the stem's position: an offset into the ordered rotation series.
-            let mut records_consumed: u64 = 0;
-            // Once a physical member errors, keep ingesting newer members but freeze the
-            // published position at the prefix before that member. `count-lines` stops at
-            // the same boundary. Partial terminals are already never persisted by the host,
-            // but reporting a clean prefix keeps the checkpoint truthful and future-proof.
-            let mut frozen_source_position: Option<u64> = None;
+            let mut stem_files = source.files.clone();
+            let mut stem_sizes = file_sizes[source_index].clone();
+            let mut paths: Vec<PathBuf> = stem_files.iter().map(|file| file.path.clone()).collect();
+            let stem_entry = resume_file
+                .stems
+                .get(&source.stem)
+                .filter(|entry| entry.position == start_offset)
+                .cloned();
+            let saved_point = stem_entry
+                .as_ref()
+                .and_then(|entry| log_resume::resume_point(entry, start_offset, &paths));
+            let mut use_saved_point = saved_point.is_some();
+            let mut stop_sources = false;
 
-            for (file_index, log_file) in source.files.iter().enumerate() {
-                eprintln!(
-                    "\nProcessing {} file {}/{}: {}",
-                    source.stem,
-                    file_index + 1,
-                    source.files.len(),
-                    log_file.path.display()
-                );
-
-                let file_size = file_sizes[source_index][file_index];
-                let position_before_file = records_consumed;
-                let file_result = self
-                    .process_single_file(
-                        log_file,
-                        file_size,
-                        &mut lines_to_skip,
-                        &source.kind,
-                        &mut records_consumed,
+            'stem_attempt: loop {
+                let point = use_saved_point.then(|| saved_point.as_ref()).flatten();
+                let mut lines_to_skip = if point.is_some() {
+                    0
+                } else {
+                    start_offset.saturating_sub(
+                        stem_entry
+                            .as_ref()
+                            .map(|entry| log_resume::deleted_prefix_records(entry, &paths))
+                            .unwrap_or(0),
                     )
-                    .await;
+                };
+                let mut records_consumed = point.map(|value| value.records_before).unwrap_or(0);
+                let first_file_index = point.map(|value| value.file_index).unwrap_or(0);
+                let mut marks = point
+                    .map(|value| value.older_files.clone())
+                    .unwrap_or_default();
+                let mut resumed_counts_pending = point.is_some();
+                let mut frozen_source_position: Option<u64> = None;
+                let mut last_reached: Option<(usize, FileResume, u64)> = None;
+                let mut restart_with_line_skip = false;
 
-                if file_result.is_err() && frozen_source_position.is_none() {
-                    frozen_source_position = Some(position_before_file);
+                #[cfg(test)]
+                if point.is_some() {
+                    if let Some(before_open) = self.before_resume_open.as_mut() {
+                        before_open();
+                    }
                 }
 
-                self.source_positions.insert(
-                    source.stem.clone(),
-                    frozen_source_position.unwrap_or(records_consumed),
-                );
+                for file_index in first_file_index..stem_files.len() {
+                    let log_file = &stem_files[file_index];
+                    eprintln!(
+                        "\nProcessing {} file {}/{}: {}",
+                        source.stem,
+                        file_index + 1,
+                        stem_files.len(),
+                        log_file.path.display()
+                    );
 
-                // Check cancellation before folding the whole file into bytes_completed: an
-                // interrupted file must retain its real in-flight byte count in the terminal
-                // checkpoint rather than being reported as fully consumed.
-                if matches!(&file_result, Ok(FileProcessingOutcome::Cancelled))
-                    || cancel::is_cancelled()
-                {
-                    // Cancellation can arrive after the file's final read/batch flush but
-                    // before this caller-side check, so the caller owns the terminal write.
-                    self.write_cancelled_terminal()?;
-                    self.current_file_bytes.store(0, Ordering::Relaxed);
-                    self.current_file_size.store(0, Ordering::Relaxed);
-                    return Ok(ProcessingOutcome::Cancelled);
-                }
+                    let file_size = stem_sizes[file_index];
+                    let position_before_file = records_consumed;
+                    let resumed_file_records = if point
+                        .map(|value| value.file_index == file_index)
+                        .unwrap_or(false)
+                    {
+                        stem_entry
+                            .as_ref()
+                            .map(|entry| entry.file_records)
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    let mut file_resume =
+                        if let Some(point) = point.filter(|value| value.file_index == file_index) {
+                            FileResume {
+                                offset: point.offset,
+                                expected: stem_entry
+                                    .as_ref()
+                                    .map(|entry| (entry.file_identity.clone(), entry.tail_crc)),
+                                ..FileResume::default()
+                            }
+                        } else {
+                            FileResume::default()
+                        };
+                    if point.is_none()
+                        && lines_to_skip > 0
+                        && !matches!(
+                            log_file.path.extension().and_then(|value| value.to_str()),
+                            Some("gz" | "zst")
+                        )
+                    {
+                        file_resume.mark = stem_entry.as_ref().and_then(|entry| {
+                            let identity = log_purge::file_identity(&log_file.path).ok()?;
+                            let len = std::fs::metadata(&log_file.path).ok()?.len();
+                            entry
+                                .older_files
+                                .iter()
+                                .find(|mark| mark.identity == identity && len > mark.len)
+                                .cloned()
+                        });
+                    }
+                    #[cfg(test)]
+                    {
+                        file_resume.fail_read = self.read_failure.as_ref() == Some(&log_file.path);
+                    }
+                    let file_result = self
+                        .process_single_file(
+                            log_file,
+                            file_size,
+                            &mut lines_to_skip,
+                            &source.kind,
+                            &mut records_consumed,
+                            &mut file_resume,
+                        )
+                        .await;
+                    lines_to_skip = lines_to_skip.saturating_add(file_resume.held_skip);
+                    file_resume.held_skip = 0;
 
-                // Whether the file completed or was skipped with an error, its bytes are
-                // consumed work: fold them into the completed total so percent stays monotone.
-                self.bytes_completed.fetch_add(file_size, Ordering::Relaxed);
-                self.current_file_bytes.store(0, Ordering::Relaxed);
-                self.current_file_size.store(0, Ordering::Relaxed);
-
-                match file_result {
-                    Ok(FileProcessingOutcome::Completed) => {}
-                    Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord) => {
-                        // Unterminated record: the rest of this source's series stays
-                        // unread this run so the persisted position is a clean prefix.
-                        // Only the live current file normally ends mid-line, so this
-                        // costs nothing in the common case.
+                    if matches!(&file_result, Ok(FileProcessingOutcome::ResumeTargetChanged)) {
+                        restart_with_line_skip = true;
                         break;
                     }
-                    Ok(FileProcessingOutcome::Cancelled) => {
-                        unreachable!("cancellation is handled before completed-byte folding")
+
+                    if resumed_counts_pending {
+                        if let Some(point) = point {
+                            self.lines_parsed
+                                .fetch_add(point.records_before, Ordering::Relaxed);
+                            let skipped_bytes: u64 = stem_sizes[..point.file_index].iter().sum();
+                            self.bytes_completed
+                                .fetch_add(skipped_bytes, Ordering::Relaxed);
+                        }
+                        resumed_counts_pending = false;
                     }
-                    Err(e) => {
-                        let error_str = format!("{}", e);
-                        // Classify the error: IO/decompression errors are "corrupted file",
-                        // database errors are infrastructure failures that should not be silenced
-                        let is_db_error = error_str.contains("error returned from database")
-                            || error_str.contains("pool timed out")
-                            || error_str.contains("connection refused")
-                            || error_str.contains("operator does not exist");
 
-                        self.files_with_errors.push(format!(
-                            "{}: {}",
-                            log_file.path.display(),
-                            error_str
-                        ));
+                    if file_result.is_err() && frozen_source_position.is_none() {
+                        frozen_source_position = Some(position_before_file);
+                    }
 
-                        if is_db_error {
-                            eprintln!(
-                                "ERROR: Database error processing {}: {}",
+                    let published = frozen_source_position
+                        .map(|position| position.max(start_offset))
+                        .unwrap_or(records_consumed);
+                    self.source_positions.insert(source.stem.clone(), published);
+
+                    if matches!(&file_result, Ok(FileProcessingOutcome::Cancelled))
+                        || cancel::is_cancelled()
+                    {
+                        self.write_cancelled_terminal()?;
+                        self.current_file_bytes.store(0, Ordering::Relaxed);
+                        self.current_file_size.store(0, Ordering::Relaxed);
+                        return Ok(ProcessingOutcome::Cancelled);
+                    }
+
+                    let file_records = resumed_file_records
+                        + records_consumed.saturating_sub(position_before_file);
+                    let mark_identity = file_resume
+                        .opened
+                        .clone()
+                        .or_else(|| log_purge::file_identity(&log_file.path).ok());
+                    if let Some(identity) = mark_identity {
+                        let len = file_resume.observed_len.unwrap_or(file_size);
+                        let proof = file_resume.opened.as_ref().and_then(|opened| {
+                            file_resume.observed_len?;
+                            if matches!(
+                                log_file.path.extension().and_then(|value| value.to_str()),
+                                Some("gz" | "zst")
+                            ) || log_purge::file_identity(&log_file.path).ok().as_ref()
+                                != Some(opened)
+                                || std::fs::metadata(&log_file.path).ok()?.len()
+                                    < file_resume.offset
+                            {
+                                return None;
+                            }
+                            Some((
+                                file_resume.offset,
+                                log_resume::tail_crc(&log_file.path, file_resume.offset).ok()?,
+                            ))
+                        });
+                        marks.push(log_resume::FileMark {
+                            identity,
+                            len,
+                            records: file_records,
+                            offset: proof.map(|value| value.0),
+                            tail_crc: proof.map(|value| value.1),
+                        });
+                    }
+                    last_reached = Some((file_index, file_resume.clone(), file_records));
+
+                    self.bytes_completed.fetch_add(file_size, Ordering::Relaxed);
+                    self.current_file_bytes.store(0, Ordering::Relaxed);
+                    self.current_file_size.store(0, Ordering::Relaxed);
+
+                    match file_result {
+                        Ok(FileProcessingOutcome::Completed) => {}
+                        Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord) => break,
+                        Ok(FileProcessingOutcome::RotatedMemberUnreadable(problem)) => {
+                            let read = records_consumed.saturating_sub(position_before_file);
+                            if lines_to_skip > 0 {
+                                let marked = stem_entry.as_ref().and_then(|entry| {
+                                    let identity = file_resume.opened.clone().or_else(|| {
+                                        log_purge::file_identity(&log_file.path).ok()
+                                    })?;
+                                    let len = file_resume
+                                        .opened_len
+                                        .or_else(|| {
+                                            std::fs::metadata(&log_file.path)
+                                                .ok()
+                                                .map(|attributes| attributes.len())
+                                        })
+                                        .unwrap_or(file_size);
+                                    let prefix_matched = file_resume.mark.is_some()
+                                        || log_resume::target_matches(
+                                            entry,
+                                            &log_file.path,
+                                            &identity,
+                                            len,
+                                        );
+                                    log_resume::mark_records(entry, &identity, len, prefix_matched)
+                                });
+                                if let Some(records) = marked {
+                                    lines_to_skip =
+                                        lines_to_skip.saturating_sub(records.saturating_sub(read));
+                                } else if problem.kind != RotatedMemberProblemKind::UnterminatedTail
+                                {
+                                    lines_to_skip = 0;
+                                }
+                            }
+                            self.rotated_member_errors += 1;
+                            self.files_with_errors.push(format!(
+                                "{}: {}",
                                 log_file.path.display(),
-                                e
-                            );
-                            // Database errors affect ALL files and sources, no point continuing
-                            break 'sources;
-                        } else {
+                                problem.message
+                            ));
                             eprintln!(
-                                "⚠ Warning: Skipping corrupted file {}: {}",
+                                "Warning: rotated member {} ended early: {}",
                                 log_file.path.display(),
-                                e
+                                problem.message
                             );
-                            eprintln!("  Continuing with remaining files...");
-                            // Any file error caps the terminal at `partial`. Keep ingesting
-                            // fresh files so a permanent corrupt rotation cannot starve live
-                            // traffic; dedup absorbs their re-read while the published source
-                            // position remains frozen at the clean prefix above.
-                            continue;
+                            // Per-member marks preserve the skip that belongs to later files when a
+                            // rotation grows or ends early. An unknown member keeps the established
+                            // fallback correction so newer records remain reachable.
+                        }
+                        Ok(FileProcessingOutcome::ResumeTargetChanged) => {
+                            unreachable!("resume replacement restarts before state is published")
+                        }
+                        Ok(FileProcessingOutcome::Cancelled) => {
+                            unreachable!("cancellation is handled before completed-byte folding")
+                        }
+                        Err(error) => {
+                            let message = format!("{error}");
+                            let database_error = message.contains("error returned from database")
+                                || message.contains("pool timed out")
+                                || message.contains("connection refused")
+                                || message.contains("operator does not exist");
+                            self.files_with_errors.push(format!(
+                                "{}: {}",
+                                log_file.path.display(),
+                                message
+                            ));
+                            if database_error {
+                                eprintln!(
+                                    "ERROR: Database error processing {}: {}",
+                                    log_file.path.display(),
+                                    error
+                                );
+                                stop_sources = true;
+                                break;
+                            }
+                            eprintln!(
+                                "Warning: file {} could not be processed: {}",
+                                log_file.path.display(),
+                                error
+                            );
                         }
                     }
                 }
+
+                if restart_with_line_skip {
+                    let refreshed = discover_log_sources(&self.log_dir)
+                        .context("Failed to rediscover a rotated resume target")?;
+                    if let Some(refreshed_source) = refreshed
+                        .sources
+                        .into_iter()
+                        .find(|candidate| candidate.stem == source.stem)
+                    {
+                        let old_size: u64 = stem_sizes.iter().sum();
+                        stem_files = refreshed_source.files;
+                        stem_sizes = stem_files
+                            .iter()
+                            .map(|file| {
+                                std::fs::metadata(&file.path)
+                                    .map(|attributes| attributes.len())
+                                    .unwrap_or(0)
+                            })
+                            .collect();
+                        let new_size: u64 = stem_sizes.iter().sum();
+                        self.total_bytes = self
+                            .total_bytes
+                            .saturating_sub(old_size)
+                            .saturating_add(new_size);
+                        paths = stem_files.iter().map(|file| file.path.clone()).collect();
+                    }
+                    use_saved_point = false;
+                    continue 'stem_attempt;
+                }
+
+                let published = self
+                    .source_positions
+                    .get(&source.stem)
+                    .copied()
+                    .unwrap_or(start_offset);
+                let fresh = if frozen_source_position.is_none() {
+                    last_reached
+                        .as_ref()
+                        .and_then(|(file_index, file_resume, file_records)| {
+                            let log_file = &stem_files[*file_index];
+                            let identity = file_resume.opened.as_ref()?;
+                            if matches!(
+                                log_file.path.extension().and_then(|value| value.to_str()),
+                                Some("gz" | "zst")
+                            ) || log_purge::file_identity(&log_file.path).ok().as_ref()
+                                != Some(identity)
+                            {
+                                return None;
+                            }
+                            let tail_crc =
+                                log_resume::tail_crc(&log_file.path, file_resume.offset).ok()?;
+                            Some(log_resume::StemResume {
+                                position: published,
+                                older_files: marks[..marks.len().saturating_sub(1)].to_vec(),
+                                file_identity: identity.clone(),
+                                offset: file_resume.offset,
+                                file_records: *file_records,
+                                tail_crc,
+                            })
+                        })
+                } else {
+                    None
+                };
+                if let Some(entry) = log_resume::entry_after_run(
+                    resume_file.stems.get(&source.stem),
+                    fresh,
+                    frozen_source_position.is_some(),
+                    published,
+                    start_offset,
+                ) {
+                    resume_file.stems.insert(source.stem.clone(), entry);
+                } else {
+                    resume_file.stems.remove(&source.stem);
+                }
+                break 'stem_attempt;
+            }
+
+            if stop_sources {
+                break 'sources;
             }
         }
 
@@ -816,8 +1129,12 @@ impl Processor {
         let final_line_count = self.lines_parsed.load(Ordering::Relaxed);
         self.total_lines.store(final_line_count, Ordering::Relaxed);
 
-        // If we had errors and processed zero entries, this is a failure
-        if !self.files_with_errors.is_empty() && entries_saved == 0 && self.total_bytes > 0 {
+        // Rotated-member problems still publish a partial position and sidecar even when every
+        // complete record was ignored. Other zero-entry file failures remain failed runs.
+        if self.files_with_errors.len() > self.rotated_member_errors
+            && entries_saved == 0
+            && self.total_bytes > 0
+        {
             let msg = format!(
                 "Log processing failed - 0 entries processed from {} parsed lines. Errors: {}",
                 final_line_count,
@@ -842,6 +1159,14 @@ impl Processor {
             ),
             "completed_with_warnings" => eprintln!("\n{}", message),
             _ => eprintln!("\nAll files processed successfully!"),
+        }
+        if let Some(path) = self.resume_path.as_deref() {
+            if let Err(error) = log_resume::save(path, &resume_file) {
+                eprintln!(
+                    "Warning: failed to save resume file {}: {error:#}",
+                    path.display()
+                );
+            }
         }
         self.write_terminal(terminal, "completed", &message)?;
 
@@ -887,6 +1212,7 @@ impl Processor {
         lines_to_skip: &mut u64,
         kind: &SourceKind,
         records_consumed: &mut u64,
+        resume: &mut FileResume,
     ) -> Result<FileProcessingOutcome> {
         self.process_single_file_with_cancel(
             log_file,
@@ -894,6 +1220,7 @@ impl Processor {
             lines_to_skip,
             kind,
             records_consumed,
+            resume,
             cancel::is_cancelled,
         )
         .await
@@ -906,6 +1233,7 @@ impl Processor {
         lines_to_skip: &mut u64,
         kind: &SourceKind,
         records_consumed: &mut u64,
+        resume: &mut FileResume,
         is_cancelled: F,
     ) -> Result<FileProcessingOutcome>
     where
@@ -915,9 +1243,79 @@ impl Processor {
         let byte_counter = Arc::new(AtomicU64::new(0));
         self.current_file_bytes = byte_counter.clone();
         self.current_file_size.store(file_size, Ordering::Relaxed);
+        let plain = !matches!(
+            log_file.path.extension().and_then(|value| value.to_str()),
+            Some("gz" | "zst")
+        );
+        let mark = resume.mark.take();
 
-        // Open log file with automatic compression detection
-        let mut reader = LogFileReader::open_with_byte_counter(&log_file.path, byte_counter)?;
+        #[cfg(test)]
+        if let Some(before_open) = self.before_content_open.as_mut() {
+            before_open(&log_file.path);
+        }
+
+        let open_error: Option<anyhow::Error> = {
+            #[cfg(test)]
+            {
+                *self.open_attempts.entry(log_file.path.clone()).or_insert(0) += 1;
+                (self.open_failure.as_ref() == Some(&log_file.path))
+                    .then(|| anyhow::anyhow!("injected open failure"))
+            }
+            #[cfg(not(test))]
+            {
+                None
+            }
+        };
+
+        let opened = if let Some(error) = open_error {
+            Err(error)
+        } else if let Some((expected, tail_crc)) = resume.expected.as_ref() {
+            match LogFileReader::open_at_offset(
+                &log_file.path,
+                resume.offset,
+                expected,
+                *tail_crc,
+                byte_counter.clone(),
+            ) {
+                Ok(Some(reader)) => {
+                    resume.opened = Some(expected.clone());
+                    Ok(reader)
+                }
+                Ok(None) => return Ok(FileProcessingOutcome::ResumeTargetChanged),
+                Err(error) => Err(error),
+            }
+        } else {
+            LogFileReader::open_with_byte_counter_identity(
+                &log_file.path,
+                byte_counter.clone(),
+                mark.as_ref(),
+            )
+            .map(|(reader, identity, len, prefix_matched)| {
+                resume.opened_len = Some(len);
+                if prefix_matched {
+                    if let Some(mark) = mark {
+                        let local_skip = (*lines_to_skip).min(mark.records);
+                        resume.held_skip = lines_to_skip.saturating_sub(local_skip);
+                        *lines_to_skip = local_skip;
+                        resume.mark = Some(mark);
+                    }
+                }
+                resume.opened = Some(identity);
+                reader
+            })
+        };
+        let mut reader = match opened {
+            Ok(reader) => reader,
+            Err(error) if log_file.rotation_number.is_some() => {
+                return Ok(FileProcessingOutcome::RotatedMemberUnreadable(
+                    RotatedMemberProblem {
+                        kind: RotatedMemberProblemKind::Open,
+                        message: format!("{error:#}"),
+                    },
+                ));
+            }
+            Err(error) => return Err(error),
+        };
 
         // Records are read as raw bytes: one invalid byte must never abort a file, and
         // UTF-8 lossiness is confined to the classifier's text handling.
@@ -934,9 +1332,23 @@ impl Processor {
                     return Ok(FileProcessingOutcome::Cancelled);
                 }
                 record_buf.clear();
-                let bytes_read = reader.read_until_newline(&mut record_buf)?;
+                let bytes_read = match resume.read_until_newline(&mut reader, &mut record_buf) {
+                    Ok(bytes_read) => bytes_read,
+                    Err(error) if log_file.rotation_number.is_some() => {
+                        return Ok(FileProcessingOutcome::RotatedMemberUnreadable(
+                            RotatedMemberProblem {
+                                kind: RotatedMemberProblemKind::Read,
+                                message: format!("{error:#}"),
+                            },
+                        ));
+                    }
+                    Err(error) => return Err(error),
+                };
                 if bytes_read == 0 {
                     // Reached EOF before skipping all lines - this file is exhausted
+                    if plain {
+                        resume.observed_len = Some(byte_counter.load(Ordering::Relaxed));
+                    }
                     return Ok(FileProcessingOutcome::Completed);
                 }
                 if !record_buf.ends_with(b"\n") {
@@ -944,10 +1356,22 @@ impl Processor {
                     // counted toward the position, so it is not skippable either — and
                     // the source stops here so the position stays a clean prefix.
                     self.incomplete_final_records += 1;
+                    if plain {
+                        resume.observed_len = Some(byte_counter.load(Ordering::Relaxed));
+                    }
+                    if log_file.rotation_number.is_some() {
+                        return Ok(FileProcessingOutcome::RotatedMemberUnreadable(
+                            RotatedMemberProblem {
+                                kind: RotatedMemberProblemKind::UnterminatedTail,
+                                message: "ends with an unterminated record".to_string(),
+                            },
+                        ));
+                    }
                     return Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord);
                 }
                 *lines_to_skip -= 1;
                 *records_consumed += 1;
+                resume.offset += bytes_read as u64;
                 self.lines_parsed.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -972,7 +1396,22 @@ impl Processor {
             }
 
             record_buf.clear();
-            let bytes_read = reader.read_until_newline(&mut record_buf)?;
+            let bytes_read = match resume.read_until_newline(&mut reader, &mut record_buf) {
+                Ok(bytes_read) => bytes_read,
+                Err(error) if log_file.rotation_number.is_some() => {
+                    if !batch.is_empty() {
+                        self.process_batch(&batch).await?;
+                        batch.clear();
+                    }
+                    return Ok(FileProcessingOutcome::RotatedMemberUnreadable(
+                        RotatedMemberProblem {
+                            kind: RotatedMemberProblemKind::Read,
+                            message: format!("{error:#}"),
+                        },
+                    ));
+                }
+                Err(error) => return Err(error),
+            };
 
             if bytes_read == 0 {
                 // EOF - process remaining batch
@@ -980,6 +1419,9 @@ impl Processor {
                     self.process_batch(&batch).await?;
                     batch.clear();
                     batch.shrink_to_fit(); // Release memory since we're done
+                }
+                if plain {
+                    resume.observed_len = Some(byte_counter.load(Ordering::Relaxed));
                 }
                 break;
             }
@@ -997,14 +1439,30 @@ impl Processor {
                     batch.clear();
                     batch.shrink_to_fit();
                 }
+                if plain {
+                    resume.observed_len = Some(byte_counter.load(Ordering::Relaxed));
+                }
+                if log_file.rotation_number.is_some() {
+                    return Ok(FileProcessingOutcome::RotatedMemberUnreadable(
+                        RotatedMemberProblem {
+                            kind: RotatedMemberProblemKind::UnterminatedTail,
+                            message: "ends with an unterminated record".to_string(),
+                        },
+                    ));
+                }
                 return Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord);
             }
 
             *records_consumed += 1;
+            resume.offset += bytes_read as u64;
             self.lines_parsed.fetch_add(1, Ordering::Relaxed);
 
             match outcome {
                 ParseOutcome::Parsed(entry) => {
+                    #[cfg(test)]
+                    {
+                        self.parsed_records += 1;
+                    }
                     batch.push(entry);
 
                     // Process batch when it reaches BULK_BATCH_SIZE
@@ -1086,6 +1544,11 @@ impl Processor {
 
         // Begin a transaction
         let mut tx = self.pool.begin().await?;
+        // The upgrade merge takes the stronger table lock. Taking the lock used by this batch
+        // before its lookups makes an already-started pass wait and then see the merged rows.
+        sqlx::query("LOCK TABLE \"Downloads\" IN ROW EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await?;
 
         // Pre-resolve the Xbox title for each entry (aligned by index) so the grouping loop below
         // can key matched Xbox traffic per-title without holding a mutable borrow of `self`.
@@ -1153,11 +1616,44 @@ impl Processor {
             grouped.entry(key).or_default().push(entry);
         }
 
-        // Process each group (Downloads, stats, session tracking)
+        // A map's iteration order changes between processes. Xbox groups run first so generic
+        // Windows Update lines cannot join a game row in the batch where its pattern first applies.
         // Collect entries to insert into a shared buffer for ONE bulk INSERT
         let mut pending_inserts: Vec<PendingLogEntry> = Vec::with_capacity(entries.len());
-        for (session_key, group_entries) in &grouped {
-            self.process_session_group(&mut tx, session_key, group_entries, &mut pending_inserts)
+        let mut keys: Vec<&String> = grouped.keys().collect();
+        keys.sort_by(|a, b| {
+            let a_entry = grouped[*a][0];
+            let b_entry = grouped[*b][0];
+            let a_xbox =
+                a[a_entry.client_ip.len() + 1 + a_entry.service.len()..].starts_with("_xboxgame:");
+            let b_xbox =
+                b[b_entry.client_ip.len() + 1 + b_entry.service.len()..].starts_with("_xboxgame:");
+            (!a_xbox, a.as_str()).cmp(&(!b_xbox, b.as_str()))
+        });
+        for key in keys {
+            let mut ordered = grouped[key].clone();
+            ordered.sort_by_key(|entry| entry.timestamp);
+            let mut part_start = 0;
+            let mut part_max = ordered[0].timestamp;
+            for index in 1..ordered.len() {
+                if ordered[index].timestamp
+                    > part_max + chrono::Duration::minutes(SESSION_GAP_MINUTES)
+                {
+                    // One run groups like many live passes: a long in-batch silence starts the
+                    // same new row that the stored-row window starts between separate passes.
+                    self.process_session_group(
+                        &mut tx,
+                        &ordered[part_start..index],
+                        &mut pending_inserts,
+                    )
+                    .await?;
+                    part_start = index;
+                    part_max = ordered[index].timestamp;
+                } else {
+                    part_max = part_max.max(ordered[index].timestamp);
+                }
+            }
+            self.process_session_group(&mut tx, &ordered[part_start..], &mut pending_inserts)
                 .await?;
         }
 
@@ -1261,14 +1757,9 @@ impl Processor {
                     })
                     .collect();
                 self.last_xbox_pattern_load = Some(Instant::now());
-                // Active-session safety: PRESERVE negative (None) decisions across a reload. A URL
-                // that already resolved to generic Windows Update must STAY wsus for the rest of this
-                // run, even if a daemon contributes its fragment mid-download — otherwise a still
-                // in-flight `wsus` download would flip to `xbox` on the next batch, the active lookup
-                // (keyed on Service='xbox') would miss the live `wsus` row, and the download would
-                // SPLIT into two rows. New URLs first seen AFTER the pattern exists resolve normally;
-                // the next process run (a natural session gap) re-evaluates everything against the
-                // now-populated table. Positive entries are cleared so a renamed title can refresh.
+                // Preserve negative decisions across a reload so one run classifies each URL
+                // consistently. A later process can adopt the stored unnamed row through its owned
+                // LogEntries when a newly available pattern identifies the download.
                 self.xbox_url_positive.clear();
             }
             Err(_) => {
@@ -1385,7 +1876,6 @@ impl Processor {
     async fn process_session_group(
         &mut self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        session_key: &str,
         entries: &[&LogEntry],
         pending_inserts: &mut Vec<PendingLogEntry>,
     ) -> Result<()> {
@@ -1405,6 +1895,7 @@ impl Processor {
                 Vec::with_capacity(entries.len());
             let mut check_urls: Vec<&str> = Vec::with_capacity(entries.len());
             let mut check_bytes: Vec<i64> = Vec::with_capacity(entries.len());
+            let mut check_http_ranges: Vec<String> = Vec::with_capacity(entries.len());
 
             for entry in entries {
                 check_client_ips.push(&entry.client_ip);
@@ -1412,14 +1903,20 @@ impl Processor {
                 check_timestamps.push(Utc.from_utc_datetime(&entry.timestamp));
                 check_urls.push(&entry.url);
                 check_bytes.push(entry.bytes_served);
+                check_http_ranges.push(clamp_chars(
+                    &entry.http_range,
+                    LOG_ENTRY_HTTP_RANGE_MAX_CHARS,
+                ));
             }
 
             let existing_rows = sqlx::query(
-                r#"SELECT "ClientIp", "Service", "Timestamp", "Url", "BytesServed"
+                r#"SELECT "ClientIp", "Service", "Timestamp", "Url", "BytesServed", "HttpRange"
                    FROM "LogEntries"
                    WHERE "Datasource" = $6
-                   AND ("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
-                   IN (SELECT * FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[]))"#
+                   AND ("ClientIp", "Service", "Timestamp", "Url", "BytesServed", md5(COALESCE("HttpRange", '')))
+                   IN (SELECT c.ip, c.svc, c.ts, c.url, c.bytes, md5(c.rng) FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[], $7::text[]) AS c(ip, svc, ts, url, bytes, rng)
+                       UNION ALL
+                       SELECT c.ip, c.svc, c.ts, c.url, c.bytes, md5('') FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[]) AS c(ip, svc, ts, url, bytes))"#
             )
             .bind(&check_client_ips)
             .bind(&check_services)
@@ -1427,26 +1924,35 @@ impl Processor {
             .bind(&check_urls)
             .bind(&check_bytes)
             .bind(&self.datasource_name)
+            .bind(&check_http_ranges)
             .fetch_all(&mut **tx)
             .await?;
 
-            let existing_keys: HashSet<(String, String, i64, String, i64)> = existing_rows
-                .iter()
-                .map(|row| {
-                    let client_ip: String = row.get("ClientIp");
-                    let service: String = row.get("Service");
-                    let ts: chrono::DateTime<Utc> = row.get("Timestamp");
-                    let url: String = row.get("Url");
-                    let bytes: i64 = row.get("BytesServed");
-                    (
-                        client_ip,
-                        service,
-                        ts.timestamp_nanos_opt().unwrap_or(0),
-                        url,
-                        bytes,
-                    )
-                })
-                .collect();
+            let mut existing_keys: HashSet<(String, String, i64, String, i64, String)> =
+                HashSet::new();
+            let mut legacy: HashSet<(String, String, i64, String, i64)> = HashSet::new();
+            for row in &existing_rows {
+                let client_ip: String = row.get("ClientIp");
+                let service: String = row.get("Service");
+                let ts: chrono::DateTime<Utc> = row.get("Timestamp");
+                let url: String = row.get("Url");
+                let bytes: i64 = row.get("BytesServed");
+                let http_range: Option<String> = row.get("HttpRange");
+                let key = (
+                    client_ip,
+                    service,
+                    ts.timestamp_nanos_opt().unwrap_or(0),
+                    url,
+                    bytes,
+                );
+                if let Some(range) = http_range {
+                    existing_keys.insert((key.0, key.1, key.2, key.3, key.4, range));
+                } else {
+                    // A null range predates the range column and stands for every range of the
+                    // same request. The digest keeps the index key bounded for long headers.
+                    legacy.insert(key);
+                }
+            }
 
             let mut new_vec: Vec<&LogEntry> = Vec::with_capacity(entries.len());
             let mut skip_count = 0usize;
@@ -1463,7 +1969,15 @@ impl Processor {
                     entry.url.clone(),
                     entry.bytes_served,
                 );
-                if existing_keys.contains(&key) {
+                let exact_key = (
+                    key.0.clone(),
+                    key.1.clone(),
+                    key.2,
+                    key.3.clone(),
+                    key.4,
+                    clamp_chars(&entry.http_range, LOG_ENTRY_HTTP_RANGE_MAX_CHARS),
+                );
+                if legacy.contains(&key) || existing_keys.contains(&exact_key) {
                     skip_count += 1;
                 } else {
                     new_vec.push(*entry);
@@ -1534,11 +2048,9 @@ impl Processor {
         // Xbox canonicalization (INGEST-PRIMARY, active-session-safe). When this batch of `wsus`
         // traffic matches a stored Xbox fragment, the Downloads-side IDENTITY service becomes `xbox`
         // and GameName becomes the resolved title — while LogEntries.Service stays
-        // `wsus` (the cache-hash service). Every Downloads lookup/insert/deactivate below keys on
-        // `download_service`, so an Xbox download is consistently looked up under `xbox` across
-        // batches (deterministic per-URL resolution → no mid-session split). Unmatched `wsus` keeps
-        // `service` and is generic Windows Update. Backfilling already-ingested still-`wsus` rows is
-        // the C# post-pass's job, not ours.
+        // `wsus` (the cache-hash service). Every Downloads lookup and write below keys on
+        // `download_service`. Unmatched `wsus` stays generic Windows Update. When a later process
+        // learns the pattern, the adoption lookup rejoins the row from its owned LogEntries.
         let (download_service_owned, xbox_game_name, xbox_product_id) = self
             .resolve_xbox_canonicalization(service, &new_entries)
             .await;
@@ -1645,209 +2157,179 @@ impl Processor {
             (None, None)
         };
 
-        // Check if we should create a new download session
-        let should_create_new = self
-            .session_tracker
-            .should_create_new_session(session_key, first_timestamp);
+        let gap = chrono::Duration::minutes(SESSION_GAP_MINUTES);
+        let window_start = Utc.from_utc_datetime(&(first_timestamp - gap));
+        let window_end = Utc.from_utc_datetime(&(first_timestamp + gap));
+        let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
+        let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
 
-        // Find or create download session
-        let download_id = if should_create_new {
-            // Mark ALL old active sessions as inactive for this client/service. Uses the
-            // download-side identity service so an Xbox session deactivates prior `xbox` sessions
-            // (not unrelated generic `wsus` Windows Update sessions for the same client).
-            sqlx::query(
-                "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"Datasource\" = $3 AND \"IsActive\" = true"
-            )
-            .bind(client_ip)
-            .bind(download_service)
-            .bind(&self.datasource_name)
-            .execute(&mut **tx)
-            .await?;
-
-            // Create new download session with depot mapping
-            let game_image_url: Option<String> = None;
-
-            // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
-            let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
-            let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
-
-            let row = sqlx::query(
-                "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\", \"XboxProductId\")
-                 VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13)
-                 RETURNING \"Id\""
-            )
-            .bind(download_service)
-            .bind(client_ip)
-            .bind(first_utc_dt)
-            .bind(last_utc_dt)
-            .bind(total_hit_bytes)
-            .bind(total_miss_bytes)
-            .bind(last_url)
-            .bind(primary_depot_id.map(|d| d as i64))
-            .bind(game_app_id.map(|id| id as i64))
-            .bind(&game_name)
-            .bind(&game_image_url)
-            .bind(&self.datasource_name)
-            .bind(&xbox_product_id)
-            .fetch_one(&mut **tx)
-            .await?;
-
-            let download_id: i64 = row.get("Id");
-
-            download_id
-        } else {
-            // Try to find existing active download for this specific depot/game
-            let download_id_opt: Option<i64> = if let Some(ref xbox_title) = xbox_game_name {
-                // Matched Xbox content. Match the existing active session under the IDENTITY service
-                // (`xbox`, via download_service) by the resolved title OR a still-NULL GameName. The
-                // `_xboxgame:<title>` session grouping already guarantees this batch belongs to this
-                // one title, so adopting a previously-NULL xbox row is safe and lets the COALESCE
-                // UPDATE name it in this batch. Keying on download_service (not the raw wsus service)
-                // is what keeps Xbox sessions from colliding with generic Windows Update rows.
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) AND \"Datasource\" = $4 ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
-                )
+        // A process has no in-memory session history from earlier passes. The symmetric log-time
+        // window rejoins a partial replay without joining old traffic to a current download. The
+        // update only widens the row, and evicted rows never receive new traffic.
+        let download_id_opt: Option<i64> = if let Some(ref xbox_title) = xbox_game_name {
+            let by_title = sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND (\"GameName\" = $3 OR \"GameName\" IS NULL) AND \"StartTimeUtc\" <= $4 AND \"EndTimeUtc\" >= $5 AND \"IsEvicted\" = false AND \"Datasource\" = $6 ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(download_service)
                 .bind(xbox_title)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            } else if let Some(depot_id) = primary_depot_id {
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                )
+                .map(|row| row.get::<i64, _>("Id"));
+            if by_title.is_some() {
+                by_title
+            } else {
+                let fragments: Vec<String> = self
+                    .xbox_patterns
+                    .iter()
+                    .filter(|(_, title, _)| title == xbox_title)
+                    .map(|(fragment, _, _)| fragment.to_ascii_lowercase())
+                    .collect();
+                if fragments.is_empty() {
+                    None
+                } else {
+                    // The URLs owned by the row identify the game even when generic Windows Update
+                    // traffic replaced LastUrl. The DownloadId index limits the subquery to one row.
+                    sqlx::query("SELECT \"Id\" FROM \"Downloads\" d WHERE d.\"ClientIp\" = $1 AND d.\"Service\" = $2 AND d.\"DepotId\" IS NULL AND d.\"GameName\" IS NULL AND d.\"StartTimeUtc\" <= $3 AND d.\"EndTimeUtc\" >= $4 AND d.\"IsEvicted\" = false AND d.\"Datasource\" = $5 AND EXISTS (SELECT 1 FROM \"LogEntries\" e, UNNEST($6::text[]) AS f(frag) WHERE e.\"DownloadId\" = d.\"Id\" AND strpos(lower(e.\"Url\"), f.frag) > 0) ORDER BY d.\"StartTimeUtc\" DESC LIMIT 1")
+                        .persistent(false)
+                        .bind(client_ip)
+                        .bind(service)
+                        .bind(window_end)
+                        .bind(window_start)
+                        .bind(&self.datasource_name)
+                        .bind(&fragments)
+                        .fetch_optional(&mut **tx)
+                        .await?
+                        .map(|row| row.get::<i64, _>("Id"))
+                }
+            }
+        } else if let Some(depot_id) = primary_depot_id {
+            sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"StartTimeUtc\" <= $4 AND \"EndTimeUtc\" >= $5 AND \"IsEvicted\" = false AND \"Datasource\" = $6 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(service)
                 .bind(depot_id as i64)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            } else if service.to_lowercase().contains("epic") {
-                // For Epic services, match by URL path prefix to find the correct game session
-                if let Some(path_prefix) = last_url.and_then(Self::extract_epic_path_prefix) {
-                    let like_pattern = format!("{}%", path_prefix);
-                    sqlx::query(
-                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                    )
+                .map(|row| row.get::<i64, _>("Id"))
+        } else if service.to_lowercase().contains("epic") {
+            if let Some(path_prefix) = last_url.and_then(Self::extract_epic_path_prefix) {
+                let like_pattern = format!("{}%", path_prefix);
+                sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"LastUrl\" LIKE $3 AND \"StartTimeUtc\" <= $4 AND \"EndTimeUtc\" >= $5 AND \"IsEvicted\" = false AND \"Datasource\" = $6 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                    .persistent(false)
                     .bind(client_ip)
                     .bind(service)
                     .bind(&like_pattern)
+                    .bind(window_end)
+                    .bind(window_start)
                     .bind(&self.datasource_name)
                     .fetch_optional(&mut **tx)
                     .await?
-                    .map(|r| r.get::<i64, _>("Id"))
-                } else {
-                    sqlx::query(
-                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                    )
+                    .map(|row| row.get::<i64, _>("Id"))
+            } else {
+                sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"StartTimeUtc\" <= $3 AND \"EndTimeUtc\" >= $4 AND \"IsEvicted\" = false AND \"Datasource\" = $5 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                    .persistent(false)
                     .bind(client_ip)
                     .bind(service)
+                    .bind(window_end)
+                    .bind(window_start)
                     .bind(&self.datasource_name)
                     .fetch_optional(&mut **tx)
                     .await?
-                    .map(|r| r.get::<i64, _>("Id"))
-                }
-            } else if service.to_lowercase() == "riot" && game_name.is_some() {
-                // Riot host RESOLVED to a known game (lol/valorant/bacon). Match the
-                // existing active Riot session either by the resolved GameName OR by a
-                // still-NULL GameName. The host-keyed session grouping (_riotgame:<name>)
-                // already guarantees this batch's entries belong to exactly this game, so
-                // adopting a previously-NULL Riot row is safe — and it lets the COALESCE
-                // UPDATE below NAME that row IN THIS BATCH (the row never lingers unnamed
-                // waiting for a later back-fill). A genuinely-unknown earlier host would
-                // have used the _riot:<host> key + the GameName-IS-NULL branch below, so
-                // it won't be wrongly adopted here. Prefer the exact-name match first.
-                let resolved_name = game_name
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("riot game_name expected but was None"))?;
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) AND \"Datasource\" = $4 ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
-                )
+                    .map(|row| row.get::<i64, _>("Id"))
+            }
+        } else if service.to_lowercase() == "riot" && game_name.is_some() {
+            let resolved_name = game_name
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("riot game_name expected but was None"))?;
+            sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND (\"GameName\" = $3 OR \"GameName\" IS NULL) AND \"StartTimeUtc\" <= $4 AND \"EndTimeUtc\" >= $5 AND \"IsEvicted\" = false AND \"Datasource\" = $6 ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(service)
                 .bind(resolved_name)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            } else if let Some(resolved_name) = game_name.as_deref() {
-                // For Blizzard services whose segment RESOLVED to a game (or the shared
-                // label), match the existing session by the resolved GameName so a
-                // title's multiple CDN paths (configs + data + patch) attach to ONE
-                // session instead of splitting per CDN path.
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"GameName\" = $3 AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                )
+                .map(|row| row.get::<i64, _>("Id"))
+        } else if let Some(resolved_name) = game_name.as_deref() {
+            sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" = $3 AND \"StartTimeUtc\" <= $4 AND \"EndTimeUtc\" >= $5 AND \"IsEvicted\" = false AND \"Datasource\" = $6 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(service)
                 .bind(resolved_name)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            } else if let Some(product) = primary_tact_product.as_deref() {
-                // Blizzard segment that did NOT resolve to a known game (GameName NULL):
-                // match by the raw `/tpr/<seg>/` path so distinct unknown segments still
-                // map to distinct sessions instead of collapsing into one generic session.
-                // `product` is already lowercased (extract_tact_product), but LastUrl keeps
-                // its original case (e.g. /tpr/WoW/...), so match case-insensitively via
-                // LOWER(LastUrl) LIKE <lowercased-pattern> to avoid spawning a duplicate session.
-                let like_pattern = format!("%/tpr/{}/%", product);
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND LOWER(\"LastUrl\") LIKE $3 AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                )
+                .map(|row| row.get::<i64, _>("Id"))
+        } else if let Some(product) = primary_tact_product.as_deref() {
+            let like_pattern = format!("%/tpr/{}/%", product);
+            sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND LOWER(\"LastUrl\") LIKE $3 AND \"StartTimeUtc\" <= $4 AND \"EndTimeUtc\" >= $5 AND \"IsEvicted\" = false AND \"Datasource\" = $6 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(service)
                 .bind(&like_pattern)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            } else if service.to_lowercase() == "riot" && primary_cdn_host.is_some() {
-                // Riot host that did NOT resolve to a known game (GameName NULL above; a
-                // resolved Riot game is handled by the GameName branch). The CDN host is
-                // NOT persisted in LastUrl (every Riot bundle shares the identical path
-                // /channels/public/bundles/<hash>.bundle), so unknown Riot hosts cannot
-                // be discriminated at the DB level — match the most recent active Riot
-                // session for this client. In-batch, distinct unknown hosts are already
-                // kept in separate session-key groups (_riot:<host>); they only converge
-                // here across batches, which is acceptable for the rare unmapped-host case.
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                )
+                .map(|row| row.get::<i64, _>("Id"))
+        } else if service.to_lowercase() == "riot" && primary_cdn_host.is_some() {
+            sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"StartTimeUtc\" <= $3 AND \"EndTimeUtc\" >= $4 AND \"IsEvicted\" = false AND \"Datasource\" = $5 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(service)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            } else {
-                sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
-                )
+                .map(|row| row.get::<i64, _>("Id"))
+        } else {
+            sqlx::query("SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"StartTimeUtc\" <= $3 AND \"EndTimeUtc\" >= $4 AND \"IsEvicted\" = false AND \"Datasource\" = $5 ORDER BY \"StartTimeUtc\" DESC LIMIT 1")
+                .persistent(false)
                 .bind(client_ip)
                 .bind(service)
+                .bind(window_end)
+                .bind(window_start)
                 .bind(&self.datasource_name)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
-            };
+                .map(|row| row.get::<i64, _>("Id"))
+        };
 
-            let game_image_url: Option<String> = None;
-
-            let (download_id, is_new) = if let Some(id) = download_id_opt {
-                (id, false)
-            } else {
-                // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
-                let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
-                let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
-
-                let row = sqlx::query(
-                    "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\", \"XboxProductId\") VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13) RETURNING \"Id\""
-                )
+        let game_image_url: Option<String> = None;
+        let download_id = if let Some(download_id) = download_id_opt {
+            // Only a newer line changes the last URL or reactivates the row. A concurrent resolver
+            // that already named the row also keeps its chosen identity service.
+            sqlx::query("UPDATE \"Downloads\" SET \"StartTimeUtc\" = LEAST(\"StartTimeUtc\", $12), \"EndTimeUtc\" = GREATEST(\"EndTimeUtc\", $1), \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = CASE WHEN $1 > \"EndTimeUtc\" THEN $4 ELSE \"LastUrl\" END, \"IsActive\" = (\"IsActive\" OR $1 > \"EndTimeUtc\"), \"Service\" = CASE WHEN \"GameName\" IS NULL THEN $13 ELSE \"Service\" END, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10 AND \"Datasource\" = $11")
+                .bind(last_utc_dt)
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(last_url)
+                .bind(primary_depot_id.map(|depot| depot as i64))
+                .bind(game_app_id.map(|id| id as i64))
+                .bind(&game_name)
+                .bind(&game_image_url)
+                .bind(&xbox_product_id)
+                .bind(download_id)
+                .bind(&self.datasource_name)
+                .bind(first_utc_dt)
+                .bind(download_service)
+                .execute(&mut **tx)
+                .await?;
+            download_id
+        } else {
+            let row = sqlx::query("INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\", \"XboxProductId\") VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13) RETURNING \"Id\"")
                 .bind(client_ip)
                 .bind(download_service)
                 .bind(first_utc_dt)
@@ -1858,45 +2340,13 @@ impl Processor {
                 .bind(&game_name)
                 .bind(&game_image_url)
                 .bind(last_url)
-                .bind(primary_depot_id.map(|d| d as i64))
+                .bind(primary_depot_id.map(|depot| depot as i64))
                 .bind(&self.datasource_name)
                 .bind(&xbox_product_id)
                 .fetch_one(&mut **tx)
                 .await?;
-                (row.get::<i64, _>("Id"), true)
-            };
-
-            // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
-            let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
-
-            // Only update if we found existing download (not if we just created it).
-            // XboxProductId is COALESCE'd in so a matched Xbox session that adopted a still-NULL
-            // row gets its product id named in this batch (same pattern as GameName).
-            if !is_new {
-                sqlx::query(
-                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = $4, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10 AND \"Datasource\" = $11"
-                )
-                .bind(last_utc_dt)
-                .bind(total_hit_bytes)
-                .bind(total_miss_bytes)
-                .bind(last_url)
-                .bind(primary_depot_id.map(|d| d as i64))
-                .bind(game_app_id.map(|id| id as i64))
-                .bind(&game_name)
-                .bind(&game_image_url)
-                .bind(&xbox_product_id)
-                .bind(download_id)
-                .bind(&self.datasource_name)
-                .execute(&mut **tx)
-                .await?;
-            }
-
-            download_id
+            row.get::<i64, _>("Id")
         };
-
-        // Update session tracker
-        self.session_tracker
-            .update_session(session_key, last_timestamp);
 
         // Push entries to pending buffer - will be bulk-inserted by process_batch
         let now = Utc::now();
@@ -2021,6 +2471,14 @@ async fn main() -> Result<()> {
     let datasource_name = args
         .datasource_name
         .unwrap_or_else(|| "default".to_string());
+    let resume_path = if args.positions_path.is_empty() {
+        None
+    } else {
+        Some(
+            Path::new(&args.positions_path)
+                .with_file_name(format!("rust_resume_{datasource_name}.json")),
+        )
+    };
 
     let run_id = uuid::Uuid::new_v4().to_string();
 
@@ -2084,6 +2542,7 @@ async fn main() -> Result<()> {
         positions,
         run_id,
     );
+    processor.resume_path = resume_path;
 
     match processor.process().await {
         Ok(ProcessingOutcome::Completed) => {
@@ -2111,6 +2570,9 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod classification_tests {
     use super::*;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
 
     fn test_pool() -> PgPool {
         sqlx::postgres::PgPoolOptions::new()
@@ -2138,6 +2600,35 @@ mod classification_tests {
     fn read_progress(path: &Path) -> serde_json::Value {
         let contents = std::fs::read_to_string(path).expect("read progress checkpoint");
         serde_json::from_str(&contents).expect("parse progress checkpoint")
+    }
+
+    fn resume_processor(
+        directory: &Path,
+        progress_name: &str,
+        resume_path: &Path,
+        position: u64,
+    ) -> Processor {
+        let positions = HashMap::from([("fallback-access.log".to_string(), position)]);
+        let mut processor = test_processor(
+            directory.to_path_buf(),
+            directory.join(progress_name),
+            Some(positions),
+        );
+        processor.resume_path = Some(resume_path.to_path_buf());
+        processor
+    }
+
+    pub(super) fn write_gzip(path: &Path, contents: &[u8], compression: Compression) {
+        let file = std::fs::File::create(path).expect("create gzip fixture");
+        let mut encoder = GzEncoder::new(file, compression);
+        encoder.write_all(contents).expect("write gzip fixture");
+        encoder.finish().expect("finish gzip fixture");
+    }
+
+    fn position(progress: &serde_json::Value) -> u64 {
+        progress["source_positions"]["fallback-access.log"]
+            .as_u64()
+            .expect("read fallback source position")
     }
 
     fn parsers() -> (LogParser, HttpDetailedParser) {
@@ -2313,8 +2804,7 @@ mod classification_tests {
         )
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn cachelog_formats_persist_resume_remove_and_do_not_replay(pool: PgPool) {
+    pub(super) async fn create_test_schema(pool: &PgPool) {
         sqlx::raw_sql(
             r#"
             CREATE TABLE "Downloads" (
@@ -2332,7 +2822,9 @@ mod classification_tests {
                 "GameName" text,
                 "GameImageUrl" text,
                 "XboxProductId" text,
-                "Datasource" text NOT NULL
+                "EpicAppId" text,
+                "Datasource" text NOT NULL,
+                "IsEvicted" boolean NOT NULL DEFAULT false
             );
             CREATE TABLE "LogEntries" (
                 "Id" bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -2340,7 +2832,7 @@ mod classification_tests {
                 "ClientIp" text NOT NULL,
                 "Service" text NOT NULL,
                 "Method" text NOT NULL,
-                "HttpRange" text NOT NULL,
+                "HttpRange" text,
                 "Url" text NOT NULL,
                 "StatusCode" integer NOT NULL,
                 "BytesServed" bigint NOT NULL,
@@ -2350,6 +2842,8 @@ mod classification_tests {
                 "CreatedAt" timestamptz NOT NULL,
                 "Datasource" text NOT NULL
             );
+            CREATE INDEX "IX_LogEntries_DownloadId" ON "LogEntries" ("DownloadId");
+            CREATE INDEX "IX_LogEntries_DuplicateCheck" ON "LogEntries" ("ClientIp", "Service", "Timestamp", "Url", "BytesServed", "Datasource", md5(COALESCE("HttpRange", '')));
             CREATE TABLE "XboxCdnPatterns" (
                 "UrlFragment" text NOT NULL,
                 "Title" text,
@@ -2361,9 +2855,14 @@ mod classification_tests {
             );
             "#,
         )
-        .execute(&pool)
+        .execute(pool)
         .await
         .expect("create fixture schema");
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn cachelog_formats_persist_resume_remove_and_do_not_replay(pool: PgPool) {
+        create_test_schema(&pool).await;
 
         let directory = tempfile::tempdir().expect("create fixture directory");
         let text_control = "[xboxlive] 192.0.2.40 / - - - [11/Sep/2026:18:22:34 +1000] \"GET /xbox/control HTTP/1.1\" 200 1024 \"-\" \"Fixture/1.0\" \"HIT\" \"assets1.xboxlive.com\" \"-\"";
@@ -2473,14 +2972,15 @@ mod classification_tests {
         .fetch_one(&pool)
         .await
         .expect("read download totals");
-        assert_eq!(totals.get::<i64, _>("Rows"), 2);
+        assert_eq!(totals.get::<i64, _>("Rows"), 4);
         assert_eq!(totals.get::<i64, _>("Hit"), 5120);
         assert_eq!(totals.get::<i64, _>("Miss"), 10240);
         let initial_counts = stored_counts(&pool).await;
-        assert_eq!(initial_counts, (4, 2, 5120, 10240));
+        assert_eq!(initial_counts, (4, 4, 5120, 10240));
 
         let xbox_totals = sqlx::query(
-            r#"SELECT "CacheHitBytes", "CacheMissBytes" FROM "Downloads"
+            r#"SELECT COALESCE(SUM("CacheHitBytes"), 0)::bigint AS "CacheHitBytes",
+                      COALESCE(SUM("CacheMissBytes"), 0)::bigint AS "CacheMissBytes" FROM "Downloads"
                WHERE "Datasource" = $1 AND "Service" = $2 AND "ClientIp" = $3"#,
         )
         .bind("format-fixture")
@@ -2493,7 +2993,8 @@ mod classification_tests {
         assert_eq!(xbox_totals.get::<i64, _>("CacheMissBytes"), 2048);
 
         let wsus_totals = sqlx::query(
-            r#"SELECT "CacheHitBytes", "CacheMissBytes" FROM "Downloads"
+            r#"SELECT COALESCE(SUM("CacheHitBytes"), 0)::bigint AS "CacheHitBytes",
+                      COALESCE(SUM("CacheMissBytes"), 0)::bigint AS "CacheMissBytes" FROM "Downloads"
                WHERE "Datasource" = $1 AND "Service" = $2 AND "ClientIp" = $3"#,
         )
         .bind("format-fixture")
@@ -2695,9 +3196,717 @@ mod classification_tests {
         assert_eq!(outcome, ProcessingOutcome::Completed);
         let progress = read_progress(&progress_path);
         assert_eq!(progress["terminal_status"], "partial");
-        assert_eq!(progress["source_positions"]["fallback-access.log"], 0);
+        // A rotated read failure no longer freezes the stem. With no saved mark, the pending
+        // skip is cleared so both complete records in the current file remain reachable.
+        assert_eq!(progress["source_positions"]["fallback-access.log"], 2);
         assert_eq!(progress["lines_parsed"], 2);
         assert_eq!(progress["files_with_errors"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn byte_resume_skips_unchanged_rotations_and_reads_only_appended_records() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let resume_path = directory.path().join("resume.json");
+        let oldest = directory.path().join("fallback-access.log.2.gz");
+        let current = directory.path().join("fallback-access.log");
+        write_gzip(&oldest, b"a\nb\nc\n", Compression::default());
+        std::fs::write(directory.path().join("fallback-access.log.1"), b"d\ne\nf\n")
+            .expect("write rotation fixture");
+        std::fs::write(&current, b"g\nh\n").expect("write current fixture");
+
+        let mut first = resume_processor(directory.path(), "first.json", &resume_path, 0);
+        first.process().await.expect("process initial series");
+        assert_eq!(
+            position(&read_progress(&directory.path().join("first.json"))),
+            8
+        );
+
+        let compressed_len = std::fs::metadata(&oldest)
+            .expect("read compressed fixture length")
+            .len() as usize;
+        std::fs::write(&oldest, vec![b'x'; compressed_len])
+            .expect("replace compressed bytes in place");
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture")
+            .write_all(b"i\nj\n")
+            .expect("append current records");
+
+        let mut resumed = resume_processor(directory.path(), "resumed.json", &resume_path, 8);
+        resumed.process().await.expect("resume from byte offset");
+        let resumed_progress = read_progress(&directory.path().join("resumed.json"));
+        assert_eq!(resumed_progress["terminal_status"], "completed");
+        assert_eq!(position(&resumed_progress), 10);
+        assert_eq!(resumed_progress["lines_parsed"], 10);
+
+        let positions = HashMap::from([("fallback-access.log".to_string(), 8)]);
+        let mut control = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("control.json"),
+            Some(positions),
+        );
+        control.process().await.expect("run line-skip control");
+        let control_progress = read_progress(&directory.path().join("control.json"));
+        assert_eq!(control_progress["terminal_status"], "partial");
+        assert_eq!(
+            control_progress["files_with_errors"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn mismatched_position_uses_line_skip() {
+        let directory = tempfile::tempdir().expect("create position fixture");
+        let resume_path = directory.path().join("resume.json");
+        let current = directory.path().join("fallback-access.log");
+        std::fs::write(&current, b"a\nb\nc\n").expect("write current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial fixture");
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture")
+            .write_all(b"d\ne\n")
+            .expect("append current records");
+
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 2);
+        second.before_resume_open = Some(Box::new(|| {
+            panic!("a sidecar for another public position must not be opened")
+        }));
+        second.process().await.expect("fall back to line skip");
+
+        let progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(position(&progress), 5);
+        assert_eq!(progress["lines_parsed"], 5);
+    }
+
+    #[tokio::test]
+    async fn rotation_moves_the_saved_plain_file_without_replaying_older_members() {
+        let directory = tempfile::tempdir().expect("create rotation fixture");
+        let resume_path = directory.path().join("resume.json");
+        let oldest = directory.path().join("fallback-access.log.2.gz");
+        let middle = directory.path().join("fallback-access.log.1");
+        let current = directory.path().join("fallback-access.log");
+        write_gzip(&oldest, b"a\nb\nc\n", Compression::default());
+        std::fs::write(&middle, b"d\ne\nf\n").expect("write middle fixture");
+        std::fs::write(&current, b"g\nh\n").expect("write current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial series");
+
+        let compressed_len = std::fs::metadata(&oldest)
+            .expect("read compressed fixture length")
+            .len() as usize;
+        std::fs::write(&oldest, vec![b'x'; compressed_len])
+            .expect("replace compressed bytes in place");
+        std::fs::rename(&oldest, directory.path().join("fallback-access.log.3.gz"))
+            .expect("shift oldest rotation");
+        std::fs::rename(&middle, directory.path().join("fallback-access.log.2"))
+            .expect("shift middle rotation");
+        std::fs::rename(&current, directory.path().join("fallback-access.log.1"))
+            .expect("rotate current fixture");
+        std::fs::write(&current, b"i\n").expect("write new current fixture");
+
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 8);
+        second.process().await.expect("resume moved plain file");
+        let progress = read_progress(&directory.path().join("second.json"));
+
+        assert_eq!(progress["terminal_status"], "completed");
+        assert_eq!(position(&progress), 9);
+        assert_eq!(progress["lines_parsed"], 9);
+    }
+
+    #[tokio::test]
+    async fn truncated_current_file_refuses_the_saved_offset() {
+        let directory = tempfile::tempdir().expect("create truncation fixture");
+        let resume_path = directory.path().join("resume.json");
+        let current = directory.path().join("fallback-access.log");
+        std::fs::write(&current, b"a\nb\nc\n").expect("write current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial fixture");
+        std::fs::write(&current, b"z\n").expect("truncate current fixture");
+
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 3);
+        second.before_resume_open = Some(Box::new(|| {
+            panic!("a saved offset beyond the current size must not be opened")
+        }));
+        second.process().await.expect("fall back after truncation");
+
+        let progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(position(&progress), 1);
+        assert_eq!(progress["lines_parsed"], 1);
+    }
+
+    #[tokio::test]
+    async fn resume_adjusts_for_a_deleted_oldest_rotation() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let resume_path = directory.path().join("resume.json");
+        let oldest = directory.path().join("fallback-access.log.2.gz");
+        let current = directory.path().join("fallback-access.log");
+        write_gzip(&oldest, b"a\nb\nc\n", Compression::default());
+        std::fs::write(directory.path().join("fallback-access.log.1"), b"d\ne\nf\n")
+            .expect("write rotation fixture");
+        std::fs::write(&current, b"g\nh\n").expect("write current fixture");
+
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial series");
+        std::fs::remove_file(&oldest).expect("delete oldest rotation");
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture")
+            .write_all(b"i\n")
+            .expect("append current record");
+
+        let mut resumed = resume_processor(directory.path(), "resumed.json", &resume_path, 8);
+        resumed.process().await.expect("resume shortened series");
+
+        assert_eq!(
+            position(&read_progress(&directory.path().join("resumed.json"))),
+            6
+        );
+        assert_eq!(resumed.skipped_fallback_lines, 1);
+    }
+
+    #[tokio::test]
+    async fn changed_tail_refuses_resume_and_uses_saved_member_marks() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let resume_path = directory.path().join("resume.json");
+        let oldest = directory.path().join("access.log.2.gz");
+        let current = directory.path().join("access.log");
+        write_gzip(&oldest, b"a\nb\nc\n", Compression::default());
+        std::fs::write(directory.path().join("access.log.1"), b"d\ne\nf\n")
+            .expect("write rotation fixture");
+        std::fs::write(&current, b"g\nh\n").expect("write current fixture");
+
+        let first_positions = HashMap::from([("access.log".to_string(), 0)]);
+        let mut first = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("first.json"),
+            Some(first_positions),
+        );
+        first.resume_path = Some(resume_path.clone());
+        first.process().await.expect("process initial series");
+        let compressed_len = std::fs::metadata(&oldest)
+            .expect("read compressed fixture length")
+            .len() as usize;
+        std::fs::write(&oldest, vec![b'x'; compressed_len])
+            .expect("replace compressed bytes in place");
+        std::fs::write(&current, b"G\nh\ni\nj\n").expect("rewrite current tail and append");
+
+        let second_positions = HashMap::from([("access.log".to_string(), 8)]);
+        let mut resumed = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("resumed.json"),
+            Some(second_positions),
+        );
+        resumed.resume_path = Some(resume_path);
+        resumed.process().await.expect("fall back to line skip");
+        let progress = read_progress(&directory.path().join("resumed.json"));
+
+        assert_eq!(progress["terminal_status"], "partial");
+        assert_eq!(progress["source_positions"]["access.log"], 7);
+        assert_eq!(progress["lines_parsed"], 7);
+        assert_eq!(progress["unparsed_lines"], 2);
+    }
+
+    #[tokio::test]
+    async fn changed_prefix_keeps_the_full_skip_budget() {
+        let directory = tempfile::tempdir().expect("create prefix fixture");
+        let rotated = directory.path().join("fallback-access.log.1");
+        std::fs::write(&rotated, b"a\nb\n").expect("write saved prefix");
+        let identity = log_purge::file_identity(&rotated).expect("read saved identity");
+        let mark = log_resume::FileMark {
+            identity: identity.clone(),
+            len: 4,
+            records: 2,
+            offset: Some(4),
+            tail_crc: Some(log_resume::tail_crc(&rotated, 4).expect("hash saved prefix")),
+        };
+        std::fs::write(&rotated, b"a\nb\nc\n").expect("grow prefix fixture");
+        let changed_path = rotated.clone();
+        let mut processor = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("progress.json"),
+            None,
+        );
+        processor.before_content_open = Some(Box::new(move |path| {
+            if path == changed_path {
+                std::fs::write(path, b"x\ny\nz\n").expect("change offered prefix");
+                assert_eq!(
+                    log_purge::file_identity(path).expect("read changed identity"),
+                    identity
+                );
+            }
+        }));
+        let mut lines_to_skip = 3;
+        let mut records_consumed = 0;
+        let mut resume = FileResume {
+            mark: Some(mark),
+            ..FileResume::default()
+        };
+
+        let outcome = processor
+            .process_single_file(
+                &LogFile::from_path(rotated),
+                6,
+                &mut lines_to_skip,
+                &SourceKind::Fallback,
+                &mut records_consumed,
+                &mut resume,
+            )
+            .await
+            .expect("read changed prefix from its start");
+
+        assert_eq!(outcome, FileProcessingOutcome::Completed);
+        assert_eq!(lines_to_skip, 0);
+        assert_eq!(records_consumed, 3);
+        assert_eq!(resume.held_skip, 0);
+        assert!(resume.mark.is_none());
+        assert_eq!(processor.skipped_fallback_lines, 0);
+    }
+
+    #[tokio::test]
+    async fn malformed_sidecar_falls_back_and_is_replaced() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let resume_path = directory.path().join("resume.json");
+        let current = directory.path().join("fallback-access.log");
+        std::fs::write(&current, b"a\nb\n").expect("write current fixture");
+        std::fs::write(&resume_path, "not json").expect("write malformed sidecar");
+
+        let mut processor = resume_processor(directory.path(), "progress.json", &resume_path, 0);
+        processor
+            .process()
+            .await
+            .expect("use line-position fallback");
+
+        assert_eq!(
+            position(&read_progress(&directory.path().join("progress.json"))),
+            2
+        );
+        assert_eq!(log_resume::load(&resume_path).schema_version, 1);
+    }
+
+    #[tokio::test]
+    async fn rotated_read_failure_keeps_newer_records_reachable() {
+        let directory = tempfile::tempdir().expect("create read-error fixture");
+        let oldest = directory.path().join("fallback-access.log.2");
+        std::fs::write(&oldest, b"a\nb\nc\nd\n").expect("write oldest fixture");
+        std::fs::write(directory.path().join("fallback-access.log.1"), b"e\nf\ng\n")
+            .expect("write rotation fixture");
+        std::fs::write(directory.path().join("fallback-access.log"), b"h\ni\n")
+            .expect("write current fixture");
+
+        let mut first = resume_processor(
+            directory.path(),
+            "first.json",
+            &directory.path().join("resume.json"),
+            0,
+        );
+        first.process().await.expect("process initial series");
+        std::fs::remove_file(&oldest).expect("remove oldest fixture");
+        std::fs::write(&oldest, b"replacement\n").expect("replace oldest identity");
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(directory.path().join("fallback-access.log"))
+            .expect("open current fixture")
+            .write_all(b"j\nk\n")
+            .expect("append current records");
+
+        let positions = HashMap::from([("fallback-access.log".to_string(), 9)]);
+        let mut second = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("second.json"),
+            Some(positions),
+        );
+        second.read_failure = Some(oldest.clone());
+        second
+            .process()
+            .await
+            .expect("continue after rotated read failure");
+        let progress = read_progress(&directory.path().join("second.json"));
+
+        assert_eq!(progress["terminal_status"], "partial");
+        assert_eq!(position(&progress), 7);
+        assert_eq!(progress["lines_parsed"], 7);
+        assert!(progress["files_with_errors"][0]
+            .as_str()
+            .unwrap()
+            .contains("fallback-access.log.2"));
+    }
+
+    #[tokio::test]
+    async fn heartbeat_only_followup_recovers_after_a_truncated_rotation() {
+        let directory = tempfile::tempdir().expect("create heartbeat fixture");
+        let resume_path = directory.path().join("resume.json");
+        let rotation = directory.path().join("fallback-access.log.1.gz");
+        let current = directory.path().join("fallback-access.log");
+        let rotated = (0..200)
+            .map(|index| format!("rotation-{index}\n"))
+            .collect::<String>();
+        write_gzip(&rotation, rotated.as_bytes(), Compression::none());
+        let compressed = std::fs::read(&rotation).expect("read gzip fixture");
+        std::fs::write(&rotation, &compressed[..compressed.len() * 3 / 5])
+            .expect("truncate gzip fixture");
+        std::fs::write(&current, b"current-a\ncurrent-b\n").expect("write current fixture");
+
+        let mut reader = LogFileReader::open(&rotation).expect("open truncated fixture");
+        let mut buffer = Vec::new();
+        let mut complete = 0u64;
+        loop {
+            buffer.clear();
+            match reader.read_until_newline(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(_) if buffer.ends_with(b"\n") => complete += 1,
+                Ok(_) => break,
+            }
+        }
+        assert!(complete > 0);
+
+        let mut first = resume_processor(directory.path(), "first.json", &resume_path, 0);
+        first.process().await.expect("process truncated series");
+        let first_progress = read_progress(&directory.path().join("first.json"));
+        assert_eq!(first_progress["terminal_status"], "partial");
+        assert_eq!(position(&first_progress), complete + 2);
+
+        std::fs::remove_file(&resume_path).expect("remove resume sidecar");
+        let heartbeat = b"[steam] 10.0.0.1 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /lancache-heartbeat HTTP/1.1\" 204 0 \"-\" \"ua\" \"-\" \"-\" \"-\"\n";
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture");
+        file.write_all(heartbeat).expect("append first heartbeat");
+        file.write_all(heartbeat).expect("append second heartbeat");
+        drop(file);
+
+        let mut second =
+            resume_processor(directory.path(), "second.json", &resume_path, complete + 2);
+        second.process().await.expect("recover through line skip");
+        let second_progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(second_progress["terminal_status"], "partial");
+        assert_eq!(position(&second_progress), complete + 4);
+        assert!(resume_path.is_file());
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("reopen current fixture")
+            .write_all(heartbeat)
+            .expect("append third heartbeat");
+        let mut third =
+            resume_processor(directory.path(), "third.json", &resume_path, complete + 4);
+        third.process().await.expect("resume after heartbeat pass");
+        let third_progress = read_progress(&directory.path().join("third.json"));
+        assert_eq!(third_progress["terminal_status"], "completed");
+        assert_eq!(position(&third_progress), complete + 5);
+        assert!(third_progress["files_with_errors"]
+            .as_array()
+            .expect("read file errors")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn truncated_recompression_reduces_the_pending_skip() {
+        let directory = tempfile::tempdir().expect("create recompression fixture");
+        let plain_rotation = directory.path().join("access.log.1");
+        let gzip_rotation = directory.path().join("access.log.1.gz");
+        let current = directory.path().join("access.log");
+        std::fs::write(&plain_rotation, b"a\nb\nc\nd\ne\n").expect("write plain rotation");
+        std::fs::write(&current, b"f\ng\n").expect("write current fixture");
+        let first_positions = HashMap::from([("access.log".to_string(), 0)]);
+        test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("first.json"),
+            Some(first_positions),
+        )
+        .process()
+        .await
+        .expect("process initial series");
+
+        write_gzip(&gzip_rotation, b"a\nb\n", Compression::none());
+        let compressed = std::fs::read(&gzip_rotation).expect("read gzip fixture");
+        std::fs::write(&gzip_rotation, &compressed[..compressed.len() - 4])
+            .expect("truncate gzip trailer");
+        std::fs::remove_file(&plain_rotation).expect("remove plain rotation");
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture")
+            .write_all(b"h\ni\nj\n")
+            .expect("append current records");
+
+        let positions = HashMap::from([("access.log".to_string(), 7)]);
+        let mut second = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("second.json"),
+            Some(positions),
+        );
+        second
+            .process()
+            .await
+            .expect("continue after truncated recompression");
+        let progress = read_progress(&directory.path().join("second.json"));
+
+        assert_eq!(progress["terminal_status"], "partial");
+        assert_eq!(progress["source_positions"]["access.log"], 7);
+        assert_eq!(progress["lines_parsed"], 7);
+        assert_eq!(progress["unparsed_lines"], 5);
+    }
+
+    #[tokio::test]
+    async fn rotated_open_failure_is_typed_but_current_open_failure_propagates() {
+        let directory = tempfile::tempdir().expect("create open-error fixture");
+        let absent = directory.path().join("access.log.3.gz");
+        let mut processor = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("progress.json"),
+            None,
+        );
+        let mut skip = 0;
+        let mut consumed = 0;
+        let mut resume = FileResume::default();
+
+        let rotated = processor
+            .process_single_file_with_cancel(
+                &LogFile {
+                    path: absent.clone(),
+                    rotation_number: Some(3),
+                    is_compressed: true,
+                },
+                0,
+                &mut skip,
+                &SourceKind::Monolithic,
+                &mut consumed,
+                &mut resume,
+                || false,
+            )
+            .await
+            .expect("classify rotated open failure");
+        assert!(matches!(
+            rotated,
+            FileProcessingOutcome::RotatedMemberUnreadable(RotatedMemberProblem {
+                kind: RotatedMemberProblemKind::Open,
+                ..
+            })
+        ));
+
+        let mut resume = FileResume::default();
+        let current = processor
+            .process_single_file_with_cancel(
+                &LogFile {
+                    path: absent,
+                    rotation_number: None,
+                    is_compressed: true,
+                },
+                0,
+                &mut skip,
+                &SourceKind::Monolithic,
+                &mut consumed,
+                &mut resume,
+                || false,
+            )
+            .await;
+        assert!(current.is_err());
+    }
+
+    #[tokio::test]
+    async fn resume_target_rotation_restarts_with_the_refreshed_series() {
+        let directory = tempfile::tempdir().expect("create rotation-race fixture");
+        let resume_path = directory.path().join("resume.json");
+        let current = directory.path().join("fallback-access.log");
+        std::fs::write(&current, b"a\nb\nc\n").expect("write current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial series");
+
+        let rotated = directory.path().join("fallback-access.log.1");
+        let hook_current = current.clone();
+        let hook_rotated = rotated.clone();
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 3);
+        second.before_resume_open = Some(Box::new(move || {
+            std::fs::rename(&hook_current, &hook_rotated).expect("rotate current fixture");
+            std::fs::write(&hook_current, b"d\ne\nf\ng\nh\n").expect("write new current fixture");
+        }));
+
+        second
+            .process()
+            .await
+            .expect("restart after identity change");
+        let progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(position(&progress), 8);
+        assert_eq!(progress["lines_parsed"], 8);
+    }
+
+    #[tokio::test]
+    async fn rewritten_resume_target_restarts_with_line_skip() {
+        let directory = tempfile::tempdir().expect("create rewrite fixture");
+        let resume_path = directory.path().join("resume.json");
+        let current = directory.path().join("fallback-access.log");
+        std::fs::write(&current, b"a\nb\nc\n").expect("write current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial series");
+
+        let identity = log_purge::file_identity(&current).expect("read current identity");
+        let hook_current = current.clone();
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 3);
+        second.before_resume_open = Some(Box::new(move || {
+            std::fs::write(
+                &hook_current,
+                b"long-first\nlong-second\nlong-third\ng\nh\n",
+            )
+            .expect("rewrite current fixture");
+            assert_eq!(
+                log_purge::file_identity(&hook_current).expect("read rewritten identity"),
+                identity
+            );
+        }));
+
+        second.process().await.expect("restart after tail change");
+        let progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(position(&progress), 5);
+        assert_eq!(progress["lines_parsed"], 5);
+    }
+
+    #[tokio::test]
+    async fn zero_offset_rotation_restarts_with_the_refreshed_series() {
+        let directory = tempfile::tempdir().expect("create empty rotation fixture");
+        let resume_path = directory.path().join("resume.json");
+        let current = directory.path().join("fallback-access.log");
+        std::fs::write(&current, b"").expect("write empty current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process empty series");
+
+        std::fs::write(&current, b"lost\n").expect("grow current fixture");
+        let rotated = directory.path().join("fallback-access.log.1");
+        let hook_current = current.clone();
+        let hook_rotated = rotated.clone();
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 0);
+        second.before_resume_open = Some(Box::new(move || {
+            std::fs::rename(&hook_current, &hook_rotated).expect("rotate current fixture");
+            std::fs::write(&hook_current, b"new\n").expect("write replacement fixture");
+        }));
+
+        second
+            .process()
+            .await
+            .expect("restart after zero-offset rotation");
+        let progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(position(&progress), 2);
+        assert_eq!(progress["lines_parsed"], 2);
+    }
+
+    #[tokio::test]
+    async fn rotated_unterminated_tail_keeps_complete_records_and_sidecar() {
+        let directory = tempfile::tempdir().expect("create unterminated fixture");
+        let resume_path = directory.path().join("resume.json");
+        std::fs::write(
+            directory.path().join("access.log.1"),
+            b"a1\na2\na3-cut-mid-line",
+        )
+        .expect("write incomplete rotation");
+        std::fs::write(directory.path().join("access.log"), b"b1\nb2\n")
+            .expect("write current fixture");
+        let positions = HashMap::from([("access.log".to_string(), 0)]);
+        let mut first = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("first.json"),
+            Some(positions),
+        );
+        first.resume_path = Some(resume_path.clone());
+        first
+            .process()
+            .await
+            .expect("continue after incomplete rotation");
+        let first_progress = read_progress(&directory.path().join("first.json"));
+        assert_eq!(first_progress["terminal_status"], "partial");
+        assert_eq!(first_progress["source_positions"]["access.log"], 4);
+        assert_eq!(first_progress["unparsed_lines"], 4);
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(directory.path().join("access.log"))
+            .expect("open current fixture")
+            .write_all(b"b3\n")
+            .expect("append current record");
+        let positions = HashMap::from([("access.log".to_string(), 4)]);
+        let mut second = test_processor(
+            directory.path().to_path_buf(),
+            directory.path().join("second.json"),
+            Some(positions),
+        );
+        second.resume_path = Some(resume_path);
+        second
+            .process()
+            .await
+            .expect("resume after incomplete rotation");
+        let second_progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(
+            second_progress["terminal_status"],
+            "completed_with_warnings"
+        );
+        assert_eq!(second_progress["source_positions"]["access.log"], 5);
+        assert_eq!(second_progress["unparsed_lines"], 1);
+    }
+
+    #[tokio::test]
+    async fn logrotate_recompression_reads_only_new_records() {
+        let directory = tempfile::tempdir().expect("create logrotate fixture");
+        let resume_path = directory.path().join("resume.json");
+        let third = directory.path().join("fallback-access.log.3.gz");
+        let second = directory.path().join("fallback-access.log.2.gz");
+        let first_rotation = directory.path().join("fallback-access.log.1");
+        let current = directory.path().join("fallback-access.log");
+        write_gzip(&third, b"1\n2\n3\n4\n5\n", Compression::default());
+        write_gzip(&second, b"6\n7\n8\n", Compression::default());
+        std::fs::write(&first_rotation, b"9\n10\n11\n").expect("write plain rotation");
+        std::fs::write(&current, b"12\n13\n").expect("write current fixture");
+        resume_processor(directory.path(), "first.json", &resume_path, 0)
+            .process()
+            .await
+            .expect("process initial logrotate series");
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture")
+            .write_all(b"14\n")
+            .expect("append current record");
+        std::fs::remove_file(&third).expect("remove oldest rotation");
+        std::fs::rename(&second, &third).expect("shift compressed rotation");
+        let plain_second = directory.path().join("fallback-access.log.2");
+        std::fs::rename(&first_rotation, &plain_second).expect("shift plain rotation");
+        let plain_contents = std::fs::read(&plain_second).expect("read plain rotation");
+        write_gzip(&second, &plain_contents, Compression::default());
+        std::fs::remove_file(&plain_second).expect("remove recompressed source");
+        std::fs::rename(&current, &first_rotation).expect("rotate current fixture");
+        std::fs::write(&current, b"15\n16\n").expect("write new current fixture");
+
+        let mut resumed = resume_processor(directory.path(), "second.json", &resume_path, 13);
+        resumed
+            .process()
+            .await
+            .expect("process recompressed series");
+        let progress = read_progress(&directory.path().join("second.json"));
+        assert_eq!(position(&progress), 11);
+        assert_eq!(progress["unparsed_lines"], 0);
+        assert_eq!(progress["lines_parsed"], 11);
+        assert_eq!(resumed.skipped_fallback_lines, 3);
     }
 
     #[tokio::test]
@@ -2777,6 +3986,7 @@ mod classification_tests {
         let log_file = LogFile::from_path(log_path);
         let mut lines_to_skip = 0;
         let mut records_consumed = 0;
+        let mut resume = FileResume::default();
 
         let outcome = processor
             .process_single_file_with_cancel(
@@ -2785,6 +3995,7 @@ mod classification_tests {
                 &mut lines_to_skip,
                 &SourceKind::Fallback,
                 &mut records_consumed,
+                &mut resume,
                 || true,
             )
             .await
@@ -2820,6 +4031,2776 @@ mod classification_tests {
         let map = load_positions(path_str).unwrap();
         assert_eq!(map.get("access.log"), Some(&42));
         assert_eq!(map.get("steam-access.log"), Some(&7));
+    }
+}
+
+#[cfg(test)]
+mod session_continuity_tests {
+    use super::*;
+    use flate2::Compression;
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use std::str::FromStr;
+
+    const DATABASE_ENV: &str = "LANCACHE_TEST_DATABASE_URL";
+
+    async fn isolated_pool(test_name: &str) -> Option<(PgPool, String, PgConnectOptions)> {
+        let Ok(url) = std::env::var(DATABASE_ENV) else {
+            println!("SKIP (LANCACHE_TEST_DATABASE_URL unset): {test_name}");
+            return None;
+        };
+        let schema = format!("lp_test_{}", uuid::Uuid::new_v4().simple());
+        let options = PgConnectOptions::from_str(&url).expect("parse isolated database URL");
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await
+            .expect("connect to isolated database");
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#))
+            .execute(&admin)
+            .await
+            .expect("create isolated schema");
+        admin.close().await;
+        let scoped = options.clone().options([("search_path", schema.as_str())]);
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_with(scoped)
+            .await
+            .expect("connect to isolated schema");
+        super::classification_tests::create_test_schema(&pool).await;
+        Some((pool, schema, options))
+    }
+
+    async fn drop_schema(pool: PgPool, schema: &str, options: PgConnectOptions) {
+        pool.close().await;
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("reconnect for schema cleanup");
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&admin)
+            .await
+            .expect("drop isolated schema");
+        admin.close().await;
+    }
+
+    fn log_line(
+        service: &str,
+        client: &str,
+        time: &str,
+        url: &str,
+        bytes: i64,
+        range: &str,
+    ) -> String {
+        format!(
+            "[{service}] {client} / - - - [{time} +0000] \"GET {url} HTTP/1.1\" 206 {bytes} \"-\" \"Fixture/1.0\" \"HIT\" \"cdn.example.test\" \"{range}\"\n"
+        )
+    }
+
+    async fn run(
+        pool: &PgPool,
+        directory: &Path,
+        position: u64,
+        run_id: &str,
+        datasource: &str,
+    ) -> serde_json::Value {
+        run_counted(pool, directory, position, run_id, datasource)
+            .await
+            .0
+    }
+
+    async fn run_counted(
+        pool: &PgPool,
+        directory: &Path,
+        position: u64,
+        run_id: &str,
+        datasource: &str,
+    ) -> (serde_json::Value, u64) {
+        let positions = HashMap::from([("access.log".to_string(), position)]);
+        let progress_path = directory.join(format!("{run_id}.json"));
+        let mut processor = Processor::new(
+            pool.clone(),
+            directory.to_path_buf(),
+            progress_path.clone(),
+            0,
+            false,
+            datasource.to_string(),
+            Some(positions),
+            run_id.to_string(),
+        );
+        processor.resume_path = Some(directory.join(format!("{datasource}-resume.json")));
+        assert_eq!(
+            processor.process().await.expect("process database fixture"),
+            ProcessingOutcome::Completed
+        );
+        let contents = std::fs::read_to_string(progress_path).expect("read database progress");
+        (
+            serde_json::from_str(&contents).expect("parse database progress"),
+            processor.parsed_records,
+        )
+    }
+
+    fn append(path: &Path, contents: &str) {
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .expect("open database log fixture")
+            .write_all(contents.as_bytes())
+            .expect("append database log fixture");
+    }
+
+    async fn stored_rows(pool: &PgPool, datasource: &str) -> Vec<(String, i64)> {
+        sqlx::query_as::<_, (String, i64)>(
+            r#"SELECT "Url", "BytesServed" FROM "LogEntries" WHERE "Datasource" = $1 ORDER BY "Url""#,
+        )
+        .bind(datasource)
+        .fetch_all(pool)
+        .await
+        .expect("read stored log rows")
+    }
+
+    async fn stored_totals(pool: &PgPool, datasource: &str) -> (i64, i64, i64) {
+        let row = sqlx::query(
+            r#"SELECT
+                   COUNT(*)::bigint AS "Rows",
+                   COALESCE(SUM(CASE WHEN "CacheStatus" = 'HIT' THEN "BytesServed" ELSE 0 END), 0)::bigint AS "Hit",
+                   COALESCE(SUM(CASE WHEN "CacheStatus" = 'MISS' THEN "BytesServed" ELSE 0 END), 0)::bigint AS "Miss"
+               FROM "LogEntries" WHERE "Datasource" = $1"#,
+        )
+        .bind(datasource)
+        .fetch_one(pool)
+        .await
+        .expect("read stored log totals");
+        (row.get("Rows"), row.get("Hit"), row.get("Miss"))
+    }
+
+    async fn verify_resume_boundaries(pool: &PgPool) {
+        let remount = tempfile::tempdir().expect("create changed-identity fixture");
+        let remount_oldest = remount.path().join("access.log.2");
+        let remount_older = remount.path().join("access.log.1");
+        let remount_current = remount.path().join("access.log");
+        std::fs::write(
+            &remount_oldest,
+            log_line(
+                "steam",
+                "10.0.6.1",
+                "07/Jan/2026:12:00:00",
+                "/resume/a2/01-oldest",
+                10,
+                "a2-1",
+            ),
+        )
+        .expect("write changed-identity oldest member");
+        std::fs::write(
+            &remount_older,
+            log_line(
+                "steam",
+                "10.0.6.1",
+                "07/Jan/2026:12:00:01",
+                "/resume/a2/02-older",
+                20,
+                "a2-2",
+            ),
+        )
+        .expect("write changed-identity older member");
+        std::fs::write(
+            &remount_current,
+            log_line(
+                "steam",
+                "10.0.6.1",
+                "07/Jan/2026:12:00:02",
+                "/resume/a2/03-current",
+                30,
+                "a2-3",
+            ),
+        )
+        .expect("write changed-identity current member");
+        let (_, first_parsed) = run_counted(pool, remount.path(), 0, "a2-first", "resume-a2").await;
+        assert_eq!(first_parsed, 3);
+
+        let remount_resume = remount.path().join("resume-a2-resume.json");
+        let mut remount_file = log_resume::load(&remount_resume);
+        let remount_entry = remount_file
+            .stems
+            .get_mut("access.log")
+            .expect("read changed-identity resume entry");
+        for (index, mark) in remount_entry.older_files.iter_mut().enumerate() {
+            mark.identity = log_purge::FileIdentity {
+                first: u64::MAX,
+                second: index as u64 + 1,
+            };
+        }
+        remount_entry.file_identity = log_purge::FileIdentity {
+            first: u64::MAX,
+            second: 99,
+        };
+        let old_deleted: u64 = remount_entry
+            .older_files
+            .iter()
+            .map(|mark| mark.records)
+            .sum();
+        assert_eq!(old_deleted, 2);
+        log_resume::save(&remount_resume, &remount_file)
+            .expect("save changed identities in resume entry");
+        append(
+            &remount_current,
+            &log_line(
+                "steam",
+                "10.0.6.1",
+                "07/Jan/2026:12:00:03",
+                "/resume/a2/04-new",
+                40,
+                "a2-4",
+            ),
+        );
+        let remount_paths = vec![
+            remount_oldest.clone(),
+            remount_older.clone(),
+            remount_current.clone(),
+        ];
+        let remount_saved = log_resume::load(&remount_resume);
+        let remount_entry = remount_saved
+            .stems
+            .get("access.log")
+            .expect("reload changed-identity resume entry");
+        assert!(log_resume::resume_point(remount_entry, 3, &remount_paths).is_none());
+        assert_eq!(
+            log_resume::deleted_prefix_records(remount_entry, &remount_paths),
+            0
+        );
+
+        let (remount_second, remount_parsed) =
+            run_counted(pool, remount.path(), 3, "a2-second", "resume-a2").await;
+        assert_eq!(remount_second["source_positions"]["access.log"], 4);
+        assert_eq!(remount_parsed, 1);
+        assert_eq!(
+            stored_rows(pool, "resume-a2").await,
+            vec![
+                ("/resume/a2/01-oldest".to_string(), 10),
+                ("/resume/a2/02-older".to_string(), 20),
+                ("/resume/a2/03-current".to_string(), 30),
+                ("/resume/a2/04-new".to_string(), 40),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-a2").await, (4, 100, 0));
+        let (remount_third, remount_third_parsed) =
+            run_counted(pool, remount.path(), 4, "a2-third", "resume-a2").await;
+        assert_eq!(remount_third["source_positions"]["access.log"], 4);
+        assert_eq!(remount_third_parsed, 0);
+        assert_eq!(stored_totals(pool, "resume-a2").await, (4, 100, 0));
+
+        let remount_control = tempfile::tempdir().expect("create changed-identity comparison");
+        std::fs::copy(&remount_oldest, remount_control.path().join("access.log.2"))
+            .expect("copy changed-identity oldest member");
+        std::fs::copy(&remount_older, remount_control.path().join("access.log.1"))
+            .expect("copy changed-identity older member");
+        std::fs::copy(&remount_current, remount_control.path().join("access.log"))
+            .expect("copy changed-identity current member");
+        let (_, remount_control_parsed) = run_counted(
+            pool,
+            remount_control.path(),
+            3 - old_deleted,
+            "a2-comparison",
+            "resume-a2-comparison",
+        )
+        .await;
+        assert_eq!(remount_control_parsed, 3);
+        assert_eq!(
+            stored_rows(pool, "resume-a2-comparison").await,
+            vec![
+                ("/resume/a2/02-older".to_string(), 20),
+                ("/resume/a2/03-current".to_string(), 30),
+                ("/resume/a2/04-new".to_string(), 40),
+            ]
+        );
+
+        let deleted = tempfile::tempdir().expect("create deleted-oldest database fixture");
+        let deleted_oldest = deleted.path().join("access.log.2");
+        let deleted_older = deleted.path().join("access.log.1");
+        let deleted_current = deleted.path().join("access.log");
+        std::fs::write(
+            &deleted_oldest,
+            log_line(
+                "steam",
+                "10.0.6.2",
+                "07/Jan/2026:13:00:00",
+                "/resume/a3/01-oldest",
+                10,
+                "a3-1",
+            ),
+        )
+        .expect("write deleted-oldest member");
+        std::fs::write(
+            &deleted_older,
+            log_line(
+                "steam",
+                "10.0.6.2",
+                "07/Jan/2026:13:00:01",
+                "/resume/a3/02-older",
+                20,
+                "a3-2",
+            ),
+        )
+        .expect("write surviving older member");
+        std::fs::write(
+            &deleted_current,
+            log_line(
+                "steam",
+                "10.0.6.2",
+                "07/Jan/2026:13:00:02",
+                "/resume/a3/03-current",
+                30,
+                "a3-3",
+            ),
+        )
+        .expect("write deleted-oldest current member");
+        run(pool, deleted.path(), 0, "a3-first", "resume-a3").await;
+        std::fs::remove_file(&deleted_oldest).expect("delete oldest database member");
+        append(
+            &deleted_current,
+            &log_line(
+                "steam",
+                "10.0.6.2",
+                "07/Jan/2026:13:00:03",
+                "/resume/a3/04-new",
+                40,
+                "a3-4",
+            ),
+        );
+        let (deleted_second, deleted_parsed) =
+            run_counted(pool, deleted.path(), 3, "a3-second", "resume-a3").await;
+        assert_eq!(deleted_second["source_positions"]["access.log"], 3);
+        assert_eq!(deleted_parsed, 1);
+        assert_eq!(
+            stored_rows(pool, "resume-a3").await,
+            vec![
+                ("/resume/a3/01-oldest".to_string(), 10),
+                ("/resume/a3/02-older".to_string(), 20),
+                ("/resume/a3/03-current".to_string(), 30),
+                ("/resume/a3/04-new".to_string(), 40),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-a3").await, (4, 100, 0));
+
+        let collision = tempfile::tempdir().expect("create identity-collision fixture");
+        let collision_oldest = collision.path().join("access.log.2.gz");
+        let collision_older = collision.path().join("access.log.1");
+        let collision_current = collision.path().join("access.log");
+        let collision_oldest_line = log_line(
+            "steam",
+            "10.0.6.3",
+            "07/Jan/2026:14:00:00",
+            "/resume/a5/01-oldest",
+            10,
+            "a5-1",
+        );
+        super::classification_tests::write_gzip(
+            &collision_oldest,
+            collision_oldest_line.as_bytes(),
+            Compression::default(),
+        );
+        std::fs::write(
+            &collision_older,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.3",
+                    "07/Jan/2026:14:00:01",
+                    "/resume/a5/02-older-a",
+                    20,
+                    "a5-2",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.3",
+                    "07/Jan/2026:14:00:02",
+                    "/resume/a5/03-older-b",
+                    30,
+                    "a5-3",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write identity-collision older member");
+        std::fs::write(
+            &collision_current,
+            log_line(
+                "steam",
+                "10.0.6.3",
+                "07/Jan/2026:14:00:03",
+                "/resume/a5/04-current",
+                40,
+                "a5-4",
+            ),
+        )
+        .expect("write identity-collision current member");
+        run(pool, collision.path(), 0, "a5-first", "resume-a5").await;
+
+        std::fs::remove_file(&collision_oldest).expect("remove identity-collision oldest member");
+        let collision_source = collision.path().join("access.log.2");
+        std::fs::rename(&collision_older, &collision_source)
+            .expect("move member before recompression");
+        let collision_contents =
+            std::fs::read(&collision_source).expect("read member for recompression");
+        super::classification_tests::write_gzip(
+            &collision_oldest,
+            &collision_contents,
+            Compression::none(),
+        );
+        std::fs::remove_file(&collision_source).expect("remove plain recompression source");
+        std::fs::rename(&collision_current, &collision_older)
+            .expect("rotate identity-collision current member");
+        std::fs::write(
+            &collision_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.3",
+                    "07/Jan/2026:14:00:04",
+                    "/resume/a5/05-new-a",
+                    50,
+                    "a5-5",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.3",
+                    "07/Jan/2026:14:00:05",
+                    "/resume/a5/06-new-b",
+                    60,
+                    "a5-6",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write identity-collision new current member");
+
+        let collision_resume = collision.path().join("resume-a5-resume.json");
+        let mut collision_file = log_resume::load(&collision_resume);
+        let collision_entry = collision_file
+            .stems
+            .get_mut("access.log")
+            .expect("read identity-collision resume entry");
+        let collision_identity =
+            log_purge::file_identity(&collision_oldest).expect("read recompressed member identity");
+        let collision_len = std::fs::metadata(&collision_oldest)
+            .expect("read recompressed member length")
+            .len();
+        assert_ne!(collision_entry.older_files[0].len, collision_len);
+        collision_entry.older_files[0].identity = collision_identity.clone();
+        assert_eq!(
+            log_resume::mark_records(collision_entry, &collision_identity, collision_len, false,),
+            None
+        );
+        log_resume::save(&collision_resume, &collision_file)
+            .expect("save identity-collision resume entry");
+        let collision_paths = vec![
+            collision_oldest.clone(),
+            collision_older.clone(),
+            collision_current.clone(),
+        ];
+        let collision_saved = log_resume::load(&collision_resume);
+        let collision_entry = collision_saved
+            .stems
+            .get("access.log")
+            .expect("reload identity-collision resume entry");
+        assert!(log_resume::resume_point(collision_entry, 4, &collision_paths).is_none());
+        assert_eq!(
+            log_resume::deleted_prefix_records(collision_entry, &collision_paths),
+            3
+        );
+
+        let (collision_second, collision_parsed) =
+            run_counted(pool, collision.path(), 4, "a5-second", "resume-a5").await;
+        assert_eq!(collision_second["source_positions"]["access.log"], 5);
+        assert_eq!(collision_parsed, 4);
+        assert_eq!(
+            stored_rows(pool, "resume-a5").await,
+            vec![
+                ("/resume/a5/01-oldest".to_string(), 10),
+                ("/resume/a5/02-older-a".to_string(), 20),
+                ("/resume/a5/03-older-b".to_string(), 30),
+                ("/resume/a5/04-current".to_string(), 40),
+                ("/resume/a5/05-new-a".to_string(), 50),
+                ("/resume/a5/06-new-b".to_string(), 60),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-a5").await, (6, 210, 0));
+
+        let collision_control = tempfile::tempdir().expect("create identity-only comparison");
+        std::fs::copy(
+            &collision_oldest,
+            collision_control.path().join("access.log.2.gz"),
+        )
+        .expect("copy recompressed comparison member");
+        std::fs::copy(
+            &collision_older,
+            collision_control.path().join("access.log.1"),
+        )
+        .expect("copy rotated comparison member");
+        std::fs::copy(
+            &collision_current,
+            collision_control.path().join("access.log"),
+        )
+        .expect("copy current comparison member");
+        let (_, collision_control_parsed) = run_counted(
+            pool,
+            collision_control.path(),
+            4,
+            "a5-comparison",
+            "resume-a5-comparison",
+        )
+        .await;
+        assert_eq!(collision_control_parsed, 1);
+        assert_eq!(
+            stored_rows(pool, "resume-a5-comparison").await,
+            vec![("/resume/a5/06-new-b".to_string(), 60)]
+        );
+
+        let late_tail = tempfile::tempdir().expect("create late-tail fixture");
+        let late_current = late_tail.path().join("access.log");
+        let late_rotated = late_tail.path().join("access.log.1");
+        std::fs::write(
+            &late_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.4",
+                    "07/Jan/2026:15:00:00",
+                    "/resume/a6/01-a1",
+                    10,
+                    "a6-1",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.4",
+                    "07/Jan/2026:15:00:01",
+                    "/resume/a6/02-a2",
+                    20,
+                    "a6-2",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write late-tail initial current member");
+        run(pool, late_tail.path(), 0, "a6-first", "resume-a6").await;
+        std::fs::rename(&late_current, &late_rotated).expect("rotate late-tail member");
+        let late_line = log_line(
+            "steam",
+            "10.0.6.4",
+            "07/Jan/2026:15:00:02",
+            "/resume/a6/03-a3",
+            30,
+            "a6-3",
+        );
+        append(
+            &late_rotated,
+            late_line
+                .strip_suffix('\n')
+                .expect("remove late-tail terminator"),
+        );
+        std::fs::write(
+            &late_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.4",
+                    "07/Jan/2026:15:00:03",
+                    "/resume/a6/04-b1",
+                    40,
+                    "a6-4",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.4",
+                    "07/Jan/2026:15:00:04",
+                    "/resume/a6/05-b2",
+                    50,
+                    "a6-5",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write late-tail new current member");
+        let (late_partial, late_partial_parsed) =
+            run_counted(pool, late_tail.path(), 2, "a6-partial", "resume-a6").await;
+        assert_eq!(late_partial["terminal_status"], "partial");
+        assert_eq!(late_partial["source_positions"]["access.log"], 4);
+        assert_eq!(late_partial_parsed, 2);
+        assert_eq!(
+            stored_rows(pool, "resume-a6").await,
+            vec![
+                ("/resume/a6/01-a1".to_string(), 10),
+                ("/resume/a6/02-a2".to_string(), 20),
+                ("/resume/a6/04-b1".to_string(), 40),
+                ("/resume/a6/05-b2".to_string(), 50),
+            ]
+        );
+        let partial_resume = log_resume::load(&late_tail.path().join("resume-a6-resume.json"));
+        let partial_entry = partial_resume
+            .stems
+            .get("access.log")
+            .expect("read late-tail resume entry");
+        assert_eq!(partial_entry.older_files.len(), 1);
+        assert_eq!(partial_entry.older_files[0].records, 2);
+        assert_eq!(
+            partial_entry.older_files[0].len,
+            std::fs::metadata(&late_rotated)
+                .expect("read observed late-tail length")
+                .len()
+        );
+        assert!(partial_entry.older_files[0].offset.is_some());
+        assert!(partial_entry.older_files[0].tail_crc.is_some());
+
+        append(&late_rotated, "\n");
+        append(
+            &late_current,
+            &log_line(
+                "steam",
+                "10.0.6.4",
+                "07/Jan/2026:15:00:05",
+                "/resume/a6/06-b3",
+                60,
+                "a6-6",
+            ),
+        );
+        let (late_complete, late_complete_parsed) =
+            run_counted(pool, late_tail.path(), 4, "a6-complete", "resume-a6").await;
+        assert_eq!(late_complete["terminal_status"], "completed");
+        assert_eq!(late_complete["source_positions"]["access.log"], 6);
+        assert_eq!(late_complete_parsed, 2);
+        assert_eq!(
+            stored_rows(pool, "resume-a6").await,
+            vec![
+                ("/resume/a6/01-a1".to_string(), 10),
+                ("/resume/a6/02-a2".to_string(), 20),
+                ("/resume/a6/03-a3".to_string(), 30),
+                ("/resume/a6/04-b1".to_string(), 40),
+                ("/resume/a6/05-b2".to_string(), 50),
+                ("/resume/a6/06-b3".to_string(), 60),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-a6").await, (6, 210, 0));
+        let (late_unchanged, late_unchanged_parsed) =
+            run_counted(pool, late_tail.path(), 6, "a6-unchanged", "resume-a6").await;
+        assert_eq!(late_unchanged["source_positions"]["access.log"], 6);
+        assert_eq!(late_unchanged_parsed, 0);
+        assert_eq!(stored_totals(pool, "resume-a6").await, (6, 210, 0));
+
+        let late_complete_member = tempfile::tempdir().expect("create appended-rotation fixture");
+        let appended_current = late_complete_member.path().join("access.log");
+        let appended_rotated = late_complete_member.path().join("access.log.1");
+        std::fs::write(
+            &appended_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.5",
+                    "07/Jan/2026:16:00:00",
+                    "/resume/a6-complete/01-c1",
+                    11,
+                    "a6c-1",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.5",
+                    "07/Jan/2026:16:00:01",
+                    "/resume/a6-complete/02-c2",
+                    22,
+                    "a6c-2",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write appended-rotation initial member");
+        run(
+            pool,
+            late_complete_member.path(),
+            0,
+            "a6c-first",
+            "resume-a6-complete",
+        )
+        .await;
+        std::fs::rename(&appended_current, &appended_rotated).expect("rotate complete member");
+        std::fs::write(
+            &appended_current,
+            log_line(
+                "steam",
+                "10.0.6.5",
+                "07/Jan/2026:16:00:03",
+                "/resume/a6-complete/04-d1",
+                44,
+                "a6c-4",
+            ),
+        )
+        .expect("write appended-rotation current member");
+        let (_, appended_rotation_parsed) = run_counted(
+            pool,
+            late_complete_member.path(),
+            2,
+            "a6c-rotated",
+            "resume-a6-complete",
+        )
+        .await;
+        assert_eq!(appended_rotation_parsed, 1);
+        append(
+            &appended_rotated,
+            &log_line(
+                "steam",
+                "10.0.6.5",
+                "07/Jan/2026:16:00:02",
+                "/resume/a6-complete/03-c3",
+                33,
+                "a6c-3",
+            ),
+        );
+        append(
+            &appended_current,
+            &log_line(
+                "steam",
+                "10.0.6.5",
+                "07/Jan/2026:16:00:04",
+                "/resume/a6-complete/05-d2",
+                55,
+                "a6c-5",
+            ),
+        );
+        let (appended_second, appended_second_parsed) = run_counted(
+            pool,
+            late_complete_member.path(),
+            3,
+            "a6c-second",
+            "resume-a6-complete",
+        )
+        .await;
+        assert_eq!(appended_second["source_positions"]["access.log"], 5);
+        assert_eq!(appended_second_parsed, 2);
+        assert_eq!(
+            stored_rows(pool, "resume-a6-complete").await,
+            vec![
+                ("/resume/a6-complete/01-c1".to_string(), 11),
+                ("/resume/a6-complete/02-c2".to_string(), 22),
+                ("/resume/a6-complete/03-c3".to_string(), 33),
+                ("/resume/a6-complete/04-d1".to_string(), 44),
+                ("/resume/a6-complete/05-d2".to_string(), 55),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-a6-complete").await, (5, 165, 0));
+        let (_, appended_third_parsed) = run_counted(
+            pool,
+            late_complete_member.path(),
+            5,
+            "a6c-third",
+            "resume-a6-complete",
+        )
+        .await;
+        assert_eq!(appended_third_parsed, 0);
+
+        let permanent = tempfile::tempdir().expect("create permanent-tail fixture");
+        let permanent_current = permanent.path().join("access.log");
+        let permanent_rotated = permanent.path().join("access.log.1");
+        std::fs::write(
+            &permanent_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.6",
+                    "07/Jan/2026:17:00:00",
+                    "/resume/a6-permanent/01-e1",
+                    12,
+                    "a6p-1",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.6",
+                    "07/Jan/2026:17:00:01",
+                    "/resume/a6-permanent/02-e2",
+                    24,
+                    "a6p-2",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write permanent-tail initial member");
+        run(
+            pool,
+            permanent.path(),
+            0,
+            "a6p-first",
+            "resume-a6-permanent",
+        )
+        .await;
+        std::fs::rename(&permanent_current, &permanent_rotated)
+            .expect("rotate permanent-tail member");
+        let permanent_line = log_line(
+            "steam",
+            "10.0.6.6",
+            "07/Jan/2026:17:00:02",
+            "/resume/a6-permanent/03-never-complete",
+            30,
+            "a6p-3",
+        );
+        append(
+            &permanent_rotated,
+            permanent_line
+                .strip_suffix('\n')
+                .expect("remove permanent-tail terminator"),
+        );
+        std::fs::write(
+            &permanent_current,
+            log_line(
+                "steam",
+                "10.0.6.6",
+                "07/Jan/2026:17:00:03",
+                "/resume/a6-permanent/04-f1",
+                36,
+                "a6p-4",
+            ),
+        )
+        .expect("write permanent-tail current member");
+        let (permanent_partial, permanent_partial_parsed) = run_counted(
+            pool,
+            permanent.path(),
+            2,
+            "a6p-partial",
+            "resume-a6-permanent",
+        )
+        .await;
+        assert_eq!(permanent_partial["terminal_status"], "partial");
+        assert_eq!(permanent_partial["source_positions"]["access.log"], 3);
+        assert_eq!(permanent_partial_parsed, 1);
+        append(
+            &permanent_current,
+            &log_line(
+                "steam",
+                "10.0.6.6",
+                "07/Jan/2026:17:00:04",
+                "/resume/a6-permanent/05-f2",
+                48,
+                "a6p-5",
+            ),
+        );
+        let (permanent_second, permanent_second_parsed) = run_counted(
+            pool,
+            permanent.path(),
+            3,
+            "a6p-second",
+            "resume-a6-permanent",
+        )
+        .await;
+        assert_eq!(permanent_second["terminal_status"], "completed");
+        assert_eq!(permanent_second["source_positions"]["access.log"], 4);
+        assert_eq!(permanent_second_parsed, 1);
+        assert_eq!(
+            stored_rows(pool, "resume-a6-permanent").await,
+            vec![
+                ("/resume/a6-permanent/01-e1".to_string(), 12),
+                ("/resume/a6-permanent/02-e2".to_string(), 24),
+                ("/resume/a6-permanent/04-f1".to_string(), 36),
+                ("/resume/a6-permanent/05-f2".to_string(), 48),
+            ]
+        );
+        assert_eq!(
+            stored_totals(pool, "resume-a6-permanent").await,
+            (4, 120, 0)
+        );
+        let (_, permanent_third_parsed) = run_counted(
+            pool,
+            permanent.path(),
+            4,
+            "a6p-third",
+            "resume-a6-permanent",
+        )
+        .await;
+        assert_eq!(permanent_third_parsed, 0);
+
+        let unreadable = tempfile::tempdir().expect("create unreadable-rotation fixture");
+        let unreadable_rotated = unreadable.path().join("access.log.1");
+        let unreadable_current = unreadable.path().join("access.log");
+        std::fs::write(
+            &unreadable_rotated,
+            log_line(
+                "steam",
+                "10.0.6.7",
+                "07/Jan/2026:18:00:00",
+                "/resume/unreadable/00-old",
+                5,
+                "unreadable-old",
+            ),
+        )
+        .expect("write unreadable rotated member");
+        std::fs::write(
+            &unreadable_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.7",
+                    "07/Jan/2026:18:00:01",
+                    "/resume/unreadable/01-current",
+                    70,
+                    "unreadable-1",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.7",
+                    "07/Jan/2026:18:00:02",
+                    "/resume/unreadable/02-current",
+                    80,
+                    "unreadable-2",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write unreadable current member");
+        let unreadable_resume = unreadable.path().join("resume-unreadable-resume.json");
+        let unreadable_first_path = unreadable.path().join("unreadable-first.json");
+        let mut unreadable_first = Processor::new(
+            pool.clone(),
+            unreadable.path().to_path_buf(),
+            unreadable_first_path.clone(),
+            0,
+            false,
+            "resume-unreadable".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 0)])),
+            "unreadable-first".to_string(),
+        );
+        unreadable_first.resume_path = Some(unreadable_resume.clone());
+        unreadable_first.open_failure = Some(unreadable_rotated.clone());
+        assert_eq!(
+            unreadable_first
+                .process()
+                .await
+                .expect("continue after injected rotated open failure"),
+            ProcessingOutcome::Completed
+        );
+        assert_eq!(
+            unreadable_first
+                .open_attempts
+                .get(&unreadable_rotated)
+                .copied()
+                .unwrap_or_default(),
+            1
+        );
+        assert_eq!(unreadable_first.parsed_records, 2);
+        let unreadable_first_progress: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(unreadable_first_path)
+                .expect("read unreadable first progress"),
+        )
+        .expect("parse unreadable first progress");
+        assert_eq!(unreadable_first_progress["terminal_status"], "partial");
+        assert_eq!(
+            unreadable_first_progress["source_positions"]["access.log"],
+            2
+        );
+        let unreadable_file = log_resume::load(&unreadable_resume);
+        let unreadable_entry = unreadable_file
+            .stems
+            .get("access.log")
+            .expect("read unreadable resume entry");
+        assert_eq!(unreadable_entry.older_files.len(), 1);
+        assert_eq!(unreadable_entry.older_files[0].records, 0);
+        assert_eq!(unreadable_entry.older_files[0].offset, None);
+        assert_eq!(unreadable_entry.older_files[0].tail_crc, None);
+        assert_eq!(
+            unreadable_entry.older_files[0].identity,
+            log_purge::file_identity(&unreadable_rotated)
+                .expect("read unreadable rotated identity")
+        );
+        assert_eq!(
+            unreadable_entry.older_files[0].len,
+            std::fs::metadata(&unreadable_rotated)
+                .expect("read unreadable rotated length")
+                .len()
+        );
+
+        append(
+            &unreadable_current,
+            &log_line(
+                "steam",
+                "10.0.6.7",
+                "07/Jan/2026:18:00:03",
+                "/resume/unreadable/03-new",
+                90,
+                "unreadable-3",
+            ),
+        );
+        let unreadable_second_path = unreadable.path().join("unreadable-second.json");
+        let mut unreadable_second = Processor::new(
+            pool.clone(),
+            unreadable.path().to_path_buf(),
+            unreadable_second_path.clone(),
+            0,
+            false,
+            "resume-unreadable".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 2)])),
+            "unreadable-second".to_string(),
+        );
+        unreadable_second.resume_path = Some(unreadable_resume.clone());
+        unreadable_second.open_failure = Some(unreadable_rotated.clone());
+        unreadable_second
+            .process()
+            .await
+            .expect("resume after unreadable rotated member");
+        assert_eq!(
+            unreadable_second
+                .open_attempts
+                .get(&unreadable_rotated)
+                .copied()
+                .unwrap_or_default(),
+            0
+        );
+        assert_eq!(unreadable_second.parsed_records, 1);
+        let unreadable_second_progress: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(unreadable_second_path)
+                .expect("read unreadable second progress"),
+        )
+        .expect("parse unreadable second progress");
+        assert_eq!(unreadable_second_progress["terminal_status"], "completed");
+        assert_eq!(
+            unreadable_second_progress["source_positions"]["access.log"],
+            3
+        );
+        assert_eq!(
+            stored_rows(pool, "resume-unreadable").await,
+            vec![
+                ("/resume/unreadable/01-current".to_string(), 70),
+                ("/resume/unreadable/02-current".to_string(), 80),
+                ("/resume/unreadable/03-new".to_string(), 90),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-unreadable").await, (3, 240, 0));
+
+        let unreadable_third_path = unreadable.path().join("unreadable-third.json");
+        let mut unreadable_third = Processor::new(
+            pool.clone(),
+            unreadable.path().to_path_buf(),
+            unreadable_third_path,
+            0,
+            false,
+            "resume-unreadable".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 3)])),
+            "unreadable-third".to_string(),
+        );
+        unreadable_third.resume_path = Some(unreadable_resume);
+        unreadable_third.open_failure = Some(unreadable_rotated.clone());
+        unreadable_third
+            .process()
+            .await
+            .expect("repeat unchanged unreadable resume");
+        assert_eq!(
+            unreadable_third
+                .open_attempts
+                .get(&unreadable_rotated)
+                .copied()
+                .unwrap_or_default(),
+            0
+        );
+        assert_eq!(unreadable_third.parsed_records, 0);
+        assert_eq!(stored_totals(pool, "resume-unreadable").await, (3, 240, 0));
+    }
+
+    #[cfg(unix)]
+    async fn verify_unix_open_denial(pool: &PgPool) {
+        let Some(attempt_path) = std::env::var_os("LANCACHE_OPEN_ATTEMPT_LOG") else {
+            return;
+        };
+        let legacy = std::env::var_os("LANCACHE_EXPECT_LEGACY_IDENTITY").is_some();
+        std::fs::write(&attempt_path, b"").expect("reset denied-open attempt log");
+
+        let directory = tempfile::tempdir().expect("create Unix open-denial fixture");
+        let rotated = directory.path().join("access.log.1");
+        let current = directory.path().join("access.log");
+        std::fs::write(
+            &rotated,
+            log_line(
+                "steam",
+                "10.0.6.8",
+                "07/Jan/2026:19:00:00",
+                "/resume/unix-open/00-old",
+                5,
+                "unix-open-old",
+            ),
+        )
+        .expect("write Unix denied member");
+        std::fs::write(
+            &current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.8",
+                    "07/Jan/2026:19:00:01",
+                    "/resume/unix-open/01-current",
+                    70,
+                    "unix-open-1",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.8",
+                    "07/Jan/2026:19:00:02",
+                    "/resume/unix-open/02-current",
+                    80,
+                    "unix-open-2",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write Unix open-denial current member");
+        let denied = rotated
+            .canonicalize()
+            .expect("canonicalize Unix denied member");
+        std::env::set_var("LANCACHE_DENY_OPEN_PATH", &denied);
+        let resume_path = directory.path().join("resume-unix-open-resume.json");
+
+        let mut first = Processor::new(
+            pool.clone(),
+            directory.path().to_path_buf(),
+            directory.path().join("unix-open-first.json"),
+            0,
+            false,
+            "resume-unix-open".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 0)])),
+            "unix-open-first".to_string(),
+        );
+        first.resume_path = Some(resume_path.clone());
+        first
+            .process()
+            .await
+            .expect("continue after Unix denied open");
+        let first_attempts = std::fs::read_to_string(&attempt_path)
+            .expect("read first Unix open attempts")
+            .lines()
+            .count();
+        let first_marks = log_resume::load(&resume_path)
+            .stems
+            .get("access.log")
+            .expect("read first Unix resume entry")
+            .older_files
+            .len();
+
+        append(
+            &current,
+            &log_line(
+                "steam",
+                "10.0.6.8",
+                "07/Jan/2026:19:00:03",
+                "/resume/unix-open/03-new",
+                90,
+                "unix-open-3",
+            ),
+        );
+        let mut second = Processor::new(
+            pool.clone(),
+            directory.path().to_path_buf(),
+            directory.path().join("unix-open-second.json"),
+            0,
+            false,
+            "resume-unix-open".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 2)])),
+            "unix-open-second".to_string(),
+        );
+        second.resume_path = Some(resume_path.clone());
+        second
+            .process()
+            .await
+            .expect("run second Unix open-denial pass");
+        let second_attempts = std::fs::read_to_string(&attempt_path)
+            .expect("read second Unix open attempts")
+            .lines()
+            .count();
+
+        let mut third = Processor::new(
+            pool.clone(),
+            directory.path().to_path_buf(),
+            directory.path().join("unix-open-third.json"),
+            0,
+            false,
+            "resume-unix-open".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 3)])),
+            "unix-open-third".to_string(),
+        );
+        third.resume_path = Some(resume_path);
+        third
+            .process()
+            .await
+            .expect("run unchanged Unix open-denial pass");
+        let third_attempts = std::fs::read_to_string(&attempt_path)
+            .expect("read third Unix open attempts")
+            .lines()
+            .count();
+        std::env::remove_var("LANCACHE_DENY_OPEN_PATH");
+
+        let rows = stored_rows(pool, "resume-unix-open").await;
+        let totals = stored_totals(pool, "resume-unix-open").await;
+        println!(
+            "UNIX_OPEN_DENIAL legacy={legacy} attempts={first_attempts},{second_attempts},{third_attempts} marks={first_marks} parsed={},{},{} rows={} hit={} miss={}",
+            first.parsed_records,
+            second.parsed_records,
+            third.parsed_records,
+            totals.0,
+            totals.1,
+            totals.2
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                ("/resume/unix-open/01-current".to_string(), 70),
+                ("/resume/unix-open/02-current".to_string(), 80),
+                ("/resume/unix-open/03-new".to_string(), 90),
+            ]
+        );
+        assert_eq!(totals, (3, 240, 0));
+        assert_eq!(first.parsed_records, 2);
+        if legacy {
+            assert_eq!(first_marks, 0);
+            assert!(first_attempts >= 2);
+            assert!(second_attempts > first_attempts);
+            assert!(third_attempts > second_attempts);
+            assert_eq!(second.parsed_records, 3);
+            assert_eq!(third.parsed_records, 3);
+        } else {
+            assert_eq!(first_marks, 1);
+            assert_eq!(first_attempts, 1);
+            assert_eq!(second_attempts, first_attempts);
+            assert_eq!(third_attempts, first_attempts);
+            assert_eq!(second.parsed_records, 1);
+            assert_eq!(third.parsed_records, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn continuous_sessions_follow_log_time_gaps() {
+        let name = "continuous_sessions_follow_log_time_gaps";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let path = directory.path().join("access.log");
+        let first = (0..3)
+            .map(|second| {
+                log_line(
+                    "steam",
+                    "10.0.0.1",
+                    &format!("01/Jan/2026:12:00:0{second}"),
+                    "/depot/101/chunk/a",
+                    10,
+                    "bytes=0-9",
+                )
+            })
+            .collect::<String>();
+        std::fs::write(&path, first).expect("write first database pass");
+        run(&pool, directory.path(), 0, "continuous-first", "continuity").await;
+
+        let second = (5..8)
+            .map(|second| {
+                log_line(
+                    "steam",
+                    "10.0.0.1",
+                    &format!("01/Jan/2026:12:00:0{second}"),
+                    "/depot/101/chunk/a",
+                    10,
+                    &format!("bytes={}-{}", second * 10, second * 10 + 9),
+                )
+            })
+            .collect::<String>();
+        append(&path, &second);
+        run(
+            &pool,
+            directory.path(),
+            3,
+            "continuous-second",
+            "continuity",
+        )
+        .await;
+
+        let row = sqlx::query(
+            r#"SELECT COUNT(*)::bigint AS "Rows", COALESCE(SUM("CacheHitBytes"), 0)::bigint AS "Bytes" FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+        )
+        .bind("continuity")
+        .bind("10.0.0.1")
+        .fetch_one(&pool)
+        .await
+        .expect("read continuous session");
+        assert_eq!(row.get::<i64, _>("Rows"), 1);
+        assert_eq!(row.get::<i64, _>("Bytes"), 60);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "LogEntries" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+            )
+            .bind("continuity")
+            .bind("10.0.0.1")
+            .fetch_one(&pool)
+            .await
+            .expect("count continuous log entries"),
+            6
+        );
+
+        let within_batch = [
+            log_line(
+                "steam",
+                "10.0.0.2",
+                "01/Jan/2026:13:00:00",
+                "/depot/202/chunk/a",
+                1,
+                "a",
+            ),
+            log_line(
+                "steam",
+                "10.0.0.2",
+                "01/Jan/2026:13:00:05",
+                "/depot/202/chunk/b",
+                1,
+                "b",
+            ),
+            log_line(
+                "steam",
+                "10.0.0.2",
+                "01/Jan/2026:13:06:10",
+                "/depot/202/chunk/c",
+                1,
+                "c",
+            ),
+        ]
+        .concat();
+        append(&path, &within_batch);
+        run(&pool, directory.path(), 6, "within-batch", "continuity").await;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+            )
+            .bind("continuity")
+            .bind("10.0.0.2")
+            .fetch_one(&pool)
+            .await
+            .expect("count gap-separated rows"),
+            2
+        );
+
+        append(
+            &path,
+            &log_line(
+                "steam",
+                "10.0.0.1",
+                "01/Jan/2026:12:10:00",
+                "/depot/101/chunk/later",
+                10,
+                "later",
+            ),
+        );
+        run(&pool, directory.path(), 9, "ten-minute-gap", "continuity").await;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+            )
+            .bind("continuity")
+            .bind("10.0.0.1")
+            .fetch_one(&pool)
+            .await
+            .expect("count separated pass rows"),
+            2
+        );
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn identities_eviction_and_replayed_time_preserve_row_boundaries() {
+        let name = "identities_eviction_and_replayed_time_preserve_row_boundaries";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let path = directory.path().join("access.log");
+        let first = [
+            log_line(
+                "steam",
+                "10.0.1.1",
+                "02/Jan/2026:12:00:00",
+                "/depot/301/chunk/a",
+                10,
+                "a",
+            ),
+            log_line(
+                "steam",
+                "10.0.1.1",
+                "02/Jan/2026:12:00:01",
+                "/depot/302/chunk/a",
+                20,
+                "a",
+            ),
+            log_line(
+                "steam",
+                "10.0.1.2",
+                "02/Jan/2026:12:00:00",
+                "/depot/303/chunk/a",
+                30,
+                "a",
+            ),
+            log_line(
+                "steam",
+                "10.0.1.3",
+                "05/Jan/2026:12:00:00",
+                "/depot/304/chunk/today",
+                40,
+                "a",
+            ),
+        ]
+        .concat();
+        std::fs::write(&path, first).expect("write identity fixture");
+        run(&pool, directory.path(), 0, "identity-first", "identity").await;
+
+        sqlx::query(
+            r#"UPDATE "Downloads" SET "IsActive" = false, "IsEvicted" = true WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+        )
+        .bind("identity")
+        .bind("10.0.1.2")
+        .execute(&pool)
+        .await
+        .expect("evict fixture row");
+        let second = [
+            log_line(
+                "steam",
+                "10.0.1.1",
+                "02/Jan/2026:12:00:03",
+                "/depot/301/chunk/b",
+                10,
+                "b",
+            ),
+            log_line(
+                "steam",
+                "10.0.1.1",
+                "02/Jan/2026:12:00:04",
+                "/depot/302/chunk/b",
+                20,
+                "b",
+            ),
+            log_line(
+                "steam",
+                "10.0.1.2",
+                "02/Jan/2026:12:02:00",
+                "/depot/303/chunk/b",
+                30,
+                "b",
+            ),
+            log_line(
+                "steam",
+                "10.0.1.3",
+                "02/Jan/2026:12:00:00",
+                "/depot/304/chunk/old",
+                50,
+                "old",
+            ),
+        ]
+        .concat();
+        append(&path, &second);
+        run(&pool, directory.path(), 4, "identity-second", "identity").await;
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+            )
+            .bind("identity")
+            .bind("10.0.1.1")
+            .fetch_one(&pool)
+            .await
+            .expect("count concurrent depot rows"),
+            2
+        );
+        let evicted = sqlx::query(
+            r#"SELECT COUNT(*)::bigint AS "Rows", COUNT(*) FILTER (WHERE "IsEvicted")::bigint AS "Evicted" FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+        )
+        .bind("identity")
+        .bind("10.0.1.2")
+        .fetch_one(&pool)
+        .await
+        .expect("read evicted row split");
+        assert_eq!(evicted.get::<i64, _>("Rows"), 2);
+        assert_eq!(evicted.get::<i64, _>("Evicted"), 1);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+            )
+            .bind("identity")
+            .bind("10.0.1.3")
+            .fetch_one(&pool)
+            .await
+            .expect("count replay-separated rows"),
+            2
+        );
+
+        sqlx::query(
+            r#"INSERT INTO "Downloads" ("Service", "ClientIp", "StartTimeUtc", "EndTimeUtc", "CacheHitBytes", "CacheMissBytes", "IsActive", "LastUrl", "DepotId", "Datasource") VALUES ('steam', '10.0.1.4', '2026-01-02T10:00:00Z', '2026-01-02T11:00:00Z', 10, 0, false, '/depot/305/chunk/latest', 305, 'identity')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert stored session span");
+        append(
+            &path,
+            &[
+                log_line(
+                    "steam",
+                    "10.0.1.4",
+                    "02/Jan/2026:10:57:00",
+                    "/depot/305/chunk/inside",
+                    5,
+                    "inside",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.1.4",
+                    "02/Jan/2026:11:00:00",
+                    "/depot/305/chunk/equal",
+                    5,
+                    "equal",
+                ),
+            ]
+            .concat(),
+        );
+        run(&pool, directory.path(), 8, "identity-replay", "identity").await;
+        let stored = sqlx::query(
+            r#"SELECT "StartTimeUtc", "EndTimeUtc", "LastUrl", "IsActive", "CacheHitBytes" FROM "Downloads" WHERE "Datasource" = 'identity' AND "ClientIp" = '10.0.1.4'"#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read stored session span");
+        assert_eq!(
+            stored.get::<chrono::DateTime<Utc>, _>("StartTimeUtc"),
+            Utc.with_ymd_and_hms(2026, 1, 2, 10, 0, 0).single().unwrap()
+        );
+        assert_eq!(
+            stored.get::<chrono::DateTime<Utc>, _>("EndTimeUtc"),
+            Utc.with_ymd_and_hms(2026, 1, 2, 11, 0, 0).single().unwrap()
+        );
+        assert_eq!(
+            stored.get::<String, _>("LastUrl"),
+            "/depot/305/chunk/latest"
+        );
+        assert!(!stored.get::<bool, _>("IsActive"));
+        assert_eq!(stored.get::<i64, _>("CacheHitBytes"), 20);
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn xbox_adoption_and_group_priority_keep_game_and_generic_rows_separate() {
+        let name = "xbox_adoption_and_group_priority_keep_game_and_generic_rows_separate";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let path = directory.path().join("access.log");
+        let fragment = "/filestreamingservice/files/12345678-90ab-cdef-1234-567890abcdef";
+        let game_url = format!("{fragment}/game.bin");
+        let generic_url = "/c/msdownload/update/generic.bin";
+        std::fs::write(
+            &path,
+            [
+                log_line(
+                    "wsus",
+                    "10.0.2.9",
+                    "03/Jan/2026:12:00:00",
+                    &game_url,
+                    10,
+                    "game-1",
+                ),
+                log_line(
+                    "wsus",
+                    "10.0.2.9",
+                    "03/Jan/2026:12:00:01",
+                    generic_url,
+                    20,
+                    "generic-1",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write Xbox adoption fixture");
+        run(&pool, directory.path(), 0, "xbox-first", "xbox").await;
+        sqlx::query(
+            r#"INSERT INTO "XboxCdnPatterns" ("UrlFragment", "Title", "ProductId") VALUES ($1, $2, $3)"#,
+        )
+        .bind(fragment)
+        .bind("Game X")
+        .bind("GAME-X")
+        .execute(&pool)
+        .await
+        .expect("insert Xbox pattern");
+        append(
+            &path,
+            &[
+                log_line(
+                    "wsus",
+                    "10.0.2.9",
+                    "03/Jan/2026:12:01:00",
+                    &game_url,
+                    30,
+                    "game-2",
+                ),
+                log_line(
+                    "wsus",
+                    "10.0.2.9",
+                    "03/Jan/2026:12:01:01",
+                    generic_url,
+                    40,
+                    "generic-2",
+                ),
+                log_line(
+                    "wsus",
+                    "10.0.2.9",
+                    "03/Jan/2026:12:01:02",
+                    generic_url,
+                    50,
+                    "generic-3",
+                ),
+            ]
+            .concat(),
+        );
+        run(&pool, directory.path(), 2, "xbox-second", "xbox").await;
+        let named = sqlx::query(
+            r#"SELECT COUNT(*)::bigint AS "Rows", COALESCE(SUM("CacheHitBytes"), 0)::bigint AS "Bytes" FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2 AND "Service" = 'xbox' AND "GameName" = 'Game X'"#,
+        )
+        .bind("xbox")
+        .bind("10.0.2.9")
+        .fetch_one(&pool)
+        .await
+        .expect("read adopted Xbox row");
+        assert_eq!(named.get::<i64, _>("Rows"), 1);
+        assert_eq!(named.get::<i64, _>("Bytes"), 60);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "Downloads" WHERE "Datasource" = $1 AND "ClientIp" = $2 AND "Service" = 'wsus'"#,
+            )
+            .bind("xbox")
+            .bind("10.0.2.9")
+            .fetch_one(&pool)
+            .await
+            .expect("count generic Xbox-client rows"),
+            1
+        );
+
+        let empty_download = sqlx::query_scalar::<_, i64>(
+            r#"INSERT INTO "Downloads" ("Service", "ClientIp", "StartTimeUtc", "EndTimeUtc", "CacheHitBytes", "CacheMissBytes", "IsActive", "Datasource") VALUES ('wsus', '10.0.3.3', '2026-01-04T13:30:00Z', '2026-01-04T13:30:00Z', 100, 0, true, 'ranges') RETURNING "Id""#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("insert empty-range download");
+        sqlx::query(
+            r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "HttpRange", "Url", "StatusCode", "BytesServed", "CacheStatus", "DownloadId", "CreatedAt", "Datasource") VALUES ('2026-01-04T13:30:00Z', '10.0.3.3', 'wsus', 'GET', '', '/empty/file.bin', 206, 100, 'HIT', $1, now(), 'ranges')"#,
+        )
+        .bind(empty_download)
+        .execute(&pool)
+        .await
+        .expect("insert empty-range log row");
+        append(
+            &path,
+            &log_line(
+                "wsus",
+                "10.0.3.3",
+                "04/Jan/2026:13:30:00",
+                "/empty/file.bin",
+                100,
+                "bytes=0-99",
+            ),
+        );
+        run(&pool, directory.path(), 3, "empty-range", "ranges").await;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "LogEntries" WHERE "Datasource" = 'ranges' AND "ClientIp" = '10.0.3.3'"#,
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("count empty-range requests"),
+            2
+        );
+
+        append(
+            &path,
+            &[
+                log_line(
+                    "epicgames",
+                    "10.0.0.1",
+                    "03/Jan/2026:13:00:00",
+                    "/Builds/Org/_xboxgame:decoy/hash/default/file",
+                    1,
+                    "epic",
+                ),
+                log_line(
+                    "wsus",
+                    "10.0.0.9",
+                    "03/Jan/2026:13:00:00",
+                    &game_url,
+                    1,
+                    "xbox",
+                ),
+            ]
+            .concat(),
+        );
+        run(&pool, directory.path(), 5, "group-order", "xbox").await;
+        let order = sqlx::query(
+            r#"SELECT MIN("Id") FILTER (WHERE "ClientIp" = '10.0.0.9') AS "Xbox", MIN("Id") FILTER (WHERE "ClientIp" = '10.0.0.1') AS "Epic" FROM "Downloads" WHERE "Datasource" = $1"#,
+        )
+        .bind("xbox")
+        .fetch_one(&pool)
+        .await
+        .expect("read group insertion order");
+        assert!(order.get::<i64, _>("Xbox") < order.get::<i64, _>("Epic"));
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn request_ranges_and_custom_plans_preserve_duplicate_identity() {
+        let name = "request_ranges_and_custom_plans_preserve_duplicate_identity";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let path = directory.path().join("access.log");
+        let first = log_line(
+            "wsus",
+            "10.0.3.1",
+            "04/Jan/2026:12:00:00",
+            "/same/file.bin",
+            100,
+            "bytes=0-99",
+        );
+        std::fs::write(&path, &first).expect("write range fixture");
+        run(&pool, directory.path(), 0, "range-first", "ranges").await;
+        append(
+            &path,
+            &log_line(
+                "wsus",
+                "10.0.3.1",
+                "04/Jan/2026:12:00:00",
+                "/same/file.bin",
+                100,
+                "bytes=100-199",
+            ),
+        );
+        run(&pool, directory.path(), 1, "range-second", "ranges").await;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "LogEntries" WHERE "Datasource" = $1 AND "ClientIp" = $2"#,
+            )
+            .bind("ranges")
+            .bind("10.0.3.1")
+            .fetch_one(&pool)
+            .await
+            .expect("count ranged requests"),
+            2
+        );
+
+        let legacy_download = sqlx::query_scalar::<_, i64>(
+            r#"INSERT INTO "Downloads" ("Service", "ClientIp", "StartTimeUtc", "EndTimeUtc", "CacheHitBytes", "CacheMissBytes", "IsActive", "Datasource") VALUES ('wsus', '10.0.3.2', '2026-01-04T13:00:00Z', '2026-01-04T13:00:00Z', 100, 0, true, 'ranges') RETURNING "Id""#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("insert legacy download");
+        sqlx::query(
+            r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "HttpRange", "Url", "StatusCode", "BytesServed", "CacheStatus", "DownloadId", "CreatedAt", "Datasource") VALUES ('2026-01-04T13:00:00Z', '10.0.3.2', 'wsus', 'GET', NULL, '/legacy/file.bin', 206, 100, 'HIT', $1, now(), 'ranges')"#,
+        )
+        .bind(legacy_download)
+        .execute(&pool)
+        .await
+        .expect("insert legacy log row");
+        append(
+            &path,
+            &log_line(
+                "wsus",
+                "10.0.3.2",
+                "04/Jan/2026:13:00:00",
+                "/legacy/file.bin",
+                100,
+                "bytes=0-99",
+            ),
+        );
+        run(&pool, directory.path(), 2, "legacy-range", "ranges").await;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "LogEntries" WHERE "Datasource" = 'ranges' AND "ClientIp" = '10.0.3.2'"#,
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("count legacy request"),
+            1
+        );
+
+        sqlx::query(
+            r#"INSERT INTO "Downloads" ("Service", "ClientIp", "StartTimeUtc", "EndTimeUtc", "CacheHitBytes", "CacheMissBytes", "IsActive", "Datasource") SELECT 'steam', 'dense-' || value::text, now(), now(), 0, 0, false, 'ranges' FROM generate_series(1, 3000) value"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("seed dense download window");
+        let plan_lines = (0..10)
+            .map(|index| {
+                log_line(
+                    "steam",
+                    &format!("192.0.2.{index}"),
+                    "04/Jan/2026:14:00:00",
+                    "/nodepot/file.bin",
+                    1,
+                    &format!("plan-{index}"),
+                )
+            })
+            .collect::<String>();
+        append(&path, &plan_lines);
+        let plan_options = options.clone().options([("search_path", schema.as_str())]);
+        let plan_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(plan_options)
+            .await
+            .expect("connect one-connection plan pool");
+        run(&plan_pool, directory.path(), 4, "custom-plans", "ranges").await;
+        let prepared = sqlx::query_scalar::<_, i64>(
+            r#"SELECT COUNT(*) FROM pg_prepared_statements WHERE statement LIKE '%"EndTimeUtc" >= $%' AND statement LIKE '%FROM "Downloads"%'"#,
+        )
+        .persistent(false)
+        .fetch_one(&plan_pool)
+        .await
+        .expect("count prepared window statements");
+        assert_eq!(prepared, 0);
+        plan_pool.close().await;
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn truncated_rotation_flushes_complete_records_and_saves_newer_position() {
+        let name = "truncated_rotation_flushes_complete_records_and_saves_newer_position";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create truncated fixture");
+        let rotation = directory.path().join("access.log.1.gz");
+        let current = directory.path().join("access.log");
+        let rotated_lines = (0..200)
+            .map(|index| {
+                log_line(
+                    "steam",
+                    "10.0.4.1",
+                    "05/Jan/2026:12:00:00",
+                    &format!("/depot/401/chunk/{index}"),
+                    1,
+                    &format!("range-{index}"),
+                )
+            })
+            .collect::<String>();
+        super::classification_tests::write_gzip(
+            &rotation,
+            rotated_lines.as_bytes(),
+            Compression::none(),
+        );
+        let bytes = std::fs::read(&rotation).expect("read gzip fixture");
+        std::fs::write(&rotation, &bytes[..bytes.len() * 3 / 5]).expect("truncate gzip fixture");
+        std::fs::write(
+            &current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.4.1",
+                    "05/Jan/2026:12:00:01",
+                    "/depot/401/chunk/live-a",
+                    1,
+                    "live-a",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.4.1",
+                    "05/Jan/2026:12:00:02",
+                    "/depot/401/chunk/live-b",
+                    1,
+                    "live-b",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write current fixture");
+
+        let mut reader = LogFileReader::open(&rotation).expect("open truncated fixture");
+        let mut buffer = Vec::new();
+        let mut complete = 0u64;
+        loop {
+            buffer.clear();
+            match reader.read_until_newline(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(_) if buffer.ends_with(b"\n") => complete += 1,
+                Ok(_) => break,
+            }
+        }
+        assert!(complete > 0);
+
+        let progress = run(&pool, directory.path(), 0, "truncated", "truncated").await;
+        assert_eq!(progress["terminal_status"], "partial");
+        assert_eq!(progress["source_positions"]["access.log"], complete + 2);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "LogEntries" WHERE "Datasource" = 'truncated'"#,
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("count flushed truncated records"),
+            (complete + 2) as i64
+        );
+        assert!(directory.path().join("truncated-resume.json").is_file());
+
+        let appended = log_line(
+            "steam",
+            "10.0.4.1",
+            "05/Jan/2026:12:00:03",
+            "/depot/401/chunk/live-c",
+            1,
+            "live-c",
+        );
+        append(&current, &appended);
+        let resumed = run(
+            &pool,
+            directory.path(),
+            complete + 2,
+            "truncated-second",
+            "truncated",
+        )
+        .await;
+        assert_eq!(resumed["terminal_status"], "completed");
+        assert_eq!(resumed["source_positions"]["access.log"], complete + 3);
+        assert!(resumed["files_with_errors"]
+            .as_array()
+            .expect("read resumed file errors")
+            .is_empty());
+
+        let without_resume = tempfile::tempdir().expect("create line-skip fixture");
+        std::fs::copy(&rotation, without_resume.path().join("access.log.1.gz"))
+            .expect("copy truncated rotation");
+        std::fs::copy(&current, without_resume.path().join("access.log"))
+            .expect("copy current fixture");
+        let positions = HashMap::from([("access.log".to_string(), complete + 2)]);
+        let progress_path = without_resume.path().join("progress.json");
+        let mut processor = Processor::new(
+            pool.clone(),
+            without_resume.path().to_path_buf(),
+            progress_path.clone(),
+            0,
+            false,
+            "truncated-without-resume".to_string(),
+            Some(positions),
+            "truncated-without-resume".to_string(),
+        );
+        processor.process().await.expect("run corrected line skip");
+        let line_skip: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(progress_path).expect("read line-skip progress"),
+        )
+        .expect("parse line-skip progress");
+        assert_eq!(line_skip["terminal_status"], "partial");
+        assert_eq!(line_skip["source_positions"]["access.log"], complete + 3);
+        assert_eq!(line_skip["lines_parsed"], complete + 3);
+
+        let rewrite_directory = tempfile::tempdir().expect("create rewrite fixture");
+        let rewrite_current = rewrite_directory.path().join("access.log");
+        let old_lines = [
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:00:00",
+                "/depot/402/chunk/old-a",
+                1,
+                "old-a",
+            ),
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:00:01",
+                "/depot/402/chunk/old-b",
+                1,
+                "old-b",
+            ),
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:00:02",
+                "/depot/402/chunk/old-c",
+                1,
+                "old-c",
+            ),
+        ]
+        .concat();
+        std::fs::write(&rewrite_current, old_lines).expect("write original resume fixture");
+        run(
+            &pool,
+            rewrite_directory.path(),
+            0,
+            "rewrite-first",
+            "resume-rewrite",
+        )
+        .await;
+
+        let rewritten_lines = [
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:01:00",
+                &format!("/depot/402/chunk/rewrite-d-{}", "x".repeat(800)),
+                1,
+                "rewrite-d",
+            ),
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:01:01",
+                "/depot/402/chunk/rewrite-e",
+                1,
+                "rewrite-e",
+            ),
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:01:02",
+                "/depot/402/chunk/rewrite-f",
+                1,
+                "rewrite-f",
+            ),
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:01:03",
+                "/depot/402/chunk/rewrite-g",
+                1,
+                "rewrite-g",
+            ),
+            log_line(
+                "steam",
+                "10.0.4.2",
+                "05/Jan/2026:13:01:04",
+                "/depot/402/chunk/rewrite-h",
+                1,
+                "rewrite-h",
+            ),
+        ]
+        .concat();
+        let rewrite_identity = log_purge::file_identity(&rewrite_current)
+            .expect("read original resume target identity");
+        let hook_current = rewrite_current.clone();
+        let rewrite_progress_path = rewrite_directory.path().join("rewrite-second.json");
+        let mut rewrite_processor = Processor::new(
+            pool.clone(),
+            rewrite_directory.path().to_path_buf(),
+            rewrite_progress_path.clone(),
+            0,
+            false,
+            "resume-rewrite".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 3)])),
+            "rewrite-second".to_string(),
+        );
+        rewrite_processor.resume_path =
+            Some(rewrite_directory.path().join("resume-rewrite-resume.json"));
+        rewrite_processor.before_resume_open = Some(Box::new(move || {
+            std::fs::write(&hook_current, &rewritten_lines).expect("rewrite resume target");
+            assert_eq!(
+                log_purge::file_identity(&hook_current)
+                    .expect("read rewritten resume target identity"),
+                rewrite_identity
+            );
+        }));
+        rewrite_processor
+            .process()
+            .await
+            .expect("restart rewritten resume target");
+        let rewrite_progress: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(rewrite_progress_path)
+                .expect("read rewrite progress checkpoint"),
+        )
+        .expect("parse rewrite progress checkpoint");
+        assert_eq!(rewrite_progress["source_positions"]["access.log"], 5);
+        assert_eq!(rewrite_progress["unparsed_lines"], 0);
+        let rewrite_urls = sqlx::query_scalar::<_, String>(
+            r#"SELECT "Url" FROM "LogEntries" WHERE "Datasource" = 'resume-rewrite' ORDER BY "Url""#,
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("read rewrite URLs");
+        assert_eq!(
+            rewrite_urls,
+            vec![
+                "/depot/402/chunk/old-a".to_string(),
+                "/depot/402/chunk/old-b".to_string(),
+                "/depot/402/chunk/old-c".to_string(),
+                "/depot/402/chunk/rewrite-g".to_string(),
+                "/depot/402/chunk/rewrite-h".to_string(),
+            ]
+        );
+
+        let zero_directory = tempfile::tempdir().expect("create zero-offset fixture");
+        let zero_current = zero_directory.path().join("access.log");
+        std::fs::write(&zero_current, b"").expect("write empty resume target");
+        run(&pool, zero_directory.path(), 0, "zero-first", "resume-zero").await;
+        std::fs::write(
+            &zero_current,
+            log_line(
+                "steam",
+                "10.0.4.3",
+                "05/Jan/2026:14:00:00",
+                "/depot/403/chunk/lost",
+                1,
+                "lost",
+            ),
+        )
+        .expect("grow zero-offset resume target");
+        let zero_rotated = zero_directory.path().join("access.log.1");
+        let hook_current = zero_current.clone();
+        let hook_rotated = zero_rotated.clone();
+        let zero_progress_path = zero_directory.path().join("zero-second.json");
+        let mut zero_processor = Processor::new(
+            pool.clone(),
+            zero_directory.path().to_path_buf(),
+            zero_progress_path.clone(),
+            0,
+            false,
+            "resume-zero".to_string(),
+            Some(HashMap::from([("access.log".to_string(), 0)])),
+            "zero-second".to_string(),
+        );
+        zero_processor.resume_path = Some(zero_directory.path().join("resume-zero-resume.json"));
+        zero_processor.before_resume_open = Some(Box::new(move || {
+            std::fs::rename(&hook_current, &hook_rotated).expect("rotate zero-offset target");
+            std::fs::write(
+                &hook_current,
+                log_line(
+                    "steam",
+                    "10.0.4.3",
+                    "05/Jan/2026:14:00:01",
+                    "/depot/403/chunk/new",
+                    1,
+                    "new",
+                ),
+            )
+            .expect("write zero-offset replacement");
+        }));
+        zero_processor
+            .process()
+            .await
+            .expect("restart zero-offset resume target");
+        let zero_progress: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(zero_progress_path)
+                .expect("read zero-offset progress checkpoint"),
+        )
+        .expect("parse zero-offset progress checkpoint");
+        assert_eq!(zero_progress["source_positions"]["access.log"], 2);
+        assert_eq!(zero_progress["unparsed_lines"], 0);
+        let zero_urls = sqlx::query_scalar::<_, String>(
+            r#"SELECT "Url" FROM "LogEntries" WHERE "Datasource" = 'resume-zero' ORDER BY "Url""#,
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("read zero-offset URLs");
+        assert_eq!(
+            zero_urls,
+            vec![
+                "/depot/403/chunk/lost".to_string(),
+                "/depot/403/chunk/new".to_string(),
+            ]
+        );
+
+        verify_resume_boundaries(&pool).await;
+        #[cfg(unix)]
+        verify_unix_open_denial(&pool).await;
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn count_seeded_unreadable_rotation_preserves_new_records() {
+        let name = "count_seeded_unreadable_rotation_preserves_new_records";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+
+        for (datasource, populated) in [("count-seed-empty", false), ("count-seed-populated", true)]
+        {
+            let directory = tempfile::tempdir().expect("create count-seeded fixture");
+            let rotated = directory.path().join("access.log.1");
+            let current = directory.path().join("access.log");
+            let first_two = [
+                log_line(
+                    "steam",
+                    "10.0.6.9",
+                    "07/Jan/2026:20:00:01",
+                    "/resume/count-seed/01-current",
+                    70,
+                    "count-seed-1",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.9",
+                    "07/Jan/2026:20:00:02",
+                    "/resume/count-seed/02-current",
+                    80,
+                    "count-seed-2",
+                ),
+            ]
+            .concat();
+            std::fs::write(
+                &rotated,
+                log_line(
+                    "steam",
+                    "10.0.6.9",
+                    "07/Jan/2026:20:00:00",
+                    "/resume/count-seed/00-unreadable",
+                    5,
+                    "count-seed-old",
+                ),
+            )
+            .expect("write count-seeded rotated member");
+            std::fs::write(&current, &first_two).expect("write counted current records");
+
+            if populated {
+                let preload = tempfile::tempdir().expect("create populated target fixture");
+                std::fs::write(preload.path().join("access.log"), &first_two)
+                    .expect("write populated target records");
+                let (_, parsed) =
+                    run_counted(&pool, preload.path(), 0, "count-seed-preload", datasource).await;
+                assert_eq!(parsed, 2);
+                assert_eq!(stored_totals(&pool, datasource).await, (2, 150, 0));
+            }
+
+            append(
+                &current,
+                &log_line(
+                    "steam",
+                    "10.0.6.9",
+                    "07/Jan/2026:20:00:03",
+                    "/resume/count-seed/03-new",
+                    90,
+                    "count-seed-3",
+                ),
+            );
+            let resume_path = directory.path().join(format!("{datasource}-resume.json"));
+            assert!(!resume_path.exists());
+
+            let first_path = directory.path().join("count-seed-first.json");
+            let mut first = Processor::new(
+                pool.clone(),
+                directory.path().to_path_buf(),
+                first_path.clone(),
+                0,
+                false,
+                datasource.to_string(),
+                Some(HashMap::from([("access.log".to_string(), 2)])),
+                "count-seed-first".to_string(),
+            );
+            first.resume_path = Some(resume_path.clone());
+            first.open_failure = Some(rotated.clone());
+            assert_eq!(
+                first
+                    .process()
+                    .await
+                    .expect("process count-seeded fallback"),
+                ProcessingOutcome::Completed
+            );
+            assert_eq!(
+                first
+                    .open_attempts
+                    .get(&rotated)
+                    .copied()
+                    .unwrap_or_default(),
+                1
+            );
+            assert_eq!(first.parsed_records, 3);
+            assert_eq!(
+                first.entries_saved.load(Ordering::Relaxed),
+                if populated { 1 } else { 3 }
+            );
+            let first_progress: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(first_path).expect("read count-seeded first progress"),
+            )
+            .expect("parse count-seeded first progress");
+            assert_eq!(first_progress["terminal_status"], "partial");
+            assert_eq!(first_progress["source_positions"]["access.log"], 3);
+            assert_eq!(
+                first_progress["files_with_errors"]
+                    .as_array()
+                    .expect("read count-seeded problems")
+                    .len(),
+                1
+            );
+            assert!(resume_path.is_file());
+            assert_eq!(
+                stored_rows(&pool, datasource).await,
+                vec![
+                    ("/resume/count-seed/01-current".to_string(), 70),
+                    ("/resume/count-seed/02-current".to_string(), 80),
+                    ("/resume/count-seed/03-new".to_string(), 90),
+                ]
+            );
+            assert_eq!(stored_totals(&pool, datasource).await, (3, 240, 0));
+
+            append(
+                &current,
+                &log_line(
+                    "steam",
+                    "10.0.6.9",
+                    "07/Jan/2026:20:00:04",
+                    "/resume/count-seed/04-next",
+                    100,
+                    "count-seed-4",
+                ),
+            );
+            let second_path = directory.path().join("count-seed-second.json");
+            let mut second = Processor::new(
+                pool.clone(),
+                directory.path().to_path_buf(),
+                second_path.clone(),
+                0,
+                false,
+                datasource.to_string(),
+                Some(HashMap::from([("access.log".to_string(), 3)])),
+                "count-seed-second".to_string(),
+            );
+            second.resume_path = Some(resume_path.clone());
+            second.open_failure = Some(rotated.clone());
+            second
+                .process()
+                .await
+                .expect("resume count-seeded fallback");
+            assert_eq!(
+                second
+                    .open_attempts
+                    .get(&rotated)
+                    .copied()
+                    .unwrap_or_default(),
+                0
+            );
+            assert_eq!(second.parsed_records, 1);
+            assert_eq!(second.entries_saved.load(Ordering::Relaxed), 1);
+            let second_progress: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(second_path).expect("read count-seeded second progress"),
+            )
+            .expect("parse count-seeded second progress");
+            assert_eq!(second_progress["terminal_status"], "completed");
+            assert_eq!(second_progress["source_positions"]["access.log"], 4);
+            assert_eq!(stored_totals(&pool, datasource).await, (4, 340, 0));
+
+            let third_path = directory.path().join("count-seed-third.json");
+            let mut third = Processor::new(
+                pool.clone(),
+                directory.path().to_path_buf(),
+                third_path.clone(),
+                0,
+                false,
+                datasource.to_string(),
+                Some(HashMap::from([("access.log".to_string(), 4)])),
+                "count-seed-third".to_string(),
+            );
+            third.resume_path = Some(resume_path.clone());
+            third.open_failure = Some(rotated.clone());
+            third
+                .process()
+                .await
+                .expect("repeat unchanged count-seeded fallback");
+            assert_eq!(
+                third
+                    .open_attempts
+                    .get(&rotated)
+                    .copied()
+                    .unwrap_or_default(),
+                0
+            );
+            assert_eq!(third.parsed_records, 0);
+            assert_eq!(third.entries_saved.load(Ordering::Relaxed), 0);
+            let third_progress: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(third_path).expect("read count-seeded third progress"),
+            )
+            .expect("parse count-seeded third progress");
+            assert_eq!(third_progress["terminal_status"], "completed");
+            assert_eq!(third_progress["source_positions"]["access.log"], 4);
+            assert_eq!(stored_totals(&pool, datasource).await, (4, 340, 0));
+        }
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn frozen_database_batch_keeps_the_previous_resume_entry() {
+        let name = "frozen_database_batch_keeps_the_previous_resume_entry";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create frozen fixture");
+        let oldest = directory.path().join("access.log.2");
+        let current = directory.path().join("access.log");
+        let first = (0..5010)
+            .map(|index| {
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:00",
+                    &format!("/depot/501/chunk/old-{index}"),
+                    1,
+                    &format!("old-{index}"),
+                )
+            })
+            .collect::<String>();
+        std::fs::write(&oldest, first).expect("write oldest batch fixture");
+        std::fs::write(
+            directory.path().join("access.log.1"),
+            [
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:01",
+                    "/depot/501/chunk/rotation-a",
+                    1,
+                    "rotation-a",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:02",
+                    "/depot/501/chunk/rotation-b",
+                    1,
+                    "rotation-b",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:03",
+                    "/depot/501/chunk/rotation-c",
+                    1,
+                    "rotation-c",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write second rotation fixture");
+        std::fs::write(
+            &current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:04",
+                    "/depot/501/chunk/current-a",
+                    1,
+                    "current-a",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:05",
+                    "/depot/501/chunk/current-b",
+                    1,
+                    "current-b",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("write current batch fixture");
+        run(&pool, directory.path(), 0, "frozen-first", "frozen").await;
+
+        let committed = (0..5000)
+            .map(|index| {
+                log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:06",
+                    &format!("/depot/501/chunk/committed-{index}"),
+                    1,
+                    &format!("committed-{index}"),
+                )
+            })
+            .collect::<String>();
+        append(&current, &committed);
+        append(
+            &current,
+            &log_line(
+                "steam",
+                "10.0.5.1",
+                "06/Jan/2026:12:00:07",
+                "/depot/501/chunk/tc17-fail",
+                1,
+                "fail",
+            ),
+        );
+        sqlx::query(
+            r#"ALTER TABLE "LogEntries" ADD CONSTRAINT tc17 CHECK ("Url" NOT LIKE '%/tc17-fail%')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("add deterministic batch constraint");
+        let second = run(&pool, directory.path(), 5015, "frozen-second", "frozen").await;
+        assert_eq!(second["terminal_status"], "partial");
+        assert_eq!(second["source_positions"]["access.log"], 5015);
+
+        sqlx::query(r#"ALTER TABLE "LogEntries" DROP CONSTRAINT tc17"#)
+            .execute(&pool)
+            .await
+            .expect("drop deterministic batch constraint");
+        std::fs::remove_file(&oldest).expect("delete oldest frozen fixture");
+        for index in 0..3 {
+            append(
+                &current,
+                &log_line(
+                    "steam",
+                    "10.0.5.1",
+                    "06/Jan/2026:12:00:08",
+                    &format!("/depot/501/chunk/new-{index}"),
+                    1,
+                    &format!("new-{index}"),
+                ),
+            );
+        }
+        let third = run(&pool, directory.path(), 5015, "frozen-third", "frozen").await;
+        assert_eq!(third["source_positions"]["access.log"], 5009);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COUNT(*) FROM "LogEntries" WHERE "Datasource" = 'frozen' AND ("Url" LIKE '%/tc17-fail' OR "Url" LIKE '%/new-%')"#,
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("count recovered frozen records"),
+            4
+        );
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    async fn stored_view(pool: &PgPool) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let log_rows = sqlx::query(
+            r#"SELECT "Timestamp", "ClientIp", "Service", "Method", "HttpRange", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "Datasource" FROM "LogEntries" ORDER BY "Timestamp", "ClientIp", "Service", "Url", COALESCE("HttpRange", '')"#,
+        )
+        .fetch_all(pool)
+        .await
+        .expect("read equivalence log rows")
+        .into_iter()
+        .map(|row| {
+            format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                row.get::<chrono::DateTime<Utc>, _>("Timestamp"),
+                row.get::<String, _>("ClientIp"),
+                row.get::<String, _>("Service"),
+                row.get::<String, _>("Method"),
+                row.get::<Option<String>, _>("HttpRange"),
+                row.get::<String, _>("Url"),
+                row.get::<i32, _>("StatusCode"),
+                row.get::<i64, _>("BytesServed"),
+                row.get::<String, _>("CacheStatus"),
+                row.get::<Option<i64>, _>("DepotId"),
+                row.get::<String, _>("Datasource")
+            )
+        })
+        .collect();
+        let downloads = sqlx::query(
+            r#"SELECT "Service", "ClientIp", "StartTimeUtc", "EndTimeUtc", "CacheHitBytes", "CacheMissBytes", "IsActive", "LastUrl", "DepotId", "GameAppId", "GameName", "GameImageUrl", "Datasource", "XboxProductId", "IsEvicted" FROM "Downloads" ORDER BY "StartTimeUtc", "ClientIp", "Service", COALESCE("DepotId", 0)"#,
+        )
+        .fetch_all(pool)
+        .await
+        .expect("read equivalence downloads")
+        .into_iter()
+        .map(|row| {
+            format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                row.get::<String, _>("Service"),
+                row.get::<String, _>("ClientIp"),
+                row.get::<chrono::DateTime<Utc>, _>("StartTimeUtc"),
+                row.get::<chrono::DateTime<Utc>, _>("EndTimeUtc"),
+                row.get::<i64, _>("CacheHitBytes"),
+                row.get::<i64, _>("CacheMissBytes"),
+                row.get::<bool, _>("IsActive"),
+                row.get::<Option<String>, _>("LastUrl"),
+                row.get::<Option<i64>, _>("DepotId"),
+                row.get::<Option<i64>, _>("GameAppId"),
+                row.get::<Option<String>, _>("GameName"),
+                row.get::<Option<String>, _>("GameImageUrl"),
+                row.get::<String, _>("Datasource"),
+                row.get::<Option<String>, _>("XboxProductId"),
+                row.get::<bool, _>("IsEvicted")
+            )
+        })
+        .collect();
+        let groups = sqlx::query_scalar::<_, String>(
+            r#"SELECT string_agg(concat_ws('|', "Timestamp"::text, "Url", COALESCE("HttpRange", '')), E'\x1e' ORDER BY "Timestamp", "Url", COALESCE("HttpRange", '')) FROM "LogEntries" GROUP BY "DownloadId" ORDER BY MIN("Timestamp"), MIN("Url")"#,
+        )
+        .fetch_all(pool)
+        .await
+        .expect("read equivalence groups");
+        (log_rows, downloads, groups)
+    }
+
+    #[tokio::test]
+    async fn one_run_and_incremental_runs_store_the_same_result() {
+        let name = "one_run_and_incremental_runs_store_the_same_result";
+        let Some((one_pool, one_schema, one_options)) = isolated_pool(name).await else {
+            return;
+        };
+        let Some((many_pool, many_schema, many_options)) = isolated_pool(name).await else {
+            return;
+        };
+        let lines = vec![
+            log_line(
+                "steam",
+                "10.0.6.1",
+                "07/Jan/2026:12:00:00",
+                "/depot/601/chunk/a",
+                10,
+                "a",
+            ),
+            log_line(
+                "steam",
+                "10.0.6.2",
+                "07/Jan/2026:12:00:01",
+                "/depot/602/chunk/a",
+                20,
+                "a",
+            ),
+            log_line(
+                "wsus",
+                "10.0.6.3",
+                "07/Jan/2026:12:00:02",
+                "/ranged/file.bin",
+                30,
+                "bytes=0-29",
+            ),
+            log_line(
+                "steam",
+                "10.0.6.4",
+                "07/Jan/2026:12:00:10",
+                "/depot/604/chunk/a",
+                40,
+                "a",
+            ),
+            log_line(
+                "steam",
+                "10.0.6.4",
+                "07/Jan/2026:12:06:20",
+                "/depot/604/chunk/b",
+                50,
+                "b",
+            ),
+            log_line(
+                "wsus",
+                "10.0.6.3",
+                "07/Jan/2026:12:00:02",
+                "/ranged/file.bin",
+                30,
+                "bytes=30-59",
+            ),
+            log_line(
+                "steam",
+                "10.0.6.1",
+                "07/Jan/2026:12:00:03",
+                "/depot/601/chunk/b",
+                60,
+                "b",
+            ),
+            log_line(
+                "steam",
+                "10.0.6.2",
+                "07/Jan/2026:12:00:04",
+                "/depot/602/chunk/b",
+                70,
+                "b",
+            ),
+        ];
+
+        let one_directory = tempfile::tempdir().expect("create one-run fixture");
+        super::classification_tests::write_gzip(
+            &one_directory.path().join("access.log.2.gz"),
+            lines[..4].concat().as_bytes(),
+            Compression::default(),
+        );
+        std::fs::write(
+            one_directory.path().join("access.log.1"),
+            lines[4..7].concat(),
+        )
+        .expect("write one-run rotation");
+        std::fs::write(one_directory.path().join("access.log"), &lines[7])
+            .expect("write one-run current file");
+        let one_progress = run(&one_pool, one_directory.path(), 0, "one", "equivalence").await;
+
+        let many_directory = tempfile::tempdir().expect("create incremental fixture");
+        let many_current = many_directory.path().join("access.log");
+        std::fs::write(&many_current, lines[..2].concat()).expect("write incremental step one");
+        let first = run(
+            &many_pool,
+            many_directory.path(),
+            0,
+            "many-1",
+            "equivalence",
+        )
+        .await;
+        append(&many_current, &lines[2..4].concat());
+        let second = run(
+            &many_pool,
+            many_directory.path(),
+            first["source_positions"]["access.log"].as_u64().unwrap(),
+            "many-2",
+            "equivalence",
+        )
+        .await;
+        std::fs::rename(&many_current, many_directory.path().join("access.log.1"))
+            .expect("rotate incremental current");
+        std::fs::write(&many_current, &lines[4]).expect("write incremental step three");
+        let third = run(
+            &many_pool,
+            many_directory.path(),
+            second["source_positions"]["access.log"].as_u64().unwrap(),
+            "many-3",
+            "equivalence",
+        )
+        .await;
+        append(&many_current, &lines[5]);
+        let fourth = run(
+            &many_pool,
+            many_directory.path(),
+            third["source_positions"]["access.log"].as_u64().unwrap(),
+            "many-4",
+            "equivalence",
+        )
+        .await;
+        append(&many_current, &lines[6]);
+        let fifth = run(
+            &many_pool,
+            many_directory.path(),
+            fourth["source_positions"]["access.log"].as_u64().unwrap(),
+            "many-5",
+            "equivalence",
+        )
+        .await;
+        let plain_second = many_directory.path().join("access.log.2");
+        std::fs::rename(many_directory.path().join("access.log.1"), &plain_second)
+            .expect("shift incremental rotation");
+        let oldest = std::fs::read(&plain_second).expect("read incremental rotation");
+        super::classification_tests::write_gzip(
+            &many_directory.path().join("access.log.2.gz"),
+            &oldest,
+            Compression::default(),
+        );
+        std::fs::remove_file(&plain_second).expect("remove recompressed rotation");
+        std::fs::rename(&many_current, many_directory.path().join("access.log.1"))
+            .expect("rotate incremental live file");
+        std::fs::write(&many_current, &lines[7]).expect("write incremental final current");
+        let many_progress = run(
+            &many_pool,
+            many_directory.path(),
+            fifth["source_positions"]["access.log"].as_u64().unwrap(),
+            "many-6",
+            "equivalence",
+        )
+        .await;
+
+        let one = stored_view(&one_pool).await;
+        let many = stored_view(&many_pool).await;
+        println!(
+            "equivalence rows: one={} incremental={} downloads={}",
+            one.0.len(),
+            many.0.len(),
+            one.1.len()
+        );
+        assert_eq!(one, many);
+        assert_eq!(
+            one_progress["source_positions"]["access.log"],
+            many_progress["source_positions"]["access.log"]
+        );
+
+        drop_schema(one_pool, &one_schema, one_options).await;
+        drop_schema(many_pool, &many_schema, many_options).await;
     }
 }
 

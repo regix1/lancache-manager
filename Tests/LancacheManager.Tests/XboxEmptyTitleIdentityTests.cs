@@ -148,7 +148,8 @@ public class XboxEmptyTitleIdentityTests
     [Fact]
     public async Task ResolveDownloadsAsync_LeavesDownloadGenericWhenThePatternHasNoTitle()
     {
-        var options = NewInMemoryOptions();
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
@@ -180,7 +181,8 @@ public class XboxEmptyTitleIdentityTests
     [Fact]
     public async Task ResolveDownloadsAsync_StampsARealTitleOntoTheDownload()
     {
-        var options = NewInMemoryOptions();
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
@@ -254,7 +256,8 @@ public class XboxEmptyTitleIdentityTests
     [Fact]
     public async Task ResolveDownloadsAsync_RenamesAnXboxRowWhoseNameWasWiped()
     {
-        var options = NewInMemoryOptions();
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
@@ -277,7 +280,8 @@ public class XboxEmptyTitleIdentityTests
     [Fact]
     public async Task ResolveDownloadsAsync_RestoresTheTitleFromTheProductIdWithoutAnyPattern()
     {
-        var options = NewInMemoryOptions();
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
@@ -306,7 +310,8 @@ public class XboxEmptyTitleIdentityTests
     [Fact]
     public async Task ResolveDownloadsAsync_LeavesANamelessActiveXboxRowAlone()
     {
-        var options = NewInMemoryOptions();
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {

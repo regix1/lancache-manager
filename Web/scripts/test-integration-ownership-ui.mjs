@@ -46,7 +46,9 @@ const reasonUrl = await compileToUrl('../src/types.ts');
 const { getIntegrationReasonKey, integrationReasonKeys, isIntegrationReason } = await import(
   reasonUrl
 );
+const i18nStub = moduleUrl('export default { t: (key) => key };');
 const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+  '@/i18n': i18nStub,
   '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
 });
 const { ApiError, buildApiError } = await import(apiErrorUrl);

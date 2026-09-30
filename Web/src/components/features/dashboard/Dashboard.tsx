@@ -375,7 +375,9 @@ const Dashboard: React.FC = () => {
 
       // Check if lastActivity is within the selected range
       if (startTime && endTime) {
-        return lastActivityTimestamp >= startTime && lastActivityTimestamp <= endTime;
+        // The server selected downloads active in the window. A download still running after the
+        // window ended reports later activity and remains part of that selection.
+        return lastActivityTimestamp >= startTime;
       }
 
       return true;
