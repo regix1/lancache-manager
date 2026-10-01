@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -159,6 +160,27 @@ public class OperationConflictCheckerTests
 
         Assert.NotNull(response);
         Assert.Equal([LogLevel.Debug], logger.Levels);
+    }
+
+    [Theory]
+    [InlineData(OperationType.LogProcessing)]
+    [InlineData(OperationType.DatabaseReset)]
+    public async Task RepairingRecordBlocksAffectedWorkWithOriginalOperationIdAsync(
+        OperationType requestedType)
+    {
+        using var tracker = new TrackerHarness();
+        var repairId = await tracker.AddRepairBlockerAsync();
+
+        var response = await tracker.Checker.CheckAsync(
+            requestedType,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(repairId, response!.ActiveOperationId);
+        Assert.Equal(nameof(OperationType.LogProcessing), response.ActiveOperationType);
+        Assert.Equal("repair", response.ActiveOperationScope);
+        Assert.Equal(true, response.Context!["repairPending"]);
     }
 
     [Fact]
@@ -578,17 +600,36 @@ public class OperationConflictCheckerTests
 
     private sealed class TrackerHarness : IDisposable
     {
+        private readonly string _root;
+        private readonly OperationRepairTests.RepairHarness _repairHarness;
+        private readonly TaskCompletionSource<bool> _repairEntered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _releaseRepair =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Task? _repairFinish;
+
         public UnifiedOperationTracker Tracker { get; }
 
         public OperationConflictChecker Checker { get; }
 
         public TrackerHarness(ILogger<OperationConflictChecker>? logger = null)
         {
+            _root = Path.Combine(Path.GetTempPath(), "lm-conflict-repair-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_root);
+            _repairHarness = OperationRepairTests.RepairHarness.CreateAsync(
+                    _root,
+                    apply: async (_, cancellationToken) =>
+                    {
+                        _repairEntered.TrySetResult(true);
+                        await _releaseRepair.Task.WaitAsync(cancellationToken);
+                    })
+                .GetAwaiter().GetResult();
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             Tracker = tracker;
             Checker = new OperationConflictChecker(
                 tracker,
+                _repairHarness.Owner,
                 logger ?? NullLogger<OperationConflictChecker>.Instance);
         }
 
@@ -598,6 +639,44 @@ public class OperationConflictCheckerTests
             {
                 Tracker.CompleteOperation(operation.Id, success: false, error: "Disposed test harness");
             }
+            _releaseRepair.TrySetResult(true);
+            _repairFinish?.GetAwaiter().GetResult();
+            _repairHarness.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            if (Directory.Exists(_root))
+            {
+                Directory.Delete(_root, recursive: true);
+            }
+        }
+
+        public async Task<Guid> AddRepairBlockerAsync()
+        {
+            var repair = new OperationRepair
+            {
+                Id = Guid.NewGuid(),
+                Type = OperationType.LogProcessing,
+                Name = "Log processing",
+                StartedAt = DateTime.UtcNow,
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "alpha",
+                        LogRoot = "logs/alpha",
+                        CacheRoot = "cache/alpha",
+                        KeyScheme = "steam"
+                    }
+                ],
+                LogProcessing = new LogProcessingRepair()
+            };
+            await _repairHarness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+            await _repairHarness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+            _repairFinish = _repairHarness.Owner.FinishRepairAsync(
+                repair.Id,
+                success: false,
+                cancelled: false,
+                error: "interrupted");
+            await _repairEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return repair.Id;
         }
     }
 
@@ -636,5 +715,23 @@ public class OperationConflictCheckerTests
         {
             Levels.Add(logLevel);
         }
+    }
+}
+
+internal static class OperationConflictTestServices
+{
+    private static readonly Lazy<OperationRepairTests.RepairHarness> _repair = new(() =>
+        OperationRepairTests.RepairHarness.CreateAsync(
+                Path.Combine(Path.GetTempPath(), "lm-operation-conflict-owner-" + Guid.NewGuid().ToString("N")))
+            .GetAwaiter()
+            .GetResult());
+
+    public static OperationStateService Owner => _repair.Value.Owner;
+
+    public static OperationConflictChecker Create(
+        IUnifiedOperationTracker tracker,
+        ILogger<OperationConflictChecker> logger)
+    {
+        return new OperationConflictChecker(tracker, _repair.Value.Owner, logger);
     }
 }

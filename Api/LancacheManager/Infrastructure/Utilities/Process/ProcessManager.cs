@@ -242,6 +242,81 @@ public class ProcessManager : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Waits for unowned processes with the given executable names to exit without signalling them.
+    /// </summary>
+    public virtual async Task WaitForProcessesExitAsync(
+        IReadOnlyCollection<string> processNames,
+        CancellationToken cancellationToken)
+    {
+        foreach (var processName in processNames.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var processes = FindProcesses(processName);
+            try
+            {
+                await Task.WhenAll(processes.Select(process => process.WaitForExitAsync(cancellationToken)));
+            }
+            finally
+            {
+                foreach (var process in processes)
+                {
+                    process.Dispose();
+                }
+            }
+        }
+    }
+
+    private static List<Process> FindProcesses(string processName)
+    {
+        var queries = processName.Length > 15
+            ? new[] { processName, processName[..15] }
+            : [processName];
+        var matches = new Dictionary<int, Process>();
+
+        try
+        {
+            foreach (var query in queries.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (var process in Process.GetProcessesByName(query))
+                {
+                    try
+                    {
+                        var executable = process.ProcessName;
+                        if (!string.Equals(executable, processName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var path = process.MainModule?.FileName
+                                ?? throw new InvalidOperationException(
+                                    $"Could not identify process {process.Id} while waiting for {processName}.");
+                            executable = Path.GetFileNameWithoutExtension(path);
+                        }
+
+                        if (string.Equals(executable, processName, StringComparison.OrdinalIgnoreCase)
+                            && matches.TryAdd(process.Id, process))
+                        {
+                            continue;
+                        }
+                        process.Dispose();
+                    }
+                    catch
+                    {
+                        process.Dispose();
+                        throw;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            foreach (var process in matches.Values)
+            {
+                process.Dispose();
+            }
+            throw;
+        }
+
+        return matches.Values.ToList();
+    }
+
+    /// <summary>
     /// Runs a short-lived process: track → wait for output → untrack → dispose.
     /// When <paramref name="killOnCancel"/> is true, cancellation kills the process tree before rethrowing.
     /// </summary>

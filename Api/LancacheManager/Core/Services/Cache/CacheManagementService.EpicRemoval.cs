@@ -63,7 +63,10 @@ public partial class CacheManagementService
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
 
-            await FinalizeGameRemovalAsync(cancellationToken);
+            if (!operationId.HasValue)
+            {
+                await FinalizeGameRemovalAsync(cancellationToken);
+            }
 
             return aggregatedReport;
         }

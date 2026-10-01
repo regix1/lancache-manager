@@ -100,7 +100,8 @@ public class RustLogProcessorService
                 IsProcessing = false;
             },
             // The batch path is never live ingest, so the terminal SignalR emitter is always wired here.
-            onTerminalEmit: BuildTerminalEmit(() => operationId));
+            onTerminalEmit: BuildTerminalEmit(() => operationId),
+            ownerCompletes: true);
         _currentOperationId = operationId;
         _operationRegisteredTcs?.TrySetResult(operationId);
         IsProcessing = true;
@@ -218,6 +219,8 @@ public class RustLogProcessorService
     internal void CompleteBatchOperation(
         Guid operationId,
         LogProcessingBatchState batch,
+        long entriesProcessed,
+        long linesProcessed,
         bool cancelled,
         bool batchFinished)
     {
@@ -237,8 +240,8 @@ public class RustLogProcessorService
         if (cancelled)
         {
             var metrics = new LogProcessingTerminalMetrics(
-                batch.EntriesProcessed,
-                batch.LinesProcessed,
+                entriesProcessed,
+                linesProcessed,
                 null,
                 "Log processing was cancelled",
                 null);
@@ -255,8 +258,8 @@ public class RustLogProcessorService
         {
             var message = $"Log processing failed for datasource '{failedDatasourceName}'";
             var metrics = new LogProcessingTerminalMetrics(
-                batch.EntriesProcessed,
-                batch.LinesProcessed,
+                entriesProcessed,
+                linesProcessed,
                 null,
                 message,
                 null);
@@ -271,8 +274,8 @@ public class RustLogProcessorService
         if (batchFinished)
         {
             var metrics = new LogProcessingTerminalMetrics(
-                batch.EntriesProcessed,
-                batch.LinesProcessed,
+                entriesProcessed,
+                linesProcessed,
                 null,
                 "Log processing completed successfully",
                 "signalr.logProcessing.complete");
@@ -284,8 +287,8 @@ public class RustLogProcessorService
         }
 
         var incompleteMetrics = new LogProcessingTerminalMetrics(
-            batch.EntriesProcessed,
-            batch.LinesProcessed,
+            entriesProcessed,
+            linesProcessed,
             null,
             "Log processing ended without completing; marked failed",
             null);
@@ -326,8 +329,24 @@ public class RustLogProcessorService
         var batch = new LogProcessingBatchState { ChildCount = datasources.Count };
         _currentBatch = batch;
         var batchToken = _operationTracker.GetOperation(batchOperationId)!.CancellationTokenSource!.Token;
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        var repairPrepared = false;
+        var repairFinished = false;
         try
         {
+            await repairOwner.PrepareRepairAsync(
+                BuildRepair(
+                    batchOperationId,
+                    notice: null,
+                    datasources.Select(datasource => new OperationRepairSource
+                    {
+                        Datasource = datasource.Name,
+                        LogRoot = datasource.LogPath,
+                        RefreshDownloads = true
+                    })),
+                batchToken);
+            repairPrepared = true;
+
             var allSuccess = true;
             for (var i = 0; i < datasources.Count; i++)
             {
@@ -349,7 +368,6 @@ public class RustLogProcessorService
 
                 var success = await StartProcessingAsync(
                     datasource.LogPath,
-                    logPosition,
                     datasourceName: datasource.Name,
                     sharedOperationId: batchOperationId,
                     finalizeOperation: false,
@@ -361,9 +379,23 @@ public class RustLogProcessorService
                 }
             }
 
+            var outcome = GetBatchRepairOutcome(
+                batch,
+                batchToken.IsCancellationRequested,
+                batchFinished: true);
+            var confirmed = await FinishProcessingRepairAsync(
+                repairOwner,
+                batchOperationId,
+                outcome.Metrics,
+                outcome.Success,
+                outcome.Cancelled,
+                outcome.Error);
+            repairFinished = true;
             CompleteBatchOperation(
                 batchOperationId,
                 batch,
+                confirmed.EntriesProcessed,
+                confirmed.LinesProcessed,
                 cancelled: batchToken.IsCancellationRequested,
                 batchFinished: true);
             return allSuccess && !batchToken.IsCancellationRequested;
@@ -376,11 +408,30 @@ public class RustLogProcessorService
             // swallows with a log line), otherwise leaves the operation active forever, and the
             // operation queue then parks every later run behind the ghost. If nothing reached a
             // terminal state, fail the operation here so the queue can move on.
+            var finalOutcome = GetBatchRepairOutcome(
+                batch,
+                batchToken.IsCancellationRequested,
+                batchFinished: false);
+            var finalMetrics = finalOutcome.Metrics;
+            if (repairPrepared && !repairFinished)
+            {
+                finalMetrics = await FinishProcessingRepairAsync(
+                    repairOwner,
+                    batchOperationId,
+                    finalOutcome.Metrics,
+                    finalOutcome.Success,
+                    finalOutcome.Cancelled,
+                    finalOutcome.Error);
+                repairFinished = true;
+            }
+
             if (_operationTracker.GetOperation(batchOperationId)?.Status.IsTerminal() != true)
             {
                 CompleteBatchOperation(
                     batchOperationId,
                     batch,
+                    finalMetrics.EntriesProcessed,
+                    finalMetrics.LinesProcessed,
                     cancelled: batchToken.IsCancellationRequested,
                     batchFinished: false);
             }
@@ -392,10 +443,10 @@ public class RustLogProcessorService
         }
     }
 
-    public Task<Guid?> StartInBackgroundAsync(string logFilePath, long startPosition = 0, bool liveIngest = false, string? datasourceName = null)
+    public Task<Guid?> StartInBackgroundAsync(string logFilePath, bool liveIngest = false, string? datasourceName = null)
     {
         return RunBackgroundAsync(
-            () => StartProcessingAsync(logFilePath, startPosition, liveIngest, datasourceName),
+            () => StartProcessingAsync(logFilePath, liveIngest, datasourceName),
             $"processing datasource '{datasourceName ?? "default"}'");
     }
 
@@ -453,6 +504,7 @@ public class RustLogProcessorService
         ClearResume(datasourceName);
         _stateService.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateService.SetLogPosition(datasourceName, 0);
+        _stateService.SetLogTotalLines(datasourceName, 0);
         _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
     }
 
@@ -624,6 +676,228 @@ public class RustLogProcessorService
         _operationTracker = operationTracker;
     }
 
+    public Task RestoreRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var retained = repair.LogProcessing
+            ?? throw new InvalidDataException(
+                $"Operation repair {repair.Id} has no log-processing metrics.");
+        var metrics = new LogProcessingTerminalMetrics(
+            retained.EntriesProcessed,
+            retained.LinesProcessed,
+            retained.Elapsed,
+            retained.Message,
+            retained.StageKey);
+        var source = new CancellationTokenSource();
+        var liveIngest = repair.Notice is
+        {
+            Mode: NotificationMode.Hidden,
+            Trigger: RunTrigger.Scheduled
+        };
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            OperationType.LogProcessing,
+            repair.Name,
+            source,
+            metrics,
+            onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => repair.Id),
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true,
+            liveIngest: liveIngest);
+        if (!restored)
+        {
+            source.Dispose();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task ResumeRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (repair.Type != OperationType.LogProcessing || repair.LogProcessing is null)
+        {
+            throw new InvalidDataException(
+                $"Operation repair {repair.Id} has no log-processing contract.");
+        }
+        return Task.CompletedTask;
+    }
+
+    private static OperationRepair BuildRepair(
+        Guid operationId,
+        RunNotice? notice,
+        IEnumerable<OperationRepairSource> sources)
+    {
+        return new OperationRepair
+        {
+            Id = operationId,
+            Type = OperationType.LogProcessing,
+            Name = "Log Processing",
+            StartedAt = DateTime.UtcNow,
+            Notice = notice,
+            Sources = sources.ToList(),
+            LogProcessing = new LogProcessingRepair()
+        };
+    }
+
+    private async Task SaveProcessingSourceAsync(
+        OperationStateService repairOwner,
+        Guid operationId,
+        string datasource,
+        LogProcessingProgress progress,
+        bool refreshSatisfied)
+    {
+        await repairOwner.SaveRepairAsync(
+            operationId,
+            repair =>
+            {
+                var source = repair.Sources.Single(candidate =>
+                    string.Equals(
+                        candidate.Datasource,
+                        datasource,
+                        StringComparison.OrdinalIgnoreCase));
+                if (!source.NativeCompletionAccepted)
+                {
+                    source.NativeCompletionAccepted = true;
+                    var retained = repair.LogProcessing
+                        ?? throw new InvalidDataException(
+                            $"Operation repair {repair.Id} has no log-processing metrics.");
+                    repair.LogProcessing = new LogProcessingRepair
+                    {
+                        EntriesProcessed = retained.EntriesProcessed + progress.EntriesSaved,
+                        LinesProcessed = retained.LinesProcessed + progress.LinesParsed,
+                        Elapsed = retained.Elapsed,
+                        Message = retained.Message,
+                        StageKey = progress.StageKey
+                    };
+                }
+                if (refreshSatisfied)
+                {
+                    source.RefreshDownloads = false;
+                }
+            },
+            CancellationToken.None);
+    }
+
+    private async Task<LogProcessingTerminalMetrics> FinishProcessingRepairAsync(
+        OperationStateService repairOwner,
+        Guid operationId,
+        LogProcessingTerminalMetrics metrics,
+        bool success,
+        bool cancelled,
+        string? error)
+    {
+        ReleaseProcessingState(operationId);
+        var confirmed = metrics;
+        await repairOwner.FinishRepairAsync(
+            operationId,
+            success,
+            cancelled,
+            error,
+            repair =>
+            {
+                var retained = repair.LogProcessing
+                    ?? throw new InvalidDataException(
+                        $"Operation repair {repair.Id} has no log-processing metrics.");
+                confirmed = new LogProcessingTerminalMetrics(
+                    retained.EntriesProcessed,
+                    retained.LinesProcessed,
+                    metrics.Elapsed,
+                    metrics.Message,
+                    metrics.StageKey);
+                repair.LogProcessing = new LogProcessingRepair
+                {
+                    EntriesProcessed = confirmed.EntriesProcessed,
+                    LinesProcessed = confirmed.LinesProcessed,
+                    Elapsed = confirmed.Elapsed,
+                    Message = confirmed.Message,
+                    StageKey = confirmed.StageKey
+                };
+            });
+        return confirmed;
+    }
+
+    private void ReleaseProcessingState(Guid operationId)
+    {
+        if (_currentOperationId != operationId)
+        {
+            return;
+        }
+
+        IsProcessing = false;
+        _currentDatasourceName = null;
+        _currentProgressPath = null;
+        _currentBatch = null;
+    }
+
+    private static (
+        LogProcessingTerminalMetrics Metrics,
+        bool Success,
+        bool Cancelled,
+        string? Error) GetBatchRepairOutcome(
+            LogProcessingBatchState batch,
+            bool cancelled,
+            bool batchFinished)
+    {
+        if (cancelled)
+        {
+            return (
+                new LogProcessingTerminalMetrics(
+                    batch.EntriesProcessed,
+                    batch.LinesProcessed,
+                    null,
+                    "Log processing was cancelled",
+                    null),
+                false,
+                true,
+                null);
+        }
+
+        if (batch.FailedDatasourceName is { } failedDatasourceName)
+        {
+            var message = $"Log processing failed for datasource '{failedDatasourceName}'";
+            return (
+                new LogProcessingTerminalMetrics(
+                    batch.EntriesProcessed,
+                    batch.LinesProcessed,
+                    null,
+                    message,
+                    null),
+                false,
+                false,
+                message);
+        }
+
+        if (batchFinished)
+        {
+            return (
+                new LogProcessingTerminalMetrics(
+                    batch.EntriesProcessed,
+                    batch.LinesProcessed,
+                    null,
+                    "Log processing completed successfully",
+                    "signalr.logProcessing.complete"),
+                true,
+                false,
+                null);
+        }
+
+        return (
+            new LogProcessingTerminalMetrics(
+                batch.EntriesProcessed,
+                batch.LinesProcessed,
+                null,
+                "Log processing ended without completing; marked failed",
+                null),
+            false,
+            false,
+            "Log processing ended without completing");
+    }
+
     private static readonly string[] _validTerminalStatuses =
     {
         "completed", "completed_with_warnings", "partial", "failed", "cancelled"
@@ -646,6 +920,14 @@ public class RustLogProcessorService
     /// </summary>
     public static bool HasCommittedDownloads(LogProcessingProgress? progress) =>
         IsValidTerminalCheckpoint(progress) && progress!.EntriesSaved > 0;
+
+    internal static bool SatisfiesDownloadsRefresh(LogProcessingProgress? progress) =>
+        IsValidTerminalCheckpoint(progress)
+        && progress is
+        {
+            EntriesSaved: 0,
+            TerminalStatus: "completed" or "completed_with_warnings"
+        };
 
     /// <summary>
     /// True when a run may clear the shared operation state: the busy flags, the current operation
@@ -689,7 +971,6 @@ public class RustLogProcessorService
 
     public async Task<bool> StartProcessingAsync(
         string logFilePath,
-        long startPosition = 0,
         bool liveIngest = false,
         string? datasourceName = null,
         Guid? sharedOperationId = null,
@@ -728,6 +1009,9 @@ public class RustLogProcessorService
         LogProcessingTerminalMetrics terminalMetrics = default;
         LogProcessingProgress? finalProgress = null;
         var childSucceeded = false;
+        OperationStateService? repairOwner = null;
+        var repairPrepared = sharedOperationId.HasValue;
+        var repairFinished = false;
 
         try
         {
@@ -774,7 +1058,8 @@ public class RustLogProcessorService
                     // Live ingest runs about once a second and every LogProcessingComplete refreshes
                     // the dashboard, so only interactive runs wire the emitter. The single terminal
                     // event then fires exactly once from CompleteOperation (success / OCE / force-kill).
-                    onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => ownerOperationId));
+                    onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => ownerOperationId),
+                    ownerCompletes: true);
                 _currentOperationId = ownerOperationId;
                 _operationRegisteredTcs?.TrySetResult(ownerOperationId.Value);
             }
@@ -802,9 +1087,8 @@ public class RustLogProcessorService
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
 
-            // Per-source positions file: the single source of stem offsets for this run
-            // (the CLI start position is ignored by the multi-source processor). When no
-            // per-source checkpoint exists yet (pre-upgrade state), migrate the legacy
+            // Per-source positions file: the single source of stem offsets for this run.
+            // When no per-source checkpoint exists yet (pre-upgrade state), migrate the legacy
             // aggregate position onto the access.log stem so monolithic behavior is
             // unchanged; other stems default to 0 inside the processor.
             var sourcePositions = _stateService.GetLogSourcePositions(datasourceName);
@@ -831,6 +1115,28 @@ public class RustLogProcessorService
                 ? logFilePath  // It's already a directory
                 : (Path.GetDirectoryName(logFilePath) ?? _pathResolver.GetLogsDirectory());  // Extract from file path
 
+            repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+            if (!repairPrepared)
+            {
+                await repairOwner.PrepareRepairAsync(
+                    BuildRepair(
+                        ownerOperationId!.Value,
+                        liveIngest
+                            ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled)
+                            : null,
+                        new[]
+                        {
+                            new OperationRepairSource
+                            {
+                                Datasource = datasourceName,
+                                LogRoot = logDirectory,
+                                RefreshDownloads = true
+                            }
+                        }),
+                    processingToken);
+                repairPrepared = true;
+            }
+
             // Delete old progress file
             if (File.Exists(progressPath))
             {
@@ -846,7 +1152,8 @@ public class RustLogProcessorService
             _logger.LogInformation("Starting Rust log processor");
             _logger.LogInformation("Log directory: {LogDirectory}", logDirectory);
             _logger.LogInformation("Progress file: {ProgressPath}", progressPath);
-            _logger.LogInformation("Start position: {StartPosition}", startPosition);
+            _logger.LogInformation("Start positions (unlisted sources start at 0): {StartPositions}",
+                string.Join(", ", sourcePositions.Select(pair => $"{pair.Key}={pair.Value}")));
 
             // Live ingest sends no started event: it runs about once a second, and every browser
             // listener of the LogProcessing events would refresh on each pass.
@@ -890,7 +1197,7 @@ public class RustLogProcessorService
             var autoMapDepots = 1;
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustExecutablePath,
-                $"\"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots} \"{datasourceName}\" \"{positionsPath}\"",
+                $"\"{logDirectory}\" \"{progressPath}\" {autoMapDepots} \"{datasourceName}\" \"{positionsPath}\"",
                 Path.GetDirectoryName(rustExecutablePath));
 
             // Pass TZ environment variable to Rust processor so it uses the correct timezone
@@ -908,6 +1215,10 @@ public class RustLogProcessorService
             // terminal checkpoint alone must not be able to claim it (C# owns intent).
             var cancelRequestedDuringRun = false;
 
+            await repairOwner.StartWorkAsync(
+                ownerOperationId!.Value,
+                datasourceName,
+                processingToken);
             var exitCode = await _rustProcessHelper.RunTrackedProcessAsync(
                 startInfo,
                 _currentOperationId,
@@ -1068,7 +1379,28 @@ public class RustLogProcessorService
             // resolves each emit their own conditional refresh when they change rows). A
             // partial or cancelled run whose earlier batches committed still exposes that
             // data here without ever being reported as a completed operation.
-            await NotifyCommittedDownloadsAsync(finalProgress);
+            var refreshSatisfied = SatisfiesDownloadsRefresh(finalProgress);
+            try
+            {
+                await NotifyCommittedDownloadsAsync(finalProgress);
+                refreshSatisfied |= HasCommittedDownloads(finalProgress);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Downloads refresh failed after an accepted log-processing checkpoint for datasource {DatasourceName}",
+                    datasourceName);
+            }
+            if (hasTerminalCheckpoint)
+            {
+                await SaveProcessingSourceAsync(
+                    repairOwner,
+                    ownerOperationId!.Value,
+                    datasourceName,
+                    finalProgress!,
+                    refreshSatisfied);
+            }
 
             if (wasCancelled)
             {
@@ -1081,11 +1413,19 @@ public class RustLogProcessorService
                 if (ownerOperationId.HasValue && shouldFinalizeOperation)
                 {
                     terminalMetrics = new LogProcessingTerminalMetrics(
-                        EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
-                        LinesProcessed: finalProgress?.LinesParsed ?? 0,
+                        EntriesProcessed: hasTerminalCheckpoint ? finalProgress!.EntriesSaved : 0,
+                        LinesProcessed: hasTerminalCheckpoint ? finalProgress!.LinesParsed : 0,
                         Elapsed: null,
                         Message: "Log processing was cancelled",
                         StageKey: null);
+                    terminalMetrics = await FinishProcessingRepairAsync(
+                        repairOwner!,
+                        ownerOperationId.Value,
+                        terminalMetrics,
+                        success: false,
+                        cancelled: true,
+                        error: null);
+                    repairFinished = true;
                     _operationTracker.CompleteOperation(ownerOperationId.Value, false, "Operation was cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
@@ -1111,6 +1451,14 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: finalProgress.StageKey ?? "Log processing failed",
                             StageKey: finalProgress.StageKey);
+                        terminalMetrics = await FinishProcessingRepairAsync(
+                            repairOwner!,
+                            ownerOperationId.Value,
+                            terminalMetrics,
+                            success: false,
+                            cancelled: false,
+                            error: finalProgress.StageKey);
+                        repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false, finalProgress.StageKey, onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
 
@@ -1129,11 +1477,19 @@ public class RustLogProcessorService
                     if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         terminalMetrics = new LogProcessingTerminalMetrics(
-                            EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
-                            LinesProcessed: finalProgress?.LinesParsed ?? 0,
+                            EntriesProcessed: 0,
+                            LinesProcessed: 0,
                             Elapsed: null,
                             Message: "Log processing ended without a valid completion checkpoint",
                             StageKey: null);
+                        terminalMetrics = await FinishProcessingRepairAsync(
+                            repairOwner!,
+                            ownerOperationId.Value,
+                            terminalMetrics,
+                            success: false,
+                            cancelled: false,
+                            error: "Log processing ended without a valid completion checkpoint");
+                        repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false,
                             "Log processing ended without a valid completion checkpoint", onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
@@ -1168,6 +1524,14 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: partialMessage,
                             StageKey: null);
+                        terminalMetrics = await FinishProcessingRepairAsync(
+                            repairOwner!,
+                            ownerOperationId.Value,
+                            terminalMetrics,
+                            success: false,
+                            cancelled: false,
+                            error: partialMessage);
+                        repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false, partialMessage, onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
                     return false;
@@ -1190,6 +1554,14 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: unexpectedMessage,
                             StageKey: null);
+                        terminalMetrics = await FinishProcessingRepairAsync(
+                            repairOwner!,
+                            ownerOperationId.Value,
+                            terminalMetrics,
+                            success: false,
+                            cancelled: false,
+                            error: unexpectedMessage);
+                        repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false, unexpectedMessage, onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
                     return false;
@@ -1389,6 +1761,14 @@ public class RustLogProcessorService
                 // Complete the operation successfully
                 if (ownerOperationId.HasValue && shouldFinalizeOperation)
                 {
+                    terminalMetrics = await FinishProcessingRepairAsync(
+                        repairOwner!,
+                        ownerOperationId.Value,
+                        terminalMetrics,
+                        success: true,
+                        cancelled: false,
+                        error: null);
+                    repairFinished = true;
                     _operationTracker.CompleteOperation(ownerOperationId.Value, true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
@@ -1410,6 +1790,14 @@ public class RustLogProcessorService
                         Elapsed: null,
                         Message: $"Log processing failed with exit code {exitCode}",
                         StageKey: null);
+                    terminalMetrics = await FinishProcessingRepairAsync(
+                        repairOwner!,
+                        ownerOperationId.Value,
+                        terminalMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: $"Log processing failed with exit code {exitCode}");
+                    repairFinished = true;
                     _operationTracker.CompleteOperation(ownerOperationId.Value, false, $"Log processing failed with exit code {exitCode}", onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
@@ -1443,6 +1831,17 @@ public class RustLogProcessorService
                         Elapsed: null,
                         Message: "Log processing was cancelled",
                         StageKey: null);
+                    if (repairPrepared && !repairFinished)
+                    {
+                        terminalMetrics = await FinishProcessingRepairAsync(
+                            repairOwner!,
+                            cancelOpId.Value,
+                            terminalMetrics,
+                            success: false,
+                            cancelled: true,
+                            error: null);
+                        repairFinished = true;
+                    }
                     _operationTracker.CompleteOperation(cancelOpId.Value, false, "Operation was cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
             }
@@ -1463,6 +1862,17 @@ public class RustLogProcessorService
                     Elapsed: null,
                     Message: $"Log processing error: {ex.Message}",
                     StageKey: null);
+                if (repairPrepared && !repairFinished)
+                {
+                    terminalMetrics = await FinishProcessingRepairAsync(
+                        repairOwner!,
+                        ownerOperationId.Value,
+                        terminalMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: ex.Message);
+                    repairFinished = true;
+                }
                 _operationTracker.CompleteOperation(ownerOperationId.Value, false, ex.Message, onCompleting: operation => operation.Metadata = terminalMetrics);
             }
 

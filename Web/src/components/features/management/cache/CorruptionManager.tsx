@@ -545,6 +545,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     !scanGate.available ||
     isScanBusy ||
     isAnyRemovalRunning ||
+    isRefreshing ||
     corruptionRemovalBusy ||
     checkingPermissions ||
     directoryMissing ||
@@ -628,14 +629,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   useEffect(() => {
     const handleRemovalComplete = (event: CorruptionRemovalCompleteEvent) => {
-      if (!event.success || !event.service) return;
-
-      // A successful removal mutates the saved snapshot; history counts must follow.
+      // Required repair can update the saved snapshot after any terminal outcome.
       setHistoryRefreshKey((key) => key + 1);
 
       // Only refresh the actionable panel for the selected method. An event method
       // that differs (removal started elsewhere) updates history alone.
       if (event.detectionMethod && event.detectionMethod !== detectionMethod) return;
+      beginLoad(true);
       const requestEpoch = resultEpochRef.current;
       void (async () => {
         try {
@@ -649,13 +649,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             silent: true,
             logLabel: '[CorruptionManager] Failed to reload after removal'
           });
+        } finally {
+          markLoaded();
         }
       })();
     };
 
     on('CorruptionRemovalComplete', handleRemovalComplete);
     return () => off('CorruptionRemovalComplete', handleRemovalComplete);
-  }, [applyCachedScan, detectionMethod, notifyError, off, on, t]);
+  }, [applyCachedScan, beginLoad, detectionMethod, markLoaded, notifyError, off, on, t]);
 
   useEffect(() => {
     if (anyServiceRemovalPending) {
@@ -719,6 +721,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     !scanId ||
     projection.total === 0 ||
     mockMode ||
+    isRefreshing ||
     anyServiceRemovalPending ||
     isCorruptionRemovalActive ||
     startingRemoveAll ||
@@ -731,6 +734,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     !scanId ||
     projection.total === 0 ||
     mockMode ||
+    isRefreshing ||
     anyServiceRemovalPending ||
     isCorruptionRemovalActive ||
     startingRemoveAll ||

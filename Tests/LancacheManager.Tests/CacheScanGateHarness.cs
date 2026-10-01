@@ -1,8 +1,10 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Models;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -51,17 +53,106 @@ internal static class CacheScanGateHarness
     }
 
     internal static RustSpeedTrackerService TrackerWith(
-        DownloadSpeedSnapshot snapshot, IReadOnlyCollection<string> hiddenClientIps)
+        DownloadSpeedSnapshot snapshot,
+        IReadOnlyCollection<string> hiddenClientIps,
+        TimeProvider? clock = null,
+        DatasourceService? datasources = null)
     {
+        datasources ??= DatasourceServiceWith(
+            ("disabled",
+             Path.Combine(Path.GetTempPath(), "lancache-manager-tests", "disabled-cache"),
+             Path.Combine(Path.GetTempPath(), "lancache-manager-tests", "disabled-logs"),
+             false,
+             "auto"));
+        snapshot.Version = 2;
+        snapshot.StreamId = string.IsNullOrWhiteSpace(snapshot.StreamId) ? "test-stream" : snapshot.StreamId;
+        snapshot.WindowSeconds = 2;
         var tracker = (RustSpeedTrackerService)RuntimeHelpers.GetUninitializedObject(typeof(RustSpeedTrackerService));
         SetField(tracker, "_snapshotLock", new object());
+        SetField(tracker, "_logger", NullLogger<RustSpeedTrackerService>.Instance);
         // Nothing built this way runs a constructor, so every lock the tracker takes has to be
         // supplied here or the first announcement fails on a null.
         SetField(tracker, "_scanBlockedLock", new object());
         SetField(tracker, "_currentSnapshot", snapshot);
+        SetField(tracker, "_datasourceService", datasources);
+        SetField(tracker, "_capabilityService", new DatasourceCapabilityService(datasources));
         SetField(tracker, "_stateService", StateServiceHiding(hiddenClientIps));
+        SetField(tracker, "_notifications", CreateProxy<ISignalRNotificationService>((method, _) =>
+            method.ReturnType == typeof(Task) ? Task.CompletedTask : null));
+        SetField(tracker, "_clock", clock ?? TimeProvider.System);
+        SetField(tracker, "_streamId", snapshot.StreamId);
+        SetField(tracker, "_revision", snapshot.Revision);
+        SetField(tracker, "_agingUtc", snapshot.TimestampUtc);
+        SetField(tracker, "_visibilityMark", string.Empty);
+        SetField(tracker, "_ageWake", new SemaphoreSlim(0, 1));
+        SetField(tracker, "_publication", Channel.CreateBounded<DownloadSpeedSnapshot>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        }));
+        SetField(tracker, "_runSources", new Dictionary<Guid, Dictionary<string, string>>());
+        SetField(tracker, "_sourceRuns", new Dictionary<string, Guid>(StringComparer.Ordinal));
         return tracker;
     }
+
+    internal static BlockingSnapshotChannel BlockFirstPublication(RustSpeedTrackerService tracker)
+    {
+        var publication = new BlockingSnapshotChannel();
+        SetField(tracker, "_publication", publication);
+        return publication;
+    }
+
+    internal static List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>? PrepareNativeSnapshot(
+        RustSpeedTrackerService tracker,
+        DownloadSpeedSnapshot snapshot,
+        Guid runId,
+        Dictionary<string, string> captured,
+        Dictionary<string, string> currentSources,
+        DateTime nowUtc)
+    {
+        var method = typeof(RustSpeedTrackerService).GetMethod(
+            "PrepareNativeSnapshot",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        return (List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>?)method!.Invoke(
+            tracker,
+            [snapshot, runId, captured, currentSources, nowUtc]);
+    }
+
+    internal static DatasourceService DatasourceServiceWith(
+        params (string Name, string CachePath, string LogPath, bool Enabled, string SchemeOverride)[] sources)
+    {
+        var settings = new Dictionary<string, string?>();
+        for (var index = 0; index < sources.Length; index++)
+        {
+            var source = sources[index];
+            settings[$"LanCache:DataSources:{index}:Name"] = source.Name;
+            settings[$"LanCache:DataSources:{index}:CachePath"] = source.CachePath;
+            settings[$"LanCache:DataSources:{index}:LogPath"] = source.LogPath;
+            settings[$"LanCache:DataSources:{index}:Enabled"] = source.Enabled.ToString();
+            settings[$"LanCache:DataSources:{index}:SchemeOverride"] = source.SchemeOverride;
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings)
+            .Build();
+        var paths = CreateProxy<IPathResolver>((method, args) => method.Name switch
+        {
+            nameof(IPathResolver.ResolvePath) => Path.GetFullPath((string)args![0]!),
+            nameof(IPathResolver.NormalizePath) => Path.GetFullPath((string)args![0]!),
+            nameof(IPathResolver.IsDirectoryWritable) => false,
+            _ when method.ReturnType == typeof(bool) => false,
+            _ when method.ReturnType == typeof(int) => 0,
+            _ => Path.GetTempPath(),
+        });
+        return new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
+    }
+
+    internal static Dictionary<string, string> CaptureRoots(DatasourceService datasources) =>
+        datasources.GetDatasources().ToDictionary(
+            source => source.Name,
+            source => source.LogPath,
+            StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Hides no client and rewrites no evicted data, so a snapshot survives the client-visible
@@ -88,12 +179,58 @@ internal static class CacheScanGateHarness
     /// </summary>
     internal static void MakeBusy(DownloadSpeedSnapshot snapshot)
     {
+        var now = DateTime.UtcNow;
+        var measuredUntilUtc = now.AddSeconds(2);
+        var activeUntilUtc = now.AddSeconds(15);
+        snapshot.Version = 2;
+        snapshot.StreamId = string.IsNullOrWhiteSpace(snapshot.StreamId) ? "test-stream" : snapshot.StreamId;
+        snapshot.Revision++;
+        snapshot.TimestampUtc = now;
+        snapshot.IsAvailable = true;
         snapshot.WindowSeconds = 2;
         // The tracker publishes this count; only the client-visible projection recomputes it, so a
         // raw snapshot that omits it reads as idle.
         snapshot.EntriesInWindow = 4;
-        snapshot.GameSpeeds = [new GameSpeedInfo { Service = "steam", ClientIp = "10.0.0.5", RequestCount = 4 }];
-        snapshot.ClientSpeeds = [new ClientSpeedInfo { ClientIp = "10.0.0.5", BytesPerSecond = 1_000_000 }];
+        snapshot.GameSpeeds =
+        [
+            new GameSpeedInfo
+            {
+                Key = "steam|10.0.0.5|service",
+                Service = "steam",
+                ClientIp = "10.0.0.5",
+                BytesPerSecond = 1_000_000,
+                TotalBytes = 2_000_000,
+                RequestCount = 4,
+                FirstSeenUtc = now,
+                LastSeenUtc = now,
+                ActiveUntilUtc = activeUntilUtc,
+                Sources =
+                [
+                    new DownloadSource
+                    {
+                        Datasources = ["test"],
+                        FirstSeenUtc = now,
+                        LastSeenUtc = now,
+                        MeasuredUntilUtc = measuredUntilUtc,
+                        ActiveUntilUtc = activeUntilUtc,
+                        BytesPerSecond = 1_000_000,
+                        TotalBytes = 2_000_000,
+                        RequestCount = 4,
+                    },
+                ],
+            },
+        ];
+        snapshot.ClientSpeeds =
+        [
+            new ClientSpeedInfo
+            {
+                ClientIp = "10.0.0.5",
+                BytesPerSecond = 1_000_000,
+                TotalBytes = 2_000_000,
+                ActiveGames = 1,
+                ActiveUntilUtc = activeUntilUtc,
+            },
+        ];
     }
 
     /// <summary>
@@ -102,7 +239,10 @@ internal static class CacheScanGateHarness
     /// </summary>
     internal static void MakeIdle(DownloadSpeedSnapshot snapshot)
     {
+        snapshot.Revision++;
+        snapshot.TimestampUtc = DateTime.UtcNow;
         snapshot.EntriesInWindow = 0;
+        snapshot.TotalBytesPerSecond = 0;
         snapshot.GameSpeeds = [];
         snapshot.ClientSpeeds = [];
     }
@@ -145,5 +285,73 @@ internal static class CacheScanGateHarness
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
             => Handler!(targetMethod!, args);
+    }
+
+    internal sealed class BlockingSnapshotChannel : Channel<DownloadSpeedSnapshot>, IDisposable
+    {
+        private readonly ManualResetEventSlim _firstWrite = new(false);
+        private readonly ManualResetEventSlim _secondWrite = new(false);
+        private readonly ManualResetEventSlim _releaseFirst = new(false);
+
+        internal BlockingSnapshotChannel()
+        {
+            var inner = Channel.CreateBounded<DownloadSpeedSnapshot>(new BoundedChannelOptions(1)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = false,
+            });
+            Reader = inner.Reader;
+            Writer = new BlockingSnapshotWriter(
+                inner.Writer,
+                _firstWrite,
+                _secondWrite,
+                _releaseFirst);
+        }
+
+        internal bool WaitForFirstWrite(TimeSpan timeout) => _firstWrite.Wait(timeout);
+
+        internal bool WaitForSecondWrite(TimeSpan timeout) => _secondWrite.Wait(timeout);
+
+        internal void ReleaseFirstWrite() => _releaseFirst.Set();
+
+        public void Dispose()
+        {
+            _releaseFirst.Set();
+            _firstWrite.Dispose();
+            _secondWrite.Dispose();
+            _releaseFirst.Dispose();
+        }
+
+        private sealed class BlockingSnapshotWriter(
+            ChannelWriter<DownloadSpeedSnapshot> writer,
+            ManualResetEventSlim firstWrite,
+            ManualResetEventSlim secondWrite,
+            ManualResetEventSlim releaseFirst)
+            : ChannelWriter<DownloadSpeedSnapshot>
+        {
+            private int _writeCount;
+
+            public override bool TryComplete(Exception? error = null) => writer.TryComplete(error);
+
+            public override bool TryWrite(DownloadSpeedSnapshot item)
+            {
+                var writeCount = Interlocked.Increment(ref _writeCount);
+                if (writeCount == 1)
+                {
+                    firstWrite.Set();
+                    releaseFirst.Wait();
+                }
+                else if (writeCount == 2)
+                {
+                    secondWrite.Set();
+                }
+
+                return writer.TryWrite(item);
+            }
+
+            public override ValueTask<bool> WaitToWriteAsync(CancellationToken cancellationToken = default) =>
+                writer.WaitToWriteAsync(cancellationToken);
+        }
     }
 }

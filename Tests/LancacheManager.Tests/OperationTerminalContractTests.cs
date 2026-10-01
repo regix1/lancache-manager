@@ -15,6 +15,8 @@ using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using LancacheManager.Configuration;
 
@@ -96,11 +98,13 @@ public sealed partial class OperationTerminalContractTests
         var frozen = run.Freeze(second.Id);
         entry.CleanupRelease.TrySetResult();
         await completing;
-        await run.FinishClearAsync(first, 7, 4096);
+        var firstFinish = run.FinishClearAsync(first, 7, 4096);
+        run.Pending.Add(firstFinish);
         Assert.Equal(frozen, run.Freeze(second.Id));
         Assert.Equal(second.Id, typeof(CacheClearingService).GetField("_currentTrackerOperationId", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(run.Clear));
         Assert.Equal(OperationStatus.Running, run.Tracker.GetOperation(second.Id)!.Status);
         await run.FinishClearAsync(second, 11, 16384);
+        await firstFinish;
         Assert.Equal(1, entry.Cleanups);
         run.AssertHealthy();
     }
@@ -177,6 +181,8 @@ public sealed partial class OperationTerminalContractTests
         private readonly List<TerminalPipe> _connections = [];
         private readonly ConcurrentQueue<string> _errors = new();
         private readonly ConcurrentDictionary<Guid, TaskCompletionSource> _finished = new();
+        private readonly ServiceProvider _services;
+        private readonly TerminalLifetime _lifetime = new();
         private Guid _finishing;
         public List<Task> Pending { get; } = [];
         public UnifiedOperationTracker Tracker { get; }
@@ -198,7 +204,12 @@ public sealed partial class OperationTerminalContractTests
             CachePath = Path.Combine(_root, "cache");
             var logs = Path.Combine(_root, "logs");
             Directory.CreateDirectory(logs);
-            foreach (var hex in new[] { "aa", "bb", "cc", "dd" }) Directory.CreateDirectory(Path.Combine(CachePath, hex));
+            foreach (var hex in new[] { "aa", "bb", "cc", "dd" })
+            {
+                var cacheDirectory = Path.Combine(CachePath, hex);
+                Directory.CreateDirectory(cacheDirectory);
+                File.WriteAllText(Path.Combine(cacheDirectory, hex.PadLeft(32, '0')), hex);
+            }
             var paths = DispatchProxy.Create<IPathResolver, TerminalPaths>();
             ((TerminalPaths)(object)paths).Inner = new TerminalRoot(_root);
             _operations = paths.GetOperationsDirectory();
@@ -227,16 +238,56 @@ public sealed partial class OperationTerminalContractTests
             var capability = new DatasourceCapabilityService(sources);
             State = new StateService(Logger<StateService>(), paths, null!, null!);
             typeof(StateService).GetField("_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(State, new AppState { SteamAuth = null });
-            OperationState = new OperationStateService(Logger<OperationStateService>(), configuration, State);
             Contexts = new TerminalContexts(database.Options);
             var rust = new RustProcessHelper(Logger<RustProcessHelper>(), processes, paths, forwarded);
-            var games = new GameCacheDetectionService(Logger<GameCacheDetectionService>(), paths, OperationState, Contexts,
-                new GameCacheDetectionDataService(Contexts, Logger<GameCacheDetectionDataService>()), null!, null!, rust,
+            OperationStateService operationState = null!;
+            CacheClearingService clear = null!;
+            CacheReconciliationService reconciliation = null!;
+            CorruptionDetectionService detection = null!;
+            GameCacheDetectionService games = null!;
+            var registrations = new ServiceCollection();
+            registrations.AddScoped(_ => new AppDbContext(database.Options));
+            registrations.AddSingleton(sources);
+            registrations.AddSingleton(capability);
+            registrations.AddSingleton(notifications);
+            registrations.AddSingleton(_ => operationState);
+            registrations.AddSingleton(_ => clear);
+            registrations.AddSingleton(_ => reconciliation);
+            registrations.AddSingleton(_ => detection);
+            registrations.AddSingleton(_ => games);
+            _services = registrations.BuildServiceProvider();
+            OperationState = operationState = new OperationStateService(
+                Logger<OperationStateService>(),
+                configuration,
+                State,
+                _services.GetRequiredService<IServiceScopeFactory>(),
+                _lifetime,
+                processes,
+                forwarded);
+            var detectionStore = new GameCacheDetectionDataService(
+                Contexts,
+                Logger<GameCacheDetectionDataService>());
+            games = new GameCacheDetectionService(Logger<GameCacheDetectionService>(), paths, OperationState, Contexts,
+                detectionStore, null!, null!, rust,
                 notifications, sources, capability, forwarded, CacheScanGateHarness.Idle());
-            Clear = new CacheClearingService(Logger<CacheClearingService>(), notifications, configuration, paths, State,
-                rust, sources, forwarded, Contexts, games);
-            Detection = new CorruptionDetectionService(Logger<CorruptionDetectionService>(), configuration, paths, rust,
+            Clear = clear = new CacheClearingService(Logger<CacheClearingService>(), notifications, configuration, paths, State,
+                rust, sources, forwarded, capability, OperationState);
+            Detection = detection = new CorruptionDetectionService(Logger<CorruptionDetectionService>(), configuration, paths, rust,
                 notifications, sources, Contexts, OperationState, forwarded, capability, CacheScanGateHarness.Idle());
+            reconciliation = new TerminalReconciliation(
+                _services,
+                configuration,
+                sources,
+                State,
+                notifications,
+                forwarded,
+                rust,
+                paths,
+                detectionStore,
+                games,
+                _lifetime,
+                capability);
+            OperationState.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 
         private TerminalLog<T> Logger<T>() => new(_errors, state =>
@@ -281,6 +332,21 @@ public sealed partial class OperationTerminalContractTests
 
         public async Task ClearProgressAsync(TerminalPipe pipe)
         {
+            var repair = Assert.Single(State.LoadOperationRepairs(), item => item.Id == pipe.Id);
+            var source = Assert.Single(repair.Sources);
+            Assert.True(source.NativeLaunchAuthorized);
+            Assert.False(source.NativeCompletionAccepted);
+            Assert.NotNull(source.ReceiptPath);
+            Assert.True(File.Exists(source.ReceiptPath));
+            using (var receipt = JsonDocument.Parse(await File.ReadAllTextAsync(source.ReceiptPath)))
+            {
+                Assert.Equal(1, receipt.RootElement.GetProperty("version").GetInt32());
+                Assert.Equal(pipe.Id, receipt.RootElement.GetProperty("operationId").GetGuid());
+                Assert.Equal(new DirectoryInfo(CachePath).FullName,
+                    receipt.RootElement.GetProperty("cachePath").GetString());
+                Assert.True(receipt.RootElement.GetProperty("hadCacheFiles").GetBoolean());
+            }
+
             await pipe.SendAsync(ClearCheckpoint("clear.partial", false, 2, 128));
             await Messages.Progress(pipe.Id, "clear.partial").Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Equal(25, Tracker.GetOperation(pipe.Id)!.PercentComplete);
@@ -288,11 +354,12 @@ public sealed partial class OperationTerminalContractTests
 
         public async Task FinishClearAsync(TerminalPipe pipe, int files, long bytes)
         {
-            var disposed = Contexts.Expect(pipe.Id);
             await pipe.SendAsync(ClearCheckpoint("clear.final", true, files, bytes), 0);
             await Observer.Entries[pipe.Id].Attempted.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.True(Observer.Entries[pipe.Id].AttemptSuccess);
-            await disposed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            var repair = Assert.Single(State.LoadOperationRepairs(), item => item.Id == pipe.Id);
+            Assert.True(
+                Assert.Single(repair.Sources).NativeCompletionAccepted,
+                $"phase={repair.Phase}; outcome={repair.Outcome}; error={repair.Error}");
             await pipe.Process!.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             Assert.True(pipe.Process.HasExited);
             Assert.Equal(1, Observer.Entries[pipe.Id].Cleanups);
@@ -479,10 +546,75 @@ public sealed partial class OperationTerminalContractTests
             foreach (var connection in _connections) await connection.DisposeAsync();
             await Task.WhenAll(Pending).WaitAsync(TimeSpan.FromSeconds(10));
             foreach (var operation in Tracker.GetActiveOperations().ToList()) Tracker.CompleteOperation(operation.Id, false, cancelled: true);
+            _lifetime.StopApplication();
+            await OperationState.StopAsync(CancellationToken.None);
+            await _services.DisposeAsync();
             await _database.DisposeAsync();
             var root = Path.GetFullPath(_root);
             Assert.Equal(Path.TrimEndingDirectorySeparator(Path.GetTempPath()), Path.GetDirectoryName(root));
             if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private sealed class TerminalReconciliation : CacheReconciliationService
+    {
+        public TerminalReconciliation(
+            IServiceProvider services,
+            IConfiguration configuration,
+            DatasourceService datasources,
+            IStateService state,
+            ISignalRNotificationService notifications,
+            IUnifiedOperationTracker tracker,
+            RustProcessHelper rust,
+            IPathResolver paths,
+            GameCacheDetectionDataService detectionStore,
+            GameCacheDetectionService detection,
+            IHostApplicationLifetime lifetime,
+            DatasourceCapabilityService capability)
+            : base(
+                services,
+                NullLogger<CacheReconciliationService>.Instance,
+                configuration,
+                datasources,
+                state,
+                notifications,
+                tracker,
+                rust,
+                nginxLogRotationService: null!,
+                paths,
+                detectionStore,
+                detection,
+                evictedDetectionPreservationService: null!,
+                operationQueue: null!,
+                lifetime,
+                capability,
+                CacheScanGateHarness.Idle())
+        {
+        }
+
+        public override Task ReconcileRepairAsync(
+            OperationRepair repair,
+            CancellationToken stoppingToken)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+            Assert.Equal(OperationType.CacheClearing, repair.Type);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TerminalLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _started = new();
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _stopped = new();
+
+        public CancellationToken ApplicationStarted => _started.Token;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => _stopped.Token;
+
+        public void StopApplication()
+        {
+            _stopping.Cancel();
         }
     }
 
@@ -635,27 +767,11 @@ public sealed partial class OperationTerminalContractTests
 
     private sealed class TerminalContexts(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
     {
-        private TaskCompletionSource? _next;
-        public TaskCompletionSource Expect(Guid id)
-        {
-            var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Assert.Null(Interlocked.Exchange(ref _next, signal));
-            return signal;
-        }
         public AppDbContext CreateDbContext() => new(options);
         public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
-            var signal = Interlocked.Exchange(ref _next, null);
-            return Task.FromResult<AppDbContext>(signal == null ? new AppDbContext(options) : new TerminalContext(options, signal));
-        }
-    }
-
-    private sealed class TerminalContext(DbContextOptions<AppDbContext> options, TaskCompletionSource signal) : AppDbContext(options)
-    {
-        public override async ValueTask DisposeAsync()
-        {
-            try { await base.DisposeAsync(); signal.TrySetResult(); }
-            catch (Exception exception) { signal.TrySetException(exception); throw; }
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(new AppDbContext(options));
         }
     }
 
@@ -701,9 +817,9 @@ public sealed partial class OperationTerminalContractTests
     public void TrackerOptionalArgumentsKeepExistingPositionsAndVoidContracts()
     {
         var contract = typeof(IUnifiedOperationTracker);
-        Assert.Equal(new[] { "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "initialStatus", "parentOperationId", "startedAt", "blockedByName", "notice", "liveIngest", "ownerSessionId" },
+        Assert.Equal(new[] { "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "initialStatus", "parentOperationId", "startedAt", "blockedByName", "notice", "liveIngest", "ownerSessionId", "ownerCompletes" },
             contract.GetMethod(nameof(IUnifiedOperationTracker.RegisterOperation))!.GetParameters().Select(parameter => parameter.Name));
-        Assert.Equal(new[] { "operationId", "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "parentOperationId", "startedAt", "notice" },
+        Assert.Equal(new[] { "operationId", "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "parentOperationId", "startedAt", "notice", "ownerCompletes", "liveIngest" },
             contract.GetMethod(nameof(IUnifiedOperationTracker.TryRestoreOperation))!.GetParameters().Select(parameter => parameter.Name));
         foreach (var name in new[] { nameof(IUnifiedOperationTracker.CompleteOperation), nameof(IUnifiedOperationTracker.UpdateProgress) })
         {

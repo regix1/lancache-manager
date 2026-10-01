@@ -31,9 +31,6 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const activity = useActivityStatus();
   const { timeRange } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
-
-  // Determine if we're viewing historical/filtered data (not live)
-  // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
   const isHistoricalView = timeRange !== 'live';
 
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
@@ -81,14 +78,11 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   useReconnectRefetch(signalR.isConnected, fetchHistory);
 
   // Use speedSnapshot from SpeedContext (single source of truth for real-time data)
-  const isActive = speedSnapshot?.hasActiveDownloads || false;
-  // The speed indicator's live pulse reads the unified activity registry (any visible download
-  // active), which is authoritative once ready; the snapshot's active flag is the fallback only
-  // before the first activity snapshot arrives.
-  const isDownloadingDot = activity.ready
-    ? gameSpeeds.some((game) => activity.isActive('download', buildTrafficKey(game), 'downloading'))
-    : isActive;
-  const totalSpeed = isActive ? speedSnapshot?.totalBytesPerSecond || 0 : 0;
+  const isActive = speedSnapshot?.hasActiveDownloads ?? false;
+  const isDownloadingDot = gameSpeeds.some((game) =>
+    activity.isActive('download', buildTrafficKey(game), 'downloading')
+  );
+  const totalSpeed = isActive ? (speedSnapshot?.totalBytesPerSecond ?? 0) : 0;
   const activeGamesCount = activeDownloadCount;
   const activeClientsCount = totalActiveClients;
   const todayTotal = historySnapshot?.totalBytes || 0;
@@ -104,54 +98,32 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       <div className="header-content">
         {/* Left: Speed Display */}
         <div className="speed-section">
-          <div
-            className={`speed-indicator ${!isHistoricalView && isDownloadingDot ? 'active' : ''}`}
-          >
+          <div className={`speed-indicator ${isDownloadingDot ? 'active' : ''}`}>
             <div className="speed-ring" />
-            {isHistoricalView ? (
-              <Clock className="speed-icon" size={28} />
-            ) : (
-              <TrendingUp className="speed-icon" size={28} />
-            )}
+            <TrendingUp className="speed-icon" size={28} />
           </div>
 
           <div className="speed-content">
-            {isHistoricalView ? (
-              <>
-                <span className="speed-label caps-label">
-                  {t('downloads.header.historical.title')}
+            <span className="speed-label caps-label">{t('downloads.header.transferSpeed')}</span>
+            <div className="speed-value">
+              <span className={`speed-number ${isActive ? 'active' : ''}`}>{speedValue}</span>
+              <span className="speed-unit">{speedUnit}</span>
+            </div>
+            <div className="stats-row">
+              {activeGamesCount > 0 && (
+                <span className="stat-chip highlight">
+                  <HardDrive />
+                  {t('downloads.header.activeGames', { count: activeGamesCount })}
                 </span>
-                <div className="stats-row">
-                  <span className="stat-chip">{t('downloads.header.historical.viewing')}</span>
-                  <span className="stat-chip">{t('downloads.header.historical.unavailable')}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <span className="speed-label caps-label">
-                  {isActive ? t('downloads.header.transferSpeed') : t('downloads.header.idle')}
+              )}
+              {activeClientsCount > 0 && (
+                <span className="stat-chip">
+                  <Users />
+                  {t('downloads.header.activeClients', { count: activeClientsCount })}
                 </span>
-                <div className="speed-value">
-                  <span className={`speed-number ${isActive ? 'active' : ''}`}>{speedValue}</span>
-                  <span className="speed-unit">{speedUnit}</span>
-                </div>
-                <div className="stats-row">
-                  {activeGamesCount > 0 && (
-                    <span className="stat-chip highlight">
-                      <HardDrive />
-                      {t('downloads.header.activeGames', { count: activeGamesCount })}
-                    </span>
-                  )}
-                  {activeClientsCount > 0 && (
-                    <span className="stat-chip">
-                      <Users />
-                      {t('downloads.header.activeClients', { count: activeClientsCount })}
-                    </span>
-                  )}
-                  {!isActive && <span className="stat-chip">{t('downloads.header.noActive')}</span>}
-                </div>
-              </>
-            )}
+              )}
+              {!isActive && <span className="stat-chip">{t('downloads.header.noActive')}</span>}
+            </div>
           </div>
         </div>
 
@@ -169,12 +141,10 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                   <>
                     {t('downloads.header.activeTab')}
                     <Badge variant="neutral" className="badge-count">
-                      {isHistoricalView ? '-' : activeGamesCount}
+                      {activeGamesCount}
                     </Badge>
                   </>
-                ),
-                disabled: isHistoricalView,
-                tooltip: isHistoricalView ? t('downloads.header.activeTooltip') : undefined
+                )
               },
               {
                 value: 'recent',

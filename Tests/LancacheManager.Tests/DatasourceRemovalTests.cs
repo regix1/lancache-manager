@@ -9,6 +9,8 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -17,6 +19,193 @@ namespace LancacheManager.Tests;
 
 public sealed class DatasourceRemovalTests
 {
+    [Fact]
+    public async Task RemovalRunner_ServiceSourcesPublishCumulativeConfirmedCountersAsync()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "lm-service-removal-counters-" + Guid.NewGuid().ToString("N"));
+        await using var harness = await RemovalRepairHarness.CreateAsync(root);
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = "steam",
+            EntityName = "steam",
+            EntityKind = "service"
+        };
+        var config = harness.CreateConfig(
+            OperationType.ServiceRemoval,
+            metrics,
+            async (operationId, cancellationToken, report) =>
+            {
+                await harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
+                await harness.SaveSourceAsync(operationId, "alpha", 9, 200);
+                await report(new RemovalProgressUpdate(
+                    50,
+                    "alpha-complete",
+                    FilesDeleted: 9,
+                    BytesFreed: 200));
+
+                await harness.Owner.StartWorkAsync(operationId, "beta", cancellationToken);
+                await report(new RemovalProgressUpdate(
+                    60,
+                    "beta-progress",
+                    FilesDeleted: 9,
+                    BytesFreed: 200));
+                await harness.SaveSourceAsync(operationId, "beta", 11, 230);
+                await report(new RemovalProgressUpdate(
+                    100,
+                    "beta-complete",
+                    FilesDeleted: 11,
+                    BytesFreed: 230));
+                return (11, 230L);
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.Equal(11, metrics.FilesDeleted);
+        Assert.Equal(230L, metrics.BytesFreed);
+        var repair = harness.ReadRepair(operationId);
+        Assert.Equal(OperationRepairPhase.Completed, repair.Phase);
+        Assert.Equal(11, repair.Removal!.FilesDeleted);
+        Assert.Equal(230L, repair.Removal.BytesFreed);
+        var progress = harness.ReadMessages()
+            .Where(message => message.Value is RemovalProgressUpdate)
+            .Select(message => (RemovalProgressUpdate)message.Value!)
+            .ToList();
+        Assert.Equal(new[] { 9, 9, 11 }, progress.Select(update => update.FilesDeleted));
+        Assert.Equal(new[] { 200L, 200L, 230L }, progress.Select(update => update.BytesFreed));
+        var complete = Assert.IsType<SignalRNotifications.ServiceRemovalComplete>(
+            Assert.Single(
+                harness.ReadMessages(),
+                message => message.Event == "complete").Value);
+        Assert.Equal(11, complete.FilesDeleted);
+        Assert.Equal(230L, complete.BytesFreed);
+        await harness.CompleteAnotherAsync(OperationType.ServiceRemoval);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovalRunner_ServiceProducerKeepsConfirmedCountersDuringBetaProgressAsync(
+        bool cancelled)
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "lm-service-removal-producer-" + cancelled + "-" + Guid.NewGuid().ToString("N"));
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(
+            root,
+            OperationType.ServiceRemoval);
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = "steam",
+            EntityName = "steam",
+            EntityKind = "service"
+        };
+        var config = harness.CreateConfig(
+            OperationType.ServiceRemoval,
+            metrics,
+            async (operationId, cancellationToken, report) =>
+            {
+                var result = await harness.Manager.RemoveServiceFromCacheAsync(
+                    "steam",
+                    cancellationToken,
+                    (percent, stage, context, files, bytes) => report(new RemovalProgressUpdate(
+                        percent,
+                        stage,
+                        context,
+                        files,
+                        bytes)),
+                    operationId);
+                return (result.CacheFilesDeleted, checked((long)result.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        try
+        {
+            await harness.WaitForBetaProgressAsync();
+
+            Assert.Equal(1, harness.RawFilesProcessed);
+            Assert.Equal(2, harness.RustCalls);
+            var runningRepair = harness.ReadRepair(operationId);
+            Assert.Equal(9, runningRepair.Removal!.FilesDeleted);
+            Assert.Equal(200L, runningRepair.Removal.BytesFreed);
+            var alpha = runningRepair.Sources.Single(source => source.Datasource == "alpha");
+            var beta = runningRepair.Sources.Single(source => source.Datasource == "beta");
+            Assert.True(alpha.NativeCompletionAccepted);
+            Assert.True(beta.NativeLaunchAuthorized);
+            Assert.False(beta.NativeCompletionAccepted);
+
+            var progress = harness.ReadMessages()
+                .Where(message => message.Value is RemovalProgressUpdate)
+                .Select(message => (RemovalProgressUpdate)message.Value!)
+                .ToList();
+            var betaProgress = Assert.Single(
+                progress,
+                update => update.StageKey == harness.BetaStage);
+            Assert.Equal(9, betaProgress.FilesDeleted);
+            Assert.Equal(200L, betaProgress.BytesFreed);
+            Assert.All(progress, update =>
+            {
+                Assert.True(update.FilesDeleted >= 9);
+                Assert.True(update.BytesFreed >= 200);
+            });
+
+            if (cancelled)
+            {
+                Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+            }
+            else
+            {
+                harness.ReleaseRust();
+            }
+
+            var terminal = await harness.WaitForTerminalAsync(operationId);
+            var repair = await harness.WaitForCompletedRepairAsync(operationId);
+            var complete = Assert.IsType<SignalRNotifications.ServiceRemovalComplete>(
+                await harness.WaitForCompleteMessageAsync());
+
+            Assert.Equal(
+                cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+                terminal.Status);
+            Assert.Equal(9, complete.FilesDeleted);
+            Assert.Equal(200L, complete.BytesFreed);
+            Assert.Equal(cancelled, complete.Cancelled);
+            Assert.Equal(9, repair.Removal!.FilesDeleted);
+            Assert.Equal(200L, repair.Removal.BytesFreed);
+            Assert.True(repair.Sources.Single(source => source.Datasource == "alpha")
+                .NativeCompletionAccepted);
+            Assert.False(repair.Sources.Single(source => source.Datasource == "beta")
+                .NativeCompletionAccepted);
+            Assert.Single(
+                harness.ReadMessages(),
+                message => message.Event == "complete");
+            Assert.Equal(2, harness.RustCalls);
+            await harness.CompleteAnotherAsync(OperationType.ServiceRemoval);
+        }
+        finally
+        {
+            harness.ReleaseRust();
+            var operation = harness.Tracker.GetOperation(operationId);
+            if (operation?.Status.IsTerminal() != true)
+            {
+                harness.Tracker.CancelOperation(operationId);
+            }
+            if (harness.RustCalls >= 2)
+            {
+                await harness.WaitForRustExitAsync();
+            }
+            await harness.WaitForTerminalAsync(operationId);
+        }
+    }
+
     [Theory]
     [InlineData("riot")]
     [InlineData("blizzard")]
@@ -336,7 +525,41 @@ public sealed class DatasourceRemovalTests
             processManager,
             pathResolver,
             tracker);
-        var service = new CacheClearingService(
+        var capability = new DatasourceCapabilityService(datasources);
+        OperationStateService operationState = null!;
+        CacheClearingService service = null!;
+        CacheReconciliationService reconciliation = null!;
+        var registrations = new ServiceCollection();
+        registrations.AddScoped(_ => new AppDbContext(options));
+        registrations.AddSingleton(datasources);
+        registrations.AddSingleton(capability);
+        registrations.AddSingleton(notifications);
+        registrations.AddSingleton(_ => operationState);
+        registrations.AddSingleton(_ => service);
+        registrations.AddSingleton(_ => reconciliation);
+        await using var services = registrations.BuildServiceProvider();
+        var lifetime = new RemovalLifetime();
+        operationState = new OperationStateService(
+            NullLogger<OperationStateService>.Instance,
+            configuration,
+            state,
+            services.GetRequiredService<IServiceScopeFactory>(),
+            lifetime,
+            processManager,
+            tracker);
+        reconciliation = new CacheClearReconciliation(
+            services,
+            configuration,
+            datasources,
+            state,
+            notifications,
+            tracker,
+            rust,
+            pathResolver,
+            lifetime,
+            capability,
+            contexts);
+        service = new CacheClearingService(
             NullLogger<CacheClearingService>.Instance,
             notifications,
             configuration,
@@ -345,8 +568,9 @@ public sealed class DatasourceRemovalTests
             rust,
             datasources,
             tracker,
-            contexts,
-            null!);
+            capability,
+            operationState);
+        await operationState.StartAsync(CancellationToken.None);
 
         var operationId = Assert.IsType<Guid>(await service.StartCacheClearAsync());
         for (var attempt = 0; attempt < 200; attempt++)
@@ -374,6 +598,8 @@ public sealed class DatasourceRemovalTests
                 .Where(download => download.Datasource.ToLower() == "beta")
                 .AllAsync(download => !download.IsEvicted));
         }
+        lifetime.StopApplication();
+        await operationState.StopAsync(CancellationToken.None);
         Directory.Delete(root, recursive: true);
     }
 
@@ -461,6 +687,88 @@ public sealed class DatasourceRemovalTests
         public override string ResolvePath(string relativePath) => relativePath;
         public override string NormalizePath(string path) => path;
         public override bool IsDockerSocketAvailable() => false;
+    }
+
+    private sealed class CacheClearReconciliation : CacheReconciliationService
+    {
+        private readonly IDbContextFactory<AppDbContext> _contexts;
+
+        public CacheClearReconciliation(
+            IServiceProvider services,
+            IConfiguration configuration,
+            DatasourceService datasources,
+            IStateService state,
+            ISignalRNotificationService notifications,
+            IUnifiedOperationTracker tracker,
+            RustProcessHelper rust,
+            IPathResolver paths,
+            IHostApplicationLifetime lifetime,
+            DatasourceCapabilityService capability,
+            IDbContextFactory<AppDbContext> contexts)
+            : base(
+                services,
+                NullLogger<CacheReconciliationService>.Instance,
+                configuration,
+                datasources,
+                state,
+                notifications,
+                tracker,
+                rust,
+                nginxLogRotationService: null!,
+                paths,
+                gameCacheDetectionDataService: null!,
+                gameCacheDetectionService: null!,
+                evictedDetectionPreservationService: null!,
+                operationQueue: null!,
+                lifetime,
+                capability,
+                CacheScanGateHarness.Idle())
+        {
+            _contexts = contexts;
+        }
+
+        public override async Task ReconcileRepairAsync(
+            OperationRepair repair,
+            CancellationToken stoppingToken)
+        {
+            await using var context = await _contexts.CreateDbContextAsync(stoppingToken);
+            foreach (var source in repair.Sources.Where(source =>
+                         source.NativeLaunchAuthorized && source.ReconcileCache))
+            {
+                var cacheFilesRemain = source.CacheRoot is { } root
+                    && Directory.Exists(root)
+                    && Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                        .Any(path => !Path.GetFileName(path).StartsWith(
+                            ".lancache-repair-",
+                            StringComparison.OrdinalIgnoreCase));
+                if (cacheFilesRemain)
+                {
+                    continue;
+                }
+
+                await context.Downloads
+                    .Where(download => download.Datasource.ToLower() == source.Datasource.ToLower())
+                    .ExecuteUpdateAsync(
+                        updates => updates.SetProperty(download => download.IsEvicted, true),
+                        stoppingToken);
+            }
+        }
+    }
+
+    private sealed class RemovalLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _started = new();
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _stopped = new();
+
+        public CancellationToken ApplicationStarted => _started.Token;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => _stopped.Token;
+
+        public void StopApplication()
+        {
+            _stopping.Cancel();
+        }
     }
 
     private sealed class CacheClearFailureProcessHelper : RustProcessHelper

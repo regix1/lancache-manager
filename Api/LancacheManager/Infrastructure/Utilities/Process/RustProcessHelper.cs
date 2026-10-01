@@ -1129,7 +1129,8 @@ public partial class RustProcessHelper
                 evidenceFile,
                 progressArg,
                 keyScheme,
-                stemPositionsFile);
+                stemPositionsFile,
+                operationId);
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -1219,20 +1220,23 @@ public partial class RustProcessHelper
         string? evidenceFile,
         string? progressFile,
         string keyScheme,
-        string? stemPositionsFile = null) => command switch
+        string? stemPositionsFile = null,
+        Guid? operationId = null) => command switch
         {
             "remove" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
                 && !string.IsNullOrEmpty(progressFile)
-                && !string.IsNullOrEmpty(keyScheme) =>
-                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}"
+                && !string.IsNullOrEmpty(keyScheme)
+                && operationId.HasValue =>
+                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\""
                     + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\""),
             "remove-structural" when !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
                 && !string.IsNullOrEmpty(progressFile)
-                && !string.IsNullOrEmpty(keyScheme) =>
-                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}",
+                && !string.IsNullOrEmpty(keyScheme)
+                && operationId.HasValue =>
+                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\"",
             _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
         };
 
@@ -1244,7 +1248,9 @@ public partial class RustProcessHelper
         string? progressFile = null,
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
-        Func<RustProgressEvent, Task>? onProgressEvent = null)
+        Func<RustProgressEvent, Task>? onProgressEvent = null,
+        Guid? scanId = null,
+        string? repairPath = null)
     {
         try
         {
@@ -1252,7 +1258,16 @@ public partial class RustProcessHelper
             EnsureBinaryExists(rustBinaryPath, "cache_eviction_scan");
 
             var progressArg = progressFile ?? "none";
-            var arguments = $"\"{datasourceConfigPath}\" \"{progressArg}\" --progress";
+            if (!string.IsNullOrWhiteSpace(repairPath) && !scanId.HasValue)
+            {
+                throw new ArgumentException(
+                    "A scan ID is required when an eviction repair file is supplied.",
+                    nameof(scanId));
+            }
+
+            var arguments = $"\"{datasourceConfigPath}\" \"{progressArg}\" --progress"
+                + (scanId.HasValue ? $" --operation-id \"{scanId.Value}\"" : string.Empty)
+                + (!string.IsNullOrWhiteSpace(repairPath) ? $" --repair \"{repairPath}\"" : string.Empty);
 
             _logger.LogInformation("[cache_eviction_scan] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 

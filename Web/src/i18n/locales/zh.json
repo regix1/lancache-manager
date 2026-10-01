@@ -608,7 +608,7 @@
   "tooltips": {
     "dragToReorder": "拖拽以重新排列",
     "hideThisCard": "隐藏此卡片",
-    "liveDataOnly": "仅实时数据 - 切换到实时模式查看实时统计",
+    "liveDataOnly": "当前活动与所选历史时间范围无关",
     "rearrangeCards": "重新排列卡片",
     "resetCardLayout": "将卡片布局重置为默认顺序",
     "refreshRateControlled": "刷新率由管理员控制",
@@ -756,11 +756,11 @@
       },
       "activeDownloads": {
         "term": "活跃下载",
-        "description": "当前正在进行的下载。仅在实时模式下显示。"
+        "description": "当前推断的下载会话，与所选历史时间范围无关。安静的会话可能显示为零速度。"
       },
       "activeClients": {
         "term": "活跃客户端",
-        "description": "当前正在下载的客户端。仅在实时模式下显示。"
+        "description": "处于当前推断下载会话中的客户端，与所选历史时间范围无关。"
       },
       "cacheHitRatio": {
         "term": "缓存命中率",
@@ -788,7 +788,7 @@
       "title": "下载",
       "loadFailed": "加载最近下载失败",
       "recent": "最近",
-      "active": "活跃",
+      "active": "当前活跃",
       "inProgress": "进行中",
       "allServices": "所有服务",
       "allClients": "所有客户端",
@@ -797,11 +797,11 @@
       "clientPrefix": "客户端：",
       "hitRate": "命中率",
       "period": "时间范围",
-      "speed": "速度",
+      "speed": "当前传输速度",
       "live": "实时",
       "req": "请求",
-      "game": "个游戏",
-      "game_other": "个游戏",
+      "game": "个下载",
+      "game_other": "个下载",
       "client": "个客户端",
       "onDisk": "磁盘 {{size}}",
       "hitLabel": "命中",
@@ -810,7 +810,7 @@
       "hitTooltipDetailed": "{{percent}} 命中率 · {{saved}} 从缓存提供（磁盘 {{disk}}）",
       "showDetails": "详细统计",
       "showingLabel": "显示",
-      "activeDownloadsOnly": "活跃下载仅在实时模式下可用",
+      "activeDownloadsOnly": "当前活跃状态与所选历史时间范围无关",
       "emptyStates": {
         "noActive": "没有活跃下载",
         "noActiveDesc": "下载将实时显示在此处",
@@ -1576,21 +1576,28 @@
       "lastSeconds": "近{{seconds}}秒",
       "windowTooltip": "当前 {{seconds}} 秒滚动窗口内观察到的流量，不计入已记录的统计。"
     },
+    "activity": {
+      "waitingTitle": "正在等待活动更新",
+      "waitingDescription": "跟踪器报告后，此处将显示当前活动。",
+      "unavailableTitle": "活动更新不可用",
+      "unavailableDescription": "在推断活动时段仍有效时，会继续显示上次报告的会话。",
+      "inferenceHelp": "当前活动根据已完成的缓存请求推断。安静的会话可能显示为零速度。历史筛选器不会更改此当前视图。"
+    },
     "header": {
       "historical": {
         "title": "历史视图",
         "viewing": "查看过去的数据",
         "unavailable": "实时统计不可用"
       },
-      "transferSpeed": "传输速度",
+      "transferSpeed": "当前传输速度",
       "idle": "空闲",
-      "activeGames": "{{count}} 个游戏",
-      "activeGames_other": "{{count}} 个游戏",
+      "activeGames": "{{count}} 个下载",
+      "activeGames_other": "{{count}} 个下载",
       "activeClients": "{{count}} 个客户端",
       "activeClients_other": "{{count}} 个客户端",
       "noActive": "没有活跃下载",
-      "activeTooltip": "活跃下载仅在实时模式下可用",
-      "activeTab": "活跃",
+      "activeTooltip": "当前活跃状态与所选历史时间范围无关",
+      "activeTab": "当前活跃",
       "recentTab": "最近",
       "todayLabel": "今天：",
       "disabled": "已禁用",
@@ -1624,8 +1631,8 @@
       "gamesCount": "{{count}} 个游戏",
       "gamesCount_other": "{{count}} 个游戏",
       "summary": {
-        "gamesLabel": "个游戏",
-        "gamesLabel_other": "个游戏",
+        "gamesLabel": "个下载",
+        "gamesLabel_other": "个下载",
         "clientsLabel": "个客户端",
         "clientsLabel_other": "个客户端",
         "totalLabel": "总计",
@@ -2762,7 +2769,7 @@
       },
       "deletionMethods": {
         "preserveDesc": "逐个删除文件（保留结构）",
-        "fullDesc": "一次性移除整个目录",
+        "fullDesc": "删除文件并移除空目录",
         "rsyncDesc": "使用空目录进行 Rsync（最适合 NFS/SMB）"
       },
       "help": {

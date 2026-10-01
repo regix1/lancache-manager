@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, RefreshCw } from 'lucide-react';
-import { LoadingState } from '@components/ui/ManagerCard';
+import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
+import { Alert } from '@components/ui/Alert';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -18,9 +19,8 @@ import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 const ActiveDownloadsView: React.FC = () => {
   const { t } = useTranslation();
   const { speedSnapshot, gameSpeeds, clientSpeeds, isLoading, refreshSpeed } = useSpeed();
-  // The per-row live dot reads the unified activity registry, which is authoritative once ready. NOT
-  // an `||`: hasActiveDownloads is a GLOBAL "is anything downloading" flag, not per-row - falling back
-  // to it after ready would make every row's dot light up whenever anything else is downloading.
+  // Per-row dots resolve through useActivityStatus, whose download branch reads this same rendered
+  // SpeedContext snapshot rather than the separately delivered activity event.
   const activity = useActivityStatus();
 
   const [viewMode, setViewMode] = useState<'games' | 'clients'>('games');
@@ -33,22 +33,26 @@ const ActiveDownloadsView: React.FC = () => {
   // The green row means "fastest right now". It used to be whichever row came first, because the
   // list arrived sorted by speed; the list now holds fixed slots so a row keeps its place while it
   // downloads, and the fastest has to be picked out rather than assumed to be at the top.
-  const fastestGame =
-    games.length > 0
-      ? games.reduce((fastest, game) =>
-          game.bytesPerSecond > fastest.bytesPerSecond ? game : fastest
-        )
-      : null;
+  const fastestGame = games.reduce<GameSpeedInfo | null>(
+    (fastest, game) =>
+      game.bytesPerSecond > 0 && (fastest === null || game.bytesPerSecond > fastest.bytesPerSecond)
+        ? game
+        : fastest,
+    null
+  );
+  const fastestClient = clients.reduce<ClientSpeedInfo | null>(
+    (fastest, client) =>
+      client.bytesPerSecond > 0 &&
+      (fastest === null || client.bytesPerSecond > fastest.bytesPerSecond)
+        ? client
+        : fastest,
+    null
+  );
 
   const gameDownloading = (game: GameSpeedInfo): boolean =>
-    activity.isActiveOrFallback(
-      'download',
-      buildTrafficKey(game),
-      'downloading',
-      hasActiveDownloads
-    );
+    activity.isActive('download', buildTrafficKey(game), 'downloading');
   const clientDownloading = (client: ClientSpeedInfo): boolean =>
-    activity.isActiveOrFallback('download', client.clientIp, 'downloading', hasActiveDownloads);
+    activity.isActive('download', client.clientIp, 'downloading');
 
   if (isLoading) {
     return (
@@ -60,17 +64,28 @@ const ActiveDownloadsView: React.FC = () => {
     );
   }
 
+  if (!speedSnapshot || (!hasActiveDownloads && !speedSnapshot.isAvailable)) {
+    return (
+      <div className="active-downloads-view">
+        <EmptyState
+          variant="panel"
+          icon={Activity}
+          title={t('downloads.activity.waitingTitle')}
+          subtitle={t('downloads.activity.waitingDescription')}
+        />
+      </div>
+    );
+  }
+
   if (!hasActiveDownloads) {
     return (
-      <div className="active-empty-state">
-        <div className="empty-icon-container">
-          <div className="empty-icon-ring" />
-          <div className="empty-icon">
-            <Activity className="empty-state-icon" />
-          </div>
-        </div>
-        <div className="empty-title">{t('downloads.active.empty.title')}</div>
-        <div className="empty-description">{t('downloads.active.empty.description')}</div>
+      <div className="active-downloads-view">
+        <EmptyState
+          variant="panel"
+          icon={Activity}
+          title={t('downloads.active.empty.title')}
+          subtitle={t('downloads.active.empty.description')}
+        />
       </div>
     );
   }
@@ -127,6 +142,14 @@ const ActiveDownloadsView: React.FC = () => {
         </Button>
       </div>
 
+      <p className="text-sm text-themed-muted">{t('downloads.activity.inferenceHelp')}</p>
+
+      {!speedSnapshot.isAvailable && (
+        <Alert color="yellow" title={t('downloads.activity.unavailableTitle')}>
+          {t('downloads.activity.unavailableDescription')}
+        </Alert>
+      )}
+
       {/* Downloads List */}
       <div className="downloads-list">
         {viewMode === 'games'
@@ -138,7 +161,7 @@ const ActiveDownloadsView: React.FC = () => {
               );
               return (
                 <div
-                  key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
+                  key={game.key}
                   className={`download-item ${game === fastestGame ? 'top' : ''}`}
                 >
                   <div className="download-avatar">
@@ -185,8 +208,11 @@ const ActiveDownloadsView: React.FC = () => {
                 </div>
               );
             })
-          : clients.map((client: ClientSpeedInfo, index: number) => (
-              <div key={client.clientIp} className={`download-item ${index === 0 ? 'top' : ''}`}>
+          : clients.map((client: ClientSpeedInfo) => (
+              <div
+                key={client.clientIp}
+                className={`download-item ${client === fastestClient ? 'top' : ''}`}
+              >
                 <div className="download-avatar">
                   <Users className="fallback-icon" size={20} />
                   {clientDownloading(client) && <div className="active-indicator" />}
@@ -224,13 +250,13 @@ const ActiveDownloadsView: React.FC = () => {
           {t('downloads.active.summary.clientsLabel', { count: clients.length })}
         </div>
         <div className="summary-stat">
-          <strong>{formatSpeed(speedSnapshot?.totalBytesPerSecond || 0)}</strong>{' '}
+          <strong>{formatSpeed(speedSnapshot.totalBytesPerSecond)}</strong>{' '}
           {t('downloads.active.summary.totalLabel')}
         </div>
         <div className="summary-stat">
-          <strong>{speedSnapshot?.entriesInWindow || 0}</strong>{' '}
+          <strong>{speedSnapshot.entriesInWindow}</strong>{' '}
           {t('downloads.active.summary.requestsWindowLabel', {
-            seconds: Math.round(speedSnapshot?.windowSeconds ?? 2)
+            seconds: Math.round(speedSnapshot.windowSeconds)
           })}
         </div>
       </div>

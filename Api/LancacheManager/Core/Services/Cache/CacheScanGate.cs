@@ -24,8 +24,10 @@ public class DownloadInProgressException : ValidationException
 /// unfiltered snapshot, because hiding a client is a display preference and has no bearing on
 /// whether that client's bytes are landing on disk.
 /// A tracker that has no answer, because it has not spawned yet or its process just died, refuses
-/// scans for a short bounded window rather than reporting the cache as quiet. Once that window
-/// passes it reads as idle, so a tracker that never starts cannot block scans indefinitely.
+/// scans for a short bounded window rather than reporting the cache as quiet. Evidence retained
+/// from a child that exited keeps blocking until its stored activity boundary. With no retained
+/// evidence, the tracker reads as idle after the no-answer window, so a child that never starts
+/// cannot block scans indefinitely.
 /// </summary>
 public sealed class CacheScanGate
 {

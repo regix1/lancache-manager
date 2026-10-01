@@ -116,7 +116,7 @@ public class CacheSizeScanNotificationFlagTests
         SetField(service, "_operationTracker", tracker);
         SetField(service, "_notifications", CreateProxy<ISignalRNotificationService>((method, _) =>
             method.ReturnType == typeof(Task) ? Task.CompletedTask : null));
-        SetField(service, "_conflictChecker", new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance));
+        SetField(service, "_conflictChecker", OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance));
         SetField(service, "_cacheScanGate", Idle());
         SetField(service, "_datasourceService", sources);
         SetField(service, "_pathResolver", paths);
@@ -129,6 +129,8 @@ public class CacheSizeScanNotificationFlagTests
     /// </summary>
     private sealed class ScanProbe : CacheSizeScanScheduledService
     {
+        protected override TimeSpan ErrorRetryDelay => TimeSpan.Zero;
+
         public ScanProbe(CacheManagementService cacheService, IPathResolver paths, IOperationQueue queue, UnifiedOperationTracker tracker)
             : base(
                 cacheService,

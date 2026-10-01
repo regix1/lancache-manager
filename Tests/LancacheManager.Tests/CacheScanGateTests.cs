@@ -10,6 +10,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using static LancacheManager.Tests.CacheScanGateHarness;
@@ -48,7 +49,7 @@ public sealed class CacheScanGateTests
         SetField(service, "_scanCacheLock", scanLock);
         SetField(service, "_operationTracker", tracker);
         SetField(service, "_notifications", notifications);
-        SetField(service, "_conflictChecker", new OperationConflictChecker(tracker,
+        SetField(service, "_conflictChecker", OperationConflictTestServices.Create(tracker,
             NullLogger<OperationConflictChecker>.Instance));
         var run = typeof(CacheManagementService).GetMethod("RunFullScanAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
         await (Task)run.Invoke(service, [new List<string>(), CancellationToken.None, null, notice])!;
@@ -71,7 +72,11 @@ public sealed class CacheScanGateTests
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
         var gate = Idle();
         var service = ReconciliationServiceWith(gate);
+        using var services = new ServiceCollection()
+            .AddSingleton(OperationConflictTestServices.Owner)
+            .BuildServiceProvider();
         service.SetNotificationMode(NotificationMode.Silent);
+        SetField(service, "_serviceProvider", services);
         SetField(service, "_operationTracker", tracker);
         SetField(service, "_notifications", notifications);
         SetField(service, "_applicationLifetime", DispatchProxy.Create<IHostApplicationLifetime, NullReturningProxy>());
@@ -84,7 +89,7 @@ public sealed class CacheScanGateTests
         });
         var capability = new DatasourceCapabilityService(sources);
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
         SetField(controller, "_reconciliationService", service);
@@ -536,7 +541,7 @@ public sealed class CacheScanGateTests
 
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
@@ -582,7 +587,7 @@ public sealed class CacheScanGateTests
 
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
@@ -670,7 +675,7 @@ public sealed class CacheScanGateTests
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
@@ -705,7 +710,7 @@ public sealed class CacheScanGateTests
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);

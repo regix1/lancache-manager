@@ -36,6 +36,7 @@ public class StatsController : ControllerBase
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IEventsService _eventsService;
     private readonly CacheScanGate _cacheScanGate;
+    private readonly Func<DownloadSpeedSnapshot> _readActivity;
 
     public StatsController(
         AppDbContext context,
@@ -50,7 +51,8 @@ public class StatsController : ControllerBase
         DatasourceCapabilityService capabilityService,
         IClientHostnameService clientHostnameService,
         IEventsService eventsService,
-        CacheScanGate cacheScanGate)
+        CacheScanGate cacheScanGate,
+        RustSpeedTrackerService speedTracker)
     {
         _cacheScanGate = cacheScanGate;
         _clientHostnameService = clientHostnameService;
@@ -65,6 +67,7 @@ public class StatsController : ControllerBase
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
         _eventsService = eventsService;
+        _readActivity = speedTracker.GetCurrentSnapshot;
     }
 
     /// <summary>
@@ -722,12 +725,6 @@ public class StatsController : ControllerBase
             downloadsQuery, periodTotal, HttpContext.RequestAborted);
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
-        // Active downloads and unique clients (exclude stats-excluded IPs from counts)
-        var activeDownloadsQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode)
-            .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5));
-        var activeDownloads = await AggregateExcludingAsync(activeDownloadsQuery, statsExcludedOnlyIps,
-            q => q.CountAsync());
-
         // Unique clients: count distinct IPs, excluding stats-excluded IPs
         int uniqueClientsCount;
         if (cutoffTime.HasValue || endDateTime.HasValue)
@@ -766,6 +763,7 @@ public class StatsController : ControllerBase
             : 0;
 
         var periodLabel = DashboardPeriod.Label(cutoffTime, endDateTime);
+        var current = _readActivity();
 
         return Ok(new DashboardStatsResponse
         {
@@ -776,7 +774,10 @@ public class StatsController : ControllerBase
             CacheHitRatio = cacheHitRatio,
 
             // Current status
-            ActiveDownloads = activeDownloads,
+            ActiveDownloads = current.GameSpeeds.Count,
+            ActiveClients = current.ClientSpeeds.Count,
+            ActivityStreamId = current.StreamId,
+            ActivityRevision = current.Revision,
             UniqueClients = uniqueClientsCount,
             TopService = topServiceName,
 

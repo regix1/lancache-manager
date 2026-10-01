@@ -6,6 +6,8 @@ using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -20,6 +22,7 @@ namespace LancacheManager.Tests;
 public sealed class GameDetectionStaleWorkerTests : IDisposable
 {
     private readonly string _root;
+    private readonly List<(OperationStateService Owner, ServiceProvider Services)> _owners = [];
 
     public GameDetectionStaleWorkerTests()
     {
@@ -29,6 +32,12 @@ public sealed class GameDetectionStaleWorkerTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var (owner, services) in _owners)
+        {
+            owner.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
+            services.Dispose();
+        }
+
         try
         {
             Directory.Delete(_root, recursive: true);
@@ -61,16 +70,15 @@ public sealed class GameDetectionStaleWorkerTests : IDisposable
         notifications.FailStart = true;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual)));
-        var orphanId = Assert.Single(tracker.GetActiveOperations(OperationType.GameDetection)).Id;
+        Assert.Empty(tracker.GetActiveOperations(OperationType.GameDetection));
+        var orphanId = Assert.Single(tracker.GetRuns().Runs).OperationId;
 
         notifications.FailStart = false;
         var nextId = await detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual));
 
         Assert.NotNull(nextId);
         Assert.NotEqual(orphanId, nextId);
-        var orphan = tracker.GetOperation(orphanId)!;
-        Assert.Equal(OperationStatus.Failed, orphan.Status);
-        Assert.Equal("Stale operation cleaned up", orphan.Message);
+        Assert.Equal(OperationStatus.Failed, tracker.GetOperation(orphanId)!.Status);
     }
 
     [Fact]
@@ -102,8 +110,6 @@ public sealed class GameDetectionStaleWorkerTests : IDisposable
         var pathResolver = new TempDirPathResolver(_root);
         var configuration = new ConfigurationBuilder().Build();
         var stateService = StateTestMethods.CreateStateService(_root);
-        var operationStateService = new OperationStateService(
-            NullLogger<OperationStateService>.Instance, configuration, stateService);
         var datasourceService = new DatasourceService(configuration, pathResolver, NullLogger<DatasourceService>.Instance);
         var datasource = Assert.Single(datasourceService.GetDatasources());
         Directory.CreateDirectory(datasource.LogPath);
@@ -113,6 +119,23 @@ public sealed class GameDetectionStaleWorkerTests : IDisposable
             .Create<ISignalRNotificationService, StartFailingNotifications>();
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
+        var capabilityService = new DatasourceCapabilityService(datasourceService);
+
+        GameCacheDetectionService? repairOwner = null;
+        var services = new ServiceCollection()
+            .AddSingleton(datasourceService)
+            .AddSingleton(capabilityService)
+            .AddSingleton<GameCacheDetectionService>(_ => repairOwner
+                ?? throw new InvalidOperationException("The game detection service is not initialized."))
+            .BuildServiceProvider();
+        var operationStateService = new OperationStateService(
+            NullLogger<OperationStateService>.Instance,
+            configuration,
+            stateService,
+            services.GetRequiredService<IServiceScopeFactory>(),
+            new HostLifetime(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            tracker);
 
         var detection = new GameCacheDetectionService(
             NullLogger<GameCacheDetectionService>.Instance,
@@ -125,10 +148,26 @@ public sealed class GameDetectionStaleWorkerTests : IDisposable
             rustProcessHelper: null!,
             (ISignalRNotificationService)(object)notifications,
             datasourceService,
-            new DatasourceCapabilityService(datasourceService),
+            capabilityService,
             tracker,
             CacheScanGateHarness.Idle());
+        repairOwner = detection;
+        services.GetRequiredService<GameCacheDetectionService>();
+        operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+        _owners.Add((operationStateService, services));
         return (detection, tracker, notifications);
+    }
+
+    private sealed class HostLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _started = new();
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _stopped = new();
+
+        public CancellationToken ApplicationStarted => _started.Token;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => _stopped.Token;
+        public void StopApplication() => _stopping.Cancel();
     }
 
     /// <summary>

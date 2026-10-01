@@ -109,7 +109,6 @@ public sealed class PrefillCachedBadgeRemovalTests
     [InlineData("CacheManagementService.EpicRemoval.cs")]
     [InlineData("CacheManagementService.NamedRemoval.cs")]
     [InlineData("CacheReconciliationService.cs")]
-    [InlineData("CacheClearingService.cs")]
     public void RemovalPath_ClearsTheBadgeRowsAndAnnouncesTheChange(string fileName)
     {
         var source = ReadCacheServiceSource(fileName);

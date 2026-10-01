@@ -2,67 +2,32 @@ import type { Download, GameSpeedInfo } from '../../../types';
 import { getServiceFilterKey } from '../../../utils/serviceDisplayName.ts';
 
 /**
- * Presentation model for traffic that is visible in the live speed window but has no
- * recorded Download row yet. Deliberately NOT structurally compatible with Download:
- * previews carry no database id and must never enter Download[] collections, recorded
- * totals, pagination, associations, or exports.
+ * Presentation model for current traffic that has no recorded Download row for the same inferred
+ * session. It has no database identity and never enters recorded totals, paging, associations, or
+ * exports.
  */
 export interface LiveDownloadPreview {
-  /** Stable client-qualified identity: service|client|<app / depot / name / service tier>. */
   key: string;
   clientIp: string;
-  /** Normalized raw service name (lowercase). */
   service: string;
-  /** Resolved game title, or the truthful service label for service-only traffic. */
   displayName: string;
-  /** Original speed-snapshot title used for reconciliation and search. */
-  gameName: string | undefined;
-  /**
-   * Translation key for displayName when the label is this app's own text (depot placeholder
-   * or generic service fallback), null when displayName is the backend's own game name.
-   */
+  gameName: string | null | undefined;
   displayNameKey: string | null;
-  /** False when displayName is only a service label, never an identified game. */
   hasResolvedGame: boolean;
   gameAppId: number | null;
   depotId: number | null;
+  datasources: string[];
+  firstSeenUtc: string;
   bytesPerSecond: number;
-  /** Bytes observed in the current rolling window only. Never a session total. */
   windowBytes: number;
   windowSeconds: number;
   requestCount: number;
   cacheHitPercent: number;
-  /** Client-clock ms when this identity was first observed live. */
-  firstSeenAt: number;
-  /** Client-clock ms when this identity was last present in a speed snapshot. */
-  lastSeenAt: number;
   status: 'in-progress';
-}
-
-interface DownloadFingerprint {
-  endTimeUtc: string | null;
-  totalBytes: number;
-  isActive: boolean;
-}
-
-export interface LivePreviewLedgerEntry {
-  preview: LiveDownloadPreview;
-  /**
-   * Recorded rows (by download id) that already matched this identity when it was first
-   * observed live. They are stale history, not this traffic: the preview stays visible
-   * while only these unchanged rows exist, so an old row cannot hide live activity during
-   * a long ingestion pause.
-   */
-  baselineFingerprints: ReadonlyMap<number, DownloadFingerprint>;
-  /** True once an authoritative row represents this traffic; the preview stays hidden. */
-  reconciled: boolean;
 }
 
 const STEAM_APP_PLACEHOLDER = /^Steam App \d+$/;
 
-// Mirror of the speed tracker's service->label fallback: traffic without a resolved game
-// arrives with gameName set to one of these labels, so a name equal to the label (or to the
-// raw service) is service-only traffic and must never be treated as a resolved title.
 const SERVICE_FALLBACK_LABELS: Record<string, string> = {
   epic: 'Epic Games',
   epicgames: 'Epic Games',
@@ -91,20 +56,11 @@ const SERVICE_FALLBACK_LABELS: Record<string, string> = {
   unknown: 'Unknown Service'
 };
 
-// Display text for the two labels above that are this app's own words rather than a product
-// name. Kept OUT of SERVICE_FALLBACK_LABELS because that map is compared character for
-// character against the backend's gameName in isResolvedGameName, so translating a value
-// there would silently stop service-only traffic from being recognized. Rendered through the
-// preview's displayNameKey; this module stays free of translated strings so it also stays
-// loadable outside the bundler.
 const SERVICE_LABEL_KEYS: Record<string, string> = {
   'ip-address': 'downloads.services.directIp',
   unknown: 'downloads.services.unknown'
 };
 
-// Xbox content reaches the cache tagged wsus and is later canonicalized to the xbox
-// service. NAMED matches may cross this alias group (same title on either side); generic
-// service-only matches never do, so generic wsus can never attach to a named Xbox row.
 const XBOX_ALIAS_GROUP = new Set(['wsus', 'xbox', 'xboxlive']);
 
 const normalizeService = (service: string | null | undefined): string =>
@@ -163,32 +119,9 @@ const previewGameAppId = (game: GameSpeedInfo): number | null =>
 const previewDepotId = (game: GameSpeedInfo): number | null =>
   previewGameAppId(game) === null && game.depotId > 0 ? game.depotId : null;
 
-// Identity tiers: app id (Steam always keys by app, never by name), then unresolved depot,
-// then resolved title for named services, then the service-only bucket. Every tier is
-// client-qualified so the same game on two clients yields two previews. This is also the key
-// the unified activity registry reports a live download under (the backend speed tracker
-// mirrors this function), so live-download status dots read activity by exactly this key.
-export const buildTrafficKey = (game: GameSpeedInfo): string => {
-  const service = normalizeService(game.service);
-  const client = (game.clientIp ?? '').trim();
-  const appId = previewGameAppId(game);
-  const depotId = previewDepotId(game);
-  let identity: string;
-  if (appId !== null) {
-    identity = `app:${appId}`;
-  } else if (depotId !== null) {
-    identity = `depot:${depotId}`;
-  } else if (isResolvedGameName(game.gameName, game.service)) {
-    identity = `name:${normalizeTitle(game.gameName)}`;
-  } else {
-    identity = 'service';
-  }
-  return `${service}|${client}|${identity}`;
-};
+/** The server validates and publishes the stable client-qualified identity. */
+export const buildTrafficKey = (game: GameSpeedInfo): string => game.key;
 
-// Display mirrors the Active tab naming: resolved title first, then the raw reported name,
-// then a depot placeholder, then the service label. No game title is ever invented for
-// service-only traffic.
 const previewDisplayName = (
   game: GameSpeedInfo
 ): { displayName: string; displayNameKey: string | null } => {
@@ -210,36 +143,9 @@ const previewDisplayName = (
   };
 };
 
-const parseTimeMs = (value: string | null | undefined): number => {
-  const ms = Date.parse(value ?? '');
-  return Number.isFinite(ms) ? ms : 0;
-};
+const servicesCompatibleForNamedMatch = (left: string, right: string): boolean =>
+  left === right || (XBOX_ALIAS_GROUP.has(left) && XBOX_ALIAS_GROUP.has(right));
 
-const fingerprintOf = (download: Download): DownloadFingerprint => ({
-  endTimeUtc: download.endTimeUtc,
-  totalBytes: download.totalBytes,
-  isActive: download.isActive
-});
-
-const fingerprintAdvanced = (
-  baseline: DownloadFingerprint,
-  current: DownloadFingerprint
-): boolean =>
-  current.totalBytes !== baseline.totalBytes ||
-  current.endTimeUtc !== baseline.endTimeUtc ||
-  current.isActive !== baseline.isActive;
-
-// A row that is still active, or ended within the freshness horizon, represents current
-// traffic and reconciles a newly observed identity immediately (page-navigation bootstrap).
-const isFreshDownload = (download: Download, now: number, freshWithinMs: number): boolean =>
-  download.isActive || now - parseTimeMs(download.endTimeUtc) <= freshWithinMs;
-
-const servicesCompatibleForNamedMatch = (a: string, b: string): boolean =>
-  a === b || (XBOX_ALIAS_GROUP.has(a) && XBOX_ALIAS_GROUP.has(b));
-
-// One-to-one suppression matching, mirroring the identity tiers of the key. Every tier
-// requires the same client; generic service-only previews match only another generic row
-// of the same raw service.
 const matchesPreview = (preview: LiveDownloadPreview, download: Download): boolean => {
   if (download.clientIp.trim() !== preview.clientIp) return false;
   const downloadService = normalizeService(download.service);
@@ -264,162 +170,69 @@ const matchesPreview = (preview: LiveDownloadPreview, download: Download): boole
   );
 };
 
-const MAX_STICKY_TTL_MS = 15000;
+const representsSession = (preview: LiveDownloadPreview, download: Download): boolean => {
+  if (!matchesPreview(preview, download) || !download.datasource) return false;
+  const datasource = download.datasource.trim().toLowerCase();
+  if (!preview.datasources.some((alias) => alias.toLowerCase() === datasource)) return false;
 
-/**
- * How long a preview lingers after its identity leaves the speed snapshot: at least the
- * server's rolling window (so the adaptive window briefly emptying a row cannot cause
- * flicker), floored at 3s and capped at the tracker's maximum window.
- */
-export const computeStickyTtlMs = (windowSeconds: number | null | undefined): number => {
-  const windowMs = (windowSeconds || 2) * 1000;
-  return Math.min(Math.max(3000, windowMs), MAX_STICKY_TTL_MS);
+  const startMs = Date.parse(download.startTimeUtc);
+  const endMs = Date.parse(download.endTimeUtc ?? '');
+  const latestMs = Math.max(
+    Number.isFinite(startMs) ? startMs : Number.NEGATIVE_INFINITY,
+    Number.isFinite(endMs) ? endMs : Number.NEGATIVE_INFINITY
+  );
+  return latestMs >= Date.parse(preview.firstSeenUtc);
+};
+
+const toPreview = (game: GameSpeedInfo, windowSeconds: number): LiveDownloadPreview => {
+  const display = previewDisplayName(game);
+  return {
+    key: buildTrafficKey(game),
+    clientIp: game.clientIp.trim(),
+    service: normalizeService(game.service),
+    displayName: display.displayName,
+    gameName: game.gameName,
+    displayNameKey: display.displayNameKey,
+    hasResolvedGame: isResolvedGameName(game.gameName, game.service),
+    gameAppId: previewGameAppId(game),
+    depotId: previewDepotId(game),
+    datasources: Array.from(
+      new Set(game.sources.flatMap((source) => source.datasources.map((name) => name.trim())))
+    ),
+    firstSeenUtc: game.firstSeenUtc,
+    bytesPerSecond: game.bytesPerSecond,
+    windowBytes: game.totalBytes,
+    windowSeconds,
+    requestCount: game.requestCount,
+    cacheHitPercent: game.cacheHitPercent,
+    status: 'in-progress'
+  };
 };
 
 interface ReconcileLivePreviewsArgs {
   gameSpeeds: readonly GameSpeedInfo[];
   windowSeconds: number;
   downloads: readonly Download[];
-  ledger: ReadonlyMap<string, LivePreviewLedgerEntry>;
-  now: number;
-}
-
-interface ReconcileLivePreviewsResult {
-  previews: LiveDownloadPreview[];
-  ledger: Map<string, LivePreviewLedgerEntry>;
 }
 
 /**
- * Derives the unmatched in-progress previews from the current speed snapshot, reconciled
- * against the recorded downloads. Pure: inputs are never mutated and a returned ledger fed
- * back in with the same inputs produces the same result. The ledger is bounded by the
- * currently (or recently, within the sticky TTL) live identities, so it cannot grow
- * indefinitely and previews can never outlive the traffic they describe.
+ * Projects the current server-owned sessions that recorded rows have not taken over. The result has
+ * no browser clock, lease, or carry-over state; an identity disappears in the same render as the
+ * accepted server snapshot that removes it.
  */
-export const reconcileLivePreviews = (
-  args: ReconcileLivePreviewsArgs
-): ReconcileLivePreviewsResult => {
-  const { gameSpeeds, windowSeconds, downloads, ledger, now } = args;
-  const stickyMs = computeStickyTtlMs(windowSeconds);
-  const nextLedger = new Map<string, LivePreviewLedgerEntry>();
-
-  // Identities present in the current snapshot (entries collapsing to one key are merged).
-  const liveByKey = new Map<string, { preview: LiveDownloadPreview; cacheHitBytes: number }>();
-  for (const game of gameSpeeds) {
-    const key = buildTrafficKey(game);
-    const existing = liveByKey.get(key);
-    if (existing) {
-      existing.preview.bytesPerSecond += game.bytesPerSecond;
-      existing.preview.windowBytes += game.totalBytes;
-      existing.preview.requestCount += game.requestCount;
-      existing.cacheHitBytes += game.cacheHitBytes;
-      existing.preview.cacheHitPercent =
-        existing.preview.windowBytes > 0
-          ? (existing.cacheHitBytes / existing.preview.windowBytes) * 100
-          : 0;
-      continue;
-    }
-
-    const resolved = isResolvedGameName(game.gameName, game.service);
-    const display = previewDisplayName(game);
-    liveByKey.set(key, {
-      cacheHitBytes: game.cacheHitBytes,
-      preview: {
-        key,
-        clientIp: (game.clientIp ?? '').trim(),
-        service: normalizeService(game.service),
-        displayName: display.displayName,
-        gameName: game.gameName,
-        displayNameKey: display.displayNameKey,
-        hasResolvedGame: resolved,
-        gameAppId: previewGameAppId(game),
-        depotId: previewDepotId(game),
-        bytesPerSecond: game.bytesPerSecond,
-        windowBytes: game.totalBytes,
-        windowSeconds,
-        requestCount: game.requestCount,
-        cacheHitPercent: game.cacheHitPercent,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        status: 'in-progress'
-      }
-    });
-  }
-
-  // Upsert live identities, carrying first-observation state from the previous ledger.
-  for (const [key, { preview }] of liveByKey) {
-    const prior = ledger.get(key);
-    if (prior) {
-      nextLedger.set(key, {
-        preview: { ...preview, firstSeenAt: prior.preview.firstSeenAt },
-        baselineFingerprints: prior.baselineFingerprints,
-        reconciled: prior.reconciled
-      });
-      continue;
-    }
-
-    // First observation: existing matching rows become the stale baseline, unless one is
-    // already fresh, which reconciles the identity immediately.
-    const baseline = new Map<number, DownloadFingerprint>();
-    let reconciled = false;
-    for (const download of downloads) {
-      if (!matchesPreview(preview, download)) continue;
-      baseline.set(download.id, fingerprintOf(download));
-      if (isFreshDownload(download, now, stickyMs)) {
-        reconciled = true;
-      }
-    }
-    nextLedger.set(key, { preview, baselineFingerprints: baseline, reconciled });
-  }
-
-  // Sticky carry-over: identities absent from this snapshot linger until the TTL elapses
-  // (unless already reconciled), then drop so nothing becomes an immortal row.
-  for (const [key, entry] of ledger) {
-    if (nextLedger.has(key)) continue;
-    if (now - entry.preview.lastSeenAt <= stickyMs) {
-      nextLedger.set(key, { ...entry });
-    }
-  }
-
-  // Reconcile: a NEW matching row, or a baseline row whose fingerprint advanced, hands the
-  // identity over to the authoritative data. Unchanged baseline rows keep the preview
-  // visible (heavy-operation ingestion pause).
-  for (const entry of nextLedger.values()) {
-    if (entry.reconciled) continue;
-    for (const download of downloads) {
-      if (!matchesPreview(entry.preview, download)) continue;
-      const baseline = entry.baselineFingerprints.get(download.id);
-      if (!baseline || fingerprintAdvanced(baseline, fingerprintOf(download))) {
-        entry.reconciled = true;
-        break;
-      }
-    }
-  }
-
-  // Fixed slots: service, then title, then client. Mirrors the speed tracker's own ordering, and
-  // for the same reason: sorting these by current speed put every row in motion, because
-  // concurrent downloads share the link and their rates cross constantly. The speed still updates
-  // in place, which is the number a reader is watching.
-  const previews = Array.from(nextLedger.values())
-    .filter((entry) => !entry.reconciled)
-    .map((entry) => entry.preview)
+export const reconcileLivePreviews = (args: ReconcileLivePreviewsArgs): LiveDownloadPreview[] =>
+  args.gameSpeeds
+    .map((game) => toPreview(game, args.windowSeconds))
+    .filter((preview) => !args.downloads.some((download) => representsSession(preview, download)))
     .sort(
-      (a, b) =>
-        a.service.localeCompare(b.service) ||
-        a.displayName.localeCompare(b.displayName) ||
-        a.clientIp.localeCompare(b.clientIp) ||
-        // Last resort, so nothing is left to insertion order. The three above already separate the
-        // usual rows, including two unresolved depots, whose display names carry their depot ids.
-        // What reaches here is two rows showing the same text for the same service and client, such
-        // as one title under two app ids; the key differs because it carries the identity tier.
-        a.key.localeCompare(b.key)
+      (left, right) =>
+        left.service.localeCompare(right.service) ||
+        left.displayName.localeCompare(right.displayName) ||
+        left.clientIp.localeCompare(right.clientIp) ||
+        left.key.localeCompare(right.key)
     );
 
-  return { previews, ledger: nextLedger };
-};
-
 interface LivePreviewFilterArgs {
-  /** Folded service filter key ('all' passes everything). */
   serviceFilterKey?: string;
   clientFilter?:
     | { type: 'all' }
@@ -431,11 +244,6 @@ interface LivePreviewFilterArgs {
   hitMissFilter?: 'all' | 'hit' | 'miss';
 }
 
-/**
- * Applies only the filters that can honestly evaluate a live preview (client, service,
- * search, localhost, unknown-Steam visibility, and window hit/miss). Session-size and
- * event filters have no honest live equivalent and are intentionally not represented here.
- */
 export const filterLivePreviews = (
   previews: readonly LiveDownloadPreview[],
   args: LivePreviewFilterArgs
@@ -452,25 +260,17 @@ export const filterLivePreviews = (
     }
 
     const clientFilter = args.clientFilter;
-    if (clientFilter && clientFilter.type === 'ip' && preview.clientIp !== clientFilter.ip) {
-      return false;
-    }
-    if (
-      clientFilter &&
-      clientFilter.type === 'group' &&
-      !clientFilter.memberIps.includes(preview.clientIp)
-    ) {
+    if (clientFilter?.type === 'ip' && preview.clientIp !== clientFilter.ip) return false;
+    if (clientFilter?.type === 'group' && !clientFilter.memberIps.includes(preview.clientIp)) {
       return false;
     }
 
     if (args.hideLocalhost && (preview.clientIp === '127.0.0.1' || preview.clientIp === '::1')) {
       return false;
     }
-
     if (args.hideUnknownSteam && preview.service === 'steam' && !preview.hasResolvedGame) {
       return false;
     }
-
     if (args.hitMissFilter === 'hit' && preview.cacheHitPercent < 50) return false;
     if (args.hitMissFilter === 'miss' && preview.cacheHitPercent >= 50) return false;
 

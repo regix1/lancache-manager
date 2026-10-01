@@ -31,6 +31,7 @@ public partial class CacheManagementService
     private readonly ILancacheEnvFileReader _envFileReader;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly CacheScanGate _cacheScanGate;
+    private readonly OperationStateService _operationStateService;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -93,10 +94,12 @@ public partial class CacheManagementService
         ILancacheEnvFileReader envFileReader,
         IOperationConflictChecker conflictChecker,
         DatasourceCapabilityService capabilityService,
-        CacheScanGate cacheScanGate)
+        CacheScanGate cacheScanGate,
+        OperationStateService operationStateService)
     {
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
+        _operationStateService = operationStateService;
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;

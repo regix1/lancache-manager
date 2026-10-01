@@ -381,11 +381,9 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 try
                 {
                     // Start the Rust processor as live ingest. Per-stem offsets come from the
-                    // positions file the processor service writes from persisted checkpoints;
-                    // the legacy start position argument is ignored in multi-source mode.
+                    // positions file the processor service writes from persisted checkpoints.
                     var success = await _rustLogProcessorService.StartProcessingAsync(
                         datasource.LogPath,
-                        startPosition: 0,
                         liveIngest: true,
                         datasourceName: datasource.Name);
 
@@ -492,6 +490,9 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         // The cap is what keeps this an INCREMENTAL allowance: a full backlog import still waits
         // for the slot rather than running a whole-log pass beside another heavy operation.
         pendingBytes <= MaxConcurrentCorruptionIngestionBytes &&
+        (conflict.Context is null
+            || !conflict.Context.TryGetValue("repairPending", out var repairPending)
+            || repairPending is not true) &&
         conflict.ActiveOperationType is { } activeType &&
         _ingestionSafeActiveOperations.Contains(activeType);
 }

@@ -30,7 +30,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IPathResolver _pathResolver;
-    private readonly GameCacheDetectionDataService _gameCacheDetectionDataService;
+    private readonly GameCacheDetectionDataService _cacheDetections;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
     private readonly IOperationQueue _operationQueue;
@@ -203,23 +203,30 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // Single owner and strict ordering: release the service-local gate exactly once,
                     // then complete the tracker operation so queue promotion can safely acquire it.
                     EndRun();
+                    var repairPending = _serviceProvider
+                        .GetRequiredService<OperationStateService>()
+                        .GetPendingRepairs()
+                        .Any(repair => repair.Id == operationId);
                     // A skipped run did not fail, so it is completed with success true and the
                     // reason on the message, which is the pairing CompleteOperation documents.
-                    _operationTracker.CompleteOperation(
-                        operationId,
-                        outcome.Success || outcome.Skipped,
-                        outcome.Error,
-                        skipped: outcome.Skipped,
-                        onCompleting: operation =>
-                        {
-                            if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState))
+                    if (!repairPending)
+                    {
+                        _operationTracker.CompleteOperation(
+                            operationId,
+                            outcome.Success || outcome.Skipped,
+                            outcome.Error,
+                            skipped: outcome.Skipped,
+                            onCompleting: operation =>
                             {
-                                terminalState.Processed = outcome.Processed;
-                                terminalState.Evicted = outcome.Evicted;
-                                terminalState.UnEvicted = outcome.UnEvicted;
-                            }
-                            if (outcome.Success) operation.PercentComplete = 100;
-                        });
+                                if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState))
+                                {
+                                    terminalState.Processed = outcome.Processed;
+                                    terminalState.Evicted = outcome.Evicted;
+                                    terminalState.UnEvicted = outcome.UnEvicted;
+                                }
+                                if (outcome.Success) operation.PercentComplete = 100;
+                            });
+                    }
                     onCompleted?.Invoke();
                 }
             }, CancellationToken.None);
@@ -272,7 +279,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _pathResolver = pathResolver;
-        _gameCacheDetectionDataService = gameCacheDetectionDataService;
+        _cacheDetections = gameCacheDetectionDataService;
         _gameCacheDetectionService = gameCacheDetectionService;
         _evictedDetectionPreservationService = evictedDetectionPreservationService;
         _operationQueue = operationQueue;
@@ -458,9 +465,41 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", capabilityDenial);
             return new EvictionScanRunOutcome(Success: false, Error: capabilityDenial);
         }
+
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        var trackedOperation = _operationTracker.GetOperation(operationId)
+            ?? throw new InvalidOperationException($"Eviction scan {operationId} is not tracked.");
+        var repairSources = _datasourceService.GetDatasources()
+            .Where(source => source.Enabled && !string.IsNullOrWhiteSpace(source.CachePath))
+            .Select(source => new OperationRepairSource
+            {
+                Datasource = source.Name,
+                LogRoot = source.LogPath,
+                CacheRoot = source.CachePath,
+                KeyScheme = _capabilityService.GetKeySchemeWireValue(source),
+                ReconcileCache = true,
+                RefreshDetection = true,
+                InvalidateCorruption = true
+            })
+            .ToList();
+        await repairOwner.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = operationId,
+                Type = OperationType.EvictionScan,
+                Name = trackedOperation.Name,
+                StartedAt = trackedOperation.StartedAt,
+                Notice = notice,
+                Sources = repairSources,
+                EvictionScan = new EvictionScanRepair()
+            },
+            stoppingToken);
+
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
         var operationSucceeded = false;
+        var operationCancelled = false;
+        var scanPrepared = false;
         string? operationError = null;
         var completedScan = new EvictionScanResult();
 
@@ -496,6 +535,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Create progress file for monitoring
             progressFilePath = Path.GetTempFileName();
+
+            context.EvictionScanCheckpoints.Add(new EvictionScanCheckpoint
+            {
+                OperationId = operationId,
+                StartedAtUtc = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync(stoppingToken);
+            await repairOwner.SaveRepairAsync(
+                operationId,
+                repair => repair.EvictionScanId = operationId,
+                stoppingToken);
+            scanPrepared = true;
+
+            await repairOwner.StartWorkAsync(
+                operationId,
+                datasource: null,
+                cancellationToken: stoppingToken);
+            foreach (var source in repairSources)
+            {
+                await repairOwner.StartWorkAsync(operationId, source.Datasource, stoppingToken);
+            }
 
             // Hybrid transport (mirrors CacheClearingService): the stdout progress event from
             // cache_eviction_scan.rs is a zero-latency wake-up that triggers exactly one read of
@@ -558,7 +618,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Execute the Rust binary
             var result = await _rustProcessHelper.RunEvictionScanAsync(
-                datasourceConfigPath, progressFilePath, stoppingToken, operationId, onProgressEvent);
+                datasourceConfigPath,
+                progressFilePath,
+                stoppingToken,
+                operationId,
+                onProgressEvent,
+                scanId: operationId);
 
             stoppingToken.ThrowIfCancellationRequested();
 
@@ -579,121 +644,39 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 stoppingToken.ThrowIfCancellationRequested();
 
-                // Fix 3 Trigger #1: whenever the eviction scan flipped any Downloads rows from
-                // IsEvicted=true → IsEvicted=false (cache files reappeared), reverse-reconcile
-                // the dependent CachedGameDetections.IsEvicted flag so detection UI reflects
-                // the re-cached state without waiting for a new full detection scan.
-                if (scanResult.UnEvicted > 0)
-                {
-                    try
-                    {
-                        var unevictedCount = await UnevictCachedGameDetectionsAsync(
-                            context,
-                            _logger,
-                            _gameCacheDetectionDataService,
-                            _evictedDetectionPreservationService,
-                            stoppingToken);
-                        if (unevictedCount > 0)
-                        {
-                            _logger.LogInformation(
-                                "[GameDetection] Self-healed {Count} CachedGameDetection rows after eviction scan reported {UnEvicted} un-evicted downloads",
-                                unevictedCount, scanResult.UnEvicted);
-                        }
-
-                        // Service badges self-heal the same way: when the scan re-cached any
-                        // Downloads, clear CachedServiceDetections.IsEvicted for services whose
-                        // Downloads are no longer all evicted (keys off Downloads.IsEvicted via
-                        // GetServicesToUnevictAsync, not the stale CacheFilesFound snapshot). Runs
-                        // in this same try/catch so a service failure does not abort the games heal.
-                        var serviceUnevictedCount = await UnevictCachedServiceDetectionsAsync(
-                            context,
-                            _logger,
-                            _gameCacheDetectionDataService,
-                            stoppingToken);
-                        if (serviceUnevictedCount > 0)
-                        {
-                            _logger.LogInformation(
-                                "[ServiceDetection] Self-healed {Count} CachedServiceDetection rows after eviction scan reported {UnEvicted} un-evicted downloads",
-                                serviceUnevictedCount, scanResult.UnEvicted);
-                        }
-                    }
-                    catch (Exception selfHealEx) when (selfHealEx is not OperationCanceledException)
-                    {
-                        _logger.LogWarning(selfHealEx,
-                            "[GameDetection] Reverse-reconcile of CachedGameDetections/CachedServiceDetections failed - will retry next scan");
-                    }
-                }
-
-                // Fix A + B: Propagate eviction to CachedGameDetection and bust the in-memory cache
-                if (scanResult.Evicted > 0)
-                {
-                    stoppingToken.ThrowIfCancellationRequested();
-
-                    try
-                    {
-                        var evictedCount = await EvictCachedGameDetectionsAsync(context, _logger, stoppingToken);
-                        _logger.LogInformation("Marked {Count} CachedGameDetection rows as evicted", evictedCount);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to propagate eviction to CachedGameDetection rows");
-                    }
-                }
-
-                // Fix for "newly evicted items don't show until restart": after the scan
-                // flags Downloads as evicted, run recovery so any game/service WITHOUT a
-                // matching CachedGameDetection / CachedServiceDetection row gets one
-                // inserted with IsEvicted=true. LoadDetectionFromDatabaseAsync only
-                // returns entities that have detection rows - missing rows = invisible
-                // in the Evicted Items UI. Runs on EVERY successful scan, not only when this
-                // scan newly evicted rows: a skipped scan (empty cache root after a full
-                // clear) must still repair projections for Downloads flagged by an earlier
-                // clear or scan, otherwise those entities stay invisible with no path back.
-                var recoveredProjections = 0;
-                try
-                {
-                    stoppingToken.ThrowIfCancellationRequested();
-                    var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync(stoppingToken);
-                    var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync(stoppingToken);
-                    recoveredProjections = gamesRecovered + servicesRecovered;
-                    _logger.LogInformation(
-                        "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row - their evicted_downloads_count will update in-place)",
-                        gamesRecovered, servicesRecovered);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
-                }
-
-                // UnEvicted counts too: a pure re-cache scan (files reappeared, nothing newly
-                // evicted) changed both the detection rows (self-heal above) and the on-disk
-                // sizes, so it needs the same refresh or the dashboard keeps serving the stale
-                // pre-scan snapshot until an unrelated operation invalidates it.
-                if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
-                {
-                    await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
-                    await ReportScanProgressAsync(
-                        operationId,
-                        92.0,
-                        "signalr.evictionScan.refreshingSummary",
-                        scanResult);
-
-                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
-                }
-                else if (recoveredProjections > 0)
-                {
-                    // Recovery only inserted projection rows; the disk summary is unchanged, but
-                    // the cached detection results must drop so the Evicted Items UI sees them.
-                    _gameCacheDetectionService.InvalidateDetectionCache();
-                }
-
-                stoppingToken.ThrowIfCancellationRequested();
+                await ReportScanProgressAsync(
+                    operationId,
+                    92.0,
+                    "signalr.evictionScan.refreshingSummary",
+                    scanResult);
 
                 // Capture the success metrics BY VALUE before the optional removal phase. The scan
                 // operation deliberately remains active through that tail so queue promotion cannot
                 // start another full-disk scan while remove-mode cleanup is still mutating cache/log
                 // state. Internal removal registration does not run a controller conflict check.
-                completedScan = scanResult;
+                var scanRepair = repairOwner.GetPendingRepairs()
+                    .Single(repair => repair.Id == operationId);
+                await FinalizeEvictionScanAttemptAsync(
+                    scanRepair,
+                    operationId,
+                    saveScanMetrics: true,
+                    stoppingToken: stoppingToken);
+                var committedCheckpoint = await context.EvictionScanCheckpoints
+                    .AsNoTracking()
+                    .SingleAsync(entry => entry.OperationId == operationId, stoppingToken);
+                completedScan = new EvictionScanResult
+                {
+                    Success = true,
+                    Processed = committedCheckpoint.Processed,
+                    Evicted = committedCheckpoint.Evicted,
+                    UnEvicted = committedCheckpoint.UnEvicted,
+                    FilesOnDisk = scanResult.FilesOnDisk
+                };
+                await repairOwner.FinishRepairAsync(
+                    operationId,
+                    success: true,
+                    cancelled: false,
+                    error: null);
 
                 // Handle evicted data "remove" mode. The removal self-registers its OWN
                 // OperationType.EvictionRemoval operation (operationId: null) so it is cancellable,
@@ -708,15 +691,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         notice: new RunNotice(notice.Mode, notice.Trigger));
                 }
 
-                // Notify clients to refresh if eviction flags changed
-                if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
-                {
-                    await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-                    {
-                        reason = "eviction-scan-complete"
-                    });
-                }
-
+                stoppingToken.ThrowIfCancellationRequested();
                 operationSucceeded = true;
             }
             else
@@ -729,6 +704,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[EvictionScan] Operation {OperationId} was cancelled", operationId);
+            operationCancelled = true;
             // No error text: the run stopped on request, and Success:false already carries that.
         }
         catch (Exception ex)
@@ -746,8 +722,549 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
         }
 
+        if (scanPrepared)
+        {
+            try
+            {
+                var checkpoint = await context.EvictionScanCheckpoints
+                    .AsNoTracking()
+                    .SingleAsync(
+                        entry => entry.OperationId == operationId,
+                        _applicationLifetime.ApplicationStopping);
+                completedScan.Processed = checkpoint.Processed;
+                completedScan.Evicted = checkpoint.Evicted;
+                completedScan.UnEvicted = checkpoint.UnEvicted;
+                await repairOwner.SaveRepairAsync(
+                    operationId,
+                    repair =>
+                    {
+                        repair.EvictionScan = new EvictionScanRepair
+                        {
+                            Processed = checkpoint.Processed,
+                            Evicted = checkpoint.Evicted,
+                            UnEvicted = checkpoint.UnEvicted,
+                            DetectionError = _evictionScanTerminalStates.TryGetValue(operationId, out var terminal)
+                                ? terminal.DetectionError
+                                : null
+                        };
+                    },
+                    _applicationLifetime.ApplicationStopping);
+            }
+            catch (OperationCanceledException) when (_applicationLifetime.ApplicationStopping.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                operationSucceeded = false;
+                operationCancelled = false;
+                operationError = ex.Message;
+                _logger.LogError(
+                    ex,
+                    "[EvictionScan] Failed to read or save checkpoint {OperationId}",
+                    operationId);
+            }
+        }
+        await repairOwner.FinishRepairAsync(
+            operationId,
+            operationSucceeded,
+            operationCancelled,
+            operationError);
+
         return new EvictionScanRunOutcome(operationSucceeded, operationError,
+            RepairStarted: true,
             Processed: completedScan.Processed, Evicted: completedScan.Evicted, UnEvicted: completedScan.UnEvicted);
+    }
+
+    public Task RestoreRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        stoppingToken.ThrowIfCancellationRequested();
+        return repair.Type switch
+        {
+            OperationType.EvictionScan => RestoreEvictionScanRepairAsync(repair),
+            OperationType.EvictionRemoval => RestoreEvictionRemovalRepairAsync(repair),
+            _ => throw new InvalidOperationException(
+                $"Operation type {repair.Type} is not owned by cache reconciliation.")
+        };
+    }
+
+    public virtual Task ResumeRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        return repair.Type switch
+        {
+            OperationType.EvictionScan => FinalizeEvictionScanAsync(repair, stoppingToken),
+            OperationType.EvictionRemoval => FinalizeEvictionRemovalAsync(repair, stoppingToken),
+            _ => throw new InvalidOperationException(
+                $"Operation type {repair.Type} is not owned by cache reconciliation.")
+        };
+    }
+
+    private Task RestoreEvictionScanRepairAsync(OperationRepair repair)
+    {
+        var metrics = repair.EvictionScan
+            ?? throw new InvalidDataException($"Eviction scan repair {repair.Id} has no metrics.");
+        var state = new EvictionScanTerminalState
+        {
+            Processed = metrics.Processed,
+            Evicted = metrics.Evicted,
+            UnEvicted = metrics.UnEvicted,
+            DetectionError = metrics.DetectionError
+        };
+        var cts = new CancellationTokenSource();
+        Func<OperationTerminalInfo, Task> emit = terminal =>
+        {
+            var context = new Dictionary<string, object?>
+            {
+                ["totalProcessed"] = state.Processed,
+                ["totalEvicted"] = state.Evicted,
+                ["totalUnEvicted"] = state.UnEvicted
+            };
+            if (state.DetectionError is not null)
+            {
+                context["detectionError"] = state.DetectionError;
+            }
+
+            return _notifications.NotifyAllAsync(
+                SignalREvents.EvictionScanComplete,
+                new EvictionScanComplete(
+                    Success: terminal.Success,
+                    OperationId: repair.Id,
+                    StageKey: terminal.Cancelled
+                        ? "signalr.evictionScan.cancelled"
+                        : "signalr.evictionScan.complete",
+                    Processed: state.Processed,
+                    Evicted: state.Evicted,
+                    UnEvicted: state.UnEvicted,
+                    Error: terminal.Error,
+                    Context: context,
+                    Cancelled: terminal.Cancelled));
+        };
+
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            repair.Type,
+            repair.Name,
+            cts,
+            new Dictionary<string, object?>(),
+            onTerminalCleanup: () => _evictionScanTerminalStates.TryRemove(repair.Id, out _),
+            onTerminalEmit: emit,
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true);
+        if (!restored)
+        {
+            cts.Dispose();
+            return Task.CompletedTask;
+        }
+
+        _evictionScanTerminalStates[repair.Id] = state;
+        lock (_evictionScanTerminalStates)
+        {
+            _currentScanOperationId = repair.Id;
+            _currentScanProgressContext = null;
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task RestoreEvictionRemovalRepairAsync(OperationRepair repair)
+    {
+        var metrics = repair.EvictionRemoval
+            ?? throw new InvalidDataException($"Eviction removal repair {repair.Id} has no metrics.");
+        var state = new EvictionRemovalTerminalState
+        {
+            StageKey = metrics.StageKey,
+            DownloadsRemoved = metrics.DownloadsRemoved,
+            LogEntriesRemoved = metrics.LogEntriesRemoved
+        };
+        var cts = new CancellationTokenSource();
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            repair.Type,
+            repair.Name,
+            cts,
+            metrics.Selection,
+            onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(repair.Id, out _),
+            onTerminalEmit: BuildTerminalEmit(() => repair.Id, state),
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true);
+        if (!restored)
+        {
+            cts.Dispose();
+            return Task.CompletedTask;
+        }
+
+        _evictionRemovalTerminalStates[repair.Id] = state;
+        return Task.CompletedTask;
+    }
+
+    private async Task FinalizeEvictionScanAsync(
+        OperationRepair repair,
+        CancellationToken stoppingToken)
+    {
+        if (!repair.EvictionScanId.HasValue)
+        {
+            return;
+        }
+
+        await FinalizeEvictionScanAttemptAsync(
+            repair,
+            repair.EvictionScanId.Value,
+            saveScanMetrics: true,
+            stoppingToken: stoppingToken);
+    }
+
+    public virtual async Task ReconcileRepairAsync(
+        OperationRepair repair,
+        CancellationToken stoppingToken)
+    {
+        var sources = repair.Sources
+            .Where(source => source.NativeLaunchAuthorized
+                && source.ReconcileCache
+                && !string.IsNullOrWhiteSpace(source.CacheRoot)
+                && !string.IsNullOrWhiteSpace(source.KeyScheme))
+            .ToList();
+        if (sources.Count == 0)
+        {
+            return;
+        }
+
+        if (repair.EvictionScanId is Guid previousScanId)
+        {
+            using var previousScope = _serviceProvider.CreateScope();
+            var previousContext = previousScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var previous = await previousContext.EvictionScanCheckpoints
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    entry => entry.OperationId == previousScanId,
+                    stoppingToken)
+                ?? throw new InvalidDataException(
+                    $"Eviction scan checkpoint {previousScanId} was not found.");
+            var finalizedBeforeResume = previous.FinalizedAtUtc.HasValue;
+            await FinalizeEvictionScanAttemptAsync(
+                repair,
+                previousScanId,
+                saveScanMetrics: false,
+                stoppingToken: stoppingToken);
+            if (finalizedBeforeResume)
+            {
+                return;
+            }
+        }
+
+        var scanId = Guid.NewGuid();
+        while (scanId == repair.Id)
+        {
+            scanId = Guid.NewGuid();
+        }
+
+        using (var checkpointScope = _serviceProvider.CreateScope())
+        {
+            var checkpointContext = checkpointScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            checkpointContext.EvictionScanCheckpoints.Add(new EvictionScanCheckpoint
+            {
+                OperationId = scanId,
+                StartedAtUtc = DateTime.UtcNow
+            });
+            await checkpointContext.SaveChangesAsync(stoppingToken);
+        }
+
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        await repairOwner.SaveRepairAsync(
+            repair.Id,
+            current => current.EvictionScanId = scanId,
+            stoppingToken);
+
+        var datasourcePath = Path.GetTempFileName();
+        var progressPath = Path.GetTempFileName();
+        var repairPath = Path.GetTempFileName();
+        try
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+            var datasourceConfig = _datasourceService.GetDatasources()
+                .Where(source => source.Enabled && !string.IsNullOrWhiteSpace(source.CachePath))
+                .Select(source => new
+                {
+                    name = source.Name,
+                    cachePath = source.CachePath,
+                    isDefault = source == _datasourceService.GetDefaultDatasource(),
+                    keyScheme = _capabilityService.GetKeySchemeWireValue(source)
+                })
+                .ToArray();
+            var document = new CacheRepairDocument
+            {
+                OperationId = repair.Id,
+                Sources = sources.Select(source => new CacheRepairSource
+                {
+                    Name = source.Datasource,
+                    CachePath = source.CacheRoot!,
+                    KeyScheme = source.KeyScheme!
+                }).ToList(),
+                Target = repair.Target
+            };
+            await File.WriteAllTextAsync(
+                datasourcePath,
+                JsonSerializer.Serialize(datasourceConfig, jsonOptions),
+                stoppingToken);
+            await File.WriteAllTextAsync(
+                repairPath,
+                JsonSerializer.Serialize(document, jsonOptions),
+                stoppingToken);
+
+            var result = await _rustProcessHelper.RunEvictionScanAsync(
+                datasourcePath,
+                progressPath,
+                stoppingToken,
+                repair.Id,
+                onProgressEvent: null,
+                scanId: scanId,
+                repairPath: repairPath);
+            var scanResult = ParseScanResult(result);
+
+            await FinalizeEvictionScanAttemptAsync(
+                repair,
+                scanId,
+                saveScanMetrics: false,
+                stoppingToken: stoppingToken,
+                markFinalized: scanResult.Success);
+
+            if (!scanResult.Success)
+            {
+                if (string.IsNullOrWhiteSpace(scanResult.Error))
+                {
+                    throw new InvalidDataException(
+                        $"Eviction repair scan {scanId} failed without an error.");
+                }
+                throw new InvalidOperationException(scanResult.Error);
+            }
+        }
+        finally
+        {
+            await _rustProcessHelper.DeleteTempFileAsync(datasourcePath);
+            await _rustProcessHelper.DeleteTempFileAsync(progressPath);
+            await _rustProcessHelper.DeleteTempFileAsync(repairPath);
+        }
+    }
+
+    private async Task FinalizeEvictionScanAttemptAsync(
+        OperationRepair repair,
+        Guid scanId,
+        bool saveScanMetrics,
+        CancellationToken stoppingToken,
+        bool markFinalized = true)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var checkpoint = await context.EvictionScanCheckpoints
+            .SingleOrDefaultAsync(entry => entry.OperationId == scanId, stoppingToken)
+            ?? throw new InvalidDataException($"Eviction scan checkpoint {scanId} was not found.");
+        if (checkpoint.Processed < 0
+            || checkpoint.Evicted < 0
+            || checkpoint.UnEvicted < 0
+            || checkpoint.Evicted > checkpoint.Processed - checkpoint.UnEvicted)
+        {
+            throw new InvalidDataException(
+                $"Eviction scan checkpoint {scanId} has invalid counters.");
+        }
+
+        if (!checkpoint.FinalizedAtUtc.HasValue)
+        {
+            if (checkpoint.UnEvicted > 0)
+            {
+                await UnevictCachedGameDetectionsAsync(
+                    context,
+                    _logger,
+                    _cacheDetections,
+                    _evictedDetectionPreservationService,
+                    stoppingToken);
+                await UnevictCachedServiceDetectionsAsync(
+                    context,
+                    _logger,
+                    _cacheDetections,
+                    stoppingToken);
+            }
+
+            if (checkpoint.Evicted > 0)
+            {
+                await EvictCachedGameDetectionsAsync(context, _logger, stoppingToken);
+            }
+
+            await _gameCacheDetectionService.RecoverEvictedGamesAsync(stoppingToken);
+            await _gameCacheDetectionService.RecoverEvictedServicesAsync(stoppingToken);
+            var prefillRowsRemoved = await RemoveProvenPrefillAsync(
+                context,
+                repair.Target,
+                stoppingToken);
+            if (prefillRowsRemoved > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+            }
+
+            await scope.ServiceProvider
+                .GetRequiredService<CorruptionDetectionService>()
+                .InvalidateRepairAsync(repair, stoppingToken);
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+            scope.ServiceProvider
+                .GetRequiredService<CacheManagementService>()
+                .InvalidateCachedScan();
+
+            if (repair.Type == OperationType.EvictionScan
+                && (checkpoint.Evicted > 0 || checkpoint.UnEvicted > 0))
+            {
+                await _notifications.NotifyAllAsync(
+                    SignalREvents.DownloadsRefresh,
+                    new { reason = "eviction-scan-complete" });
+            }
+
+            if (markFinalized)
+            {
+                checkpoint.FinalizedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(stoppingToken);
+            }
+        }
+
+        if (!saveScanMetrics)
+        {
+            return;
+        }
+
+        if (_evictionScanTerminalStates.TryGetValue(repair.Id, out var terminal))
+        {
+            terminal.Processed = checkpoint.Processed;
+            terminal.Evicted = checkpoint.Evicted;
+            terminal.UnEvicted = checkpoint.UnEvicted;
+        }
+
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        await repairOwner.SaveRepairAsync(
+            repair.Id,
+            current =>
+            {
+                current.EvictionScan = new EvictionScanRepair
+                {
+                    Processed = checkpoint.Processed,
+                    Evicted = checkpoint.Evicted,
+                    UnEvicted = checkpoint.UnEvicted,
+                    DetectionError = repair.EvictionScan?.DetectionError
+                };
+            },
+            stoppingToken);
+    }
+
+    private async Task FinalizeEvictionRemovalAsync(
+        OperationRepair repair,
+        CancellationToken stoppingToken)
+    {
+        var metrics = repair.EvictionRemoval
+            ?? throw new InvalidDataException($"Eviction removal repair {repair.Id} has no metrics.");
+        using var scope = _serviceProvider.CreateScope();
+
+        if (_evictionRemovalTerminalStates.TryGetValue(repair.Id, out var terminal))
+        {
+            terminal.StageKey = metrics.StageKey;
+            terminal.DownloadsRemoved = metrics.DownloadsRemoved;
+            terminal.LogEntriesRemoved = metrics.LogEntriesRemoved;
+        }
+
+        if (!repair.DatabaseWriteStarted)
+        {
+            return;
+        }
+
+        await scope.ServiceProvider
+            .GetRequiredService<CorruptionDetectionService>()
+            .InvalidateRepairAsync(repair, stoppingToken);
+        await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+        scope.ServiceProvider
+            .GetRequiredService<CacheManagementService>()
+            .InvalidateCachedScan();
+    }
+
+    private static async Task<int> RemoveProvenPrefillAsync(
+        AppDbContext context,
+        CacheRepairTarget? target,
+        CancellationToken stoppingToken)
+    {
+        IQueryable<Download> downloads = context.Downloads;
+        if (target != null)
+        {
+            downloads = target switch
+            {
+                { SteamAppId: { } appId } => downloads.Where(download =>
+                    download.GameAppId == appId && download.EpicAppId == null),
+                { EpicGame: { } game } => downloads.Where(download =>
+                    download.Service == "epicgames" && download.GameName == game),
+                { GameName: { } game, Service: { } service } => downloads.Where(download =>
+                    download.GameAppId == null
+                    && download.EpicAppId == null
+                    && download.Service == service
+                    && download.GameName == game),
+                { Service: { } service } => downloads.Where(download =>
+                    download.GameAppId == null
+                    && download.EpicAppId == null
+                    && download.Service == service),
+                _ => throw new InvalidDataException("Cache repair target has no selector.")
+            };
+
+            if (!await downloads.AnyAsync(stoppingToken)
+                || await downloads.AnyAsync(download => !download.IsEvicted, stoppingToken))
+            {
+                return 0;
+            }
+
+            var appRows = await PrefillCacheService.MatchingCachedApps(context, downloads)
+                .Select(app => app.Id)
+                .ToListAsync(stoppingToken);
+            var appsRemoved = appRows.Count == 0
+                ? 0
+                : await context.PrefillCachedApps
+                    .Where(app => appRows.Contains(app.Id))
+                    .ExecuteDeleteAsync(stoppingToken);
+            var depotsRemoved = target.SteamAppId is { } steamAppId
+                ? await context.PrefillCachedDepots
+                    .Where(depot => depot.AppId == steamAppId)
+                    .ExecuteDeleteAsync(stoppingToken)
+                : 0;
+            return appsRemoved + depotsRemoved;
+        }
+
+        var evictedAppRows = await PrefillCacheService.MatchingCachedApps(
+                context,
+                context.Downloads.Where(download => download.IsEvicted))
+            .Select(app => app.Id)
+            .ToListAsync(stoppingToken);
+        var activeAppRows = await PrefillCacheService.MatchingCachedApps(
+                context,
+                context.Downloads.Where(download => !download.IsEvicted))
+            .Select(app => app.Id)
+            .ToListAsync(stoppingToken);
+        var provenAppRows = evictedAppRows
+            .Except(activeAppRows)
+            .ToList();
+        var removedApps = provenAppRows.Count == 0
+            ? 0
+            : await context.PrefillCachedApps
+                .Where(app => provenAppRows.Contains(app.Id))
+                .ExecuteDeleteAsync(stoppingToken);
+
+        var provenSteamApps = await context.Downloads
+            .Where(download => download.Service == "steam"
+                && download.GameAppId != null
+                && download.GameAppId > 0)
+            .GroupBy(download => download.GameAppId!.Value)
+            .Where(group => group.Any(download => download.IsEvicted)
+                && group.All(download => download.IsEvicted))
+            .Select(group => group.Key)
+            .ToListAsync(stoppingToken);
+        var removedDepots = provenSteamApps.Count == 0
+            ? 0
+            : await context.PrefillCachedDepots
+                .Where(depot => provenSteamApps.Contains(depot.AppId))
+                .ExecuteDeleteAsync(stoppingToken);
+        return removedApps + removedDepots;
     }
 
     private static Dictionary<string, object?> BuildScanProgressContext(EvictionScanProgressData progress)
@@ -861,7 +1378,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         if (continueQueued)
         {
-            if (parked == null || !_operationTracker.BeginQueuedOperation(parked.Id, scanState, finish, emit))
+            if (parked == null || !_operationTracker.BeginQueuedOperation(
+                    parked.Id,
+                    scanState,
+                    finish,
+                    emit,
+                    ownerCompletes: true))
             {
                 return Guid.Empty;
             }
@@ -877,7 +1399,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 scanState,
                 finish,
                 emit,
-                notice: notice);
+                notice: notice,
+                ownerCompletes: true);
         }
 
         _evictionScanTerminalStates[operationId] = terminalState;
@@ -1101,6 +1624,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// start from one that started and failed, so the card carries the reason without turning red.
     /// </summary>
     private sealed record EvictionScanRunOutcome(bool Success, string? Error, bool Skipped = false,
+        bool RepairStarted = false,
         int Processed = 0, int Evicted = 0, int UnEvicted = 0);
 
     /// <summary>
@@ -1156,7 +1680,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // force-kill (which bypasses CompleteEvictionRemovalAsync) cannot leak it.
             onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(operationId, out _),
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-            onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState));
+            onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState),
+            ownerCompletes: true);
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -1182,7 +1707,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     stageKey: "signalr.evictionRemove.failedToStart",
                     error: ex.Message);
             }
-        }, cts.Token);
+        }, CancellationToken.None);
 
         return operationId;
     }
@@ -1222,7 +1747,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // force-kill (which bypasses CompleteEvictionRemovalAsync) cannot leak it.
             onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(operationId, out _),
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-            onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState));
+            onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState),
+            ownerCompletes: true);
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -1254,7 +1780,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     stageKey: "signalr.evictionRemove.failedToStart",
                     error: ex.Message);
             }
-        }, cts.Token);
+        }, CancellationToken.None);
 
         return operationId;
     }
@@ -1309,6 +1835,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
             });
         return Task.CompletedTask;
+    }
+
+    private async Task FinishEvictionRemovalRepairAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error)
+    {
+        var operation = _operationTracker.GetOperation(operationId);
+        if (operation?.Status.IsTerminal() == true)
+        {
+            success = operation.Status == OperationStatus.Completed;
+            cancelled = operation.Status == OperationStatus.Cancelled;
+            error = operation.Status == OperationStatus.Failed
+                ? operation.Message
+                : null;
+        }
+
+        await _serviceProvider
+            .GetRequiredService<OperationStateService>()
+            .FinishRepairAsync(operationId, success, cancelled, error);
     }
 
     /// <summary>
@@ -1459,6 +2006,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         (options.ProgressSpanPercent * dsIndex / totalDatasources);
                     var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
 
+                    await _serviceProvider
+                        .GetRequiredService<OperationStateService>()
+                        .StartWorkAsync(operationId, datasource.Name, stoppingToken);
                     childStarted = true;
                     var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                         startInfo,
@@ -1680,7 +2230,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _),
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
                 onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState),
-                notice: notice);
+                notice: notice,
+                ownerCompletes: true);
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 
@@ -1692,9 +2243,44 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         // At this point operationId is guaranteed non-null; capture as non-nullable for the rest of the method.
         var opId = operationId.Value;
-
+        var trackedOperation = _operationTracker.GetOperation(opId)
+            ?? throw new InvalidOperationException($"Eviction removal {opId} is not tracked.");
+        var selection = trackedOperation.Metadata as EvictionRemovalMetadata
+            ?? throw new InvalidDataException($"Eviction removal {opId} has no typed selection.");
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        var repairPrepared = false;
         try
         {
+            await repairOwner.PrepareRepairAsync(
+                new OperationRepair
+                {
+                    Id = opId,
+                    Type = OperationType.EvictionRemoval,
+                    Name = trackedOperation.Name,
+                    StartedAt = trackedOperation.StartedAt,
+                    Notice = trackedOperation.Notice,
+                    Sources = _datasourceService.GetDatasources()
+                        .Select(source => new OperationRepairSource
+                        {
+                            Datasource = source.Name,
+                            LogRoot = source.LogPath,
+                            CacheRoot = source.CachePath,
+                            KeyScheme = _capabilityService.GetKeySchemeWireValue(source),
+                            ResetLogPositions = true,
+                            RefreshDownloads = true,
+                            RefreshDetection = true,
+                            InvalidateCorruption = true
+                        })
+                        .ToList(),
+                    EvictionRemoval = new EvictionRemovalRepair
+                    {
+                        Selection = selection,
+                        StageKey = "signalr.evictionRemove.starting.bulk"
+                    }
+                },
+                stoppingToken);
+            repairPrepared = true;
+
             // Rewrite nginx access.log files before deleting LogEntries or Downloads. A later
             // full re-parse would otherwise restore evicted games from URLs that remain on disk.
             // A failed rewrite blocks the database deletion so the two stores stay consistent.
@@ -1715,6 +2301,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int prefillAppsDeleted = 0;
 
             var strategy = context.Database.CreateExecutionStrategy();
+            await repairOwner.StartWorkAsync(
+                opId,
+                datasource: null,
+                cancellationToken: stoppingToken);
             await strategy.ExecuteAsync(async () =>
             {
                 detectionGamesDeleted = 0;
@@ -1812,6 +2402,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
             });
 
+            await repairOwner.SaveRepairAsync(
+                opId,
+                repair =>
+                {
+                    repair.EvictionRemoval = new EvictionRemovalRepair
+                    {
+                        Selection = selection,
+                        StageKey = "signalr.evictionRemove.finalizingRemoval",
+                        DownloadsRemoved = downloadsDeleted,
+                        LogEntriesRemoved = logEntriesDeleted
+                    };
+                },
+                CancellationToken.None);
+
             if (downloadsDeleted > 0 || logEntriesDeleted > 0 || detectionGamesDeleted > 0 || detectionServicesDeleted > 0)
             {
                 _logger.LogInformation(
@@ -1848,6 +2452,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // retains the previously authoritative scan.
             await DatabaseService.DemoteCachedCorruptionEvidenceAsync(context, stoppingToken);
 
+            await FinishEvictionRemovalRepairAsync(
+                opId,
+                success: true,
+                cancelled: false,
+                error: null);
+
             await CompleteRemovalAsync(
                 opId,
                 success: true,
@@ -1859,6 +2469,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             // A cancel is an expected outcome, not an error.
             _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled (operation {OpId})", opId);
+            if (repairPrepared)
+            {
+                await FinishEvictionRemovalRepairAsync(
+                    opId,
+                    success: false,
+                    cancelled: true,
+                    error: null);
+            }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
@@ -1869,6 +2487,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
+            if (repairPrepared)
+            {
+                await FinishEvictionRemovalRepairAsync(
+                    opId,
+                    success: false,
+                    cancelled: false,
+                    error: ex.Message);
+            }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
@@ -2300,9 +2926,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 OperationType.EvictionRemoval,
                 $"Eviction Removal ({scope}: {key})",
                 cts,
+                new EvictionRemovalMetadata
+                {
+                    Scope = scope.ToString().ToLowerInvariant(),
+                    Key = key,
+                    GameName = namedGameName
+                },
                 onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _),
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-                onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState));
+                onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState),
+                ownerCompletes: true);
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 
@@ -2314,9 +2947,44 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         var opId = operationId.Value;
-
+        var trackedOperation = _operationTracker.GetOperation(opId)
+            ?? throw new InvalidOperationException($"Eviction removal {opId} is not tracked.");
+        var selection = trackedOperation.Metadata as EvictionRemovalMetadata
+            ?? throw new InvalidDataException($"Eviction removal {opId} has no typed selection.");
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        var repairPrepared = false;
         try
         {
+            await repairOwner.PrepareRepairAsync(
+                new OperationRepair
+                {
+                    Id = opId,
+                    Type = OperationType.EvictionRemoval,
+                    Name = trackedOperation.Name,
+                    StartedAt = trackedOperation.StartedAt,
+                    Notice = trackedOperation.Notice,
+                    Sources = _datasourceService.GetDatasources()
+                        .Select(source => new OperationRepairSource
+                        {
+                            Datasource = source.Name,
+                            LogRoot = source.LogPath,
+                            CacheRoot = source.CachePath,
+                            KeyScheme = _capabilityService.GetKeySchemeWireValue(source),
+                            ResetLogPositions = true,
+                            RefreshDownloads = true,
+                            RefreshDetection = true,
+                            InvalidateCorruption = true
+                        })
+                        .ToList(),
+                    EvictionRemoval = new EvictionRemovalRepair
+                    {
+                        Selection = selection,
+                        StageKey = "signalr.evictionRemove.starting.entity"
+                    }
+                },
+                stoppingToken);
+            repairPrepared = true;
+
             // Rewrite nginx access.log files before deleting this entity's LogEntries or Downloads.
             // A failed rewrite blocks the database deletion so the two stores stay consistent.
             await PurgeLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken, namedGameName);
@@ -2337,6 +3005,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // to BeginTransactionAsync throws InvalidOperationException. Match the pattern used in
             // DownloadCleanupService / DatabaseService / PicsDataService.
             var strategy = context.Database.CreateExecutionStrategy();
+            await repairOwner.StartWorkAsync(
+                opId,
+                datasource: null,
+                cancellationToken: stoppingToken);
             await strategy.ExecuteAsync(async () =>
             {
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
@@ -2464,6 +3136,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     throw;
                 }
             });
+
+            await repairOwner.SaveRepairAsync(
+                opId,
+                repair =>
+                {
+                    repair.EvictionRemoval = new EvictionRemovalRepair
+                    {
+                        Selection = selection,
+                        StageKey = "signalr.evictionRemove.finalizingRemoval",
+                        DownloadsRemoved = downloadsDeleted,
+                        LogEntriesRemoved = logEntriesDeleted
+                    };
+                },
+                CancellationToken.None);
 
             if (downloadsDeleted > 0 || logEntriesDeleted > 0)
             {
@@ -2628,14 +3314,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int unevictedRows;
             if (scope == EvictionScope.Service)
             {
-                unevictedRows = await UnevictCachedServiceDetectionsAsync(context, _logger, _gameCacheDetectionDataService, stoppingToken);
+            unevictedRows = await UnevictCachedServiceDetectionsAsync(context, _logger, _cacheDetections, stoppingToken);
             }
             else
             {
                 unevictedRows = await UnevictCachedGameDetectionsAsync(
                     context,
                     _logger,
-                    _gameCacheDetectionDataService,
+                _cacheDetections,
                     _evictedDetectionPreservationService,
                     stoppingToken);
             }
@@ -2684,6 +3370,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // prior current scans if it fails or is cancelled.
             await DatabaseService.DemoteCachedCorruptionEvidenceAsync(context, stoppingToken);
 
+            await FinishEvictionRemovalRepairAsync(
+                opId,
+                success: true,
+                cancelled: false,
+                error: null);
+
             await CompleteRemovalAsync(
                 opId,
                 success: true,
@@ -2696,6 +3388,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // A cancel is an expected outcome, not an error.
             _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled (operation {OpId})",
                 scope, key, opId);
+            if (repairPrepared)
+            {
+                await FinishEvictionRemovalRepairAsync(
+                    opId,
+                    success: false,
+                    cancelled: true,
+                    error: null);
+            }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
@@ -2706,6 +3406,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records for {Scope} '{Key}'", scope, key);
+            if (repairPrepared)
+            {
+                await FinishEvictionRemovalRepairAsync(
+                    opId,
+                    success: false,
+                    cancelled: false,
+                    error: ex.Message);
+            }
             await CompleteRemovalAsync(
                 opId,
                 success: false,

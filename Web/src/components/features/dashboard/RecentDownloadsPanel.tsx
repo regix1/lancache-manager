@@ -9,6 +9,7 @@ import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -73,18 +74,9 @@ interface RecentDownloadsPanelProps {
 const ActiveDownloadItem: React.FC<{
   game: GameSpeedInfo;
   t: TFunction;
-  fallbackActive: boolean;
-}> = ({ game, t, fallbackActive }) => {
-  // The pulse dot's live state flows through the unified activity registry, which is authoritative
-  // once ready; the snapshot's active flag is the fallback only before the first activity snapshot
-  // arrives.
+}> = ({ game, t }) => {
   const activity = useActivityStatus();
-  const downloading = activity.isActiveOrFallback(
-    'download',
-    buildTrafficKey(game),
-    'downloading',
-    fallbackActive
-  );
+  const downloading = activity.isActive('download', buildTrafficKey(game), 'downloading');
   const displayName = getGameDisplayName(
     game.gameName,
     game.service,
@@ -398,13 +390,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     viewMode === 'recent' && !isHistoricalView
   );
 
-  // Auto-switch to Recent view when user switches to historical view while on Active tab
-  useEffect(() => {
-    if (isHistoricalView && viewMode === 'active') {
-      setViewMode('recent');
-    }
-  }, [isHistoricalView, viewMode]);
-
   const getTimeRangeLabel = useMemo(() => {
     const key = `dashboard.downloadsPanel.timeRanges.${timeRange}` as const;
     return t(key);
@@ -535,8 +520,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   // Active downloads data from speed context (same source as Active Downloads stat card)
   const activeGames = gameSpeeds;
   const activeCount = activeDownloadCount;
-  const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
-  const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
+  const totalSpeed = speedSnapshot?.totalBytesPerSecond ?? 0;
+  const hasActiveDownloads = speedSnapshot?.hasActiveDownloads ?? false;
 
   const hitRateClass = HIT_TIER_CLASS[efficiencyTier(stats.overallHitRate)];
 
@@ -577,17 +562,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 label: (
                   <>
                     {t('dashboard.downloadsPanel.active')}
-                    {!isHistoricalView && activeCount > 0 && (
+                    {activeCount > 0 && (
                       <Badge variant="neutral" className="badge-count">
                         {activeCount}
                       </Badge>
                     )}
                   </>
-                ),
-                disabled: isHistoricalView,
-                tooltip: isHistoricalView
-                  ? t('dashboard.downloadsPanel.activeDownloadsOnly')
-                  : undefined
+                )
               }
             ]}
             value={viewMode}
@@ -687,15 +668,26 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     ))}
                   </div>
                 </div>
+              ) : !speedSnapshot || (!speedSnapshot.isAvailable && !hasActiveDownloads) ? (
+                <EmptyState
+                  variant="panel"
+                  icon={Activity}
+                  title={t('downloads.activity.waitingTitle')}
+                  subtitle={t('downloads.activity.waitingDescription')}
+                />
               ) : hasActiveDownloads && activeGames.length > 0 ? (
-                activeGames.map((game) => (
-                  <ActiveDownloadItem
-                    key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
-                    game={game}
-                    t={t}
-                    fallbackActive={hasActiveDownloads}
-                  />
-                ))
+                <>
+                  {!speedSnapshot.isAvailable && (
+                    <div className="p-3">
+                      <Alert color="yellow" title={t('downloads.activity.unavailableTitle')}>
+                        {t('downloads.activity.unavailableDescription')}
+                      </Alert>
+                    </div>
+                  )}
+                  {activeGames.map((game) => (
+                    <ActiveDownloadItem key={game.key} game={game} t={t} />
+                  ))}
+                </>
               ) : (
                 <EmptyState
                   variant="panel"

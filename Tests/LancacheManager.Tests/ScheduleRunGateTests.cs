@@ -119,7 +119,7 @@ public class ScheduleRunGateTests
         var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(services, CacheScanGateHarness.Idle(), tracker, notifications);
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var starts = new Dictionary<string, TaskCompletionSource<Guid>>
         {
@@ -418,7 +418,7 @@ public class ScheduleRunGateTests
         var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker, notifications);
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
@@ -490,7 +490,7 @@ public class ScheduleRunGateTests
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
         tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
@@ -583,7 +583,7 @@ public class ScheduleRunGateTests
                 var tracker = CreateRealTracker();
                 tracker.RegisterOperation(OperationType.EvictionScan, "scan", new CancellationTokenSource());
                 var queue = new OperationQueueService(tracker,
-                    new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+                    OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
                     NullLogger<OperationQueueService>.Instance);
                 var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
                     () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
@@ -1365,7 +1365,7 @@ public class ScheduleRunGateTests
 
             var queue = new OperationQueueService(
                 tracker,
-                new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+                OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
                 NullLogger<OperationQueueService>.Instance);
 
             var refused = await Assert.ThrowsAsync<DownloadInProgressException>(
@@ -1427,7 +1427,7 @@ public class ScheduleRunGateTests
 
             var queue = new OperationQueueService(
                 tracker,
-                new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+                OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
                 NullLogger<OperationQueueService>.Instance);
 
             await Assert.ThrowsAsync<DownloadInProgressException>(
@@ -1486,7 +1486,7 @@ public class ScheduleRunGateTests
         PromoteWithStartFailureAsync(Exception startFailure)
     {
         var tracker = CreateRealTracker();
-        var conflictChecker = new OperationConflictChecker(
+        var conflictChecker = OperationConflictTestServices.Create(
             tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker, conflictChecker,

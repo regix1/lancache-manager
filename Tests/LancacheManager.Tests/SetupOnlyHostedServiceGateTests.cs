@@ -89,6 +89,25 @@ public class SetupOnlyHostedServiceGateTests
         Assert.Single(provider.GetServices<IHostedService>());
     }
 
+    [Fact]
+    public void RepairOwnershipIsRegisteredBeforeAffectedHostedServices()
+    {
+        var program = File.ReadAllText(Path.Combine(
+            EndpointAuthorizationHost.FindRepositoryRoot(),
+            "Api",
+            "LancacheManager",
+            "Program.cs"));
+        var owner = program.IndexOf(
+            "AddSingletonHostedService<OperationStateService>()",
+            StringComparison.Ordinal);
+
+        Assert.True(owner >= 0);
+        Assert.True(owner < program.IndexOf("AddDatabaseBackedHostedService<CacheClearingService>", StringComparison.Ordinal));
+        Assert.True(owner < program.IndexOf("AddDatabaseBackedHostedService<LiveLogMonitorService>", StringComparison.Ordinal));
+        Assert.True(owner < program.IndexOf("AddDatabaseBackedHostedService<CacheReconciliationService>", StringComparison.Ordinal));
+        Assert.True(owner < program.IndexOf("AddDatabaseBackedHostedService<GameDetectionService>", StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Stands in for any of the gated services. It is deliberately inert: the helper decides whether
     /// a loop is ever started, and no assertion here should depend on what the loop would do.

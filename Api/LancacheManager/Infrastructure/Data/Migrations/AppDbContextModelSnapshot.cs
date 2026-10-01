@@ -704,6 +704,31 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("EventDownloads");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.EvictionScanCheckpoint", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Evicted")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("FinalizedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Processed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UnEvicted")
+                        .HasColumnType("integer");
+
+                    b.HasKey("OperationId");
+
+                    b.ToTable("EvictionScanCheckpoints");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.GameImage", b =>
                 {
                     b.Property<long>("Id")

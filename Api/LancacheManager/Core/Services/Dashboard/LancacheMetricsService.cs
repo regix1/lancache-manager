@@ -29,6 +29,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     private readonly Stopwatch _uptimeStopwatch;
     private readonly string _version;
     private readonly Func<long> _timestamp;
+    private readonly Func<DownloadSpeedSnapshot> _readActivity;
 
     // Thread-safe storage for metric values
     private readonly ConcurrentDictionary<string, ServiceMetrics> _serviceMetrics = new();
@@ -52,11 +53,6 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     private long _cacheHitBytesTotal;
     private long _cacheMissBytesTotal;
     private long _cacheHitRatioBits;
-
-    // Activity metrics
-    private int _activeDownloads;
-    private int _activeClients;
-    private long _currentBytesPerSecond;
 
     // Download size metrics
     private long _averageDownloadSizeBytes;
@@ -242,8 +238,9 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     public LancacheMetricsService(
         IServiceProvider serviceProvider,
         ILogger<LancacheMetricsService> logger,
-        IConfiguration configuration)
-        : this(serviceProvider, logger, configuration, Stopwatch.GetTimestamp)
+        IConfiguration configuration,
+        RustSpeedTrackerService speedTracker)
+        : this(serviceProvider, logger, configuration, Stopwatch.GetTimestamp, speedTracker.GetCurrentSnapshot)
     {
     }
 
@@ -251,10 +248,12 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         IServiceProvider services,
         ILogger<LancacheMetricsService> logger,
         IConfiguration configuration,
-        Func<long> timestamp)
+        Func<long> timestamp,
+        Func<DownloadSpeedSnapshot> readActivity)
         : base(services, logger, configuration)
     {
         _timestamp = timestamp;
+        _readActivity = readActivity;
         _uptimeStopwatch = Stopwatch.StartNew();
 
         // Get version from environment or assembly
@@ -358,19 +357,19 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         _meter.CreateObservableGauge(
             "lancache_active_downloads",
-            () => _activeDownloads,
+            () => _readActivity().GameSpeeds.Count,
             description: "Number of currently active downloads"
         );
 
         _meter.CreateObservableGauge(
             "lancache_active_clients",
-            () => _activeClients,
+            () => _readActivity().ClientSpeeds.Count,
             description: "Number of unique clients with active downloads"
         );
 
         _meter.CreateObservableGauge(
             "lancache_throughput_bytes_per_second",
-            () => Interlocked.Read(ref _currentBytesPerSecond),
+            () => _readActivity().TotalBytesPerSecond,
             description: "Current download throughput in bytes/s"
         );
 
@@ -869,7 +868,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         {
             _logger.LogDebug(
                 "Metrics updated - Downloads: {Downloads}, Services: {Services}, ActiveDownloads: {Active}",
-                _totalDownloads, _serviceMetrics.Count, _activeDownloads
+                _totalDownloads, _serviceMetrics.Count, _readActivity().GameSpeeds.Count
             );
         }
     }
@@ -1029,35 +1028,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         Interlocked.Exchange(ref _steamUnknownGameBytes, totals?.SteamUnknownBytes ?? 0);
         Interlocked.Exchange(ref _steamUnknownGameDownloads, totals?.SteamUnknownDownloads ?? 0);
 
-        // ============================================
-        // ACTIVITY METRICS (currently active)
-        // ============================================
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
-
-        // Use IsActive flag for truly active downloads
-        var activeDownloadsData = await downloads
-            .Where(d => d.IsActive || d.EndTimeUtc >= fiveMinutesAgo)
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                Count = g.Count(),
-                UniqueClients = g.Select(d => d.ClientIp).Distinct().Count(),
-                BytesInProgress = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (activeDownloadsData != null)
-        {
-            Interlocked.Exchange(ref _activeDownloads, activeDownloadsData.Count);
-            Interlocked.Exchange(ref _activeClients, activeDownloadsData.UniqueClients);
-        }
-
-        // Calculate throughput from recent downloads (last minute)
-        var oneMinuteAgo = DateTime.UtcNow.AddMinutes(-1);
-        var recentBytes = await downloads
-            .Where(d => d.EndTimeUtc >= oneMinuteAgo)
-            .SumAsync(d => (long?)d.CacheHitBytes + d.CacheMissBytes, cancellationToken) ?? 0;
-        Interlocked.Exchange(ref _currentBytesPerSecond, recentBytes / 60);
 
         // ============================================
         // PER-SERVICE METRICS

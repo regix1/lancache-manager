@@ -65,7 +65,7 @@ public sealed class GamesControllerDetectionNoticeTests
                 logger: NullLogger<GamesController>.Instance,
                 pathResolver: pathResolver,
                 operationTracker: tracker,
-                conflictChecker: new OperationConflictChecker(
+                conflictChecker: OperationConflictTestServices.Create(
                     tracker, NullLogger<OperationConflictChecker>.Instance),
                 operationQueue: queue,
                 capabilityService: new DatasourceCapabilityService(datasourceService),

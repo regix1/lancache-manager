@@ -1163,10 +1163,14 @@ export interface ActivityItem {
   aspect: ActivityAspect;
   isActive: boolean;
   activeCount: number;
+  /** Required for download items; other activity domains do not carry a server-owned lifetime. */
+  activeUntilUtc?: string;
 }
 
 export interface ActivitySnapshotEvent {
   revision: number;
+  downloadStreamId: string;
+  downloadRevision: number;
   activities: ActivityItem[];
 }
 

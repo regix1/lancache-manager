@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use lancache_processor::cache_repair;
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::db;
@@ -67,6 +68,10 @@ struct Args {
     /// Keep database history for manager-coordinated multi-datasource removal.
     #[arg(long = "skip-db-delete")]
     skip_db_delete: bool,
+
+    /// Operation that owns the durable cache-root receipt.
+    #[arg(long = "operation-id")]
+    operation_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -573,6 +578,7 @@ async fn main() -> Result<()> {
         .await?;
     }
     removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
+    cache_repair::prepare_receipt(&cache_dir, args.operation_id.as_deref())?;
     let (
         cache_files_deleted,
         total_bytes_freed,
@@ -700,6 +706,28 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn operation_id_argument_is_optional() {
+        let base = [
+            "cache_service_remove",
+            "/logs",
+            "/cache",
+            "steam",
+            "report.json",
+            "progress.json",
+        ];
+        assert!(Args::try_parse_from(base).unwrap().operation_id.is_none());
+        let mut supplied = base.to_vec();
+        supplied.extend(["--operation-id", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert_eq!(
+            Args::try_parse_from(supplied)
+                .unwrap()
+                .operation_id
+                .as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
 
     fn write_cache_file(path: &Path, embedded_key: Option<&str>) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();

@@ -3,8 +3,8 @@ import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../.
 
 /**
  * SpeedContext provides a single source of truth for real-time download speed data.
- * It subscribes to SignalR 'DownloadSpeedUpdate' events ONCE and provides debounced
- * updates to all consumers, preventing race conditions and flaky behavior.
+ * It accepts one versioned REST/SignalR stream and provides throttled numeric updates to all
+ * current-activity consumers without changing server-owned membership.
  */
 export interface SpeedContextType {
   /** Current speed snapshot from real-time SignalR updates */
@@ -16,7 +16,7 @@ export interface SpeedContextType {
   /** Direct access to client speeds array for convenience */
   clientSpeeds: ClientSpeedInfo[];
 
-  /** Count of active downloads (games being downloaded) */
+  /** Count of client-qualified active download rows */
   activeDownloadCount: number;
 
   /** Count of active clients currently downloading */

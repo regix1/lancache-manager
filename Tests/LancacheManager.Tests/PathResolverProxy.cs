@@ -27,6 +27,11 @@ internal class PathResolverProxy : DispatchProxy
             return Path.Combine(Root, targetMethod.Name);
         }
 
+        if (targetMethod.Name == nameof(IPathResolver.IsDockerSocketAvailable))
+        {
+            return false;
+        }
+
         if (targetMethod.ReturnType == typeof(bool))
         {
             return true;

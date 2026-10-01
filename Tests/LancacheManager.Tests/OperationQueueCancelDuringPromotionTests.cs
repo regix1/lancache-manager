@@ -151,7 +151,7 @@ public sealed class OperationQueueCancelDuringPromotionTests
         {
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             Tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-            var conflictChecker = new OperationConflictChecker(Tracker, NullLogger<OperationConflictChecker>.Instance);
+            var conflictChecker = OperationConflictTestServices.Create(Tracker, NullLogger<OperationConflictChecker>.Instance);
             _queue = new OperationQueueService(
                 Tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 

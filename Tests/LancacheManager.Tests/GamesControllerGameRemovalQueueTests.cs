@@ -1,13 +1,21 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using LancacheManager.Configuration;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -135,6 +143,52 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Contains("StartedEventName: SignalREvents.GameRemovalStarted", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BuildRemovalRepair_RetainsNativeReceiptPath()
+    {
+        var cachePath = Path.Combine(_root, "receipt-cache");
+        var logPath = Path.Combine(_root, "receipt-logs");
+        Directory.CreateDirectory(cachePath);
+        Directory.CreateDirectory(logPath);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "alpha",
+                ["LanCache:DataSources:0:CachePath"] = cachePath,
+                ["LanCache:DataSources:0:LogPath"] = logPath,
+                ["LanCache:DataSources:0:Enabled"] = "true",
+                ["LanCache:DataSources:0:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic
+            })
+            .Build();
+        var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)pathResolver).Root = _root;
+        var datasourceService = new DatasourceService(
+            configuration,
+            pathResolver,
+            NullLogger<DatasourceService>.Instance);
+        var manager = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+            typeof(CacheManagementService));
+        typeof(CacheManagementService)
+            .GetField("_datasourceService", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, datasourceService);
+        typeof(CacheManagementService)
+            .GetField("_capabilityService", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, new DatasourceCapabilityService(datasourceService));
+        var operationId = Guid.NewGuid();
+
+        var repair = manager.BuildRemovalRepair(
+            operationId,
+            OperationType.GameRemoval,
+            "Game Removal",
+            new RemovalMetrics { EntityKey = "570" },
+            new CacheRepairTarget { SteamAppId = 570 });
+
+        var source = Assert.Single(repair.Sources);
+        Assert.Equal(
+            Path.Combine(cachePath, $".lancache-repair-{operationId:N}.json"),
+            source.ReceiptPath);
+    }
+
     // After a reload the recovered removal names its service, so a same-named game on another
     // service is not shown busy. [98]
     [Fact]
@@ -184,12 +238,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finalized = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var tracked = CreateProxy<IUnifiedOperationTracker>((method, args) =>
-        {
-            var result = method.Invoke(tracker, args);
-            if (method.Name == nameof(IUnifiedOperationTracker.CompleteOperation))
-                finalized.TrySetResult();
-            return result;
-        });
+            method.Invoke(tracker, args));
         var messages = new List<(string Event, object Value)>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
         {
@@ -202,7 +251,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         });
         var metrics = new RemovalMetrics { EntityKey = "570" };
         var finalMetricsApplied = 0;
-        var config = new TrackedRemovalOperationRunner.RemovalOperationConfig<int>(
+        var config = new RemovalOperationConfig<int>(
             OperationType.GameRemoval, "Game Removal", metrics,
             "started", id => id,
             "progress", "starting", id => id,
@@ -219,6 +268,21 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
                 await release.Task;
                 await report(new(90, "late", FilesDeleted: 90));
                 return 99;
+            },
+            BuildRepair: id => new OperationRepair
+            {
+                Id = id,
+                Type = OperationType.GameRemoval,
+                Name = "Game Removal",
+                StartedAt = DateTime.UtcNow,
+                Target = new CacheRepairTarget { SteamAppId = 570 },
+                Removal = new RemovalRepair { EntityKey = "570" }
+            },
+            PrepareRepairAsync: (_, _) => Task.CompletedTask,
+            FinishRepairAsync: (_, _, _, _) =>
+            {
+                finalized.TrySetResult();
+                return Task.CompletedTask;
             },
             ApplyProgressMetrics: (current, progress) => current.FilesDeleted = progress.FilesDeleted,
             ApplyFinalMetrics: (current, report) =>
@@ -247,8 +311,72 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             Assert.Equal(operationId, terminal.OperationId);
             Assert.Equal(cancelled, terminal.Cancelled);
             Assert.Equal(cancelled ? null : "disk failure", terminal.Error);
-            Assert.DoesNotContain(messages, item => item.Value is TrackedRemovalOperationRunner.RemovalProgressUpdate { StageKey: "late" });
+            Assert.DoesNotContain(messages, item => item.Value is RemovalProgressUpdate { StageKey: "late" });
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RestoredRemovalPublishesRetainedMetrics(bool cancelled)
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var emitted = new TaskCompletionSource<SignalRNotifications.GameRemovalComplete>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && args![1] is SignalRNotifications.GameRemovalComplete complete)
+            {
+                emitted.TrySetResult(complete);
+            }
+            return DefaultReturn(method.ReturnType);
+        });
+        var manager = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+            typeof(CacheManagementService));
+        typeof(CacheManagementService)
+            .GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, tracker);
+        typeof(CacheManagementService)
+            .GetField("_notifications", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, notifications);
+        var operationId = Guid.NewGuid();
+        var repair = new OperationRepair
+        {
+            Id = operationId,
+            Type = OperationType.GameRemoval,
+            Name = "Game Removal: Dota 2",
+            StartedAt = DateTime.UtcNow.AddMinutes(-1),
+            Outcome = cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
+            Target = new CacheRepairTarget { SteamAppId = 570 },
+            Removal = new RemovalRepair
+            {
+                EntityKey = "570",
+                EntityName = "Dota 2",
+                EntityKind = "steam",
+                FilesDeleted = 4,
+                BytesFreed = 2_048,
+                LogEntriesRemoved = 7
+            }
+        };
+
+        await manager.RestoreRepairAsync(repair, CancellationToken.None);
+        tracker.CompleteOperation(
+            operationId,
+            success: !cancelled,
+            cancelled: cancelled);
+        var complete = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(operationId, complete.OperationId);
+        Assert.Equal(570L, complete.GameAppId);
+        Assert.Equal("Dota 2", complete.GameName);
+        Assert.Equal(4, complete.FilesDeleted);
+        Assert.Equal(2_048L, complete.BytesFreed);
+        Assert.Equal(7UL, complete.LogEntriesRemoved);
+        Assert.Equal(cancelled, complete.Cancelled);
+        Assert.Equal(!cancelled, complete.Success);
     }
 
     private void AssertQueuedGameRemoval(IActionResult result, ConflictScope expectedScope)
@@ -380,6 +508,709 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             DisplayName = displayName;
             Start = start;
             return Task.FromResult(Response);
+        }
+    }
+}
+
+internal sealed class RemovalRepairHarness : IAsyncDisposable
+{
+    private readonly ServiceProvider _services;
+    private readonly Lifetime _lifetime;
+    private readonly string _root;
+    private readonly DatasourceService _datasources;
+    private readonly DatasourceCapabilityService _capability;
+    private readonly StateService _state;
+    private readonly Notifications _notificationState;
+    private readonly RemovalRustProcessHelper? _rust;
+
+    private RemovalRepairHarness(
+        string root,
+        ServiceProvider services,
+        Lifetime lifetime,
+        DatasourceService datasources,
+        DatasourceCapabilityService capability,
+        StateService state,
+        Notifications notificationState,
+        RemovalRustProcessHelper? rust,
+        CacheManagementService manager,
+        OperationStateService owner,
+        UnifiedOperationTracker tracker,
+        ISignalRNotificationService notifications)
+    {
+        _root = root;
+        _services = services;
+        _lifetime = lifetime;
+        _datasources = datasources;
+        _capability = capability;
+        _state = state;
+        _notificationState = notificationState;
+        _rust = rust;
+        Manager = manager;
+        Owner = owner;
+        Tracker = tracker;
+        NotificationService = notifications;
+    }
+
+    internal CacheManagementService Manager { get; }
+    internal OperationStateService Owner { get; }
+    internal UnifiedOperationTracker Tracker { get; }
+    internal ISignalRNotificationService NotificationService { get; }
+
+    internal static Task<RemovalRepairHarness> CreateAsync(string root)
+    {
+        return CreateAsync(root, null);
+    }
+
+    internal static Task<RemovalRepairHarness> CreateProducerAsync(
+        string root,
+        OperationType type)
+    {
+        return CreateAsync(root, type);
+    }
+
+    private static async Task<RemovalRepairHarness> CreateAsync(
+        string root,
+        OperationType? producerType)
+    {
+        Directory.CreateDirectory(root);
+        var alphaCache = Path.Combine(root, "alpha-cache");
+        var alphaLogs = Path.Combine(root, "alpha-logs");
+        var betaCache = Path.Combine(root, "beta-cache");
+        var betaLogs = Path.Combine(root, "beta-logs");
+        foreach (var path in new[] { alphaCache, alphaLogs, betaCache, betaLogs })
+        {
+            Directory.CreateDirectory(path);
+        }
+        if (producerType.HasValue)
+        {
+            File.WriteAllText(Path.Combine(alphaLogs, "access.log"), "GET /alpha HTTP/1.1\n");
+            File.WriteAllText(Path.Combine(betaLogs, "access.log"), "GET /beta HTTP/1.1\n");
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "alpha",
+                ["LanCache:DataSources:0:CachePath"] = alphaCache,
+                ["LanCache:DataSources:0:LogPath"] = alphaLogs,
+                ["LanCache:DataSources:0:Enabled"] = "true",
+                ["LanCache:DataSources:0:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic,
+                ["LanCache:DataSources:1:Name"] = "beta",
+                ["LanCache:DataSources:1:CachePath"] = betaCache,
+                ["LanCache:DataSources:1:LogPath"] = betaLogs,
+                ["LanCache:DataSources:1:Enabled"] = "true",
+                ["LanCache:DataSources:1:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic
+            })
+            .Build();
+        var paths = DispatchProxy.Create<IPathResolver, Paths>();
+        ((Paths)(object)paths).Root = root;
+        var datasources = new DatasourceService(
+            configuration,
+            paths,
+            NullLogger<DatasourceService>.Instance);
+        var capability = new DatasourceCapabilityService(datasources);
+        var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(
+            processManager,
+            NullLogger<UnifiedOperationTracker>.Instance);
+        CacheManagementService? manager = null;
+        var notificationService = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        var notificationState = (Notifications)(object)notificationService;
+        var registrations = new ServiceCollection()
+            .AddSingleton<CacheManagementService>(_ => manager!)
+            .AddSingleton(datasources)
+            .AddSingleton(capability);
+        var services = registrations.BuildServiceProvider();
+        var state = StateTestMethods.CreateStateService(Path.Combine(root, "retained"));
+        state.SetSetupCompleted(true);
+        var lifetime = new Lifetime();
+        var owner = new OperationStateService(
+            NullLogger<OperationStateService>.Instance,
+            configuration,
+            state,
+            services.GetRequiredService<IServiceScopeFactory>(),
+            lifetime,
+            processManager,
+            tracker);
+        RemovalRustProcessHelper? rust = null;
+        if (producerType.HasValue)
+        {
+            File.WriteAllText(paths.GetRustSteamRemoverPath(), string.Empty);
+            File.WriteAllText(paths.GetRustServiceRemoverPath(), string.Empty);
+            rust = new RemovalRustProcessHelper(
+                root,
+                producerType.Value,
+                paths,
+                tracker);
+            var contexts = new TestDbContextFactory(
+                new DbContextOptionsBuilder<AppDbContext>()
+                    .UseInMemoryDatabase("removal-producer-" + Guid.NewGuid().ToString("N"))
+                    .Options);
+            manager = new CacheManagementService(
+                configuration,
+                NullLogger<CacheManagementService>.Instance,
+                paths,
+                rust,
+                new NginxLogRotationService(
+                    NullLogger<NginxLogRotationService>.Instance,
+                    configuration,
+                    processManager,
+                    paths,
+                    TimeProvider.System),
+                datasources,
+                state,
+                contexts,
+                gameCacheDetectionService: null!,
+                tracker,
+                notificationService,
+                DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
+                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
+                capability,
+                CacheScanGateHarness.Idle(),
+                owner);
+        }
+        else
+        {
+            manager = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+                typeof(CacheManagementService));
+            typeof(CacheManagementService)
+                .GetField("_operationStateService", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(manager, owner);
+        }
+        await owner.StartAsync(CancellationToken.None);
+        return new RemovalRepairHarness(
+            root,
+            services,
+            lifetime,
+            datasources,
+            capability,
+            state,
+            notificationState,
+            rust,
+            manager!,
+            owner,
+            tracker,
+            notificationService);
+    }
+
+    internal RemovalOperationConfig<(int Files, long Bytes)> CreateConfig(
+        OperationType type,
+        RemovalMetrics metrics,
+        Func<Guid, CancellationToken, Func<RemovalProgressUpdate, Task>,
+            Task<(int Files, long Bytes)>> execute)
+    {
+        return new RemovalOperationConfig<(int Files, long Bytes)>(
+            type,
+            type == OperationType.ServiceRemoval ? "Service removal" : "Game removal",
+            metrics,
+            "started",
+            id => id,
+            "progress",
+            "starting",
+            id => id,
+            (_, update) => update,
+            "complete",
+            "finalizing",
+            (_, report) => report,
+            (id, report) => Complete(type, id, true, false, null, report.Files, report.Bytes),
+            id => Complete(type, id, false, true, null, metrics.FilesDeleted, metrics.BytesFreed),
+            (_, exception) => exception.Message,
+            (id, exception) => Complete(
+                type,
+                id,
+                false,
+                false,
+                exception.Message,
+                metrics.FilesDeleted,
+                metrics.BytesFreed),
+            execute,
+            id => BuildRepair(id, type, metrics),
+            Owner.PrepareRepairAsync,
+            Manager.FinishRemovalRepairAsync,
+            ApplyProgressMetrics: (current, update) =>
+            {
+                current.FilesDeleted = update.FilesDeleted;
+                current.BytesFreed = update.BytesFreed;
+            },
+            ApplyFinalMetrics: (current, report) =>
+            {
+                current.FilesDeleted = report.Files;
+                current.BytesFreed = report.Bytes;
+            });
+    }
+
+    internal async Task SaveSourceAsync(
+        Guid operationId,
+        string datasource,
+        int filesDeleted,
+        long bytesFreed)
+    {
+        var method = typeof(CacheManagementService).GetMethod(
+            "SaveRemovalSourceAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)method.Invoke(
+            Manager,
+            [operationId, datasource, filesDeleted, bytesFreed, 0UL])!;
+    }
+
+    internal OperationRepair ReadRepair(Guid operationId)
+    {
+        return _state.LoadOperationRepairs().Single(repair => repair.Id == operationId);
+    }
+
+    internal async Task<OperationRepair> WaitForCompletedRepairAsync(Guid operationId)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            var repair = ReadRepair(operationId);
+            if (repair.Phase == OperationRepairPhase.Completed)
+            {
+                return repair;
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException($"Removal repair {operationId} did not complete.");
+    }
+
+    internal IReadOnlyList<(string Event, object? Value)> ReadMessages()
+    {
+        return _notificationState.ReadMessages();
+    }
+
+    internal string BetaStage => _rust!.BetaStage;
+    internal int RawFilesProcessed => _rust!.RawFilesProcessed;
+    internal int RustCalls => _rust!.Runs;
+
+    internal Task WaitForBetaProgressAsync()
+    {
+        return _rust!.BetaProgress.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    internal void ReleaseRust()
+    {
+        _rust!.Release();
+    }
+
+    internal Task WaitForRustExitAsync()
+    {
+        return _rust!.BetaExit.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    internal async Task<OperationInfo> WaitForTerminalAsync(Guid operationId)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            var operation = Tracker.GetOperation(operationId);
+            if (operation?.Status.IsTerminal() == true)
+            {
+                return operation;
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException($"Removal operation {operationId} did not reach a terminal state.");
+    }
+
+    internal async Task<object?> WaitForCompleteMessageAsync()
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            var complete = ReadMessages()
+                .Where(message => message.Event == "complete")
+                .Select(message => message.Value)
+                .ToList();
+            if (complete.Count == 1)
+            {
+                return complete[0];
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException("Removal completion notification was not emitted once.");
+    }
+
+    internal async Task CompleteAnotherAsync(OperationType type)
+    {
+        var operationId = Guid.NewGuid();
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = operationId.ToString("N"),
+            EntityName = "next removal",
+            EntityKind = type == OperationType.ServiceRemoval ? "service" : "steam"
+        };
+        await Owner.PrepareRepairAsync(BuildRepair(operationId, type, metrics), CancellationToken.None);
+        await Owner.FinishRepairAsync(operationId, true, false, null);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _lifetime.StopApplication();
+        await Owner.StopAsync(CancellationToken.None);
+        await _services.DisposeAsync();
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    private OperationRepair BuildRepair(Guid operationId, OperationType type, RemovalMetrics metrics)
+    {
+        return new OperationRepair
+        {
+            Id = operationId,
+            Type = type,
+            Name = type == OperationType.ServiceRemoval ? "Service removal" : "Game removal",
+            StartedAt = DateTime.UtcNow,
+            Target = type == OperationType.ServiceRemoval
+                ? new CacheRepairTarget { Service = "steam" }
+                : new CacheRepairTarget { SteamAppId = 570 },
+            Removal = new RemovalRepair
+            {
+                EntityKey = metrics.EntityKey,
+                EntityName = metrics.EntityName,
+                EntityKind = metrics.EntityKind,
+                Service = metrics.Service,
+                EpicAppId = metrics.EpicAppId
+            },
+            Sources = _datasources.GetDatasources()
+                .Select(datasource => new OperationRepairSource
+                {
+                    Datasource = datasource.Name,
+                    LogRoot = datasource.LogPath,
+                    CacheRoot = datasource.CachePath,
+                    KeyScheme = _capability.GetKeySchemeWireValue(datasource)
+                })
+                .ToList()
+        };
+    }
+
+    private static IOperationComplete Complete(
+        OperationType type,
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error,
+        int filesDeleted,
+        long bytesFreed)
+    {
+        if (type == OperationType.ServiceRemoval)
+        {
+            return new SignalRNotifications.ServiceRemovalComplete(
+                success,
+                "steam",
+                operationId,
+                success ? "complete" : cancelled ? "cancelled" : "failed",
+                filesDeleted,
+                bytesFreed,
+                Error: error,
+                Cancelled: cancelled);
+        }
+        return new SignalRNotifications.GameRemovalComplete(
+            success,
+            operationId,
+            570,
+            null,
+            success ? "complete" : cancelled ? "cancelled" : "failed",
+            FilesDeleted: filesDeleted,
+            BytesFreed: bytesFreed,
+            Error: error,
+            Cancelled: cancelled);
+    }
+
+    private sealed class RemovalRustProcessHelper : RustProcessHelper
+    {
+        private readonly string _root;
+        private readonly string _alphaLogs;
+        private readonly string _betaLogs;
+        private readonly string _expectedBinary;
+        private readonly string _expectedLabel;
+        private readonly OperationType _type;
+        private readonly TaskCompletionSource _betaProgress =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _betaExit =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _runs;
+
+        internal RemovalRustProcessHelper(
+            string root,
+            OperationType type,
+            IPathResolver paths,
+            IUnifiedOperationTracker tracker)
+            : base(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                paths,
+                tracker)
+        {
+            _root = Path.GetFullPath(root);
+            _alphaLogs = Path.GetFullPath(Path.Combine(root, "alpha-logs"));
+            _betaLogs = Path.GetFullPath(Path.Combine(root, "beta-logs"));
+            _expectedBinary = type == OperationType.GameRemoval
+                ? paths.GetRustSteamRemoverPath()
+                : paths.GetRustServiceRemoverPath();
+            _expectedLabel = type == OperationType.GameRemoval
+                ? "game_cache_remover"
+                : "service_remover";
+            _type = type;
+            BetaStage = type == OperationType.GameRemoval
+                ? "tests.gameRemove.betaRaw"
+                : "tests.serviceRemove.betaRaw";
+        }
+
+        internal string BetaStage { get; }
+        internal int RawFilesProcessed { get; private set; }
+        internal int Runs => Volatile.Read(ref _runs);
+        internal Task BetaProgress => _betaProgress.Task;
+        internal Task BetaExit => _betaExit.Task;
+
+        internal void Release()
+        {
+            _release.TrySetResult();
+        }
+
+        public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo start,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.NotNull(operationId);
+            Assert.Equal(_expectedBinary, start.FileName);
+            AssertOwnedPath(start.FileName);
+            Assert.Equal(_expectedLabel, processLabel);
+            var run = Interlocked.Increment(ref _runs);
+            Assert.InRange(run, 1, 2);
+            try
+            {
+                var quoted = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
+                    .Select(match => match.Groups[1].Value)
+                    .ToArray();
+                Assert.True(quoted.Length >= 5, start.Arguments);
+                foreach (var path in new[] { quoted[0], quoted[1], quoted[3], quoted[4] })
+                {
+                    AssertOwnedPath(path);
+                }
+                var stemPositions = Regex.Match(
+                    start.Arguments,
+                    "--stem-positions \\\"([^\\\"]+)\\\"");
+                if (stemPositions.Success)
+                {
+                    AssertOwnedPath(stemPositions.Groups[1].Value);
+                }
+
+                var logRoot = Path.GetFullPath(quoted[0]);
+                Assert.Equal(run == 1 ? _alphaLogs : _betaLogs, logRoot);
+                Assert.Equal(
+                    _type == OperationType.GameRemoval ? "570" : "steam",
+                    quoted[2]);
+                await WritePublicationAsync(start, cancellationToken);
+
+                if (run == 1)
+                {
+                    await WriteReportAsync(quoted[3], 9, 200, cancellationToken);
+                    return new ProcessExecutionResult { ExitCode = 0 };
+                }
+
+                const int rawFilesProcessed = 1;
+                await File.WriteAllTextAsync(
+                    quoted[4],
+                    JsonSerializer.Serialize(new
+                    {
+                        status = "running",
+                        message = "beta raw progress",
+                        stageKey = BetaStage,
+                        context = new Dictionary<string, object?> { ["datasource"] = "beta" },
+                        percentComplete = 25.0,
+                        filesProcessed = rawFilesProcessed,
+                        totalFiles = 2
+                    }),
+                    cancellationToken);
+                using (var progressFile = JsonDocument.Parse(
+                           await File.ReadAllTextAsync(quoted[4], cancellationToken)))
+                {
+                    RawFilesProcessed = progressFile.RootElement
+                        .GetProperty("filesProcessed")
+                        .GetInt32();
+                }
+                var progressEvent = Assert.IsType<Func<RustProgressEvent, Task>>(onProgressEvent);
+                await progressEvent(new RustProgressEvent
+                {
+                    Event = "progress",
+                    OperationId = operationId.Value.ToString(),
+                    PercentComplete = 25.0,
+                    Status = "running",
+                    StageKey = BetaStage
+                });
+                _betaProgress.TrySetResult();
+                await _release.Task.WaitAsync(cancellationToken);
+                await WriteReportAsync(quoted[3], 0, 0, cancellationToken);
+                return new ProcessExecutionResult
+                {
+                    ExitCode = 17,
+                    Error = "Injected beta removal failure."
+                };
+            }
+            finally
+            {
+                if (run == 2)
+                {
+                    _betaExit.TrySetResult();
+                }
+            }
+        }
+
+        private void AssertOwnedPath(string path)
+        {
+            var fullPath = Path.GetFullPath(path);
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            var rootPrefix = Path.EndsInDirectorySeparator(_root)
+                ? _root
+                : _root + Path.DirectorySeparatorChar;
+            Assert.True(fullPath.StartsWith(rootPrefix, comparison), fullPath);
+        }
+
+        private async Task WritePublicationAsync(
+            ProcessStartInfo start,
+            CancellationToken cancellationToken)
+        {
+            var checkPath = Assert.IsType<string>(start.Environment["LANCACHE_LOG_CHECK"]);
+            var resultPath = Assert.IsType<string>(start.Environment["LANCACHE_LOG_RESULT"]);
+            AssertOwnedPath(checkPath);
+            AssertOwnedPath(resultPath);
+            var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var check = Assert.IsType<NginxPublicationCheckFile>(
+                JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                    await File.ReadAllTextAsync(checkPath, cancellationToken),
+                    options));
+            Assert.True(check.Valid);
+            Assert.NotEmpty(check.Files);
+            foreach (var expected in check.Files)
+            {
+                AssertOwnedPath(expected.TargetPath);
+            }
+            var result = new NginxPublicationResult(
+                true,
+                check.Files.Select(expected => new NginxPublicationRecord(
+                    expected.TargetPath,
+                    expected.OriginalIdentity,
+                    TemporaryIdentity: null,
+                    PublishedIdentity: expected.OriginalIdentity,
+                    Changed: false,
+                    Deleted: false)).ToList());
+            await File.WriteAllTextAsync(
+                resultPath,
+                JsonSerializer.Serialize(result, options),
+                cancellationToken);
+        }
+
+        private async Task WriteReportAsync(
+            string path,
+            int filesDeleted,
+            long bytesFreed,
+            CancellationToken cancellationToken)
+        {
+            string contents;
+            if (_type == OperationType.GameRemoval)
+            {
+                contents = JsonSerializer.Serialize(new CacheManagementService.GameCacheRemovalReport
+                {
+                    GameAppId = 570,
+                    GameName = "Dota 2",
+                    CacheFilesDeleted = filesDeleted,
+                    TotalBytesFreed = checked((ulong)bytesFreed)
+                });
+            }
+            else
+            {
+                contents = JsonSerializer.Serialize(new CacheManagementService.ServiceCacheRemovalReport
+                {
+                    ServiceName = "steam",
+                    CacheFilesDeleted = filesDeleted,
+                    TotalBytesFreed = checked((ulong)bytesFreed)
+                });
+            }
+            await File.WriteAllTextAsync(path, contents, cancellationToken);
+        }
+    }
+
+    private sealed class Lifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _stopping = new();
+
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+
+        public void StopApplication()
+        {
+            _stopping.Cancel();
+        }
+    }
+
+    private class Paths : DispatchProxy
+    {
+        internal string Root { get; set; } = string.Empty;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            ArgumentNullException.ThrowIfNull(targetMethod);
+            if (targetMethod.Name == nameof(IPathResolver.ResolvePath))
+            {
+                var path = Assert.IsType<string>(args![0]);
+                return Path.IsPathRooted(path) ? path : Path.Combine(Root, path);
+            }
+            if (targetMethod.Name == nameof(IPathResolver.NormalizePath))
+            {
+                return Assert.IsType<string>(args![0]);
+            }
+            if (targetMethod.Name == nameof(IPathResolver.IsDirectoryWritable))
+            {
+                return true;
+            }
+            if (targetMethod.Name == nameof(IPathResolver.IsDockerSocketAvailable))
+            {
+                return false;
+            }
+            if (targetMethod.ReturnType == typeof(string))
+            {
+                return Path.Combine(Root, targetMethod.Name);
+            }
+            if (targetMethod.ReturnType == typeof(bool))
+            {
+                return false;
+            }
+            return null;
+        }
+    }
+
+    private class Notifications : DispatchProxy
+    {
+        private readonly List<(string Event, object? Value)> _messages = [];
+
+        internal IReadOnlyList<(string Event, object? Value)> ReadMessages()
+        {
+            lock (_messages)
+            {
+                return [.. _messages];
+            }
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            ArgumentNullException.ThrowIfNull(targetMethod);
+            if (targetMethod.Name is nameof(ISignalRNotificationService.NotifyAllAsync)
+                or nameof(ISignalRNotificationService.NotifyOperationFailedAsync))
+            {
+                lock (_messages)
+                {
+                    _messages.Add(((string)args![0]!, args[1]));
+                }
+            }
+            return targetMethod.ReturnType == typeof(Task) ? Task.CompletedTask : null;
         }
     }
 }

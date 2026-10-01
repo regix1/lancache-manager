@@ -40,6 +40,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     private readonly IConfiguration _configuration;
     private readonly IOptions<MemoryCacheOptions> _memoryCacheOptions;
     private readonly JsonSerializerOptions _wireJsonOptions;
+    private readonly Func<DownloadSpeedSnapshot> _readActivity;
 
     // Every request captures both applicable generations before doing any work. Generations are
     // part of the key, and a response is cached only if its captured generations remain current.
@@ -136,7 +137,8 @@ public partial class DashboardBatchService : IDashboardBatchService
         IClientHostnameService clientHostnameService,
         IConfiguration configuration,
         IOptions<MemoryCacheOptions> memoryCacheOptions,
-        IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> mvcJsonOptions)
+        IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> mvcJsonOptions,
+        RustSpeedTrackerService speedTracker)
     {
         _cacheService = cacheService;
         _gameCacheDetectionService = gameCacheDetectionService;
@@ -153,6 +155,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         // The MVC wire options: pre-serialized sections must match what the output formatter
         // would have produced for the same object, byte for byte.
         _wireJsonOptions = mvcJsonOptions.Value.JsonSerializerOptions;
+        _readActivity = speedTracker.GetCurrentSnapshot;
     }
 
     public async Task<DashboardBatchResponse> GetBatchAsync(
@@ -226,12 +229,13 @@ public partial class DashboardBatchService : IDashboardBatchService
                 // then failed; stop contending for the shared slot and run this caller's own
                 // attempt directly, unregistered, so it is guaranteed to terminate instead of
                 // looping under pathological contention.
-                return await RunSingleFlightAsync(
+                var response = await RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
                     isLive, liveCacheGeneration, detectionCacheGeneration,
                     liveCacheEviction, detectionCacheEviction, includeClientHostnames,
                     service, client, ct);
+                return WithCurrentActivity(response, response.Cache);
             }
 
             var candidate = new BatchFlight(
@@ -286,7 +290,8 @@ public partial class DashboardBatchService : IDashboardBatchService
 
             try
             {
-                return await stored.Build.Value.WaitAsync(ct);
+                var response = await stored.Build.Value.WaitAsync(ct);
+                return WithCurrentActivity(response, response.Cache);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -404,7 +409,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             Cache = cacheResult,
             Clients = await clientsTask,
             Services = await servicesTask,
-            Dashboard = await dashboardTask,
+            Dashboard = await dashboardTask as DashboardStatsResponse,
             DownloadTotals = await downloadTotalsTask,
             FilteredDownloadTotals = await filteredDownloadTotalsTask,
             ServiceOptions = await serviceOptionsTask,
@@ -471,23 +476,48 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<DashboardBatchResponse> WithFreshCacheInfoAsync(DashboardBatchResponse cached, CancellationToken ct)
     {
         var freshCache = await SafeExecuteAsync("cache", () => GetCacheInfoAsync(), ct);
+        return WithCurrentActivity(cached, freshCache ?? cached.Cache);
+    }
+
+    private DashboardBatchResponse WithCurrentActivity(DashboardBatchResponse response, CacheInfo? cache)
+    {
+        var current = _readActivity();
         return new DashboardBatchResponse
         {
-            Cache = freshCache ?? cached.Cache,
-            Clients = cached.Clients,
-            Services = cached.Services,
-            Dashboard = cached.Dashboard,
-            DownloadTotals = cached.DownloadTotals,
-            FilteredDownloadTotals = cached.FilteredDownloadTotals,
-            ServiceOptions = cached.ServiceOptions,
-            ClientOptions = cached.ClientOptions,
-            RecentDownloads = cached.RecentDownloads,
-            Detection = cached.Detection,
-            Sparklines = cached.Sparklines,
-            HourlyActivity = cached.HourlyActivity,
-            CacheSnapshot = cached.CacheSnapshot
+            Cache = cache,
+            Clients = response.Clients,
+            Services = response.Services,
+            Dashboard = response.Dashboard == null ? null : WithCurrentActivity(response.Dashboard, current),
+            DownloadTotals = response.DownloadTotals,
+            FilteredDownloadTotals = response.FilteredDownloadTotals,
+            ServiceOptions = response.ServiceOptions,
+            ClientOptions = response.ClientOptions,
+            RecentDownloads = response.RecentDownloads,
+            Detection = response.Detection,
+            Sparklines = response.Sparklines,
+            HourlyActivity = response.HourlyActivity,
+            CacheSnapshot = response.CacheSnapshot
         };
     }
+
+    private static DashboardStatsResponse WithCurrentActivity(
+        DashboardStatsResponse response,
+        DownloadSpeedSnapshot current) => new()
+        {
+            TotalBandwidthSaved = response.TotalBandwidthSaved,
+            TotalAddedToCache = response.TotalAddedToCache,
+            TotalServed = response.TotalServed,
+            CacheHitRatio = response.CacheHitRatio,
+            ActiveDownloads = current.GameSpeeds.Count,
+            ActiveClients = current.ClientSpeeds.Count,
+            ActivityStreamId = current.StreamId,
+            ActivityRevision = current.Revision,
+            UniqueClients = response.UniqueClients,
+            TopService = response.TopService,
+            Period = response.Period,
+            ServiceBreakdown = response.ServiceBreakdown,
+            LastUpdated = response.LastUpdated
+        };
 
     /// <inheritdoc />
     public void InvalidateLiveCache()
@@ -639,18 +669,6 @@ public partial class DashboardBatchService : IDashboardBatchService
         var periodHitRatio = periodTotal > 0 ? (periodHitBytes * 100.0) / periodTotal : 0;
         var periodDownloadCount = periodAgg?.Count ?? 0;
 
-        // Active downloads: the flag the cleanup service maintains, gated on the end still being
-        // recent. Same predicate as GET /api/dashboard/stats, which fills the same response field.
-        // The old check asked for an unset EndTimeUtc, which the ingestion never leaves behind: it
-        // stamps an end on insert and advances it on every update, so this count was always zero.
-        var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
-        var activeQuery = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
-            .ApplyEvictedFilter(evictedMode)
-            .Where(d => d.IsActive && d.EndTimeUtc > activeThreshold)
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
-        var activeDownloads = await activeQuery.CountAsync(ct);
-
         // Unique clients in period
         var uniqueClientsQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
         var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync(ct);
@@ -681,6 +699,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
         var periodLabel = DashboardPeriod.Label(cutoffTime, endDateTime);
+        var current = _readActivity();
 
         return new DashboardStatsResponse
         {
@@ -688,7 +707,10 @@ public partial class DashboardBatchService : IDashboardBatchService
             TotalAddedToCache = totalMissBytes,
             TotalServed = totalServed,
             CacheHitRatio = cacheHitRatio,
-            ActiveDownloads = activeDownloads,
+            ActiveDownloads = current.GameSpeeds.Count,
+            ActiveClients = current.ClientSpeeds.Count,
+            ActivityStreamId = current.StreamId,
+            ActivityRevision = current.Revision,
             UniqueClients = uniqueClientsCount,
             TopService = topServiceName,
             Period = new DashboardPeriodStats

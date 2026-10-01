@@ -1,13 +1,15 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 using ModelOperationState = LancacheManager.Models.OperationState;
 
 namespace LancacheManager.Core.Services;
 
-public class OperationStateService : ScheduledBackgroundService
+public partial class OperationStateService : ScheduledBackgroundService
 {
     private readonly StateService _stateService;
     private readonly ConcurrentDictionary<string, OperationState> _states = new();
@@ -20,15 +22,30 @@ public class OperationStateService : ScheduledBackgroundService
     public OperationStateService(
         ILogger<OperationStateService> logger,
         IConfiguration configuration,
-        StateService stateService)
+        StateService stateService,
+        IServiceScopeFactory scopes,
+        IHostApplicationLifetime applicationLifetime,
+        ProcessManager processManager,
+        IUnifiedOperationTracker operationTracker)
         : base(logger, configuration)
     {
         _stateService = stateService;
+        _scopes = scopes;
+        _applicationLifetime = applicationLifetime;
+        _processManager = processManager;
+        _operationTracker = operationTracker;
+    }
+
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await ClaimRecoveryOwnershipAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
     }
 
     protected override Task OnStartupAsync(CancellationToken stoppingToken)
     {
         LoadStates();
+        StartRecovery(stoppingToken);
         return Task.CompletedTask;
     }
 
@@ -81,7 +98,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
 
         var state = GetOrCreateState(key);
-        var dataDict = state.GetDataAsDictionary();
+        var dataDict = state.GetDictionary();
 
         foreach (var kvp in updates)
         {
@@ -90,7 +107,7 @@ public class OperationStateService : ScheduledBackgroundService
 
         // Convert back to JsonElement
         var json = JsonSerializer.Serialize(dataDict);
-        state.Data = JsonSerializer.Deserialize<JsonElement>(json);
+        state.Fields = JsonSerializer.Deserialize<JsonElement>(json);
 
         if (updates.TryGetValue("status", out var statusObj) && statusObj is string statusString)
         {
@@ -152,7 +169,7 @@ public class OperationStateService : ScheduledBackgroundService
         {
             Key = key,
             Type = "unknown",
-            Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
+            Fields = JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(24)
@@ -211,7 +228,7 @@ public class OperationStateService : ScheduledBackgroundService
             Type = persisted.Type.ToWireString(),
             Status = persisted.Status.ToWireString(),
             Message = persisted.Message,
-            Data = ToJsonElement(persisted.Data),
+            Fields = ToJsonElement(persisted.Data),
             CreatedAt = persisted.CreatedAt,
             UpdatedAt = persisted.UpdatedAt,
             ExpiresAt = persisted.UpdatedAt.AddHours(24)
@@ -310,7 +327,7 @@ public class OperationStateService : ScheduledBackgroundService
             Status = Enum.TryParse<OperationStatus>(state.Status, ignoreCase: true, out var parsedStatus)
                 ? parsedStatus
                 : OperationStatus.Running,
-            Data = state.Data,
+            Data = state.Fields,
             CreatedAt = state.CreatedAt,
             UpdatedAt = state.UpdatedAt
         };
@@ -364,7 +381,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
     }
 
-    protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         var now = DateTime.UtcNow;
         var expired = _states
@@ -386,55 +403,7 @@ public class OperationStateService : ScheduledBackgroundService
             }
         }
 
-        return Task.CompletedTask;
+        await MaintainRepairsAsync(stoppingToken);
     }
 
-}
-
-public class OperationState
-{
-    public string Key { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public JsonElement? Data { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime ExpiresAt { get; set; }
-    public string? Status { get; set; }
-    public string? Message { get; set; }
-
-    /// <summary>
-    /// Helper method to get Data as a dictionary for backward compatibility
-    /// </summary>
-    public Dictionary<string, object> GetDataAsDictionary()
-    {
-        if (Data == null || Data.Value.ValueKind == JsonValueKind.Null || Data.Value.ValueKind == JsonValueKind.Undefined)
-            return new Dictionary<string, object>();
-
-        if (Data.Value.ValueKind == JsonValueKind.Object)
-        {
-            var dict = new Dictionary<string, object>();
-            foreach (var prop in Data.Value.EnumerateObject())
-            {
-                dict[prop.Name] = ConvertJsonElementToObject(prop.Value);
-            }
-            return dict;
-        }
-
-        return new Dictionary<string, object>();
-    }
-
-    private static object ConvertJsonElementToObject(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.String => element.GetString() ?? string.Empty,
-            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Null => null!,
-            JsonValueKind.Object => element.Deserialize<Dictionary<string, object>>() ?? new Dictionary<string, object>(),
-            JsonValueKind.Array => element.Deserialize<List<object>>() ?? new List<object>(),
-            _ => element.GetRawText()
-        };
-    }
 }

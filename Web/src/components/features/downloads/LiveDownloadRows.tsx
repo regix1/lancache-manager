@@ -19,12 +19,10 @@ interface LiveDownloadRowsProps {
  */
 const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews }) => {
   const { t } = useTranslation();
-  // The pulse dot's live state flows through the unified activity registry (one signal for
-  // every status dot), which is authoritative once ready; the preview's own in-progress status is
-  // the fallback only before the first activity snapshot arrives.
+  // Download dots read the same rendered speed snapshot that owns these preview rows.
   const activity = useActivityStatus();
   const isDownloading = (preview: LiveDownloadPreview): boolean =>
-    activity.isActiveOrFallback('download', preview.key, 'downloading', true);
+    activity.isActive('download', preview.key, 'downloading');
   // displayName carries the backend's own game name, which is never translated; only the
   // placeholder labels this app supplies for unidentified traffic have a key to render.
   const displayLabel = (preview: LiveDownloadPreview): string =>

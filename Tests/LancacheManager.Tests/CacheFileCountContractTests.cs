@@ -271,7 +271,9 @@ public sealed partial class CacheFileCountContractTests
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(datasourceService),
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                typeof(OperationStateService)));
     }
 
     [Fact]

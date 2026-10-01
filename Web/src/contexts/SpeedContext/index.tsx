@@ -14,13 +14,13 @@ import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { APP_EVENTS } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
 import { DISCONNECTED_POLL_MS } from './constants';
+import {
+  canAcceptRestSnapshot,
+  canAcceptSignalRSnapshot,
+  hasImmediateSnapshotChange,
+  isDownloadSpeedSnapshot
+} from './snapshot';
 
-// Expiry for an accepted ACTIVE snapshot: the remaining server-side rolling window plus a
-// grace period, capped near the tracker's maximum adaptive window (15s) plus grace. If no
-// newer snapshot arrives within that time, the active data is cleared instead of lingering
-// forever (SignalR gap, tracker death, dropped trailing-zero broadcast).
-const EXPIRY_GRACE_MS = 2000;
-const EXPIRY_CAP_MS = 17000;
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
@@ -30,204 +30,252 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Throttling refs
-  const lastSpeedUpdateRef = useRef<number>(0);
-  const lastActiveCountRef = useRef<number | null>(null);
-  // Newest accepted server timestamp. Snapshots older than this are dropped so a delayed
-  // REST response can never overwrite newer SignalR data or resurrect expired traffic.
-  const latestAcceptedTimestampRef = useRef<number>(0);
-  const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const acceptedSnapshotRef = useRef<DownloadSpeedSnapshot | null>(null);
+  const renderedSnapshotRef = useRef<DownloadSpeedSnapshot | null>(null);
+  const pendingSnapshotRef = useRef<DownloadSpeedSnapshot | null>(null);
+  const lastSpeedUpdateRef = useRef(0);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestOwnerRef = useRef(0);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef<{
+    owner: number;
+    promise: Promise<void>;
+    trailing: boolean;
+    notifyFailure: boolean;
+    nextThrottle: boolean;
+  } | null>(null);
 
-  // Keep getRefreshInterval in a ref to avoid stale closure issues
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   getRefreshIntervalRef.current = getRefreshInterval;
 
-  // Calculate derived values from the speed snapshot
-  const gameSpeeds: GameSpeedInfo[] = useMemo(() => {
-    return speedSnapshot?.gameSpeeds ?? [];
-  }, [speedSnapshot]);
+  const gameSpeeds: GameSpeedInfo[] = useMemo(
+    () => speedSnapshot?.gameSpeeds ?? [],
+    [speedSnapshot]
+  );
+  const clientSpeeds: ClientSpeedInfo[] = useMemo(
+    () => speedSnapshot?.clientSpeeds ?? [],
+    [speedSnapshot]
+  );
+  const activeDownloadCount = gameSpeeds.length;
+  const totalActiveClients = clientSpeeds.length;
 
-  const clientSpeeds: ClientSpeedInfo[] = useMemo(() => {
-    return speedSnapshot?.clientSpeeds ?? [];
-  }, [speedSnapshot]);
-
-  const activeDownloadCount = useMemo(() => {
-    return gameSpeeds.length;
-  }, [gameSpeeds]);
-
-  const totalActiveClients = useMemo(() => {
-    return clientSpeeds.length;
-  }, [clientSpeeds]);
-
-  const clearExpiryTimer = useCallback(() => {
-    if (expiryTimerRef.current !== null) {
-      clearTimeout(expiryTimerRef.current);
-      expiryTimerRef.current = null;
+  const clearThrottle = useCallback(() => {
+    if (throttleTimerRef.current !== null) {
+      clearTimeout(throttleTimerRef.current);
+      throttleTimerRef.current = null;
     }
+    pendingSnapshotRef.current = null;
   }, []);
 
-  const expireActiveSnapshot = useCallback(() => {
-    expiryTimerRef.current = null;
-    lastActiveCountRef.current = 0;
-    // Zero the live fields but keep the snapshot object and the accepted-timestamp guard,
-    // so a stale response arriving after expiry cannot resurrect the old activity.
-    setSpeedSnapshot((prev) =>
-      prev === null
-        ? prev
-        : {
-            ...prev,
-            totalBytesPerSecond: 0,
-            entriesInWindow: 0,
-            hasActiveDownloads: false,
-            gameSpeeds: [],
-            clientSpeeds: []
-          }
-    );
-  }, []);
-
-  // Single acceptance path for REST and SignalR snapshots. Timestamps are validated
-  // monotonically, the expiry timer is (re)armed for every ACCEPTED snapshot (including
-  // ones the render throttle skips - otherwise a slow refresh-rate setting would let
-  // active data expire between rendered updates), and only then may state update. The
-  // tracker's activity window reflects real delivery cadence, so a reported zero is
-  // trustworthy and renders immediately (count changes bypass the throttle).
-  const acceptSnapshot = useCallback(
-    (data: DownloadSpeedSnapshot, options: { throttle: boolean }) => {
-      const timestampMs = Date.parse(data.timestampUtc);
-      if (!Number.isFinite(timestampMs)) return;
-      if (timestampMs < latestAcceptedTimestampRef.current) return;
-      latestAcceptedTimestampRef.current = timestampMs;
-
-      const isActive = data.entriesInWindow > 0 || data.gameSpeeds.length > 0;
-      clearExpiryTimer();
-      if (isActive) {
-        const windowMs = (data.windowSeconds || 2) * 1000;
-        const remainingMs = Math.max(0, windowMs - (Date.now() - timestampMs));
-        expiryTimerRef.current = setTimeout(
-          expireActiveSnapshot,
-          Math.min(remainingMs + EXPIRY_GRACE_MS, EXPIRY_CAP_MS)
-        );
-      }
-
-      const newCount = data.gameSpeeds.length;
-      const previousCount = lastActiveCountRef.current ?? 0;
-      lastActiveCountRef.current = newCount;
-
-      // Throttle same-count (speed-value-only) updates to the user's refresh-rate setting:
-      // LIVE (0) -> 500ms (instant), otherwise the chosen interval (e.g. 10s). Count
-      // changes render immediately so new downloads and completions appear promptly.
-      if (options.throttle && previousCount === newCount) {
-        const maxRefreshRate = getRefreshIntervalRef.current();
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-        if (Date.now() - lastSpeedUpdateRef.current < minInterval) {
-          return;
-        }
-      }
-
+  const commitSnapshot = useCallback(
+    (snapshot: DownloadSpeedSnapshot) => {
+      clearThrottle();
+      renderedSnapshotRef.current = snapshot;
       lastSpeedUpdateRef.current = Date.now();
-      setSpeedSnapshot(data);
+      setSpeedSnapshot(snapshot);
       setIsLoading(false);
     },
-    [clearExpiryTimer, expireActiveSnapshot]
+    [clearThrottle]
   );
 
-  // Fetch speed data from the API (used for initial load and manual refresh)
-  const fetchSpeed = useCallback(async () => {
-    // Mock mode has no tracker behind it, and generated activity must not expire the way a real
-    // snapshot does, so it is set directly rather than through acceptSnapshot's expiry timer.
-    if (mockMode) {
-      setSpeedSnapshot(MockDataService.generateMockSpeedSnapshot());
-      setIsLoading(false);
-      return;
-    }
-    try {
-      const data = await ApiService.getCurrentSpeeds();
-      acceptSnapshot(data, { throttle: false });
-    } catch (error) {
-      // Background poll (mount + SignalR reconnect + visibility change). Live SignalR
-      // DownloadSpeedUpdate events keep speeds fresh even if one poll fails. Deliberately silent.
-      console.error('[SpeedContext] Failed to fetch speed data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [acceptSnapshot, mockMode]);
+  const renderAcceptedSnapshot = useCallback(
+    (snapshot: DownloadSpeedSnapshot, throttle: boolean) => {
+      const current = renderedSnapshotRef.current;
+      if (!throttle || hasImmediateSnapshotChange(current, snapshot)) {
+        commitSnapshot(snapshot);
+        return;
+      }
 
-  // Manual refresh function exposed to consumers (user-triggered) - unlike fetchSpeed's
-  // background polling, a failure here has no other feedback path, so surface it.
-  const refreshSpeed = useCallback(async () => {
-    if (mockMode) {
-      setSpeedSnapshot(MockDataService.generateMockSpeedSnapshot());
-      return;
-    }
-    try {
-      const data = await ApiService.getCurrentSpeeds();
-      acceptSnapshot(data, { throttle: false });
-    } catch (error) {
-      console.error('[SpeedContext] Failed to refresh speed data:', error);
-      // SpeedProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
-      // useErrorHandler (useNotifications) is not reachable here. Use the existing show-toast
-      // bridge instead (the SHOW_TOAST listener in NotificationsContext.tsx).
-      window.dispatchEvent(
-        new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
-          detail: {
-            type: 'error',
-            message: i18n.t('dashboard.errors.refreshSpeedsFailed'),
-            error: getErrorMessage(error)
+      const configuredInterval = getRefreshIntervalRef.current();
+      const minimumInterval = configuredInterval === 0 ? 500 : configuredInterval;
+      const elapsed = Date.now() - lastSpeedUpdateRef.current;
+      if (elapsed >= minimumInterval) {
+        commitSnapshot(snapshot);
+        return;
+      }
+
+      pendingSnapshotRef.current = snapshot;
+      if (throttleTimerRef.current !== null) return;
+      throttleTimerRef.current = setTimeout(
+        () => {
+          throttleTimerRef.current = null;
+          const pending = pendingSnapshotRef.current;
+          pendingSnapshotRef.current = null;
+          if (pending !== null) {
+            renderedSnapshotRef.current = pending;
+            lastSpeedUpdateRef.current = Date.now();
+            setSpeedSnapshot(pending);
+            setIsLoading(false);
           }
-        })
+        },
+        Math.max(0, minimumInterval - elapsed)
       );
-    }
-  }, [acceptSnapshot, mockMode]);
+    },
+    [commitSnapshot]
+  );
 
-  // Fetch initial data on mount (only when authenticated or guest)
+  const acceptSnapshot = useCallback(
+    (value: unknown, owner: number, throttle: boolean): boolean => {
+      if (owner !== requestOwnerRef.current || !mountedRef.current || mockMode) return false;
+      if (!isDownloadSpeedSnapshot(value)) {
+        throw new TypeError('Invalid current download activity response');
+      }
+
+      const current = acceptedSnapshotRef.current;
+      if (!canAcceptRestSnapshot(current, value)) return false;
+
+      acceptedSnapshotRef.current = value;
+      renderAcceptedSnapshot(value, throttle);
+      return true;
+    },
+    [mockMode, renderAcceptedSnapshot]
+  );
+
+  const applyMockSnapshot = useCallback(() => {
+    const snapshot: unknown = MockDataService.generateMockSpeedSnapshot();
+    if (!isDownloadSpeedSnapshot(snapshot)) {
+      throw new TypeError('Invalid mock download activity response');
+    }
+    acceptedSnapshotRef.current = snapshot;
+    commitSnapshot(snapshot);
+  }, [commitSnapshot]);
+
+  const requestSpeed = useCallback(
+    (options: { notifyFailure: boolean; throttle: boolean }): Promise<void> => {
+      if (mockMode) {
+        applyMockSnapshot();
+        return Promise.resolve();
+      }
+
+      const owner = requestOwnerRef.current;
+      const activeRequest = inFlightRef.current;
+      if (activeRequest?.owner === owner) {
+        activeRequest.trailing = true;
+        activeRequest.notifyFailure ||= options.notifyFailure;
+        activeRequest.nextThrottle &&= options.throttle;
+        return activeRequest.promise;
+      }
+
+      const work = {
+        owner,
+        promise: Promise.resolve(),
+        trailing: false,
+        notifyFailure: options.notifyFailure,
+        nextThrottle: options.throttle
+      };
+
+      work.promise = (async () => {
+        do {
+          work.trailing = false;
+          const notifyFailure = work.notifyFailure;
+          const throttle = work.nextThrottle;
+          work.notifyFailure = false;
+          work.nextThrottle = true;
+
+          try {
+            const value: unknown = await ApiService.getCurrentSpeeds();
+            if (owner !== requestOwnerRef.current || !mountedRef.current) return;
+            acceptSnapshot(value, owner, throttle);
+          } catch (error) {
+            if (owner !== requestOwnerRef.current || !mountedRef.current) return;
+            console.error('[SpeedContext] Failed to fetch speed data:', error);
+            if (notifyFailure) {
+              window.dispatchEvent(
+                new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
+                  detail: {
+                    type: 'error',
+                    message: i18n.t('dashboard.errors.refreshSpeedsFailed'),
+                    error: getErrorMessage(error)
+                  }
+                })
+              );
+            }
+          } finally {
+            if (owner === requestOwnerRef.current && mountedRef.current) {
+              setIsLoading(false);
+            }
+          }
+        } while (work.trailing && owner === requestOwnerRef.current && mountedRef.current);
+      })().finally(() => {
+        if (inFlightRef.current === work) {
+          inFlightRef.current = null;
+        }
+      });
+
+      inFlightRef.current = work;
+      return work.promise;
+    },
+    [acceptSnapshot, applyMockSnapshot, mockMode]
+  );
+
+  const fetchSpeed = useCallback(
+    (throttle: boolean) => requestSpeed({ notifyFailure: false, throttle }),
+    [requestSpeed]
+  );
+
+  const refreshSpeed = useCallback(
+    () => requestSpeed({ notifyFailure: true, throttle: false }),
+    [requestSpeed]
+  );
+
   useEffect(() => {
-    if (hasAccess) {
-      fetchSpeed();
-    } else if (!authLoading) {
+    requestOwnerRef.current += 1;
+    clearThrottle();
+    acceptedSnapshotRef.current = null;
+    renderedSnapshotRef.current = null;
+    lastSpeedUpdateRef.current = 0;
+    setSpeedSnapshot(null);
+
+    if (authLoading) {
+      setIsLoading(true);
+      return;
+    }
+    if (!hasAccess) {
       setIsLoading(false);
+      return;
     }
-  }, [fetchSpeed, hasAccess, authLoading]);
-
-  // Clear all snapshot state and guards when access is lost so a re-login (possibly as a
-  // different user) starts clean instead of briefly showing the previous session's traffic.
-  useEffect(() => {
-    if (!hasAccess && !authLoading) {
-      clearExpiryTimer();
-      setSpeedSnapshot(null);
-      latestAcceptedTimestampRef.current = 0;
-      lastActiveCountRef.current = null;
-      lastSpeedUpdateRef.current = 0;
+    if (mockMode) {
+      applyMockSnapshot();
+      return;
     }
-  }, [hasAccess, authLoading, clearExpiryTimer]);
+    setIsLoading(true);
+  }, [applyMockSnapshot, authLoading, clearThrottle, hasAccess, mockMode]);
 
-  // Cancel the expiry timer on unmount so it cannot fire into unmounted state.
-  useEffect(() => () => clearExpiryTimer(), [clearExpiryTimer]);
-
-  // While the SignalR socket is not connected, poll REST at a low frequency so activity
-  // keeps updating (and can expire) instead of freezing at the last pushed snapshot. The
-  // monotonic guard in acceptSnapshot keeps these polls from overwriting newer pushed data.
   useEffect(() => {
-    if (!hasAccess || signalR.isConnected) return;
+    if (hasAccess && !mockMode) {
+      void fetchSpeed(false);
+    }
+  }, [fetchSpeed, hasAccess, mockMode]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestOwnerRef.current += 1;
+      clearThrottle();
+    };
+  }, [clearThrottle]);
+
+  useEffect(() => {
+    if (!hasAccess || mockMode) return;
     const interval = setInterval(() => {
-      fetchSpeed();
+      void fetchSpeed(true);
     }, DISCONNECTED_POLL_MS);
     return () => clearInterval(interval);
-  }, [signalR.isConnected, hasAccess, fetchSpeed]);
+  }, [fetchSpeed, hasAccess, mockMode]);
 
-  // Re-fetch data when SignalR reconnects to recover from missed messages
   useReconnectRefetch(signalR.isConnected, () => {
-    if (hasAccess) {
-      fetchSpeed();
+    if (hasAccess && !mockMode) {
+      void fetchSpeed(false);
     }
   });
 
-  // Re-fetch data when page becomes visible (handles tab switching / mobile backgrounding)
   useEffect(() => {
+    let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
     const handleVisibilityChange = () => {
-      if (!document.hidden && hasAccess) {
-        // Page became visible - refresh data with a small delay to let SignalR reconnect
-        setTimeout(() => {
-          fetchSpeed();
+      if (!document.hidden && hasAccess && !mockMode) {
+        visibilityTimer = setTimeout(() => {
+          void fetchSpeed(false);
         }, 500);
       }
     };
@@ -235,26 +283,33 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (visibilityTimer !== null) clearTimeout(visibilityTimer);
     };
-  }, [fetchSpeed, hasAccess]);
+  }, [fetchSpeed, hasAccess, mockMode]);
 
-  // Listen for real-time speed updates via SignalR. Validation, expiry scheduling, and
-  // render throttling all live in the shared acceptSnapshot path.
   useEffect(() => {
-    // The socket stays connected in mock mode, so subscribing here would paint real live traffic
-    // over the generated snapshot.
     if (mockMode) return;
 
-    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
-      acceptSnapshot(speedData, { throttle: true });
+    const handleSpeedUpdate = (value: unknown) => {
+      if (!isDownloadSpeedSnapshot(value)) {
+        void fetchSpeed(false);
+        return;
+      }
+
+      const current = acceptedSnapshotRef.current;
+      if (current === null || current.streamId !== value.streamId) {
+        void fetchSpeed(false);
+        return;
+      }
+      if (!canAcceptSignalRSnapshot(current, value)) return;
+
+      acceptedSnapshotRef.current = value;
+      renderAcceptedSnapshot(value, true);
     };
 
     signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-
-    return () => {
-      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-    };
-  }, [signalR, acceptSnapshot, mockMode]);
+    return () => signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
+  }, [fetchSpeed, mockMode, renderAcceptedSnapshot, signalR]);
 
   const value: SpeedContextType = useMemo(
     () => ({

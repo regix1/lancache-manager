@@ -35,7 +35,7 @@ public sealed class DashboardBatchCacheContractTests
         Cache = new CacheInfo(),
         Clients = new object(),
         Services = new object(),
-        Dashboard = new object(),
+        Dashboard = new DashboardStatsResponse(),
         DownloadTotals = new object(),
         FilteredDownloadTotals = new object(),
         ServiceOptions = new object(),
@@ -89,6 +89,63 @@ public sealed class DashboardBatchCacheContractTests
         }
 
         Assert.True(DashboardBatchService.HasFailedSection(response));
+    }
+
+    [Fact]
+    public async Task CacheHitCopiesFreshCurrentFieldsWithoutChangingCachedHistory()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"dashboard-current-cache-{Guid.NewGuid():N}")
+            .Options;
+        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var service = BatchServiceWith(contexts, cache);
+        var current = new DownloadSpeedSnapshot
+        {
+            StreamId = "current-stream",
+            Revision = 42,
+            GameSpeeds = [new GameSpeedInfo(), new GameSpeedInfo()],
+            ClientSpeeds = [new ClientSpeedInfo()]
+        };
+        SetBatchField(service, "_readActivity", new Func<DownloadSpeedSnapshot>(() => current));
+
+        var period = new DashboardPeriodStats { Duration = "all", Downloads = 9 };
+        var breakdown = new List<ServiceBreakdownItem>
+        {
+            new() { Service = "steam", Bytes = 100, Percentage = 100 }
+        };
+        var recent = JsonSerializer.SerializeToElement(new[] { new { id = 7 } });
+        var cached = FullyPopulatedResponse();
+        cached.Dashboard = new DashboardStatsResponse
+        {
+            ActiveDownloads = 99,
+            ActiveClients = 88,
+            ActivityStreamId = "cached-stream",
+            ActivityRevision = 2,
+            UniqueClients = 7,
+            Period = period,
+            ServiceBreakdown = breakdown
+        };
+        cached.RecentDownloads = recent;
+        const string cacheKey = "dashboard-batch::::show:UTC:0:0:False:::|";
+        cache.Set(cacheKey, cached, new MemoryCacheEntryOptions().SetSize(1));
+
+        var response = await service.GetBatchAsync(
+            null, null, null, "UTC", false, CancellationToken.None);
+
+        Assert.NotSame(cached, response);
+        Assert.NotSame(cached.Dashboard, response.Dashboard);
+        Assert.Equal(2, response.Dashboard!.ActiveDownloads);
+        Assert.Equal(1, response.Dashboard.ActiveClients);
+        Assert.Equal("current-stream", response.Dashboard.ActivityStreamId);
+        Assert.Equal(42, response.Dashboard.ActivityRevision);
+        Assert.Equal(7, response.Dashboard.UniqueClients);
+        Assert.Same(period, response.Dashboard.Period);
+        Assert.Same(breakdown, response.Dashboard.ServiceBreakdown);
+        Assert.Equal(recent, Assert.IsType<JsonElement>(response.RecentDownloads));
+        Assert.Equal(99, cached.Dashboard!.ActiveDownloads);
+        Assert.Equal("cached-stream", cached.Dashboard.ActivityStreamId);
+        Assert.Equal(0, contexts.AsyncCreateCount);
     }
 
     [Fact]
@@ -583,7 +640,6 @@ public sealed class DashboardBatchCacheContractTests
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
             "await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows], ct);",
-            "await activeQuery.CountAsync(ct)",
             ".Where(m => m.IsOwner && depotIds.Contains(m.DepotId))",
             ".ToListAsync(ct)",
             ".ToDictionaryAsync(m => m.AppId, m => m.Name, ct)",
@@ -767,11 +823,7 @@ public sealed class DashboardBatchCacheContractTests
             await seed.SaveChangesAsync();
         }
 
-        var batchService =
-            (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
-        typeof(DashboardBatchService)
-            .GetField("_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(batchService, new TopServiceDbContextFactory(options));
+        var batchService = BatchServiceOver(options);
 
         var getDashboardStats = typeof(DashboardBatchService).GetMethod(
             "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -795,6 +847,9 @@ public sealed class DashboardBatchCacheContractTests
         typeof(StatsController)
             .GetField("_stateRepository", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(controller, stateService);
+        typeof(StatsController)
+            .GetField("_readActivity", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(controller, EmptyActivity);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
         var controllerResult = await controller.DashboardStatsAsync(startTime: null, endTime: null, eventId: null, ct: CancellationToken.None);
@@ -817,11 +872,7 @@ public sealed class DashboardBatchCacheContractTests
             .UseInMemoryDatabase($"topservice-empty-{Guid.NewGuid():N}")
             .Options;
 
-        var batchService =
-            (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
-        typeof(DashboardBatchService)
-            .GetField("_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(batchService, new TopServiceDbContextFactory(options));
+        var batchService = BatchServiceOver(options);
 
         var getDashboardStats = typeof(DashboardBatchService).GetMethod(
             "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -845,6 +896,9 @@ public sealed class DashboardBatchCacheContractTests
         typeof(StatsController)
             .GetField("_stateRepository", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(controller, stateService);
+        typeof(StatsController)
+            .GetField("_readActivity", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(controller, EmptyActivity);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
         var controllerResult = await controller.DashboardStatsAsync(startTime: null, endTime: null, eventId: null, ct: CancellationToken.None);
@@ -1029,6 +1083,7 @@ public sealed class DashboardBatchCacheContractTests
         SetBatchField(service, "_configuration", new ConfigurationBuilder().Build());
         SetBatchField(service, "_logger", NullLogger<DashboardBatchService>.Instance);
         SetBatchField(service, "_wireJsonOptions", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        SetBatchField(service, "_readActivity", EmptyActivity);
 
         return service;
     }
@@ -1083,8 +1138,15 @@ public sealed class DashboardBatchCacheContractTests
         typeof(DashboardBatchService)
             .GetField("_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(service, new TopServiceDbContextFactory(options));
+        SetBatchField(service, "_readActivity", EmptyActivity);
         return service;
     }
+
+    private static readonly Func<DownloadSpeedSnapshot> EmptyActivity = () => new()
+    {
+        StreamId = "dashboard-tests",
+        Revision = 1
+    };
 
     private static Task<object> InvokeSubQuery(DashboardBatchService service, string name, object?[] arguments)
         => (Task<object>)typeof(DashboardBatchService)

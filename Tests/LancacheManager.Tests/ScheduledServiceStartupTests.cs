@@ -181,7 +181,9 @@ public class ScheduledServiceStartupTests
                 CreateDefaultProxy<ILancacheEnvFileReader>(),
                 CreateDefaultProxy<IOperationConflictChecker>(),
                 new DatasourceCapabilityService(datasources),
-                CacheScanGateHarness.Idle());
+                CacheScanGateHarness.Idle(),
+                (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                    typeof(OperationStateService)));
             await using var services = new ServiceCollection().BuildServiceProvider();
             var service = new CacheSnapshotService(
                 services,

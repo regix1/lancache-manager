@@ -41,7 +41,8 @@ public interface IUnifiedOperationTracker
                            OperationStatus initialStatus = OperationStatus.Running,
                            Guid? parentOperationId = null, DateTime? startedAt = null,
                            string? blockedByName = null, RunNotice? notice = null,
-                           bool liveIngest = false, Guid? ownerSessionId = null);
+                           bool liveIngest = false, Guid? ownerSessionId = null,
+                           bool ownerCompletes = false);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
@@ -55,11 +56,13 @@ public interface IUnifiedOperationTracker
     /// <param name="onTerminalCleanup">See <see cref="RegisterOperation"/>.</param>
     /// <param name="onTerminalEmit">See <see cref="RegisterOperation"/>.</param>
     /// <param name="notice">See <see cref="RegisterOperation"/>.</param>
+    /// <param name="liveIngest">See <see cref="RegisterOperation"/>.</param>
     bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
                              object? metadata = null, Action? onTerminalCleanup = null,
                              Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
                              Guid? parentOperationId = null, DateTime? startedAt = null,
-                             RunNotice? notice = null);
+                             RunNotice? notice = null, bool ownerCompletes = false,
+                             bool liveIngest = false);
 
     /// <summary>
     /// Aggressively cancels an operation: terminates any associated process tree immediately,
@@ -94,7 +97,8 @@ public interface IUnifiedOperationTracker
         Guid operationId,
         object? state,
         Action? onTerminalCleanup,
-        Func<OperationTerminalInfo, Task>? onTerminalEmit);
+        Func<OperationTerminalInfo, Task>? onTerminalEmit,
+        bool ownerCompletes = false);
 
     /// <summary>
     /// Completes a parked operation as cancelled, because a queued operation has no worker to

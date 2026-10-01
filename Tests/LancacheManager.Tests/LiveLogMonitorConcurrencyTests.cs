@@ -127,9 +127,23 @@ public class LiveLogMonitorConcurrencyTests
             LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
     }
 
-    private static OperationConflictResponse ConflictFor(OperationType activeType) => new()
+    [Fact]
+    public void IncrementalBatch_DoesNotBypassRepairingSafeOperationType()
+    {
+        var conflict = ConflictFor(OperationType.CorruptionDetection, repairPending: true);
+
+        Assert.False(
+            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
+    }
+
+    private static OperationConflictResponse ConflictFor(
+        OperationType activeType,
+        bool repairPending = false) => new()
     {
         ActiveOperationType = activeType.ToString(),
-        StageKey = "errors.conflict.heavyOperationActive"
+        StageKey = "errors.conflict.heavyOperationActive",
+        Context = repairPending
+            ? new Dictionary<string, object?> { ["repairPending"] = true }
+            : null
     };
 }

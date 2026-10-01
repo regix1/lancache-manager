@@ -5,38 +5,6 @@ namespace LancacheManager.Infrastructure.Utilities;
 
 internal static class TrackedRemovalOperationRunner
 {
-    internal sealed record RemovalProgressUpdate(
-        double PercentComplete,
-        string StageKey,
-        Dictionary<string, object?>? Context = null,
-        int FilesDeleted = 0,
-        long BytesFreed = 0);
-
-    internal sealed record RemovalOperationConfig<TReport>(
-        OperationType OperationType,
-        string OperationLabel,
-        RemovalMetrics Metadata,
-        string StartedEventName,
-        Func<Guid, object> BuildStartedPayload,
-        string ProgressEventName,
-        string InitialStageKey,
-        Func<Guid, object> BuildInitialProgressPayload,
-        Func<Guid, RemovalProgressUpdate, object> BuildProgressPayload,
-        string CompleteEventName,
-        string FinalizingStageKey,
-        Func<Guid, TReport, object> BuildFinalizingProgressPayload,
-        Func<Guid, TReport, object> BuildSuccessPayload,
-        Func<Guid, object> BuildCancelledPayload,
-        Func<Guid, Exception, object> BuildErrorProgressPayload,
-        Func<Guid, Exception, IOperationComplete> BuildErrorCompletePayload,
-        Func<Guid, CancellationToken, Func<RemovalProgressUpdate, Task>, Task<TReport>> ExecuteAsync,
-        Action<RemovalMetrics, RemovalProgressUpdate>? ApplyProgressMetrics = null,
-        Action<RemovalMetrics, TReport>? ApplyFinalMetrics = null,
-        Func<TReport, Task>? OnSuccessAsync = null,
-        Action<Guid, TReport>? LogSuccess = null,
-        Action<Guid>? LogCancelled = null,
-        Action<Guid, Exception>? LogFailure = null);
-
     internal static async Task<Guid> StartAsync<TReport>(
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
@@ -54,30 +22,37 @@ internal static class TrackedRemovalOperationRunner
             config.OperationType,
             config.OperationLabel,
             cancellationTokenSource,
-            config.Metadata,
+            config.Metrics,
             onTerminalEmit: info => info.Cancelled
                 ? notifications.NotifyAllAsync(
                     config.CompleteEventName,
-                    config.BuildCancelledPayload(operationId))
+                    config.BuildCancelled(operationId))
                 : info.Success
                     ? notifications.NotifyAllAsync(
                         config.CompleteEventName,
-                        config.BuildSuccessPayload(operationId, capturedReport!))
+                        config.BuildSuccess(operationId, capturedReport!))
                     // Genuine failure (not cancel/success) → the uniform failure broadcast: central
                     // LogWarning + guaranteed IOperationComplete shape, still through the one send path.
                     : notifications.NotifyOperationFailedAsync(
                         config.CompleteEventName,
-                        config.BuildErrorCompletePayload(
+                        config.BuildErrorComplete(
                             operationId,
-                            capturedException ?? new Exception(info.Error ?? "Operation failed"))));
+                            GetTerminalError(capturedException, info.Error))),
+            ownerCompletes: true);
 
-        await notifications.NotifyAllAsync(config.StartedEventName, config.BuildStartedPayload(operationId));
+        await notifications.NotifyAllAsync(config.StartedEventName, config.BuildStarted(operationId));
 
         _ = Task.Run(async () =>
         {
+            var repairPrepared = false;
+            var finishingRepair = false;
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                var repair = config.BuildRepair(operationId);
+                await config.PrepareRepairAsync(repair, cancellationToken);
+                repairPrepared = true;
 
                 var initialAccepted = false;
                 operationTracker.UpdateProgress(operationId, 0, config.InitialStageKey,
@@ -86,7 +61,7 @@ internal static class TrackedRemovalOperationRunner
                 {
                     await notifications.NotifyAllAsync(
                         config.ProgressEventName,
-                        config.BuildInitialProgressPayload(operationId));
+                        config.BuildInitialProgress(operationId));
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -104,14 +79,14 @@ internal static class TrackedRemovalOperationRunner
                         operationTracker.UpdateProgress(operationId, captured.PercentComplete, captured.StageKey,
                             onProgress: _ =>
                             {
-                                config.ApplyProgressMetrics?.Invoke(config.Metadata, captured);
+                                config.ApplyProgressMetrics?.Invoke(config.Metrics, captured);
                                 accepted = true;
                             });
                         if (accepted)
                         {
                             await notifications.NotifyAllAsync(
                                 config.ProgressEventName,
-                                config.BuildProgressPayload(operationId, captured));
+                                config.BuildProgress(operationId, captured));
                         }
                     });
 
@@ -124,13 +99,34 @@ internal static class TrackedRemovalOperationRunner
                 {
                     await notifications.NotifyAllAsync(
                         config.ProgressEventName,
-                        config.BuildFinalizingProgressPayload(operationId, report));
+                        config.BuildFinalizingProgress(operationId, report));
                 }
 
                 if (config.OnSuccessAsync != null)
                 {
                     await config.OnSuccessAsync(report);
                 }
+
+                var current = operationTracker.GetOperation(operationId);
+                if (current?.Status.IsTerminal() == true)
+                {
+                    finishingRepair = true;
+                    await config.FinishRepairAsync(
+                        operationId,
+                        current.Status == OperationStatus.Completed,
+                        current.Status == OperationStatus.Cancelled,
+                        current.Status == OperationStatus.Failed ? current.Message : null);
+                    finishingRepair = false;
+                    return;
+                }
+
+                finishingRepair = true;
+                await config.FinishRepairAsync(
+                    operationId,
+                    true,
+                    false,
+                    null);
+                finishingRepair = false;
 
                 config.LogSuccess?.Invoke(operationId, report);
 
@@ -140,17 +136,71 @@ internal static class TrackedRemovalOperationRunner
                 operationTracker.CompleteOperation(operationId, success: true, onCompleting: _ =>
                 {
                     capturedReport = report;
-                    config.ApplyFinalMetrics?.Invoke(config.Metadata, report);
+                    config.ApplyFinalMetrics?.Invoke(config.Metrics, report);
                 });
+            }
+            catch (OperationCanceledException) when (finishingRepair)
+            {
+                // Application shutdown owns the unfinished retained repair. A later startup restores it.
             }
             catch (OperationCanceledException)
             {
+                if (repairPrepared)
+                {
+                    try
+                    {
+                        finishingRepair = true;
+                        await config.FinishRepairAsync(
+                            operationId,
+                            false,
+                            true,
+                            null);
+                        finishingRepair = false;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        config.LogFailure?.Invoke(operationId, ex);
+                        return;
+                    }
+                }
+
                 config.LogCancelled?.Invoke(operationId);
                 // onTerminalEmit sends the cancelled Complete event (info.Cancelled) — no direct emit here.
                 operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
             }
+            catch (Exception ex) when (finishingRepair)
+            {
+                config.LogFailure?.Invoke(operationId, ex);
+            }
             catch (Exception ex)
             {
+                if (repairPrepared)
+                {
+                    try
+                    {
+                        finishingRepair = true;
+                        await config.FinishRepairAsync(
+                            operationId,
+                            false,
+                            false,
+                            ex.Message);
+                        finishingRepair = false;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception repairError)
+                    {
+                        config.LogFailure?.Invoke(operationId, repairError);
+                        return;
+                    }
+                }
+
                 config.LogFailure?.Invoke(operationId, ex);
 
                 var errorAccepted = false;
@@ -161,7 +211,7 @@ internal static class TrackedRemovalOperationRunner
                 {
                     await notifications.NotifyAllAsync(
                         config.ProgressEventName,
-                        config.BuildErrorProgressPayload(operationId, ex));
+                        config.BuildErrorProgress(operationId, ex));
                 }
 
                 // Capture the exception so the onTerminalEmit closure can build the error Complete payload.
@@ -169,8 +219,21 @@ internal static class TrackedRemovalOperationRunner
                     onCompleting: _ => capturedException = ex);
             }
             // The tracker owns cancellation-source disposal.
-        }, cancellationToken);
+        }, CancellationToken.None);
 
         return operationId;
+    }
+
+    private static Exception GetTerminalError(Exception? current, string? error)
+    {
+        if (current is not null)
+        {
+            return current;
+        }
+        if (error is null)
+        {
+            throw new InvalidDataException("Failed removal terminal has no error.");
+        }
+        return new Exception(error);
     }
 }

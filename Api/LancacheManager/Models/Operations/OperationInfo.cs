@@ -32,6 +32,10 @@ public class OperationInfo
     [System.Text.Json.Serialization.JsonIgnore]
     public Guid? OwnerSessionId { get; init; }
 
+    /// <summary>True when the worker publishes its terminal after required reconciliation.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OwnerCompletes { get; internal set; }
+
     /// <summary>Revision of the last row sent for this operation.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public long Revision { get; set; }

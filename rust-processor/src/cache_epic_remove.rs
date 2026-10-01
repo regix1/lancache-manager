@@ -6,6 +6,7 @@ use sqlx::Row;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use lancache_processor::cache_repair;
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::db;
@@ -65,6 +66,10 @@ struct Args {
     /// Keep database history for manager-coordinated multi-datasource removal.
     #[arg(long = "skip-db-delete")]
     skip_db_delete: bool,
+
+    /// Operation that owns the durable cache-root receipt.
+    #[arg(long = "operation-id")]
+    operation_id: Option<String>,
 }
 
 /// Epic removal stage keys (`signalr.epicRemove.*`). Only the per-file cache progress
@@ -326,6 +331,7 @@ async fn main() -> Result<()> {
     let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
         RemovalReport::from_tail(game_name, tail).write(&output_json)
     };
+    cache_repair::prepare_receipt(&cache_dir, args.operation_id.as_deref())?;
     let Some(tail) = removal_core::run_url_removal_steps(
         &cache_dir,
         &log_dir,
@@ -377,7 +383,30 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::PRIMARY_URL_QUERY;
+    use super::{Args, PRIMARY_URL_QUERY};
+    use clap::Parser;
+
+    #[test]
+    fn operation_id_argument_is_optional() {
+        let base = [
+            "cache_epic_remove",
+            "/logs",
+            "/cache",
+            "Fortnite",
+            "report.json",
+            "progress.json",
+        ];
+        assert!(Args::try_parse_from(base).unwrap().operation_id.is_none());
+        let mut supplied = base.to_vec();
+        supplied.extend(["--operation-id", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert_eq!(
+            Args::try_parse_from(supplied)
+                .unwrap()
+                .operation_id
+                .as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
 
     #[test]
     fn primary_query_gates_identity_on_game_name_and_epic_app_id() {

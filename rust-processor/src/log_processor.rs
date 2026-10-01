@@ -42,19 +42,13 @@ struct Args {
     /// Path to progress JSON file
     progress_path: String,
 
-    /// Line number to start from (0 for beginning)
-    start_position: u64,
-
     /// Map depot IDs to games during processing (1=yes, 0=no)
     auto_map_depots: u8,
 
-    /// Optional name for multi-datasource support (default: 'default')
-    #[arg(default_value = "default")]
-    datasource_name: Option<String>,
+    /// Datasource name the stored entries are tagged with
+    datasource_name: String,
 
-    /// Path to the per-source positions JSON ("" = legacy monolithic mode: only the
-    /// access.log series is processed and start_position applies to it exactly as before)
-    #[arg(default_value = "")]
+    /// Path to the per-source positions JSON: where each log source resumes
     positions_path: String,
 
     /// Emit JSON progress events to stdout
@@ -353,10 +347,8 @@ struct Processor {
     pool: PgPool,
     log_dir: PathBuf,
     progress_path: PathBuf,
-    start_position: u64,
-    /// Per-stem start offsets from the positions file. None = legacy monolithic mode
-    /// (only the access.log series, start_position applies to it exactly as before).
-    positions: Option<HashMap<String, u64>>,
+    /// Per-stem start offsets from the positions file; a stem not listed starts at 0.
+    positions: HashMap<String, u64>,
     resume_path: Option<PathBuf>,
     run_id: String,
     /// Presentation-only layout of the discovered sources ("" until discovery runs).
@@ -488,15 +480,13 @@ impl FileResume {
 }
 
 impl Processor {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         pool: PgPool,
         log_dir: PathBuf,
         progress_path: PathBuf,
-        start_position: u64,
         auto_map_depots: bool,
         datasource_name: String,
-        positions: Option<HashMap<String, u64>>,
+        positions: HashMap<String, u64>,
         run_id: String,
     ) -> Self {
         // Get timezone from environment variable (same as C# uses)
@@ -510,7 +500,6 @@ impl Processor {
             pool,
             log_dir,
             progress_path,
-            start_position,
             positions,
             resume_path: None,
             run_id,
@@ -667,20 +656,7 @@ impl Processor {
         };
         self.layout = source_set.layout().to_string();
 
-        // Legacy mode (no positions file) processes ONLY the monolithic access.log
-        // series, with start_position applying to it exactly as it always has.
-        // A positions file activates every discovered source; the CLI start_position
-        // is ignored entirely (it cannot be meaningful across parallel streams).
-        let sources: Vec<LogSource> = if self.positions.is_none() {
-            source_set
-                .sources
-                .iter()
-                .filter(|s| s.kind == SourceKind::Monolithic)
-                .cloned()
-                .collect()
-        } else {
-            source_set.sources.clone()
-        };
+        let sources: Vec<LogSource> = source_set.sources.clone();
 
         if sources.is_empty() {
             eprintln!("No log files found in {}", source_set.dir.display());
@@ -722,12 +698,9 @@ impl Processor {
         ));
 
         // Check if this is a fresh database - skip dedup for maximum speed
-        let starts_at_zero = match &self.positions {
-            None => self.start_position == 0,
-            Some(map) => sources
-                .iter()
-                .all(|s| map.get(&s.stem).copied().unwrap_or(0) == 0),
-        };
+        let starts_at_zero = sources
+            .iter()
+            .all(|s| self.positions.get(&s.stem).copied().unwrap_or(0) == 0);
         if starts_at_zero {
             let is_empty: bool =
                 sqlx::query_scalar(r#"SELECT NOT EXISTS(SELECT 1 FROM "LogEntries" LIMIT 1)"#)
@@ -759,10 +732,7 @@ impl Processor {
             .unwrap_or_default();
 
         'sources: for (source_index, source) in sources.iter().enumerate() {
-            let start_offset = match &self.positions {
-                None => self.start_position,
-                Some(map) => map.get(&source.stem).copied().unwrap_or(0),
-            };
+            let start_offset = self.positions.get(&source.stem).copied().unwrap_or(0);
             let mut stem_files = source.files.clone();
             let mut stem_sizes = file_sizes[source_index].clone();
             let mut paths: Vec<PathBuf> = stem_files.iter().map(|file| file.path.clone()).collect();
@@ -2466,19 +2436,10 @@ async fn main() -> Result<()> {
 
     let log_dir = PathBuf::from(&args.log_dir);
     let progress_path = PathBuf::from(&args.progress_path);
-    let start_position = args.start_position;
     let auto_map_depots = args.auto_map_depots == 1;
-    let datasource_name = args
-        .datasource_name
-        .unwrap_or_else(|| "default".to_string());
-    let resume_path = if args.positions_path.is_empty() {
-        None
-    } else {
-        Some(
-            Path::new(&args.positions_path)
-                .with_file_name(format!("rust_resume_{datasource_name}.json")),
-        )
-    };
+    let datasource_name = args.datasource_name;
+    let resume_path = Path::new(&args.positions_path)
+        .with_file_name(format!("rust_resume_{datasource_name}.json"));
 
     let run_id = uuid::Uuid::new_v4().to_string();
 
@@ -2492,24 +2453,20 @@ async fn main() -> Result<()> {
 
     // A supplied positions file must validate BEFORE any database work: silently treating
     // a missing/malformed file as "all sources at 0" would re-ingest the entire history.
-    let positions = if args.positions_path.is_empty() {
-        None
-    } else {
-        match load_positions(&args.positions_path) {
-            Ok(map) => Some(map),
-            Err(e) => {
-                let msg = format!("Invalid positions file: {e:#}");
-                eprintln!("{msg}");
-                if let Err(write_err) = write_seed_failure_terminal(&progress_path, &run_id, &msg) {
-                    eprintln!("Warning: failed to write failure checkpoint: {write_err:#}");
-                }
-                reporter.emit_failed(
-                    "signalr.logProcessor.error.fatal",
-                    serde_json::json!({}),
-                    Some(msg.clone()),
-                );
-                return Err(anyhow::anyhow!(msg));
+    let positions = match load_positions(&args.positions_path) {
+        Ok(map) => map,
+        Err(e) => {
+            let msg = format!("Invalid positions file: {e:#}");
+            eprintln!("{msg}");
+            if let Err(write_err) = write_seed_failure_terminal(&progress_path, &run_id, &msg) {
+                eprintln!("Warning: failed to write failure checkpoint: {write_err:#}");
             }
+            reporter.emit_failed(
+                "signalr.logProcessor.error.fatal",
+                serde_json::json!({}),
+                Some(msg.clone()),
+            );
+            return Err(anyhow::anyhow!(msg));
         }
     };
 
@@ -2536,13 +2493,12 @@ async fn main() -> Result<()> {
         pool,
         log_dir,
         progress_path,
-        start_position,
         auto_map_depots,
         datasource_name,
         positions,
         run_id,
     );
-    processor.resume_path = resume_path;
+    processor.resume_path = Some(resume_path);
 
     match processor.process().await {
         Ok(ProcessingOutcome::Completed) => {
@@ -2583,13 +2539,12 @@ mod classification_tests {
     fn test_processor(
         log_dir: PathBuf,
         progress_path: PathBuf,
-        positions: Option<HashMap<String, u64>>,
+        positions: HashMap<String, u64>,
     ) -> Processor {
         Processor::new(
             test_pool(),
             log_dir,
             progress_path,
-            0,
             false,
             "test".to_string(),
             positions,
@@ -2612,7 +2567,7 @@ mod classification_tests {
         let mut processor = test_processor(
             directory.to_path_buf(),
             directory.join(progress_name),
-            Some(positions),
+            positions,
         );
         processor.resume_path = Some(resume_path.to_path_buf());
         processor
@@ -2775,10 +2730,9 @@ mod classification_tests {
             pool.clone(),
             directory.to_path_buf(),
             directory.join(format!("{run_id}.json")),
-            0,
             false,
             "format-fixture".to_string(),
-            Some(positions),
+            positions,
             run_id.to_string(),
         )
     }
@@ -3183,11 +3137,8 @@ mod classification_tests {
         let progress_path = tmp.path().join("progress.json");
         let mut positions = HashMap::new();
         positions.insert("fallback-access.log".to_string(), 1);
-        let mut processor = test_processor(
-            tmp.path().to_path_buf(),
-            progress_path.clone(),
-            Some(positions),
-        );
+        let mut processor =
+            test_processor(tmp.path().to_path_buf(), progress_path.clone(), positions);
         // Keep the fixture in the normal partial-terminal path without requiring a DB insert.
         processor.entries_saved.store(1, Ordering::Relaxed);
 
@@ -3244,7 +3195,7 @@ mod classification_tests {
         let mut control = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("control.json"),
-            Some(positions),
+            positions,
         );
         control.process().await.expect("run line-skip control");
         let control_progress = read_progress(&directory.path().join("control.json"));
@@ -3394,7 +3345,7 @@ mod classification_tests {
         let mut first = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("first.json"),
-            Some(first_positions),
+            first_positions,
         );
         first.resume_path = Some(resume_path.clone());
         first.process().await.expect("process initial series");
@@ -3409,7 +3360,7 @@ mod classification_tests {
         let mut resumed = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("resumed.json"),
-            Some(second_positions),
+            second_positions,
         );
         resumed.resume_path = Some(resume_path);
         resumed.process().await.expect("fall back to line skip");
@@ -3439,7 +3390,7 @@ mod classification_tests {
         let mut processor = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("progress.json"),
-            None,
+            HashMap::new(),
         );
         processor.before_content_open = Some(Box::new(move |path| {
             if path == changed_path {
@@ -3528,7 +3479,7 @@ mod classification_tests {
         let mut second = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("second.json"),
-            Some(positions),
+            positions,
         );
         second.read_failure = Some(oldest.clone());
         second
@@ -3628,7 +3579,7 @@ mod classification_tests {
         test_processor(
             directory.path().to_path_buf(),
             directory.path().join("first.json"),
-            Some(first_positions),
+            first_positions,
         )
         .process()
         .await
@@ -3650,7 +3601,7 @@ mod classification_tests {
         let mut second = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("second.json"),
-            Some(positions),
+            positions,
         );
         second
             .process()
@@ -3671,7 +3622,7 @@ mod classification_tests {
         let mut processor = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("progress.json"),
-            None,
+            HashMap::new(),
         );
         let mut skip = 0;
         let mut consumed = 0;
@@ -3826,7 +3777,7 @@ mod classification_tests {
         let mut first = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("first.json"),
-            Some(positions),
+            positions,
         );
         first.resume_path = Some(resume_path.clone());
         first
@@ -3848,7 +3799,7 @@ mod classification_tests {
         let mut second = test_processor(
             directory.path().to_path_buf(),
             directory.path().join("second.json"),
-            Some(positions),
+            positions,
         );
         second.resume_path = Some(resume_path);
         second
@@ -3915,7 +3866,7 @@ mod classification_tests {
         let not_a_directory = tmp.path().join("access.log");
         std::fs::write(&not_a_directory, b"line\n").expect("write file path fixture");
         let progress_path = tmp.path().join("progress.json");
-        let mut processor = test_processor(not_a_directory, progress_path.clone(), None);
+        let mut processor = test_processor(not_a_directory, progress_path.clone(), HashMap::new());
 
         let error = processor
             .process()
@@ -3931,7 +3882,11 @@ mod classification_tests {
     #[tokio::test]
     async fn starting_progress_failure_is_best_effort() {
         let tmp = tempfile::tempdir().expect("create fixture directory");
-        let processor = test_processor(tmp.path().to_path_buf(), tmp.path().to_path_buf(), None);
+        let processor = test_processor(
+            tmp.path().to_path_buf(),
+            tmp.path().to_path_buf(),
+            HashMap::new(),
+        );
 
         processor.write_starting_progress_best_effort("starting fixture");
 
@@ -3963,7 +3918,11 @@ mod classification_tests {
     async fn generic_processor_error_writes_failed_terminal() {
         let tmp = tempfile::tempdir().expect("create fixture directory");
         let progress_path = tmp.path().join("progress.json");
-        let processor = test_processor(tmp.path().to_path_buf(), progress_path.clone(), None);
+        let processor = test_processor(
+            tmp.path().to_path_buf(),
+            progress_path.clone(),
+            HashMap::new(),
+        );
 
         write_processor_failure_terminal(&processor, &anyhow::anyhow!("generic failure"))
             .expect("write failed terminal");
@@ -3982,7 +3941,7 @@ mod classification_tests {
         let log_path = tmp.path().join("fallback-access.log");
         std::fs::write(&log_path, b"one\n").expect("write log fixture");
         let progress_path = tmp.path().join("progress.json");
-        let mut processor = test_processor(tmp.path().to_path_buf(), progress_path, None);
+        let mut processor = test_processor(tmp.path().to_path_buf(), progress_path, HashMap::new());
         let log_file = LogFile::from_path(log_path);
         let mut lines_to_skip = 0;
         let mut records_consumed = 0;
@@ -4122,10 +4081,9 @@ mod session_continuity_tests {
             pool.clone(),
             directory.to_path_buf(),
             progress_path.clone(),
-            0,
             false,
             datasource.to_string(),
-            Some(positions),
+            positions,
             run_id.to_string(),
         );
         processor.resume_path = Some(directory.join(format!("{datasource}-resume.json")));
@@ -4958,10 +4916,9 @@ mod session_continuity_tests {
             pool.clone(),
             unreadable.path().to_path_buf(),
             unreadable_first_path.clone(),
-            0,
             false,
             "resume-unreadable".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 0)])),
+            HashMap::from([("access.log".to_string(), 0)]),
             "unreadable-first".to_string(),
         );
         unreadable_first.resume_path = Some(unreadable_resume.clone());
@@ -5029,10 +4986,9 @@ mod session_continuity_tests {
             pool.clone(),
             unreadable.path().to_path_buf(),
             unreadable_second_path.clone(),
-            0,
             false,
             "resume-unreadable".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 2)])),
+            HashMap::from([("access.log".to_string(), 2)]),
             "unreadable-second".to_string(),
         );
         unreadable_second.resume_path = Some(unreadable_resume.clone());
@@ -5075,10 +5031,9 @@ mod session_continuity_tests {
             pool.clone(),
             unreadable.path().to_path_buf(),
             unreadable_third_path,
-            0,
             false,
             "resume-unreadable".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 3)])),
+            HashMap::from([("access.log".to_string(), 3)]),
             "unreadable-third".to_string(),
         );
         unreadable_third.resume_path = Some(unreadable_resume);
@@ -5155,10 +5110,9 @@ mod session_continuity_tests {
             pool.clone(),
             directory.path().to_path_buf(),
             directory.path().join("unix-open-first.json"),
-            0,
             false,
             "resume-unix-open".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 0)])),
+            HashMap::from([("access.log".to_string(), 0)]),
             "unix-open-first".to_string(),
         );
         first.resume_path = Some(resume_path.clone());
@@ -5192,10 +5146,9 @@ mod session_continuity_tests {
             pool.clone(),
             directory.path().to_path_buf(),
             directory.path().join("unix-open-second.json"),
-            0,
             false,
             "resume-unix-open".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 2)])),
+            HashMap::from([("access.log".to_string(), 2)]),
             "unix-open-second".to_string(),
         );
         second.resume_path = Some(resume_path.clone());
@@ -5212,10 +5165,9 @@ mod session_continuity_tests {
             pool.clone(),
             directory.path().to_path_buf(),
             directory.path().join("unix-open-third.json"),
-            0,
             false,
             "resume-unix-open".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 3)])),
+            HashMap::from([("access.log".to_string(), 3)]),
             "unix-open-third".to_string(),
         );
         third.resume_path = Some(resume_path);
@@ -5978,10 +5930,9 @@ mod session_continuity_tests {
             pool.clone(),
             without_resume.path().to_path_buf(),
             progress_path.clone(),
-            0,
             false,
             "truncated-without-resume".to_string(),
-            Some(positions),
+            positions,
             "truncated-without-resume".to_string(),
         );
         processor.process().await.expect("run corrected line skip");
@@ -6083,10 +6034,9 @@ mod session_continuity_tests {
             pool.clone(),
             rewrite_directory.path().to_path_buf(),
             rewrite_progress_path.clone(),
-            0,
             false,
             "resume-rewrite".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 3)])),
+            HashMap::from([("access.log".to_string(), 3)]),
             "rewrite-second".to_string(),
         );
         rewrite_processor.resume_path =
@@ -6151,10 +6101,9 @@ mod session_continuity_tests {
             pool.clone(),
             zero_directory.path().to_path_buf(),
             zero_progress_path.clone(),
-            0,
             false,
             "resume-zero".to_string(),
-            Some(HashMap::from([("access.log".to_string(), 0)])),
+            HashMap::from([("access.log".to_string(), 0)]),
             "zero-second".to_string(),
         );
         zero_processor.resume_path = Some(zero_directory.path().join("resume-zero-resume.json"));
@@ -6279,10 +6228,9 @@ mod session_continuity_tests {
                 pool.clone(),
                 directory.path().to_path_buf(),
                 first_path.clone(),
-                0,
                 false,
                 datasource.to_string(),
-                Some(HashMap::from([("access.log".to_string(), 2)])),
+                HashMap::from([("access.log".to_string(), 2)]),
                 "count-seed-first".to_string(),
             );
             first.resume_path = Some(resume_path.clone());
@@ -6347,10 +6295,9 @@ mod session_continuity_tests {
                 pool.clone(),
                 directory.path().to_path_buf(),
                 second_path.clone(),
-                0,
                 false,
                 datasource.to_string(),
-                Some(HashMap::from([("access.log".to_string(), 3)])),
+                HashMap::from([("access.log".to_string(), 3)]),
                 "count-seed-second".to_string(),
             );
             second.resume_path = Some(resume_path.clone());
@@ -6382,10 +6329,9 @@ mod session_continuity_tests {
                 pool.clone(),
                 directory.path().to_path_buf(),
                 third_path.clone(),
-                0,
                 false,
                 datasource.to_string(),
-                Some(HashMap::from([("access.log".to_string(), 4)])),
+                HashMap::from([("access.log".to_string(), 4)]),
                 "count-seed-third".to_string(),
             );
             third.resume_path = Some(resume_path.clone());

@@ -115,6 +115,8 @@ public class GameDetectionService : ScheduledBackgroundService
     {
         try
         {
+            await _detectionService.RestoreInterruptedOperations(stoppingToken);
+
             // Check for required binary upfront before waiting for setup
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
             if (!File.Exists(rustBinaryPath))

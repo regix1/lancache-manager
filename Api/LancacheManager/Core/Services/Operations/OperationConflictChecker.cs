@@ -10,18 +10,45 @@ namespace LancacheManager.Core.Services;
 public sealed class OperationConflictChecker : IOperationConflictChecker
 {
     private readonly IUnifiedOperationTracker _tracker;
+    private readonly OperationStateService _operationStateService;
     private readonly ILogger<OperationConflictChecker> _logger;
 
     public OperationConflictChecker(
         IUnifiedOperationTracker tracker,
+        OperationStateService operationStateService,
         ILogger<OperationConflictChecker> logger)
     {
         _tracker = tracker;
+        _operationStateService = operationStateService;
         _logger = logger;
     }
 
-    public Task<OperationConflictResponse?> CheckAsync(OperationType newType, ConflictScope newScope, CancellationToken ct)
+    public async Task<OperationConflictResponse?> CheckAsync(
+        OperationType newType,
+        ConflictScope newScope,
+        CancellationToken ct)
     {
+        await _operationStateService.WaitForRecoveryOwnershipAsync(ct);
+        if (RepairBlocks(newType) && _operationStateService.GetPendingRepairs()
+                .Where(repair => repair.Phase == OperationRepairPhase.Repairing)
+                .OrderBy(repair => repair.StartedAt)
+                .FirstOrDefault() is { } pendingRepair)
+        {
+            return new OperationConflictResponse
+            {
+                Code = "OPERATION_CONFLICT",
+                StageKey = "errors.conflict.globalOperationActive",
+                ActiveOperationId = pendingRepair.Id,
+                ActiveOperationType = pendingRepair.Type.ToString(),
+                ActiveOperationScope = "repair",
+                Context = new Dictionary<string, object?>
+                {
+                    ["repairPending"] = true,
+                    ["activeType"] = pendingRepair.Type.ToString()
+                }
+            };
+        }
+
         // Snapshot active ops once. Iterate ALL types (pass null) - the matrix spans multiple types per new op.
         var active = _tracker.GetActiveOperations(null);
         OperationConflictResponse? conflict = null;
@@ -41,14 +68,28 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                     newType, newScope.ToTrackerKey(), op.Type, op.Id, verdict.ActiveOperationScope, verdict.StageKey);
                 if (verdict.StageKey == "errors.conflict.duplicate")
                 {
-                    return Task.FromResult<OperationConflictResponse?>(verdict);
+                    return verdict;
                 }
                 conflict ??= verdict;
             }
         }
 
-        return Task.FromResult(conflict);
+        return conflict;
     }
+
+    private static bool RepairBlocks(OperationType type) => type is
+        OperationType.LogProcessing
+        or OperationType.LogRemoval
+        or OperationType.CacheClearing
+        or OperationType.CacheSizeScan
+        or OperationType.GameDetection
+        or OperationType.GameRemoval
+        or OperationType.ServiceRemoval
+        or OperationType.CorruptionDetection
+        or OperationType.CorruptionRemoval
+        or OperationType.EvictionScan
+        or OperationType.EvictionRemoval
+        or OperationType.DatabaseReset;
 
     /// <summary>
     /// Pure decision function for ONE active op. Returns the 409 body if the new op must be

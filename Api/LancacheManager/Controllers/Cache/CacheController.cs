@@ -1099,7 +1099,7 @@ public class CacheController : ControllerBase
                     }
                     else if (bulkState.FailedServices > 0)
                     {
-                        var context = bulkState.Totals.ToContext("all");
+                        var context = CorruptionDetectionService.BuildRemovalContext(bulkState.Totals, "all");
                         context["failedCount"] = bulkState.FailedServices;
                         context["serviceCount"] = bulkState.ServiceCount;
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
@@ -1113,7 +1113,7 @@ public class CacheController : ControllerBase
                     }
                     else
                     {
-                        var context = bulkState.Totals.ToContext("all");
+                        var context = CorruptionDetectionService.BuildRemovalContext(bulkState.Totals, "all");
                         context["serviceCount"] = bulkState.ServiceCount;
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(true, "all",
@@ -1196,9 +1196,62 @@ public class CacheController : ControllerBase
         {
             EntityKey = selection.Service.ToLowerInvariant(),
             EntityName = selection.Service,
+            EntityKind = "service",
+            Service = selection.Service,
             DetectionMethod = selection.DetectionMethod,
             CorruptionScanId = selection.ScanId
         };
+
+    private OperationRepair BuildCorruptionRepair(
+        Guid operationId,
+        DateTime startedAt,
+        CorruptionRemovalSelection selection,
+        IReadOnlyCollection<ResolvedDatasource> datasources,
+        RemovalMetrics metrics)
+    {
+        var rewritesLogs = selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss;
+        return new OperationRepair
+        {
+            Id = operationId,
+            Type = OperationType.CorruptionRemoval,
+            Name = $"Corruption removal: {selection.Service}",
+            StartedAt = startedAt,
+            Target = new CacheRepairTarget { Service = selection.Service },
+            Corruption = new CorruptionRepair
+            {
+                ScanId = selection.ScanId,
+                ContractVersion = selection.ContractVersion,
+                DetectionMethod = selection.DetectionMethod,
+                Service = selection.Service
+            },
+            Removal = new RemovalRepair
+            {
+                EntityKey = metrics.EntityKey,
+                EntityName = metrics.EntityName,
+                EntityKind = metrics.EntityKind,
+                Service = metrics.Service,
+                EpicAppId = metrics.EpicAppId,
+                DetectionMethod = selection.DetectionMethod,
+                CorruptionScanId = selection.ScanId
+            },
+            Sources = datasources.Select(datasource => new OperationRepairSource
+            {
+                Datasource = datasource.Name,
+                LogRoot = datasource.LogPath,
+                CacheRoot = datasource.CachePath,
+                KeyScheme = _capabilityService.GetKeySchemeWireValue(datasource),
+                ReceiptPath = Path.Combine(
+                    datasource.CachePath,
+                    $".lancache-repair-{operationId:N}.json"),
+                ResetLogPositions = rewritesLogs,
+                RefreshDownloads = rewritesLogs,
+                ReconcileCache = true,
+                RefreshDetection = true,
+                InvalidateCorruption = true,
+                ApplyCorruptionCandidates = true
+            }).ToList()
+        };
+    }
 
     internal static async Task<Guid> RevalidateAndRegisterCorruptionRemovalAsync(
         SemaphoreSlim mutationGate,
@@ -1311,47 +1364,31 @@ public class CacheController : ControllerBase
         datasource.CacheWritable
         && (!RequiresLogMutation(selections, datasource.Name) || datasource.LogsWritable);
 
-    /// <summary>Aggregate totals emitted for one actionable corruption removal.</summary>
-    private sealed class CorruptionRemovalTotals
-    {
-        public long UrlsRemoved;
-        public long FilesDeleted;
-        public long LogLinesRemoved;
-        public long DownloadsDeleted;
-        public long LogEntriesDeleted;
-        public long AlreadyMissing;
-        public long Healed;
-        public long BytesFreed;
-
-        public bool AnythingRemoved =>
-            UrlsRemoved > 0 || FilesDeleted > 0 || LogLinesRemoved > 0
-            || DownloadsDeleted > 0 || LogEntriesDeleted > 0
-            || AlreadyMissing > 0 || Healed > 0;
-
-        public void Add(CorruptionRemovalTotals other)
+    private static CorruptionRemovalCounts CopyRemovalCounts(CorruptionRemovalCounts counts) =>
+        new()
         {
-            UrlsRemoved += other.UrlsRemoved;
-            FilesDeleted += other.FilesDeleted;
-            LogLinesRemoved += other.LogLinesRemoved;
-            DownloadsDeleted += other.DownloadsDeleted;
-            LogEntriesDeleted += other.LogEntriesDeleted;
-            AlreadyMissing += other.AlreadyMissing;
-            Healed += other.Healed;
-            BytesFreed += other.BytesFreed;
-        }
-
-        public Dictionary<string, object?> ToContext(string service) => new()
-        {
-            ["service"] = service,
-            ["count"] = UrlsRemoved,
-            ["files"] = FilesDeleted,
-            ["logLines"] = LogLinesRemoved,
-            ["downloads"] = DownloadsDeleted,
-            ["logEntries"] = LogEntriesDeleted,
-            ["alreadyMissing"] = AlreadyMissing,
-            ["healed"] = Healed,
-            ["bytesFreed"] = BytesFreed
+            UrlsRemoved = counts.UrlsRemoved,
+            FilesDeleted = counts.FilesDeleted,
+            LogLinesRemoved = counts.LogLinesRemoved,
+            DownloadsDeleted = counts.DownloadsDeleted,
+            LogEntriesDeleted = counts.LogEntriesDeleted,
+            AlreadyMissing = counts.AlreadyMissing,
+            Healed = counts.Healed,
+            BytesFreed = counts.BytesFreed
         };
+
+    private static void AddRemovalCounts(
+        CorruptionRemovalCounts total,
+        CorruptionRemovalCounts accepted)
+    {
+        total.UrlsRemoved = checked(total.UrlsRemoved + accepted.UrlsRemoved);
+        total.FilesDeleted = checked(total.FilesDeleted + accepted.FilesDeleted);
+        total.LogLinesRemoved = checked(total.LogLinesRemoved + accepted.LogLinesRemoved);
+        total.DownloadsDeleted = checked(total.DownloadsDeleted + accepted.DownloadsDeleted);
+        total.LogEntriesDeleted = checked(total.LogEntriesDeleted + accepted.LogEntriesDeleted);
+        total.AlreadyMissing = checked(total.AlreadyMissing + accepted.AlreadyMissing);
+        total.Healed = checked(total.Healed + accepted.Healed);
+        total.BytesFreed = checked(total.BytesFreed + accepted.BytesFreed);
     }
 
     /// <summary>
@@ -1371,7 +1408,7 @@ public class CacheController : ControllerBase
         public int FailedServices;
         public bool Cancelled;
         public Guid LastOperationId;
-        public CorruptionRemovalTotals Totals { get; } = new();
+        public CorruptionRemovalCounts Totals { get; } = new();
     }
 
     /// <summary>
@@ -1428,7 +1465,8 @@ public class CacheController : ControllerBase
     {
         string[] expectedKeys =
         [
-            "detectionMethod", "count", "files", "alreadyMissing", "healed", "bytesFreed"
+            "detectionMethod", "count", "files", "alreadyMissing", "healed",
+            "keyVerificationSkipped", "bytesFreed"
         ];
         if (context.Count != expectedKeys.Length
             || expectedKeys.Any(key => !context.ContainsKey(key))
@@ -1442,6 +1480,7 @@ public class CacheController : ControllerBase
         var files = ReadRequiredNonNegativeCount(context, "files");
         var alreadyMissing = ReadRequiredNonNegativeCount(context, "alreadyMissing");
         var healed = ReadRequiredNonNegativeCount(context, "healed");
+        var keyVerificationSkipped = ReadRequiredNonNegativeCount(context, "keyVerificationSkipped");
         var bytesFreed = ReadRequiredNonNegativeCount(context, "bytesFreed");
         long resolvedCount;
         try
@@ -1452,7 +1491,9 @@ public class CacheController : ControllerBase
         {
             throw new InvalidDataException("Structural removal totals overflowed", ex);
         }
-        if (count != expectedCandidateCount || resolvedCount != count)
+        if (keyVerificationSkipped != 0
+            || count != expectedCandidateCount
+            || resolvedCount != count)
         {
             throw new InvalidDataException("Structural removal totals did not match the server-owned selection");
         }
@@ -1539,8 +1580,9 @@ public class CacheController : ControllerBase
         var cancellationToken = cts.Token;
         var metadata = CreateCorruptionRemovalMetadata(selection);
         var serviceName = service;
-        var totals = new CorruptionRemovalTotals();
-        var terminalTotals = new CorruptionRemovalTotals();
+        var startedAt = DateTime.UtcNow;
+        var totals = new CorruptionRemovalCounts();
+        var terminalTotals = new CorruptionRemovalCounts();
         var terminalCompletion = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         var serviceIndex = bulk?.ServiceIndex;
         var serviceCount = bulk?.ServiceCount;
@@ -1570,7 +1612,7 @@ public class CacheController : ControllerBase
                         bulk.SucceededServices++;
                     else
                         bulk.FailedServices++;
-                    bulk.Totals.Add(terminalTotals);
+                    AddRemovalCounts(bulk.Totals, terminalTotals);
                     terminalCompletion.TrySetResult(info);
                     return Task.CompletedTask;
                 }
@@ -1599,14 +1641,14 @@ public class CacheController : ControllerBase
 
                 // Success carries the Rust binary's real numbers (harvested from its final
                 // progress checkpoint) instead of a generic "successfully removed" line.
-                return terminalTotals.AnythingRemoved
+                return CorruptionDetectionService.AnythingRemoved(terminalTotals)
                     ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(true, serviceName,
                             StageKey: selection.DetectionMethod == CorruptionDetectionMethod.Structural
                                 ? "signalr.corruptionRemove.completeStructural"
                                 : "signalr.corruptionRemove.complete",
                             OperationId: operationId,
-                            Context: terminalTotals.ToContext(serviceName),
+                            Context: CorruptionDetectionService.BuildRemovalContext(terminalTotals, serviceName),
                             DetectionMethod: detectionMethod.ToWireString()))
                     : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(true, serviceName,
@@ -1614,9 +1656,49 @@ public class CacheController : ControllerBase
                             OperationId: operationId,
                             Context: new Dictionary<string, object?> { ["service"] = serviceName },
                             DetectionMethod: detectionMethod.ToWireString()));
-                }));
+                },
+                startedAt: startedAt,
+                ownerCompletes: true));
+
+        try
+        {
+            await _corruptionDetectionService.PrepareRepairAsync(
+                BuildCorruptionRepair(operationId, startedAt, selection, datasources, metadata),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            await terminalCompletion.Task;
+            return false;
+        }
 
         onRegistered?.Invoke(operationId);
+
+        async Task FinishAndCompleteAsync(bool success, bool cancelled, string? error)
+        {
+            var operation = _operationTracker.GetOperation(operationId);
+            var terminalWon = operation?.Status.IsTerminal() == true;
+            var finalSuccess = terminalWon ? operation!.Success : success;
+            var finalCancelled = terminalWon ? operation!.Cancelled : cancelled;
+            var finalError = terminalWon
+                ? finalSuccess || finalCancelled ? null : operation!.Message
+                : error;
+
+            await _corruptionDetectionService.FinishRepairAsync(
+                operationId,
+                finalSuccess,
+                finalCancelled,
+                finalError);
+
+            var finalCounts = CopyRemovalCounts(totals);
+            _operationTracker.CompleteOperation(
+                operationId,
+                finalSuccess,
+                finalError,
+                finalCancelled,
+                onCompleting: _ => terminalTotals = finalCounts);
+        }
 
         // Send start notification via SignalR
         var startContext = new Dictionary<string, object?>
@@ -1754,6 +1836,10 @@ public class CacheController : ControllerBase
                         ? null
                         : await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
 
+                    await _corruptionDetectionService.StartWorkAsync(
+                        operationId,
+                        datasource.Name,
+                        cancellationToken);
                     childStarted = true;
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
                         selection.DetectionMethod == CorruptionDetectionMethod.Structural
@@ -1857,36 +1943,43 @@ public class CacheController : ControllerBase
                             throw new IOException(reopenResult.ErrorMessage!);
                         }
 
+                        var acceptedCounts = new CorruptionRemovalCounts();
                         if (selection.DetectionMethod == CorruptionDetectionMethod.Structural)
                         {
                             var outcome = ValidateStructuralRemovalCompletion(
                                 finalProgress.Context,
                                 selection.CandidatesByDatasource[datasource.Name].Count);
-                            totals.UrlsRemoved += outcome.Count;
-                            totals.FilesDeleted += outcome.Files;
-                            totals.AlreadyMissing += outcome.AlreadyMissing;
-                            totals.Healed += outcome.Healed;
-                            totals.BytesFreed += outcome.BytesFreed;
+                            acceptedCounts.UrlsRemoved = outcome.Count;
+                            acceptedCounts.FilesDeleted = outcome.Files;
+                            acceptedCounts.AlreadyMissing = outcome.AlreadyMissing;
+                            acceptedCounts.Healed = outcome.Healed;
+                            acceptedCounts.BytesFreed = outcome.BytesFreed;
                         }
                         else
                         {
-                            totals.UrlsRemoved += ReadContextCount(finalProgress.Context, "count");
-                            totals.FilesDeleted += ReadContextCount(finalProgress.Context, "files");
-                            totals.LogLinesRemoved += logLinesRemoved;
-                            totals.DownloadsDeleted += ReadContextCount(finalProgress.Context, "downloads");
-                            totals.LogEntriesDeleted += ReadContextCount(finalProgress.Context, "logEntries");
-                            // This purge rewrote the access log; pull the saved ingestion
-                            // positions back by the removed-line counts so the next incremental
-                            // run does not skip that many unread lines.
+                            acceptedCounts.UrlsRemoved = ReadContextCount(finalProgress.Context, "count");
+                            acceptedCounts.FilesDeleted = ReadContextCount(finalProgress.Context, "files");
+                            acceptedCounts.LogLinesRemoved = logLinesRemoved;
+                            acceptedCounts.DownloadsDeleted = ReadContextCount(finalProgress.Context, "downloads");
+                            acceptedCounts.LogEntriesDeleted = ReadContextCount(finalProgress.Context, "logEntries");
                             _stateService.ReduceLogPositionsAfterPurge(
                                 datasource.Name,
                                 ReadContextStemCounts(finalProgress.Context, "logLinesBeforePositionBySource"),
                                 ReadContextStemCounts(finalProgress.Context, "logLinesBySource"));
                         }
+
+                        await _corruptionDetectionService.SaveRemovalSourceAsync(
+                            operationId,
+                            datasource.Name,
+                            selection.CandidatesByDatasource[datasource.Name]
+                                .Select(candidate => candidate.CandidateId)
+                                .ToList(),
+                            acceptedCounts,
+                            CancellationToken.None);
+                        AddRemovalCounts(totals, acceptedCounts);
                     }
 
-                    var currentTotals = new CorruptionRemovalTotals();
-                    currentTotals.Add(totals);
+                    var currentTotals = CopyRemovalCounts(totals);
                     var currentOperation = _operationTracker.GetOperation(operationId);
                     if (currentOperation != null)
                     {
@@ -1918,18 +2011,6 @@ public class CacheController : ControllerBase
                         allSucceeded = false;
                         lastError = result.Error;
 
-                        // A partial log rewrite already removed lines from the files it
-                        // finished before failing; the Rust side flushes those counts into a
-                        // checkpoint before bailing, so the saved positions still come back.
-                        var failedProgress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
-                        var failedRemoved = ReadContextStemCounts(failedProgress?.Context, "logLinesBySource");
-                        if (failedRemoved.Count > 0)
-                        {
-                            _stateService.ReduceLogPositionsAfterPurge(
-                                datasource.Name,
-                                ReadContextStemCounts(failedProgress?.Context, "logLinesBeforePositionBySource"),
-                                failedRemoved);
-                        }
                     }
                 }
                 catch (Exception error)
@@ -1968,52 +2049,24 @@ public class CacheController : ControllerBase
             if (allSucceeded)
             {
                 _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
-
-                if (selection.HasRepeatedMissEvidence)
-                {
-                    // Repeated-MISS removal rewrites access.log and its database projections.
-                    await _cacheService.InvalidateServiceCountsAsync();
-                }
-
-                // Only a fully successful service run can prune persisted evidence.
-                // Any partial/permission/process failure leaves the authoritative scope intact.
-                await _corruptionDetectionService.ApplyRemovalSuccessAsync(
-                    selection.ScanId,
-                    selection.CandidateIds,
-                    cancellationToken);
-
-                // Terminal SignalR emit is centralized in the onTerminalEmit closure
-                // registered with RegisterOperation (fires exactly once from CompleteOperation).
-                var completedTotals = new CorruptionRemovalTotals();
-                completedTotals.Add(totals);
-                _operationTracker.CompleteOperation(operationId, success: true,
-                    onCompleting: _ => terminalTotals = completedTotals);
+                await FinishAndCompleteAsync(success: true, cancelled: false, error: null);
             }
 
             else
             {
                 _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
-                var failedTotals = new CorruptionRemovalTotals();
-                failedTotals.Add(totals);
-                _operationTracker.CompleteOperation(operationId, success: false, error: lastError,
-                    onCompleting: _ => terminalTotals = failedTotals);
+                await FinishAndCompleteAsync(success: false, cancelled: false, error: lastError);
             }
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
-            var cancelledTotals = new CorruptionRemovalTotals();
-            cancelledTotals.Add(totals);
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true,
-                onCompleting: _ => terminalTotals = cancelledTotals);
+            await FinishAndCompleteAsync(success: false, cancelled: true, error: null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-            var failedTotals = new CorruptionRemovalTotals();
-            failedTotals.Add(totals);
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message,
-                onCompleting: _ => terminalTotals = failedTotals);
+            await FinishAndCompleteAsync(success: false, cancelled: false, error: ex.Message);
         }
         var terminal = await terminalCompletion.Task;
         if (terminal.Cancelled)
@@ -2071,12 +2124,12 @@ public class CacheController : ControllerBase
         return await TrackedRemovalOperationRunner.StartAsync(
             _operationTracker,
             _notifications,
-            new TrackedRemovalOperationRunner.RemovalOperationConfig<CacheManagementService.ServiceCacheRemovalReport>(
+            new RemovalOperationConfig<CacheManagementService.ServiceCacheRemovalReport>(
                 OperationType: OperationType.ServiceRemoval,
                 OperationLabel: $"Service removal: {name}",
-                Metadata: metadata,
+                Metrics: metadata,
                 StartedEventName: SignalREvents.ServiceRemovalStarted,
-                BuildStartedPayload: id => new ServiceRemovalStarted(
+                BuildStarted: id => new ServiceRemovalStarted(
                     name,
                     id,
                     "signalr.serviceRemove.starting.byName",
@@ -2084,13 +2137,13 @@ public class CacheController : ControllerBase
                     new Dictionary<string, object?> { ["name"] = name }),
                 ProgressEventName: SignalREvents.ServiceRemovalProgress,
                 InitialStageKey: "signalr.serviceRemove.starting.byName",
-                BuildInitialProgressPayload: id => new ServiceRemovalProgress(
+                BuildInitialProgress: id => new ServiceRemovalProgress(
                     name,
                     id,
                     "signalr.serviceRemove.starting.byName",
                     0,
                     Context: new Dictionary<string, object?> { ["name"] = name }),
-                BuildProgressPayload: (id, update) => new ServiceRemovalProgress(
+                BuildProgress: (id, update) => new ServiceRemovalProgress(
                     name,
                     id,
                     update.StageKey,
@@ -2100,14 +2153,14 @@ public class CacheController : ControllerBase
                     update.Context),
                 CompleteEventName: SignalREvents.ServiceRemovalComplete,
                 FinalizingStageKey: "signalr.serviceRemove.finalizing",
-                BuildFinalizingProgressPayload: (id, report) => new ServiceRemovalProgress(
+                BuildFinalizingProgress: (id, report) => new ServiceRemovalProgress(
                     name,
                     id,
                     "signalr.serviceRemove.finalizing",
                     100.0,
                     report.CacheFilesDeleted,
                     (long)report.TotalBytesFreed),
-                BuildSuccessPayload: (id, report) => new ServiceRemovalComplete(
+                BuildSuccess: (id, report) => new ServiceRemovalComplete(
                     true,
                     name,
                     id,
@@ -2116,7 +2169,7 @@ public class CacheController : ControllerBase
                     (long)report.TotalBytesFreed,
                     report.LogEntriesRemoved,
                     new Dictionary<string, object?> { ["name"] = name }),
-                BuildCancelledPayload: id => new ServiceRemovalComplete(
+                BuildCancelled: id => new ServiceRemovalComplete(
                     false,
                     name,
                     id,
@@ -2125,13 +2178,13 @@ public class CacheController : ControllerBase
                     // Same reason as the game removal path: success:false on its own reads as a
                     // genuine error, so a stopped run would show red and announce as an alert.
                     Cancelled: true),
-                BuildErrorProgressPayload: (id, ex) => new ServiceRemovalProgress(
+                BuildErrorProgress: (id, ex) => new ServiceRemovalProgress(
                     name,
                     id,
                     "signalr.serviceRemove.error.default",
                     0,
                     Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message }),
-                BuildErrorCompletePayload: (id, ex) => new ServiceRemovalComplete(
+                BuildErrorComplete: (id, ex) => new ServiceRemovalComplete(
                     false,
                     name,
                     id,
@@ -2142,13 +2195,21 @@ public class CacheController : ControllerBase
                     name,
                     ct,
                     (percentComplete, stageKey, context, filesDeleted, bytesFreed) =>
-                        onProgress(new TrackedRemovalOperationRunner.RemovalProgressUpdate(
+                        onProgress(new RemovalProgressUpdate(
                             percentComplete,
                             stageKey,
                             context,
                             filesDeleted,
                             bytesFreed)),
                     opId),
+                BuildRepair: id => _cacheService.BuildRemovalRepair(
+                    id,
+                    OperationType.ServiceRemoval,
+                    $"Service removal: {name}",
+                    metadata,
+                    new CacheRepairTarget { Service = name }),
+                PrepareRepairAsync: _cacheService.PrepareRepairAsync,
+                FinishRepairAsync: _cacheService.FinishRemovalRepairAsync,
                 ApplyProgressMetrics: (removalMetrics, update) =>
                 {
                     if (update.FilesDeleted > 0)

@@ -19,6 +19,7 @@ use sqlx::Row;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::cache_repair;
 use crate::cache_utils;
 use crate::db;
 use crate::progress_events::ProgressReporter;
@@ -70,6 +71,10 @@ struct Args {
     /// Keep database history for manager-coordinated multi-datasource removal.
     #[arg(long = "skip-db-delete")]
     skip_db_delete: bool,
+
+    /// Operation that owns the durable cache-root receipt.
+    #[arg(long = "operation-id")]
+    operation_id: Option<String>,
 }
 
 /// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`)
@@ -477,6 +482,7 @@ pub async fn run(service: &str) -> Result<()> {
         let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
             RemovalReport::from_tail(game_name, tail).write(&output_json)
         };
+        cache_repair::prepare_receipt(&cache_dir, args.operation_id.as_deref())?;
         let Some(tail) = removal_core::run_url_removal_steps(
             &cache_dir,
             &log_dir,
@@ -550,6 +556,28 @@ pub async fn run(service: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn operation_id_argument_is_optional() {
+        let base = [
+            "cache_named_remove",
+            "/logs",
+            "/cache",
+            "Diablo IV",
+            "report.json",
+            "progress.json",
+        ];
+        assert!(Args::try_parse_from(base).unwrap().operation_id.is_none());
+        let mut supplied = base.to_vec();
+        supplied.extend(["--operation-id", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert_eq!(
+            Args::try_parse_from(supplied)
+                .unwrap()
+                .operation_id
+                .as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
 
     /// The three wrapper bins pin their service as an already-lowercase literal; the core
     /// lowercases again defensively. Both the wrapper literals and the normalizer must agree

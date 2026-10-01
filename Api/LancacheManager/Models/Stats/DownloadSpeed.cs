@@ -6,6 +6,11 @@ namespace LancacheManager.Models;
 public class GameSpeedInfo
 {
     /// <summary>
+    /// Stable client-qualified traffic identity used by current-activity consumers.
+    /// </summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>
     /// Steam depot ID (or equivalent identifier for other services)
     /// </summary>
     public long DepotId { get; set; }
@@ -65,6 +70,44 @@ public class GameSpeedInfo
     /// </summary>
     public bool IsEvicted { get; set; }
 
+    /// <summary>
+    /// First completion retained for the inferred download session.
+    /// </summary>
+    public DateTime FirstSeenUtc { get; set; }
+
+    /// <summary>
+    /// Newest completion retained for the inferred download session.
+    /// </summary>
+    public DateTime LastSeenUtc { get; set; }
+
+    /// <summary>
+    /// Absolute boundary at which this row stops representing current activity.
+    /// </summary>
+    public DateTime ActiveUntilUtc { get; set; }
+
+    /// <summary>
+    /// Source-scoped evidence that contributes to this merged row.
+    /// </summary>
+    public List<DownloadSource> Sources { get; set; } = new();
+
+}
+
+/// <summary>
+/// Current download evidence from one physical log source and its logical datasource aliases.
+/// </summary>
+public class DownloadSource
+{
+    public List<string> Datasources { get; set; } = new();
+    public List<long> DepotIds { get; set; } = new();
+    public DateTime FirstSeenUtc { get; set; }
+    public DateTime LastSeenUtc { get; set; }
+    public DateTime ActiveUntilUtc { get; set; }
+    public DateTime MeasuredUntilUtc { get; set; }
+    public double BytesPerSecond { get; set; }
+    public long TotalBytes { get; set; }
+    public int RequestCount { get; set; }
+    public long CacheHitBytes { get; set; }
+    public long CacheMissBytes { get; set; }
 }
 
 /// <summary>
@@ -102,6 +145,11 @@ public class ClientSpeedInfo
     /// </summary>
     public long CacheMissBytes { get; set; }
 
+    /// <summary>
+    /// Latest activity boundary among this client's retained game rows.
+    /// </summary>
+    public DateTime ActiveUntilUtc { get; set; }
+
 }
 
 /// <summary>
@@ -110,9 +158,29 @@ public class ClientSpeedInfo
 public class DownloadSpeedSnapshot
 {
     /// <summary>
+    /// Current snapshot wire contract version.
+    /// </summary>
+    public int Version { get; set; } = 2;
+
+    /// <summary>
+    /// Manager-process identity for revision ordering.
+    /// </summary>
+    public string StreamId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Strictly increasing revision within <see cref="StreamId"/>.
+    /// </summary>
+    public long Revision { get; set; }
+
+    /// <summary>
     /// Timestamp when this snapshot was taken (UTC)
     /// </summary>
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Whether the current native child has supplied a valid snapshot and is still running.
+    /// </summary>
+    public bool IsAvailable { get; set; }
 
     /// <summary>
     /// Total download speed across all games/clients in bytes per second
@@ -142,7 +210,7 @@ public class DownloadSpeedSnapshot
     /// <summary>
     /// Whether active downloads are detected
     /// </summary>
-    public bool HasActiveDownloads => EntriesInWindow > 0;
+    public bool HasActiveDownloads => GameSpeeds.Count > 0;
 }
 
 /// <summary>

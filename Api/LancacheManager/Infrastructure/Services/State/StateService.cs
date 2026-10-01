@@ -24,15 +24,18 @@ public class StateService : IStateService
     private readonly string _stateFilePath;
     private readonly string _operationHistoryFilePath;
     private readonly string _cacheOperationsFilePath;
+    private readonly string _operationRepairsFilePath;
     private readonly object _lock = new object();
     private readonly object _operationLock = new object();
     private readonly object _cacheClearLock = new object();
+    private readonly object _repairLock = new object();
     private readonly object _signalLock = new object();
     private TaskCompletionSource<bool> _setupCompletedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TaskCompletionSource<bool> _logsProcessedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private AppState? _cachedState;
     private List<OperationState>? _cachedOperationStates;
     private List<CacheClearOperation>? _cachedCacheClearOperations;
+    private List<OperationRepair>? _cachedOperationRepairs;
     private int _consecutiveFailures = 0;
     private bool _stateSavesDisabledLogged = false;
     private bool _migrationAttempted = false;
@@ -66,6 +69,7 @@ public class StateService : IStateService
         _stateFilePath = Path.Combine(_pathResolver.GetStateDirectory(), "state.json");
         _operationHistoryFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "operation_history.json");
         _cacheOperationsFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "cache_operations.json");
+        _operationRepairsFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "operation_repairs.json");
 
         var stateDir = Path.GetDirectoryName(_stateFilePath);
         if (!string.IsNullOrEmpty(stateDir) && !Directory.Exists(stateDir))
@@ -952,6 +956,445 @@ public class StateService : IStateService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to save operation states to {Path}", _operationHistoryFilePath);
+        }
+    }
+
+    public IReadOnlyList<OperationRepair> LoadOperationRepairs()
+    {
+        lock (_repairLock)
+        {
+            if (_cachedOperationRepairs is null)
+            {
+                if (!File.Exists(_operationRepairsFilePath))
+                {
+                    _cachedOperationRepairs = [];
+                }
+                else
+                {
+                    var json = File.ReadAllText(_operationRepairsFilePath);
+                    ValidateRepairVersions(json);
+                    var repairs = JsonSerializer.Deserialize<List<OperationRepair>>(json)
+                        ?? throw new InvalidDataException("The operation repair file must contain a JSON array.");
+                    ValidateOperationRepairs(repairs);
+                    _cachedOperationRepairs = repairs;
+                }
+            }
+
+            return CopyOperationRepairs(_cachedOperationRepairs);
+        }
+    }
+
+    public void SaveOperationRepairs(IReadOnlyList<OperationRepair> repairs)
+    {
+        lock (_repairLock)
+        {
+            ValidateOperationRepairs(repairs);
+            var replacement = CopyOperationRepairs(repairs);
+            var json = JsonSerializer.Serialize(replacement, new JsonSerializerOptions { WriteIndented = true });
+
+            WriteOperationRepairs(json);
+            _cachedOperationRepairs = replacement;
+        }
+    }
+
+    protected virtual void WriteOperationRepairs(string contents)
+    {
+        var directory = Path.GetDirectoryName(_operationRepairsFilePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempFile = _operationRepairsFilePath + ".tmp";
+        File.WriteAllText(tempFile, contents);
+        using (var stream = new FileStream(tempFile, FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            stream.Flush(true);
+        }
+        File.Move(tempFile, _operationRepairsFilePath, true);
+    }
+
+    private static List<OperationRepair> CopyOperationRepairs(IReadOnlyList<OperationRepair> repairs)
+    {
+        var json = JsonSerializer.Serialize(repairs);
+        return JsonSerializer.Deserialize<List<OperationRepair>>(json)
+            ?? throw new InvalidDataException("The operation repair snapshot could not be copied.");
+    }
+
+    private static void ValidateRepairVersions(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException("The operation repair file must contain a JSON array.");
+        }
+
+        foreach (var row in document.RootElement.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object
+                || !row.TryGetProperty(nameof(OperationRepair.Version), out var version)
+                || !version.TryGetInt32(out var versionNumber))
+            {
+                throw new InvalidDataException("Every operation repair must contain a numeric Version.");
+            }
+            if (versionNumber != OperationRepair.CurrentVersion)
+            {
+                throw new InvalidDataException($"Unsupported operation repair version {versionNumber}.");
+            }
+        }
+    }
+
+    private static void ValidateOperationRepairs(IReadOnlyList<OperationRepair> repairs)
+    {
+        var ids = new HashSet<Guid>();
+        foreach (var repair in repairs)
+        {
+            ValidateOperationRepair(repair);
+            if (!ids.Add(repair.Id))
+            {
+                throw new InvalidDataException("Operation repair IDs must be present and unique.");
+            }
+        }
+    }
+
+    internal static void ValidateOperationRepair(OperationRepair repair)
+    {
+        if (repair.Version != OperationRepair.CurrentVersion)
+        {
+            throw new InvalidDataException(
+                $"Operation repair {repair.Id} has unsupported version {repair.Version}.");
+        }
+        if (repair.Id == Guid.Empty
+            || !Enum.IsDefined(repair.Type)
+            || !Enum.IsDefined(repair.Phase)
+            || string.IsNullOrWhiteSpace(repair.Name)
+            || repair.StartedAt == default
+            || repair.Sources is null)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} is missing required identity fields.");
+        }
+        if (repair.Outcome.HasValue
+            && (!Enum.IsDefined(repair.Outcome.Value) || !repair.Outcome.Value.IsTerminal()))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has an unsupported outcome.");
+        }
+        if (repair.Phase is OperationRepairPhase.Prepared or OperationRepairPhase.Running
+            && repair.Outcome.HasValue)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} records an outcome before repair.");
+        }
+        if (repair.Phase is OperationRepairPhase.Repairing or OperationRepairPhase.Completed
+            && !repair.Outcome.HasValue)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has no original outcome.");
+        }
+        if ((repair.Phase == OperationRepairPhase.Completed) != repair.CompletedAt.HasValue)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has an invalid completion time.");
+        }
+        if (repair.RetryAtUtc.HasValue && repair.Phase != OperationRepairPhase.Repairing)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has a retry time outside repair.");
+        }
+
+        ValidateRepairMetrics(repair);
+        if (repair.Phase == OperationRepairPhase.Prepared && HasConfirmedRepairCounters(repair))
+        {
+            throw new InvalidDataException($"Prepared operation repair {repair.Id} has confirmed counters.");
+        }
+        ValidateRepairTarget(repair);
+        ValidateCorruptionRepair(repair);
+        ValidateRepairSources(repair);
+    }
+
+    internal static bool HasConfirmedRepairCounters(OperationRepair repair)
+    {
+        return repair.CacheClearing is { } clearing
+                && (clearing.DirectoriesProcessed != 0
+                    || clearing.TotalDirectories != 0
+                    || clearing.BytesDeleted != 0
+                    || clearing.FilesDeleted != 0
+                    || clearing.DatasourcesCleared != 0
+                    || clearing.Duration.HasValue)
+            || repair.LogProcessing is { } processing
+                && (processing.EntriesProcessed != 0
+                    || processing.LinesProcessed != 0
+                    || processing.Elapsed.HasValue)
+            || repair.LogRemoval is { } logRemoval
+                && (logRemoval.FilesProcessed != 0
+                    || logRemoval.LinesProcessed != 0
+                    || logRemoval.LinesRemoved != 0
+                    || logRemoval.DatabaseRecordsDeleted != 0)
+            || repair.Removal is { } removal
+                && (removal.FilesDeleted != 0
+                    || removal.BytesFreed != 0
+                    || removal.FilesProcessed != 0
+                    || removal.TotalFiles != 0
+                    || removal.LogEntriesRemoved != 0)
+            || repair.GameDetection is { } detection
+                && (detection.Games.Count != 0
+                    || detection.Services.Count != 0
+                    || detection.TotalGamesDetected != 0
+                    || detection.TotalServicesDetected != 0)
+            || repair.EvictionScan is { } scan
+                && (scan.Processed != 0 || scan.Evicted != 0 || scan.UnEvicted != 0)
+            || repair.EvictionRemoval is { } evictionRemoval
+                && (evictionRemoval.DownloadsRemoved != 0 || evictionRemoval.LogEntriesRemoved != 0);
+    }
+
+    private static void ValidateRepairMetrics(OperationRepair repair)
+    {
+        var familyCount = Convert.ToInt32(repair.CacheClearing is not null)
+            + Convert.ToInt32(repair.LogProcessing is not null)
+            + Convert.ToInt32(repair.LogRemoval is not null)
+            + Convert.ToInt32(repair.Removal is not null)
+            + Convert.ToInt32(repair.GameDetection is not null)
+            + Convert.ToInt32(repair.EvictionScan is not null)
+            + Convert.ToInt32(repair.EvictionRemoval is not null);
+        var familyMatches = repair.Type switch
+        {
+            OperationType.CacheClearing => repair.CacheClearing is not null,
+            OperationType.LogProcessing => repair.LogProcessing is not null,
+            OperationType.LogRemoval => repair.LogRemoval is not null,
+            OperationType.GameRemoval or OperationType.ServiceRemoval or OperationType.CorruptionRemoval =>
+                repair.Removal is not null,
+            OperationType.GameDetection => repair.GameDetection is not null,
+            OperationType.EvictionScan => repair.EvictionScan is not null,
+            OperationType.EvictionRemoval => repair.EvictionRemoval is not null,
+            _ => false
+        };
+        if (familyCount != 1 || !familyMatches)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has the wrong metrics family.");
+        }
+
+        if (repair.CacheClearing is { } clearing
+            && (string.IsNullOrWhiteSpace(clearing.EntityKey)
+                || clearing.DirectoriesProcessed < 0
+                || clearing.TotalDirectories < 0
+                || clearing.BytesDeleted < 0
+                || clearing.FilesDeleted < 0
+                || clearing.DatasourcesCleared < 0
+                || clearing.Duration < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid cache-clearing counters.");
+        }
+        if (repair.LogProcessing is { } processing
+            && (processing.EntriesProcessed < 0
+                || processing.LinesProcessed < 0
+                || processing.Elapsed < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid log-processing counters.");
+        }
+        if (repair.LogRemoval is { } logRemoval
+            && (string.IsNullOrWhiteSpace(logRemoval.Service)
+                || logRemoval.FilesProcessed < 0
+                || logRemoval.LinesProcessed < 0
+                || logRemoval.LinesRemoved < 0
+                || logRemoval.DatabaseRecordsDeleted < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid log-removal metrics.");
+        }
+        if (repair.Removal is { } removal
+            && (string.IsNullOrWhiteSpace(removal.EntityKey)
+                || string.IsNullOrWhiteSpace(removal.EntityName)
+                || string.IsNullOrWhiteSpace(removal.EntityKind)
+                || removal.FilesDeleted < 0
+                || removal.BytesFreed < 0
+                || removal.FilesProcessed < 0
+                || removal.TotalFiles < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid removal counters.");
+        }
+        if (repair.GameDetection is { } detection
+            && (detection.Games is null
+                || detection.Services is null
+                || !Enum.IsDefined(detection.ScanType)
+                || detection.StartTime == default
+                || detection.TotalGamesDetected < 0
+                || detection.TotalServicesDetected < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid game-detection counters.");
+        }
+        if (repair.EvictionScan is { } scan
+            && (scan.Processed < 0 || scan.Evicted < 0 || scan.UnEvicted < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid eviction-scan counters.");
+        }
+        if (repair.EvictionRemoval is { } evictionRemoval
+            && (evictionRemoval.Selection is null
+                || string.IsNullOrWhiteSpace(evictionRemoval.StageKey)
+                || evictionRemoval.DownloadsRemoved < 0
+                || evictionRemoval.LogEntriesRemoved < 0))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid eviction-removal metrics.");
+        }
+    }
+
+    private static void ValidateRepairTarget(OperationRepair repair)
+    {
+        var target = repair.Target;
+        if (target is null)
+        {
+            if (repair.Type is OperationType.GameRemoval or OperationType.ServiceRemoval or OperationType.CorruptionRemoval)
+            {
+                throw new InvalidDataException($"Operation repair {repair.Id} has no removal target.");
+            }
+            return;
+        }
+        if (target.SteamDepotIds is null)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has no Steam depot list.");
+        }
+
+        var steam = target.SteamAppId.HasValue
+            && target.EpicGame is null
+            && target.GameName is null
+            && target.Service is null;
+        var epic = !string.IsNullOrWhiteSpace(target.EpicGame)
+            && !target.SteamAppId.HasValue
+            && target.SteamDepotIds.Count == 0
+            && target.GameName is null
+            && target.Service is null;
+        var named = !string.IsNullOrWhiteSpace(target.GameName)
+            && !string.IsNullOrWhiteSpace(target.Service)
+            && !target.SteamAppId.HasValue
+            && target.SteamDepotIds.Count == 0
+            && target.EpicGame is null;
+        var service = !string.IsNullOrWhiteSpace(target.Service)
+            && target.GameName is null
+            && !target.SteamAppId.HasValue
+            && target.SteamDepotIds.Count == 0
+            && target.EpicGame is null;
+        if (Convert.ToInt32(steam) + Convert.ToInt32(epic) + Convert.ToInt32(named) + Convert.ToInt32(service) != 1
+            || target.SteamDepotIds.Distinct().Count() != target.SteamDepotIds.Count)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has an invalid or mixed target.");
+        }
+        if (repair.Type == OperationType.GameRemoval && !(steam || epic || named)
+            || repair.Type is OperationType.ServiceRemoval or OperationType.CorruptionRemoval && !service
+            || repair.Type is not (OperationType.GameRemoval
+                or OperationType.ServiceRemoval
+                or OperationType.CorruptionRemoval))
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has a target for the wrong operation type.");
+        }
+    }
+
+    private static void ValidateCorruptionRepair(OperationRepair repair)
+    {
+        if (repair.Type == OperationType.CorruptionRemoval)
+        {
+            if (repair.Corruption is not { } corruption
+                || corruption.ScanId == Guid.Empty
+                || corruption.ContractVersion <= 0
+                || !Enum.IsDefined(corruption.DetectionMethod)
+                || string.IsNullOrWhiteSpace(corruption.Service)
+                || !string.Equals(corruption.Service, repair.Target?.Service, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"Operation repair {repair.Id} has invalid corruption identity.");
+            }
+        }
+        else if (repair.Corruption is not null)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has corruption identity for another family.");
+        }
+
+        if (repair.EvictionScanId == Guid.Empty
+            || repair.Type is not (OperationType.CacheClearing
+                    or OperationType.GameRemoval
+                    or OperationType.ServiceRemoval
+                    or OperationType.CorruptionRemoval
+                    or OperationType.EvictionScan
+                    or OperationType.EvictionRemoval)
+                && repair.EvictionScanId.HasValue)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid eviction scan identity.");
+        }
+    }
+
+    private static void ValidateRepairSources(OperationRepair repair)
+    {
+        if (repair.Sources.Any(source => source is null || string.IsNullOrWhiteSpace(source.Datasource))
+            || repair.Sources.Select(source => source.Datasource)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != repair.Sources.Count)
+        {
+            throw new InvalidDataException($"Operation repair {repair.Id} has invalid or duplicate datasources.");
+        }
+
+        foreach (var source in repair.Sources)
+        {
+            if (source.CorruptionCandidateIds is null
+                || source.CorruptionCandidateIds.Any(string.IsNullOrWhiteSpace)
+                || source.CorruptionCandidateIds.Distinct(StringComparer.Ordinal).Count()
+                    != source.CorruptionCandidateIds.Count
+                || !source.NativeCompletionAccepted && source.CorruptionCandidateIds.Count > 0
+                || source.NativeCompletionAccepted && !source.NativeLaunchAuthorized)
+            {
+                throw new InvalidDataException($"Operation repair {repair.Id} has an invalid source checkpoint.");
+            }
+
+            if (!ReceiptPathValid(repair.Id, source))
+            {
+                throw new InvalidDataException($"Operation repair {repair.Id} has an invalid root receipt path.");
+            }
+
+            if (repair.Type == OperationType.CorruptionRemoval)
+            {
+                if (source.NativeCompletionAccepted != (source.CorruptionCounts is not null))
+                {
+                    throw new InvalidDataException(
+                        $"Operation repair {repair.Id} separates accepted corruption counts from completion.");
+                }
+                if (source.CorruptionCounts is { } counts
+                    && (counts.UrlsRemoved < 0
+                        || counts.FilesDeleted < 0
+                        || counts.LogLinesRemoved < 0
+                        || counts.DownloadsDeleted < 0
+                        || counts.LogEntriesDeleted < 0
+                        || counts.AlreadyMissing < 0
+                        || counts.Healed < 0
+                        || counts.BytesFreed < 0))
+                {
+                    throw new InvalidDataException($"Operation repair {repair.Id} has invalid corruption counters.");
+                }
+            }
+            else if (source.CorruptionCounts is not null || source.CorruptionCandidateIds.Count > 0)
+            {
+                throw new InvalidDataException(
+                    $"Operation repair {repair.Id} has corruption evidence for another family.");
+            }
+        }
+    }
+
+    private static bool ReceiptPathValid(Guid operationId, OperationRepairSource source)
+    {
+        if (source.ReceiptPath is null)
+        {
+            return true;
+        }
+        if (string.IsNullOrWhiteSpace(source.CacheRoot)
+            || string.IsNullOrWhiteSpace(source.ReceiptPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var expected = Path.GetFullPath(Path.Combine(
+                source.CacheRoot,
+                $".lancache-repair-{operationId:N}.json"));
+            var actual = Path.GetFullPath(source.ReceiptPath);
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            return string.Equals(expected, actual, comparison);
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return false;
         }
     }
 

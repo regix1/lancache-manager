@@ -58,17 +58,17 @@ public sealed class RemovalCancelledContractTests
     }
 
     /// <summary>
-    /// The <c>BuildCancelledPayload</c> argument, from its name up to the next builder argument.
+    /// The <c>BuildCancelled</c> argument, from its name up to the next builder argument.
     /// Scoped so a <c>Cancelled: true</c> belonging to a different payload in the same file cannot
     /// satisfy the assertion.
     /// </summary>
     private static string CancelledPayloadBlock(string source)
     {
-        var start = source.IndexOf("BuildCancelledPayload", StringComparison.Ordinal);
-        Assert.True(start >= 0, "BuildCancelledPayload not found; the cancel path was renamed or removed");
+        var start = source.IndexOf("BuildCancelled", StringComparison.Ordinal);
+        Assert.True(start >= 0, "BuildCancelled not found; the cancel path was removed");
 
-        var next = source.IndexOf("BuildErrorProgressPayload", start, StringComparison.Ordinal);
-        Assert.True(next > start, "BuildCancelledPayload is no longer followed by BuildErrorProgressPayload");
+        var next = source.IndexOf("BuildErrorProgress", start, StringComparison.Ordinal);
+        Assert.True(next > start, "BuildCancelled is no longer followed by BuildErrorProgress");
 
         return source[start..next];
     }

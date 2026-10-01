@@ -355,10 +355,8 @@ public class LogsController : ControllerBase
             // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
             async Task<Guid?> StartDatasourceProcessingAsync()
             {
-                var position = _stateRepository.GetLogPosition(datasourceName);
                 return await _rustLogProcessorService.StartInBackgroundAsync(
                     datasource.LogPath,
-                    position,
                     datasourceName: datasourceName);
             }
 

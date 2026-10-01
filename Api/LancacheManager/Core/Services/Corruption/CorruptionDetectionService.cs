@@ -160,7 +160,7 @@ public class CorruptionDetectionService
                 Type = OperationType.CorruptionDetection.ToWireString(),
                 Status = OperationStatus.Running.ToWireString(),
                 Message = "Starting corruption detection...",
-                Data = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+                Fields = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
                 {
                     ["operationId"] = operationId,
                     ["detectionMethod"] = detectionMethod.ToWireString(),
@@ -1525,13 +1525,30 @@ public class CorruptionDetectionService
             scanId,
             candidateIds,
             "The stored corruption scan changed before removal completed",
-            cancellationToken);
+            cancellationToken,
+            captured: null);
+
+    /// <summary>
+    /// Replays candidate cleanup against the exact captured scan. Accepted IDs that are already
+    /// absent are completed work, while a newer current scan remains untouched.
+    /// </summary>
+    public async Task ApplyRemovalSuccessAsync(
+        CorruptionRepair captured,
+        IReadOnlyCollection<string> candidateIds,
+        CancellationToken cancellationToken = default) =>
+        await ApplyCandidateCleanupSuccessAsync(
+            captured.ScanId,
+            candidateIds,
+            "The captured corruption scan identity changed",
+            cancellationToken,
+            captured);
 
     private async Task ApplyCandidateCleanupSuccessAsync(
         Guid scanId,
         IReadOnlyCollection<string> candidateIds,
         string changedMessage,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CorruptionRepair? captured)
     {
         if (candidateIds.Count == 0)
         {
@@ -1552,7 +1569,9 @@ public class CorruptionDetectionService
                 cancellationToken);
             try
             {
-                var currentScan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+                var currentScan = captured is null
+                    ? await RequireCurrentScanAsync(dbContext, scanId, cancellationToken)
+                    : await RequireCapturedScanAsync(dbContext, captured, cancellationToken);
                 var rows = await dbContext.CachedCorruptionDetections
                     .Where(row => row.ScanId == scanId && row.ServiceName != ProjectionServiceName)
                     .ToListAsync(cancellationToken);
@@ -1565,6 +1584,15 @@ public class CorruptionDetectionService
                     {
                         if (removedIds.Contains(candidate.CandidateId))
                         {
+                            if (captured is not null
+                                && !string.Equals(
+                                    row.ServiceName,
+                                    captured.Service,
+                                    StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new InvalidDataException(
+                                    "The captured corruption candidate belongs to another service");
+                            }
                             matchedIds.Add(candidate.CandidateId);
                         }
                         else
@@ -1586,7 +1614,7 @@ public class CorruptionDetectionService
                     }
                 }
 
-                if (!matchedIds.SetEquals(removedIds))
+                if (captured is null && !matchedIds.SetEquals(removedIds))
                 {
                     throw new ConflictException(changedMessage);
                 }
@@ -1620,6 +1648,382 @@ public class CorruptionDetectionService
                 throw;
             }
         });
+    }
+
+    private static async Task<CachedCorruptionScan> RequireCapturedScanAsync(
+        AppDbContext dbContext,
+        CorruptionRepair captured,
+        CancellationToken cancellationToken)
+    {
+        var scan = await dbContext.CachedCorruptionScans
+            .SingleOrDefaultAsync(item => item.ScanId == captured.ScanId, cancellationToken)
+            ?? throw new InvalidDataException("The captured corruption scan no longer exists");
+        if (!IsSupportedScan(scan)
+            || scan.ContractVersion != captured.ContractVersion
+            || scan.DetectionMode.ToDetectionMethod() != captured.DetectionMethod)
+        {
+            throw new InvalidDataException("The captured corruption scan identity changed");
+        }
+
+        return scan;
+    }
+
+    public Task PrepareRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken) =>
+        _operationStateService.PrepareRepairAsync(repair, cancellationToken);
+
+    public Task StartWorkAsync(
+        Guid operationId,
+        string datasource,
+        CancellationToken cancellationToken) =>
+        _operationStateService.StartWorkAsync(operationId, datasource, cancellationToken);
+
+    public Task SaveRemovalSourceAsync(
+        Guid operationId,
+        string datasource,
+        IReadOnlyCollection<string> candidateIds,
+        CorruptionRemovalCounts counts,
+        CancellationToken cancellationToken) =>
+        _operationStateService.SaveRepairAsync(
+            operationId,
+            repair =>
+            {
+                var source = repair.Sources.Single(candidate => string.Equals(
+                    candidate.Datasource,
+                    datasource,
+                    StringComparison.OrdinalIgnoreCase));
+                source.NativeCompletionAccepted = true;
+                source.CorruptionCandidateIds = candidateIds.ToList();
+                source.CorruptionCounts = CopyRemovalCounts(counts);
+
+                var removal = repair.Removal
+                    ?? throw new InvalidDataException(
+                        $"Corruption removal repair {operationId} omitted removal metrics");
+                var aggregate = AggregateRemovalCounts(repair.Sources);
+                removal.FilesDeleted = checked((int)aggregate.FilesDeleted);
+                removal.BytesFreed = aggregate.BytesFreed;
+                removal.LogEntriesRemoved = checked((ulong)aggregate.LogEntriesDeleted);
+            },
+            cancellationToken);
+
+    public Task FinishRepairAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error) =>
+        _operationStateService.FinishRepairAsync(operationId, success, cancelled, error);
+
+    public async Task ClearOrphanedPresentationAsync(CancellationToken cancellationToken)
+    {
+        await _operationStateService.WaitForRecoveryOwnershipAsync(cancellationToken);
+        var orphanedKeys = _operationStateService.GetAllStates()
+            .Where(state => state.Type == OperationType.CorruptionDetection.ToWireString()
+                && state.Status == OperationStatus.Running.ToWireString()
+                && (!Guid.TryParse(state.Key, out var operationId)
+                    || !_operationStateService.OwnsRepair(operationId)))
+            .Select(state => state.Key)
+            .ToList();
+        foreach (var key in orphanedKeys)
+        {
+            _operationStateService.RemoveState(key);
+        }
+    }
+
+    internal async Task InvalidateRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        var changedRoots = repair.Sources
+            .Where(source => source.NativeLaunchAuthorized
+                && source.InvalidateCorruption
+                && !string.IsNullOrWhiteSpace(source.CacheRoot))
+            .Select(source => (source.Datasource, source.CacheRoot!))
+            .ToArray();
+        if (changedRoots.Length == 0)
+        {
+            return;
+        }
+
+        var datasourceNames = changedRoots
+            .Select(root => root.Datasource.ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+        try
+        {
+            if (dbContext.Database.IsRelational())
+            {
+                await CacheClearingService.InvalidateStructuralCorruptionStateAsync(
+                    dbContext,
+                    _pathResolver,
+                    changedRoots,
+                    cancellationToken);
+            }
+
+            var scans = repair.Type == OperationType.CorruptionRemoval
+                    && repair.Corruption is { } captured
+                ? await dbContext.CachedCorruptionScans
+                    .Where(scan => scan.ScanId == captured.ScanId)
+                    .ToListAsync(cancellationToken)
+                : await dbContext.CachedCorruptionScans
+                    .Where(scan => scan.IsCurrent)
+                    .ToListAsync(cancellationToken);
+            var scanIds = scans.Select(scan => scan.ScanId).ToList();
+            if (scanIds.Count > 0)
+            {
+                var changedRows = await dbContext.CachedCorruptionDetections
+                    .Where(row => scanIds.Contains(row.ScanId)
+                        && row.ServiceName != ProjectionServiceName
+                        && datasourceNames.Contains(row.DatasourceName.ToLower()))
+                    .ToListAsync(cancellationToken);
+                foreach (var row in changedRows)
+                {
+                    row.RemovalAllowed = false;
+                }
+
+                var allRows = await dbContext.CachedCorruptionDetections
+                    .Where(row => scanIds.Contains(row.ScanId)
+                        && row.ServiceName != ProjectionServiceName)
+                    .ToListAsync(cancellationToken);
+                var projections = await dbContext.CachedCorruptionDetections
+                    .Where(row => scanIds.Contains(row.ScanId)
+                        && row.ServiceName == ProjectionServiceName)
+                    .ToDictionaryAsync(row => row.ScanId, cancellationToken);
+                foreach (var scan in scans)
+                {
+                    if (!projections.TryGetValue(scan.ScanId, out var projectionRow))
+                    {
+                        throw new InvalidDataException(
+                            $"Corruption scan {scan.ScanId} omitted its projection");
+                    }
+
+                    var projection = JsonSerializer.Deserialize<CachedCorruptionProjection>(
+                            projectionRow.CandidatesJson,
+                            _candidateJsonOptions)
+                        ?? throw new InvalidDataException(
+                            $"Corruption scan {scan.ScanId} has a null projection");
+                    var candidates = allRows
+                        .Where(row => row.ScanId == scan.ScanId)
+                        .SelectMany(DeserializeCandidates)
+                        .ToList();
+                    projection.DetectionCounts = ProjectDetectionCounts(
+                        candidates,
+                        scan.DetectionMode.ToDetectionMethod());
+                    projectionRow.CandidatesJson = JsonSerializer.Serialize(
+                        projection,
+                        _candidateJsonOptions);
+                }
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task ResumeRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        if (repair.Type != OperationType.CorruptionRemoval
+            || repair.Corruption is not { } captured
+            || repair.Removal is null)
+        {
+            throw new InvalidDataException(
+                $"Operation repair {repair.Id} is not a corruption removal repair");
+        }
+
+        var acceptedIds = repair.Sources
+            .Where(source => source.NativeCompletionAccepted && source.ApplyCorruptionCandidates)
+            .SelectMany(source => source.CorruptionCandidateIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (acceptedIds.Count > 0)
+        {
+            await ApplyRemovalSuccessAsync(captured, acceptedIds, cancellationToken);
+        }
+
+        var counts = AggregateRemovalCounts(repair.Sources);
+        await _operationStateService.SaveRepairAsync(
+            repair.Id,
+            current =>
+            {
+                var removal = current.Removal
+                    ?? throw new InvalidDataException(
+                        $"Corruption removal repair {repair.Id} omitted removal metrics");
+                removal.FilesDeleted = checked((int)counts.FilesDeleted);
+                removal.BytesFreed = counts.BytesFreed;
+                removal.LogEntriesRemoved = checked((ulong)counts.LogEntriesDeleted);
+                removal.StageKey = current.Outcome switch
+                {
+                    OperationStatus.Completed => captured.DetectionMethod == CorruptionDetectionMethod.Structural
+                        ? "signalr.corruptionRemove.completeStructural"
+                        : "signalr.corruptionRemove.complete",
+                    OperationStatus.Cancelled => "signalr.corruptionRemove.cancelled",
+                    OperationStatus.Failed => "signalr.corruptionRemove.failed.generic",
+                    _ => throw new InvalidDataException(
+                        $"Corruption removal repair {repair.Id} omitted its outcome")
+                };
+            },
+            cancellationToken);
+    }
+
+    public Task RestoreRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (repair.Type != OperationType.CorruptionRemoval
+            || repair.Corruption is not { } captured
+            || repair.Removal is not { } removal)
+        {
+            throw new InvalidDataException(
+                $"Operation repair {repair.Id} is not a corruption removal repair");
+        }
+
+        var cancellationSource = new CancellationTokenSource();
+        removal.DetectionMethod = captured.DetectionMethod;
+        removal.CorruptionScanId = captured.ScanId;
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            repair.Type,
+            repair.Name,
+            cancellationSource,
+            removal,
+            onTerminalEmit: terminal => EmitRemovalTerminalAsync(repair, terminal),
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true);
+        if (!restored)
+        {
+            cancellationSource.Dispose();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    internal static CorruptionRemovalCounts AggregateRemovalCounts(
+        IEnumerable<OperationRepairSource> sources)
+    {
+        var total = new CorruptionRemovalCounts();
+        foreach (var accepted in sources
+                     .Where(source => source.NativeCompletionAccepted)
+                     .Select(source => source.CorruptionCounts)
+                     .OfType<CorruptionRemovalCounts>())
+        {
+            total.UrlsRemoved = checked(total.UrlsRemoved + accepted.UrlsRemoved);
+            total.FilesDeleted = checked(total.FilesDeleted + accepted.FilesDeleted);
+            total.LogLinesRemoved = checked(total.LogLinesRemoved + accepted.LogLinesRemoved);
+            total.DownloadsDeleted = checked(total.DownloadsDeleted + accepted.DownloadsDeleted);
+            total.LogEntriesDeleted = checked(total.LogEntriesDeleted + accepted.LogEntriesDeleted);
+            total.AlreadyMissing = checked(total.AlreadyMissing + accepted.AlreadyMissing);
+            total.Healed = checked(total.Healed + accepted.Healed);
+            total.BytesFreed = checked(total.BytesFreed + accepted.BytesFreed);
+        }
+
+        return total;
+    }
+
+    private static CorruptionRemovalCounts CopyRemovalCounts(CorruptionRemovalCounts counts) =>
+        new()
+        {
+            UrlsRemoved = counts.UrlsRemoved,
+            FilesDeleted = counts.FilesDeleted,
+            LogLinesRemoved = counts.LogLinesRemoved,
+            DownloadsDeleted = counts.DownloadsDeleted,
+            LogEntriesDeleted = counts.LogEntriesDeleted,
+            AlreadyMissing = counts.AlreadyMissing,
+            Healed = counts.Healed,
+            BytesFreed = counts.BytesFreed
+        };
+
+    internal static Dictionary<string, object?> BuildRemovalContext(
+        CorruptionRemovalCounts counts,
+        string service) =>
+        new()
+        {
+            ["service"] = service,
+            ["files"] = counts.FilesDeleted,
+            ["bytesFreed"] = counts.BytesFreed,
+            ["count"] = counts.UrlsRemoved,
+            ["logLines"] = counts.LogLinesRemoved,
+            ["downloads"] = counts.DownloadsDeleted,
+            ["logEntries"] = counts.LogEntriesDeleted,
+            ["alreadyMissing"] = counts.AlreadyMissing,
+            ["healed"] = counts.Healed
+        };
+
+    internal static bool AnythingRemoved(CorruptionRemovalCounts counts) =>
+        counts.UrlsRemoved > 0
+        || counts.FilesDeleted > 0
+        || counts.LogLinesRemoved > 0
+        || counts.DownloadsDeleted > 0
+        || counts.LogEntriesDeleted > 0
+        || counts.AlreadyMissing > 0
+        || counts.Healed > 0
+        || counts.BytesFreed > 0;
+
+    private Task EmitRemovalTerminalAsync(OperationRepair repair, OperationTerminalInfo terminal)
+    {
+        var captured = repair.Corruption
+            ?? throw new InvalidDataException(
+                $"Corruption removal repair {repair.Id} omitted captured scan identity");
+        var counts = AggregateRemovalCounts(repair.Sources);
+        if (terminal.Cancelled)
+        {
+            return _notifications.NotifyAllAsync(
+                SignalREvents.CorruptionRemovalComplete,
+                new SignalRNotifications.CorruptionRemovalComplete(
+                    false,
+                    captured.Service,
+                    StageKey: "signalr.corruptionRemove.cancelled",
+                    OperationId: repair.Id,
+                    DetectionMethod: captured.DetectionMethod.ToWireString(),
+                    Cancelled: true));
+        }
+
+        if (!terminal.Success)
+        {
+            return _notifications.NotifyAllAsync(
+                SignalREvents.CorruptionRemovalComplete,
+                new SignalRNotifications.CorruptionRemovalComplete(
+                    false,
+                    captured.Service,
+                    StageKey: "signalr.corruptionRemove.failed.generic",
+                    OperationId: repair.Id,
+                    Error: terminal.Error,
+                    DetectionMethod: captured.DetectionMethod.ToWireString()));
+        }
+
+        return AnythingRemoved(counts)
+            ? _notifications.NotifyAllAsync(
+                SignalREvents.CorruptionRemovalComplete,
+                new SignalRNotifications.CorruptionRemovalComplete(
+                    true,
+                    captured.Service,
+                    StageKey: captured.DetectionMethod == CorruptionDetectionMethod.Structural
+                        ? "signalr.corruptionRemove.completeStructural"
+                        : "signalr.corruptionRemove.complete",
+                    OperationId: repair.Id,
+                    Context: BuildRemovalContext(counts, captured.Service),
+                    DetectionMethod: captured.DetectionMethod.ToWireString()))
+            : _notifications.NotifyAllAsync(
+                SignalREvents.CorruptionRemovalComplete,
+                new SignalRNotifications.CorruptionRemovalComplete(
+                    true,
+                    captured.Service,
+                    StageKey: "signalr.corruptionRemove.noChunksFoundService",
+                    OperationId: repair.Id,
+                    Context: new Dictionary<string, object?> { ["service"] = captured.Service },
+                    DetectionMethod: captured.DetectionMethod.ToWireString()));
     }
 
     public OperationInfo? GetOperationStatus(Guid operationId) => _operationTracker.GetOperation(operationId);

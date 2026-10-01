@@ -22,7 +22,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var starts = 0;
         Guid active = default;
@@ -146,7 +146,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         var tracker = new UnifiedOperationTracker(
             processManager,
             NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(
+        var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
@@ -198,7 +198,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         var tracker = new UnifiedOperationTracker(
             processManager,
             NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(
+        var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
@@ -244,7 +244,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         var tracker = new UnifiedOperationTracker(
             processManager,
             NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(
+        var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
@@ -286,7 +286,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         var tracker = new UnifiedOperationTracker(
             processManager,
             NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(
+        var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
@@ -324,7 +324,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         var tracker = new UnifiedOperationTracker(
             processManager,
             NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(
+        var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(

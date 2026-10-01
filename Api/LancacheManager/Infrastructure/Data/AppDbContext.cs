@@ -30,6 +30,7 @@ public class AppDbContext : DbContext
     public DbSet<PrefillRun> PrefillRuns => Set<PrefillRun>();
     public DbSet<PrefillCachedDepot> PrefillCachedDepots { get; set; }
     public DbSet<CacheSnapshot> CacheSnapshots { get; set; }
+    public DbSet<EvictionScanCheckpoint> EvictionScanCheckpoints { get; set; }
     public DbSet<EpicGameMapping> EpicGameMappings { get; set; }
     public DbSet<EpicCdnPattern> EpicCdnPatterns { get; set; }
     public DbSet<XboxGameMapping> XboxGameMappings { get; set; }
@@ -497,6 +498,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<CacheSnapshot>()
             .HasIndex(c => c.TimestampUtc)
             .HasDatabaseName("IX_CacheSnapshots_TimestampUtc");
+
+        modelBuilder.Entity<EvictionScanCheckpoint>(checkpoint =>
+        {
+            checkpoint.HasKey(entry => entry.OperationId);
+            checkpoint.Property(entry => entry.OperationId).ValueGeneratedNever();
+        });
 
         // EpicGameMapping indexes
         modelBuilder.Entity<EpicGameMapping>()

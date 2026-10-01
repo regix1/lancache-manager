@@ -57,6 +57,8 @@ interface MockEventSpec {
 }
 
 const GIGABYTE = 1024 * 1024 * 1024;
+const MOCK_SPEED_STREAM_ID = 'mock-speed';
+let mockSpeedRevision = 0;
 
 function hoursFrom(now: Date, hours: number): Date {
   return new Date(now.getTime() + hours * 60 * 60 * 1000);
@@ -1190,23 +1192,53 @@ class MockDataService {
   }
 
   static generateMockSpeedSnapshot(): DownloadSpeedSnapshot {
-    const windowSeconds = 10;
+    const timestamp = new Date();
+    const firstSeenUtc = new Date(timestamp.getTime() - 10_000).toISOString();
+    const lastSeenUtc = timestamp.toISOString();
+    const activeUntilUtc = new Date(timestamp.getTime() + 15_000).toISOString();
+    const measuredUntilUtc = new Date(timestamp.getTime() + 2_000).toISOString();
+    const windowSeconds = 2;
     const gameSpeeds: GameSpeedInfo[] = STEAM_GAMES.slice(0, 3).map((game, index) => {
       const bytesPerSecond = (90 - index * 25) * 1024 * 1024;
       const totalBytes = bytesPerSecond * windowSeconds;
       const cacheHitBytes = Math.floor(totalBytes * (0.85 - index * 0.25));
+      const depotId = parseInt(game.appId, 10) + 1;
+      const gameAppId = parseInt(game.appId, 10);
+      const clientIp = CLIENT_IPS[index];
+      const requestCount = 12 + index * 7;
+      const cacheMissBytes = totalBytes - cacheHitBytes;
       return {
-        depotId: parseInt(game.appId, 10) + 1,
+        key: `steam|${clientIp}|app:${gameAppId}`,
+        depotId,
         gameName: game.name,
-        gameAppId: parseInt(game.appId, 10),
+        gameAppId,
         service: 'steam',
-        clientIp: CLIENT_IPS[index],
+        clientIp,
         bytesPerSecond,
         totalBytes,
-        requestCount: 12 + index * 7,
+        requestCount,
         cacheHitBytes,
-        cacheMissBytes: totalBytes - cacheHitBytes,
-        cacheHitPercent: (cacheHitBytes / totalBytes) * 100
+        cacheMissBytes,
+        cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
+        isEvicted: false,
+        firstSeenUtc,
+        lastSeenUtc,
+        activeUntilUtc,
+        sources: [
+          {
+            datasources: ['Default'],
+            depotIds: [depotId],
+            firstSeenUtc,
+            lastSeenUtc,
+            activeUntilUtc,
+            measuredUntilUtc,
+            bytesPerSecond,
+            totalBytes,
+            requestCount,
+            cacheHitBytes,
+            cacheMissBytes
+          }
+        ]
       };
     });
 
@@ -1216,11 +1248,17 @@ class MockDataService {
       totalBytes: game.totalBytes,
       activeGames: 1,
       cacheHitBytes: game.cacheHitBytes,
-      cacheMissBytes: game.cacheMissBytes
+      cacheMissBytes: game.cacheMissBytes,
+      activeUntilUtc
     }));
 
+    mockSpeedRevision += 1;
     return {
-      timestampUtc: new Date().toISOString(),
+      version: 2,
+      streamId: MOCK_SPEED_STREAM_ID,
+      revision: mockSpeedRevision,
+      timestampUtc: lastSeenUtc,
+      isAvailable: true,
       totalBytesPerSecond: gameSpeeds.reduce((sum, game) => sum + game.bytesPerSecond, 0),
       gameSpeeds,
       clientSpeeds,

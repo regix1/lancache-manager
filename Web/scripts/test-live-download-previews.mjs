@@ -1,27 +1,51 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  computeStickyTtlMs,
+  buildTrafficKey,
   filterLivePreviews,
   getGameDisplayName,
   isResolvedGameName,
   reconcileLivePreviews
 } from '../src/components/features/downloads/liveDownloadPreviews.ts';
 
-const NOW = Date.parse('2026-07-22T12:00:00Z');
+const FIRST_SEEN = '2026-09-30T12:00:00.000Z';
+const LAST_SEEN = '2026-09-30T12:00:05.000Z';
+const ACTIVE_UNTIL = '2026-09-30T12:00:20.000Z';
+const MEASURED_UNTIL = '2026-09-30T12:00:07.000Z';
+
+const source = (overrides = {}) => ({
+  datasources: ['primary'],
+  depotIds: [731],
+  firstSeenUtc: FIRST_SEEN,
+  lastSeenUtc: LAST_SEEN,
+  activeUntilUtc: ACTIVE_UNTIL,
+  measuredUntilUtc: MEASURED_UNTIL,
+  bytesPerSecond: 1_000_000,
+  totalBytes: 2_000_000,
+  requestCount: 3,
+  cacheHitBytes: 1_000_000,
+  cacheMissBytes: 1_000_000,
+  ...overrides
+});
 
 const game = (overrides = {}) => ({
-  depotId: 0,
-  gameName: undefined,
-  gameAppId: undefined,
+  key: 'steam|10.0.0.1|app:730',
+  depotId: 731,
+  gameName: 'Counter-Strike 2',
+  gameAppId: 730,
   service: 'steam',
   clientIp: '10.0.0.1',
   bytesPerSecond: 1_000_000,
-  totalBytes: 5_000_000,
+  totalBytes: 2_000_000,
   requestCount: 3,
-  cacheHitBytes: 2_500_000,
-  cacheMissBytes: 2_500_000,
+  cacheHitBytes: 1_000_000,
+  cacheMissBytes: 1_000_000,
   cacheHitPercent: 50,
+  isEvicted: false,
+  firstSeenUtc: FIRST_SEEN,
+  lastSeenUtc: LAST_SEEN,
+  activeUntilUtc: ACTIVE_UNTIL,
+  sources: [source()],
   ...overrides
 });
 
@@ -29,351 +53,179 @@ const download = (overrides = {}) => ({
   id: 1,
   service: 'steam',
   clientIp: '10.0.0.1',
-  startTimeUtc: '2026-07-22T10:00:00Z',
-  endTimeUtc: null,
-  startTimeLocal: '',
-  endTimeLocal: null,
+  startTimeUtc: '2026-09-30T11:00:00.000Z',
+  endTimeUtc: '2026-09-30T11:30:00.000Z',
   cacheHitBytes: 0,
-  cacheMissBytes: 0,
+  cacheMissBytes: 1_000,
   totalBytes: 1_000,
   cacheHitPercent: 0,
   isActive: false,
+  gameName: 'Counter-Strike 2',
+  gameAppId: 730,
+  depotId: 731,
+  datasource: 'primary',
   averageBytesPerSecond: 0,
   isEvicted: false,
   ...overrides
 });
 
-const run = ({
-  gameSpeeds = [],
-  downloads = [],
-  ledger = new Map(),
-  now = NOW,
-  windowSeconds = 2
-}) => reconcileLivePreviews({ gameSpeeds, windowSeconds, downloads, ledger, now });
+const run = ({ gameSpeeds = [], downloads = [] } = {}) =>
+  reconcileLivePreviews({ gameSpeeds, windowSeconds: 2, downloads });
 
-test('key priority: app id beats depot, name, and service', () => {
-  const { previews } = run({
-    gameSpeeds: [
-      game({ gameAppId: 730, depotId: 731, gameName: 'Counter-Strike 2' }),
-      game({ depotId: 881, gameName: 'Steam App 999', clientIp: '10.0.0.2' }),
-      game({ service: 'epicgames', gameName: 'Fortnite', clientIp: '10.0.0.3' }),
-      game({ service: 'wsus', gameName: 'Windows Update', clientIp: '10.0.0.4' })
-    ]
-  });
-
-  const keys = previews.map((p) => p.key).sort();
-  assert.deepEqual(keys, [
-    'epicgames|10.0.0.3|name:fortnite',
-    'steam|10.0.0.1|app:730',
-    'steam|10.0.0.2|depot:881',
-    'wsus|10.0.0.4|service'
-  ]);
+test('uses the required server traffic key without rebuilding it', () => {
+  const row = game({ key: 'server-owned-key' });
+  assert.equal(buildTrafficKey(row), 'server-owned-key');
+  assert.equal(run({ gameSpeeds: [row] })[0].key, 'server-owned-key');
 });
 
-test('rows hold fixed slots instead of reordering when speeds cross', () => {
-  const speeds = (fast) => [
+test('keeps fixed slots when rates cross', () => {
+  const rows = (firstFast) => [
     game({
-      service: 'steam',
+      key: 'steam|10.0.0.1|app:1',
       gameName: 'Baldur',
-      clientIp: '10.0.0.1',
       gameAppId: 1,
-      bytesPerSecond: fast ? 9_000_000 : 1
+      bytesPerSecond: firstFast ? 9_000_000 : 1
     }),
     game({
-      service: 'epicgames',
-      gameName: 'Fortnite',
+      key: 'epic|10.0.0.2|name:fortnite',
+      service: 'epic',
       clientIp: '10.0.0.2',
-      gameAppId: 2,
-      bytesPerSecond: fast ? 1 : 9_000_000
-    }),
-    // One title under two app ids on one client. Service, display name and client are all equal,
-    // so the key is the only thing left to order them by. Fed in the REVERSE of the expected
-    // order on purpose: the ledger preserves insertion order, so dropping the key tie-break
-    // hands these two back exactly as written here and the assertion below fails.
-    game({ service: 'steam', gameName: 'Halo', clientIp: '10.0.0.3', gameAppId: 3 }),
-    game({ service: 'steam', gameName: 'Halo', clientIp: '10.0.0.3', gameAppId: 20 })
+      gameName: 'Fortnite',
+      gameAppId: undefined,
+      depotId: 0,
+      sources: [source({ datasources: ['secondary'], depotIds: [] })],
+      bytesPerSecond: firstFast ? 1 : 9_000_000
+    })
   ];
-
-  const order = (fast) => run({ gameSpeeds: speeds(fast) }).previews.map((p) => p.key);
-  const expected = [
-    'epicgames|10.0.0.2|app:2',
-    'steam|10.0.0.1|app:1',
-    // app:20 sorts before app:3 because the key is compared as text, which is fine: the point is
-    // that the pair has ONE settled order, not which of the two leads.
-    'steam|10.0.0.3|app:20',
-    'steam|10.0.0.3|app:3'
-  ];
-
-  assert.deepEqual(order(true), expected);
-  // The speeds swap between the two snapshots; the order must not.
-  assert.deepEqual(order(false), expected);
-});
-
-test('service-only traffic is never treated as a resolved game', () => {
-  const { previews } = run({
-    gameSpeeds: [game({ service: 'wsus', gameName: 'Windows Update', clientIp: '10.0.0.4' })]
-  });
-
-  assert.equal(previews.length, 1);
-  assert.equal(previews[0].hasResolvedGame, false);
-  assert.equal(previews[0].displayName, 'wsus');
-  assert.equal(previews[0].gameName, 'Windows Update');
-});
-
-test('display names lowercase service placeholders and preserve genuine titles', () => {
-  const cases = [
-    [undefined, 'xbox', 'Existing', 'xbox'],
-    [null, 'xboxlive', 'Existing', 'xbox'],
-    ['   ', 'microsoft', 'Existing', 'xbox'],
-    ['XBOX', 'xbox', 'Existing', 'xbox'],
-    ['xboxlive', 'microsoft', 'Existing', 'xbox'],
-    ['Xbox Live', 'microsoft', 'Existing', 'xbox'],
-    ['Windows Update', 'wsus', 'Existing', 'wsus'],
-    ['WSUS', 'wsus', 'Existing', 'wsus'],
-    [undefined, 'wsus', 'Existing', 'wsus'],
-    ['Windows Update', 'windows', 'Existing', 'windows'],
-    ['Epic Games', 'epicgames', 'Existing', 'epicgames'],
-    [undefined, 'epicgames', 'Existing', 'epicgames'],
-    ['Riot Games', 'riot', 'Existing', 'riot'],
-    ['Steam', 'steam', 'Existing', 'steam'],
-    ['Steam App 730', 'steam', 'Existing', 'Steam App 730'],
-    [undefined, 'steam', 'Depot 731', 'Depot 731'],
-    [undefined, 'steam', 'Steam', 'steam'],
-    [undefined, '', 'Existing', 'Existing'],
-    [undefined, 'unknown', 'Unknown Service', 'Unknown Service'],
-    ['Unknown Service', 'unknown', 'Existing', 'Unknown Service'],
-    [undefined, 'ip-address', 'Direct IP', 'Direct IP'],
-    ['Forza Horizon 5', 'xboxlive', 'Existing', 'Forza Horizon 5'],
-    ['Xbox Live Arcade Collection', 'microsoft', 'Existing', 'Xbox Live Arcade Collection'],
-    ['Windows Update', 'steam', 'Existing', 'Windows Update']
-  ];
-
-  for (const [gameName, service, emptyName, expected] of cases) {
-    assert.equal(getGameDisplayName(gameName, service, emptyName), expected);
-  }
-});
-
-test('resolved game-name policy rejects service labels and Steam placeholders', () => {
-  assert.equal(isResolvedGameName('Windows Update', 'wsus'), false);
-  assert.equal(isResolvedGameName('Epic Games', 'epicgames'), false);
-  assert.equal(isResolvedGameName('Riot Games', 'riot'), false);
-  assert.equal(isResolvedGameName('steam', 'steam'), false);
-  assert.equal(isResolvedGameName(' Steam App 730 ', 'steam'), false);
-  assert.equal(isResolvedGameName('Fortnite', 'epicgames'), true);
-});
-
-test('same game on two clients produces two previews; same key upserts', () => {
-  const first = run({
-    gameSpeeds: [
-      game({ gameAppId: 730, gameName: 'Counter-Strike 2', clientIp: '10.0.0.1' }),
-      game({ gameAppId: 730, gameName: 'Counter-Strike 2', clientIp: '10.0.0.2' })
-    ]
-  });
-  assert.equal(first.previews.length, 2);
-
-  const second = run({
-    gameSpeeds: [
-      game({
-        gameAppId: 730,
-        gameName: 'Counter-Strike 2',
-        clientIp: '10.0.0.1',
-        bytesPerSecond: 42
-      })
-    ],
-    ledger: first.ledger,
-    now: NOW + 1000
-  });
-  const updated = second.previews.find((p) => p.clientIp === '10.0.0.1');
-  assert.equal(updated.bytesPerSecond, 42);
-  assert.equal(updated.firstSeenAt, NOW, 'firstSeenAt survives the upsert');
-});
-
-test('a fresh matching row suppresses the preview immediately', () => {
-  const { previews } = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: [download({ gameAppId: 730, isActive: true })]
-  });
-  assert.equal(previews.length, 0);
-});
-
-test('a stale matching row does not hide live traffic until it advances', () => {
-  const staleEnd = new Date(NOW - 60_000).toISOString();
-  const staleRow = download({ id: 7, gameAppId: 730, endTimeUtc: staleEnd, totalBytes: 500 });
-
-  const first = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: [staleRow]
-  });
-  assert.equal(first.previews.length, 1, 'stale row becomes baseline, preview stays');
-
-  const unchanged = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: [staleRow],
-    ledger: first.ledger,
-    now: NOW + 1000
-  });
-  assert.equal(unchanged.previews.length, 1, 'unrelated refresh keeps the preview');
-
-  const advanced = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: [{ ...staleRow, totalBytes: 999_999 }],
-    ledger: unchanged.ledger,
-    now: NOW + 2000
-  });
-  assert.equal(advanced.previews.length, 0, 'advanced fingerprint reconciles the preview');
-});
-
-test('a newly added matching row reconciles the preview', () => {
-  const first = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: []
-  });
-  assert.equal(first.previews.length, 1);
-
-  const second = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: [download({ id: 9, gameAppId: 730 })],
-    ledger: first.ledger,
-    now: NOW + 1000
-  });
-  assert.equal(second.previews.length, 0);
-});
-
-test('generic wsus never matches a named Xbox row; a named wsus title does', () => {
-  const namedXboxRow = download({
-    id: 3,
-    service: 'xbox',
-    gameName: 'Forza Horizon 5',
-    isActive: true
-  });
-
-  const generic = run({
-    gameSpeeds: [game({ service: 'wsus', gameName: 'Windows Update' })],
-    downloads: [namedXboxRow]
-  });
-  assert.equal(generic.previews.length, 1, 'generic wsus preview stays despite the Xbox row');
-
-  const named = run({
-    gameSpeeds: [game({ service: 'wsus', gameName: 'Forza Horizon 5' })],
-    downloads: [namedXboxRow]
-  });
-  assert.equal(named.previews.length, 0, 'same title reconciles across the wsus/xbox alias');
-});
-
-test('raw placeholder titles still reconcile after their visible labels change', () => {
-  for (const [service, gameName] of [
-    ['microsoft', 'Xbox Live'],
-    ['wsus', 'Windows Update']
-  ]) {
-    const source = Object.freeze(game({ service, gameName }));
-    const { previews } = run({
-      gameSpeeds: [source],
-      downloads: [download({ service, gameName, isActive: true })]
-    });
-    assert.equal(previews.length, 0, `${service} raw title reconciles`);
-    assert.equal(source.gameName, gameName, `${service} input stays unchanged`);
-  }
-});
-
-test('sticky TTL retains a briefly absent row, then drops it', () => {
-  const first = run({ gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })] });
-  const stickyMs = computeStickyTtlMs(2);
-  assert.equal(stickyMs, 3000);
-
-  const withinTtl = run({ gameSpeeds: [], ledger: first.ledger, now: NOW + stickyMs - 1 });
-  assert.equal(withinTtl.previews.length, 1, 'row lingers within the sticky TTL');
-
-  const pastTtl = run({ gameSpeeds: [], ledger: withinTtl.ledger, now: NOW + stickyMs + 1 });
-  assert.equal(pastTtl.previews.length, 0, 'row expires after the sticky TTL');
-  assert.equal(pastTtl.ledger.size, 0, 'expired identity leaves the ledger');
-});
-
-test('filters apply the view predicates to previews', () => {
-  const { previews } = run({
-    gameSpeeds: [
-      game({ gameAppId: 730, gameName: 'Counter-Strike 2', clientIp: '10.0.0.1' }),
-      game({
-        service: 'xboxlive',
-        gameName: 'Forza Horizon 5',
-        clientIp: '10.0.0.2',
-        cacheHitPercent: 90
-      }),
-      game({ service: 'wsus', gameName: 'Windows Update', clientIp: '127.0.0.1' }),
-      game({ depotId: 881, clientIp: '10.0.0.3', cacheHitPercent: 10 })
-    ]
-  });
-
-  const byService = filterLivePreviews(previews, { serviceFilterKey: 'xbox' });
   assert.deepEqual(
-    byService.map((p) => p.clientIp),
-    ['10.0.0.2']
+    run({ gameSpeeds: rows(true) }).map((preview) => preview.key),
+    run({ gameSpeeds: rows(false) }).map((preview) => preview.key)
+  );
+});
+
+test('does not let a stale active row hide a new inferred session', () => {
+  assert.equal(
+    run({
+      gameSpeeds: [game()],
+      downloads: [download({ isActive: true, endTimeUtc: null })]
+    }).length,
+    1
+  );
+});
+
+test('hands off in the same render when a matching recorded row reaches the session start', () => {
+  assert.equal(
+    run({
+      gameSpeeds: [game()],
+      downloads: [download({ startTimeUtc: FIRST_SEEN, endTimeUtc: null })]
+    }).length,
+    0
+  );
+  assert.equal(
+    run({
+      gameSpeeds: [game()],
+      downloads: [download({ endTimeUtc: LAST_SEEN })]
+    }).length,
+    0
+  );
+});
+
+test('keeps a preview for a newly inserted but backfilled old row', () => {
+  assert.equal(run({ gameSpeeds: [game()], downloads: [download({ id: 99 })] }).length, 1);
+});
+
+test('requires a matching datasource alias before a row can take over', () => {
+  const current = game({
+    sources: [source({ datasources: ['Primary', 'Mirror'] })]
+  });
+  assert.equal(
+    run({
+      gameSpeeds: [current],
+      downloads: [download({ datasource: 'other', startTimeUtc: FIRST_SEEN })]
+    }).length,
+    1
+  );
+  assert.equal(
+    run({
+      gameSpeeds: [current],
+      downloads: [download({ datasource: 'mirror', startTimeUtc: FIRST_SEEN })]
+    }).length,
+    0
+  );
+});
+
+test('has no browser carry-over after the accepted snapshot removes an identity', () => {
+  assert.equal(run({ gameSpeeds: [game()] }).length, 1);
+  assert.deepEqual(run({ gameSpeeds: [] }), []);
+});
+
+test('preserves named Xbox alias matching without matching generic traffic', () => {
+  const named = game({
+    key: 'xboxlive|10.0.0.1|name:halo',
+    service: 'xboxlive',
+    gameName: 'Halo',
+    gameAppId: undefined,
+    depotId: 0,
+    sources: [source({ datasources: ['primary'], depotIds: [] })]
+  });
+  assert.equal(
+    run({
+      gameSpeeds: [named],
+      downloads: [
+        download({
+          service: 'wsus',
+          gameName: 'Halo',
+          gameAppId: undefined,
+          depotId: undefined,
+          startTimeUtc: FIRST_SEEN
+        })
+      ]
+    }).length,
+    0
   );
 
-  const byClient = filterLivePreviews(previews, { clientFilter: { type: 'ip', ip: '10.0.0.1' } });
+  const generic = { ...named, key: 'xboxlive|10.0.0.1|service', gameName: 'Xbox Live' };
+  assert.equal(
+    run({
+      gameSpeeds: [generic],
+      downloads: [
+        download({
+          service: 'wsus',
+          gameName: 'Windows Update',
+          gameAppId: undefined,
+          depotId: undefined,
+          startTimeUtc: FIRST_SEEN
+        })
+      ]
+    }).length,
+    1
+  );
+});
+
+test('keeps service labels and preview filters', () => {
+  assert.equal(isResolvedGameName('Epic Games', 'epic'), false);
+  assert.equal(getGameDisplayName('Halo', 'xboxlive', ''), 'Halo');
+
+  const previews = run({
+    gameSpeeds: [
+      game(),
+      game({
+        key: 'epic|127.0.0.1|name:fortnite',
+        service: 'epic',
+        clientIp: '127.0.0.1',
+        gameName: 'Fortnite',
+        gameAppId: undefined,
+        depotId: 0,
+        sources: [source({ datasources: ['secondary'], depotIds: [] })]
+      })
+    ]
+  });
   assert.deepEqual(
-    byClient.map((p) => p.clientIp),
+    filterLivePreviews(previews, { serviceFilterKey: 'steam' }).map((p) => p.service),
+    ['steam']
+  );
+  assert.deepEqual(
+    filterLivePreviews(previews, { hideLocalhost: true }).map((p) => p.clientIp),
     ['10.0.0.1']
   );
-
-  const byGroup = filterLivePreviews(previews, {
-    clientFilter: { type: 'group', memberIps: ['10.0.0.1', '10.0.0.2'] }
-  });
-  assert.equal(byGroup.length, 2);
-
-  const bySearch = filterLivePreviews(previews, { searchQuery: 'forza' });
-  assert.deepEqual(
-    bySearch.map((p) => p.clientIp),
-    ['10.0.0.2']
-  );
-
-  const rawNames = run({
-    gameSpeeds: [
-      game({ service: 'microsoft', gameName: 'Xbox Live', clientIp: '10.0.0.4' }),
-      game({ service: 'wsus', gameName: 'Windows Update', clientIp: '10.0.0.5' })
-    ]
-  }).previews;
-  assert.deepEqual(
-    rawNames.map((preview) => preview.displayName),
-    ['xbox', 'wsus']
-  );
-  assert.deepEqual(
-    filterLivePreviews(rawNames, { searchQuery: 'xbox live' }).map((preview) => preview.clientIp),
-    ['10.0.0.4']
-  );
-  assert.deepEqual(
-    filterLivePreviews(rawNames, { searchQuery: 'windows update' }).map(
-      (preview) => preview.clientIp
-    ),
-    ['10.0.0.5']
-  );
-
-  const noLocalhost = filterLivePreviews(previews, { hideLocalhost: true });
-  assert.ok(noLocalhost.every((p) => p.clientIp !== '127.0.0.1'));
-
-  const noUnknownSteam = filterLivePreviews(previews, { hideUnknownSteam: true });
-  assert.ok(noUnknownSteam.every((p) => !(p.service === 'steam' && !p.hasResolvedGame)));
-
-  const hits = filterLivePreviews(previews, { hitMissFilter: 'hit' });
-  assert.ok(hits.every((p) => p.cacheHitPercent >= 50));
-  assert.ok(!hits.some((p) => p.clientIp === '10.0.0.3'), 'window-miss rows drop from hit view');
-
-  const misses = filterLivePreviews(previews, { hitMissFilter: 'miss' });
-  assert.deepEqual(
-    misses.map((p) => p.clientIp),
-    ['10.0.0.3']
-  );
-});
-
-test('previews carry no database identity and never mutate the recorded rows', () => {
-  const rows = [download({ id: 5, gameAppId: 100 })];
-  const frozenRow = Object.freeze({ ...rows[0] });
-  const { previews } = run({
-    gameSpeeds: [game({ gameAppId: 730, gameName: 'Counter-Strike 2' })],
-    downloads: [frozenRow]
-  });
-
-  assert.equal(previews.length, 1);
-  assert.ok(!('id' in previews[0]), 'previews are structurally distinct from Download');
-  assert.equal(previews[0].status, 'in-progress');
-  assert.deepEqual(frozenRow, { ...rows[0] }, 'recorded rows are untouched');
 });

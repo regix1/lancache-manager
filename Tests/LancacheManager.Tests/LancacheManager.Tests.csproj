@@ -32,6 +32,7 @@
     <ProjectReference Include="..\..\Api\LancacheManager\LancacheManager.csproj" />
     <ProjectReference Include="..\CorruptionProcess\CorruptionProcess.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CacheClearProcess\CacheClearProcess.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\LogProcess\LogProcess.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <Target Name="CopyCorruptionProcess" AfterTargets="Build">
@@ -48,6 +49,14 @@
       <Output TaskParameter="TargetOutputs" ItemName="CacheClearFiles" />
     </MSBuild>
     <Copy SourceFiles="@(CacheClearFiles)" DestinationFolder="$(OutDir)cache-clear-process" />
+  </Target>
+
+  <Target Name="CopyLogProcess" AfterTargets="Build">
+    <MSBuild Projects="..\LogProcess\LogProcess.csproj" Targets="GetLogFiles"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)">
+      <Output TaskParameter="TargetOutputs" ItemName="LogFiles" />
+    </MSBuild>
+    <Copy SourceFiles="@(LogFiles)" DestinationFolder="$(OutDir)log-process" />
   </Target>
 
 </Project>

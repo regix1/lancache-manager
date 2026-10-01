@@ -21,6 +21,9 @@ public class ActivityRegistry : IActivityRegistry
     private readonly Dictionary<(string Domain, string Key, string Aspect), ActivityItem> _active = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private long _revision;
+    private Func<DownloadSpeedSnapshot>? _readDownloads;
+    private string _downloadStreamId = string.Empty;
+    private long _downloadRevision;
 
     public ActivityRegistry(ISignalRNotificationService notifications, ILogger<ActivityRegistry> logger)
     {
@@ -28,12 +31,28 @@ public class ActivityRegistry : IActivityRegistry
         _logger = logger;
     }
 
+    public void BindDownloads(Func<DownloadSpeedSnapshot> read)
+    {
+        var existing = Interlocked.CompareExchange(ref _readDownloads, read, null);
+        if (existing is not null && existing != read)
+        {
+            throw new InvalidOperationException("The current download reader is already bound.");
+        }
+    }
+
     public async Task ReportAsync(string domain, string key, string aspect, bool isActive, int activeCount = 1)
     {
+        var downloads = CaptureDownloads();
         await _gate.WaitAsync();
         try
         {
+            var changed = ApplyDownloadsLocked(downloads);
             if (ApplyLocked(domain, key, aspect, isActive, activeCount))
+            {
+                changed = true;
+            }
+
+            if (changed)
             {
                 await BroadcastLockedAsync();
             }
@@ -46,10 +65,11 @@ public class ActivityRegistry : IActivityRegistry
 
     public async Task ReplaceAsync(string domain, string aspect, IReadOnlyDictionary<string, int> activeKeys)
     {
+        var downloads = CaptureDownloads();
         await _gate.WaitAsync();
         try
         {
-            var changed = false;
+            var changed = ApplyDownloadsLocked(downloads);
 
             // Drop any key currently active in this (domain, aspect) that is no longer present.
             var stale = _active.Keys
@@ -80,11 +100,33 @@ public class ActivityRegistry : IActivityRegistry
         }
     }
 
-    public async Task<ActivitySnapshot> GetSnapshotAsync()
+    public async Task ReplaceDownloadsAsync(DownloadSpeedSnapshot snapshot)
     {
         await _gate.WaitAsync();
         try
         {
+            if (ApplyDownloadsLocked(snapshot))
+            {
+                await BroadcastLockedAsync();
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<ActivitySnapshot> GetSnapshotAsync()
+    {
+        var downloads = CaptureDownloads();
+        await _gate.WaitAsync();
+        try
+        {
+            if (ApplyDownloadsLocked(downloads))
+            {
+                _revision++;
+            }
+
             return SnapshotLocked();
         }
         finally
@@ -93,13 +135,84 @@ public class ActivityRegistry : IActivityRegistry
         }
     }
 
+    private DownloadSpeedSnapshot? CaptureDownloads() => Volatile.Read(ref _readDownloads)?.Invoke();
+
+    private bool ApplyDownloadsLocked(DownloadSpeedSnapshot? snapshot)
+    {
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.StreamId))
+        {
+            return false;
+        }
+
+        if (string.Equals(snapshot.StreamId, _downloadStreamId, StringComparison.Ordinal) &&
+            snapshot.Revision <= _downloadRevision)
+        {
+            return false;
+        }
+
+        var next = new Dictionary<string, DateTime?>(StringComparer.Ordinal);
+        foreach (var game in snapshot.GameSpeeds)
+        {
+            if (!string.IsNullOrWhiteSpace(game.Key))
+            {
+                next[game.Key] = game.ActiveUntilUtc;
+            }
+        }
+
+        foreach (var client in snapshot.ClientSpeeds)
+        {
+            if (!string.IsNullOrWhiteSpace(client.ClientIp))
+            {
+                next[client.ClientIp] = client.ActiveUntilUtc;
+            }
+        }
+
+        var changed = !string.Equals(snapshot.StreamId, _downloadStreamId, StringComparison.Ordinal);
+        var stale = _active.Keys
+            .Where(k =>
+                k.Domain == ActivityDomains.Download &&
+                (k.Aspect != ActivityAspects.Downloading || !next.ContainsKey(k.Key)))
+            .ToList();
+        foreach (var id in stale)
+        {
+            _active.Remove(id);
+            changed = true;
+        }
+
+        foreach (var (key, activeUntilUtc) in next)
+        {
+            if (ApplyLocked(
+                    ActivityDomains.Download,
+                    key,
+                    ActivityAspects.Downloading,
+                    true,
+                    1,
+                    activeUntilUtc))
+            {
+                changed = true;
+            }
+        }
+
+        _downloadStreamId = snapshot.StreamId;
+        _downloadRevision = snapshot.Revision;
+        return changed;
+    }
+
     /// <summary>Applies one entry. Returns true when the stored state actually changed.</summary>
-    private bool ApplyLocked(string domain, string key, string aspect, bool isActive, int activeCount)
+    private bool ApplyLocked(
+        string domain,
+        string key,
+        string aspect,
+        bool isActive,
+        int activeCount,
+        DateTime? activeUntilUtc = null)
     {
         var id = (domain, key, aspect);
         if (isActive && activeCount > 0)
         {
-            if (_active.TryGetValue(id, out var existing) && existing.ActiveCount == activeCount)
+            if (_active.TryGetValue(id, out var existing) &&
+                existing.ActiveCount == activeCount &&
+                existing.ActiveUntilUtc == activeUntilUtc)
             {
                 return false;
             }
@@ -111,6 +224,7 @@ public class ActivityRegistry : IActivityRegistry
                 Aspect = aspect,
                 IsActive = true,
                 ActiveCount = activeCount,
+                ActiveUntilUtc = activeUntilUtc,
             };
             return true;
         }
@@ -126,7 +240,13 @@ public class ActivityRegistry : IActivityRegistry
             .ThenBy(v => v.Aspect, StringComparer.Ordinal)
             .ToList();
 
-        return new ActivitySnapshot { Revision = _revision, Activities = activities };
+        return new ActivitySnapshot
+        {
+            Revision = _revision,
+            DownloadStreamId = _downloadStreamId,
+            DownloadRevision = _downloadRevision,
+            Activities = activities,
+        };
     }
 
     internal static ActivitySnapshot ToGuestVisibleSnapshot(ActivitySnapshot snapshot)
@@ -134,6 +254,8 @@ public class ActivityRegistry : IActivityRegistry
         return new ActivitySnapshot
         {
             Revision = snapshot.Revision,
+            DownloadStreamId = snapshot.DownloadStreamId,
+            DownloadRevision = snapshot.DownloadRevision,
             Activities = snapshot.Activities
                 .Where(a => a.Domain == ActivityDomains.Download)
                 .ToList(),

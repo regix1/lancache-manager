@@ -2965,7 +2965,7 @@ public class DownloadHistoryUpgradeTests
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 NullLogger<UnifiedOperationTracker>.Instance,
                 notifications);
-            var checker = new OperationConflictChecker(
+            var checker = OperationConflictTestServices.Create(
                 tracker,
                 NullLogger<OperationConflictChecker>.Instance);
             var queue = new OperationQueueService(

@@ -13,6 +13,9 @@ public class DashboardStatsResponse
 
     // Current status
     public int ActiveDownloads { get; set; }
+    public int ActiveClients { get; set; }
+    public string ActivityStreamId { get; set; } = string.Empty;
+    public long ActivityRevision { get; set; }
     public int UniqueClients { get; set; }
     public string TopService { get; set; } = string.Empty;
 

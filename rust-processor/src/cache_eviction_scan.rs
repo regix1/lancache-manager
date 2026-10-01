@@ -3,11 +3,12 @@ use clap::Parser;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 mod cache_eviction_paths;
+use lancache_processor::cache_repair;
 use lancache_processor::cancel;
 use lancache_processor::db;
 use lancache_processor::progress_events;
@@ -29,6 +30,14 @@ struct Args {
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
+
+    /// Durable checkpoint row that receives committed page counters.
+    #[arg(long = "operation-id")]
+    operation_id: Option<String>,
+
+    /// Immutable repair scope for interruption recovery.
+    #[arg(long, requires = "operation_id")]
+    repair: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -40,6 +49,142 @@ struct DatasourceConfig {
     /// Cache-key recipe for this datasource: "monolithic" (default) | "bare_metal".
     #[serde(default)]
     key_scheme: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RepairDocument {
+    version: u32,
+    operation_id: String,
+    sources: Vec<RepairSource>,
+    #[serde(default)]
+    target: Option<RepairTarget>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RepairSource {
+    name: String,
+    cache_path: String,
+    key_scheme: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RepairTarget {
+    #[serde(default)]
+    steam_app_id: Option<u32>,
+    #[serde(default)]
+    steam_depot_ids: Vec<u32>,
+    #[serde(default)]
+    epic_game: Option<String>,
+    #[serde(default)]
+    game_name: Option<String>,
+    #[serde(default)]
+    service: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TargetSelector {
+    Bulk,
+    Steam { app_id: u32, depot_ids: Vec<u32> },
+    Epic { game: String },
+    Named { game: String, service: String },
+    Service { service: String },
+}
+
+impl TargetSelector {
+    fn from_target(target: Option<RepairTarget>) -> Result<Self> {
+        let Some(target) = target else {
+            return Ok(Self::Bulk);
+        };
+        let epic = nonempty(target.epic_game);
+        let game = nonempty(target.game_name);
+        let service = nonempty(target.service);
+
+        match (target.steam_app_id, epic, game, service) {
+            (Some(app_id), None, None, None) => Ok(Self::Steam {
+                app_id,
+                depot_ids: target.steam_depot_ids,
+            }),
+            (None, Some(game), None, None) if target.steam_depot_ids.is_empty() => {
+                Ok(Self::Epic { game })
+            }
+            (None, None, Some(game), Some(service)) if target.steam_depot_ids.is_empty() => {
+                Ok(Self::Named { game, service })
+            }
+            (None, None, None, Some(service)) if target.steam_depot_ids.is_empty() => {
+                Ok(Self::Service { service })
+            }
+            _ => anyhow::bail!("repair target has an empty, mixed, or depot-only selector"),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn matches(
+        &self,
+        game_app_id: Option<i64>,
+        depot_id: Option<i64>,
+        epic_app_id: Option<&str>,
+        game_name: Option<&str>,
+        service: Option<&str>,
+    ) -> bool {
+        match self {
+            Self::Bulk => true,
+            Self::Steam { app_id, depot_ids } => {
+                game_app_id == Some(i64::from(*app_id))
+                    || depot_id.is_some_and(|value| {
+                        u32::try_from(value)
+                            .ok()
+                            .is_some_and(|value| depot_ids.contains(&value))
+                    })
+            }
+            Self::Epic { game } => epic_app_id.is_some() && game_name == Some(game.as_str()),
+            Self::Named {
+                game,
+                service: target_service,
+            } => {
+                game_app_id.is_none()
+                    && epic_app_id.is_none()
+                    && game_name == Some(game.as_str())
+                    && service.is_some_and(|value| value.eq_ignore_ascii_case(target_service))
+            }
+            Self::Service {
+                service: target_service,
+            } => service.is_some_and(|value| value.eq_ignore_ascii_case(target_service)),
+        }
+    }
+}
+
+fn nonempty(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.trim().is_empty())
+}
+
+fn read_repair(path: &Path) -> Result<(uuid::Uuid, Vec<RepairSource>, TargetSelector)> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("Failed to read repair document: {}", path.display()))?;
+    let repair: RepairDocument = serde_json::from_slice(&bytes)?;
+    if repair.version != 1 {
+        anyhow::bail!("unsupported repair document version {}", repair.version);
+    }
+    let original_id = cache_repair::operation_uuid(&repair.operation_id)?;
+    if repair.sources.is_empty() {
+        anyhow::bail!("repair document has no launched sources");
+    }
+    let mut source_names = std::collections::HashSet::new();
+    for source in &repair.sources {
+        if source.name.trim().is_empty()
+            || source.cache_path.trim().is_empty()
+            || source.key_scheme.trim().is_empty()
+        {
+            anyhow::bail!("repair document contains an incomplete source");
+        }
+        if !source_names.insert(source.name.to_lowercase()) {
+            anyhow::bail!("repair document repeats datasource '{}'", source.name);
+        }
+    }
+    let target = TargetSelector::from_target(repair.target)?;
+    Ok((original_id, repair.sources, target))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,6 +324,15 @@ enum DownloadAction {
     NoOp,
 }
 
+struct DownloadIdentity {
+    datasource: Option<String>,
+    service: Option<String>,
+    game_name: Option<String>,
+    game_app_id: Option<i64>,
+    depot_id: Option<i64>,
+    epic_app_id: Option<String>,
+}
+
 /// Classifies the complete probe result. Presence is intentionally evaluated before absence
 /// verifiability: a positive digest hit is conclusive even when another key has an offline root,
 /// unresolved datasource, or unsupported bare-metal recipe. The strict all-keys policy is only
@@ -253,8 +407,14 @@ async fn main() -> Result<()> {
     // error) is handed to finish_or_exit, the ONE place that emits the structured `failed`
     // event + errorDetail, so a business failure and a `?`-propagated one are no longer two
     // different failure shapes.
-    let result =
-        run_scan_and_report(&args.datasource_config, progress_path.as_deref(), &reporter).await;
+    let result = run_scan_and_report(
+        &args.datasource_config,
+        progress_path.as_deref(),
+        args.operation_id.as_deref(),
+        args.repair.as_deref(),
+        &reporter,
+    )
+    .await;
     progress_events::finish_or_exit(&reporter, "signalr.evictionScan.error.fatal", result);
     Ok(())
 }
@@ -266,9 +426,19 @@ async fn main() -> Result<()> {
 async fn run_scan_and_report(
     datasource_config: &str,
     progress_path: Option<&Path>,
+    operation_id: Option<&str>,
+    repair_path: Option<&str>,
     reporter: &ProgressReporter,
 ) -> Result<()> {
-    match run_scan(datasource_config, progress_path, reporter).await {
+    match run_scan(
+        datasource_config,
+        progress_path,
+        operation_id,
+        repair_path,
+        reporter,
+    )
+    .await
+    {
         Ok(result) => {
             // Real final counts (never hardcoded zeros) - the exact bug fixed in cache_clear.
             if result.success {
@@ -310,8 +480,14 @@ async fn run_scan_and_report(
 async fn run_scan(
     datasource_config_path: &str,
     progress_path: Option<&Path>,
+    operation_id: Option<&str>,
+    repair_path: Option<&str>,
     reporter: &ProgressReporter,
 ) -> Result<ScanResult> {
+    let operation_id = operation_id.map(cache_repair::operation_uuid).transpose()?;
+    if repair_path.is_some() && operation_id.is_none() {
+        anyhow::bail!("--repair requires --operation-id");
+    }
     // Step 1: Read datasource configuration
     let config_content = std::fs::read_to_string(datasource_config_path).with_context(|| {
         format!(
@@ -323,6 +499,10 @@ async fn run_scan(
         .with_context(|| "Failed to parse datasource config JSON")?;
 
     if datasources.is_empty() {
+        if let Some(operation_id) = operation_id {
+            let pool = db::create_pool().await?;
+            ensure_checkpoint(&pool, operation_id).await?;
+        }
         return Ok(ScanResult {
             success: true,
             processed: 0,
@@ -332,8 +512,6 @@ async fn run_scan(
             error: None,
         });
     }
-
-    let datasource_roots = cache_eviction_paths::DatasourceRoots::from_configs(&datasources);
 
     // Progress budget: file scan 0–50%, DB reconcile 50–99%. Reserve 100% for the
     // C# EvictionScanComplete event so the UI never shows "done" while post-processing runs.
@@ -357,7 +535,7 @@ async fn run_scan(
 
     // Step 2: Build HashSet of all files on disk across all cache directories
     let file_scan_span = FILE_SCAN_PROGRESS_END - FILE_SCAN_PROGRESS_START;
-    let files_on_disk = cache_eviction_paths::collect_files_on_disk(&datasources, |files_found| {
+    let mut report_file_count = |files_found| {
         // Asymptotic curve toward FILE_SCAN_PROGRESS_END — we don't know the total upfront.
         let fraction = 1.0 - 1.0 / (1.0 + files_found as f64 / 1_000_000.0);
         let percent = FILE_SCAN_PROGRESS_START + fraction * file_scan_span;
@@ -373,9 +551,48 @@ async fn run_scan(
             0,
             0,
         );
-    });
+    };
+    let normal_roots;
+    let repair_index;
+    let target;
+    if let Some(repair_path) = repair_path {
+        let operation_id = operation_id.context("--repair requires --operation-id")?;
+        let (original_id, sources, selected_target) = read_repair(Path::new(repair_path))?;
+        if original_id == operation_id {
+            anyhow::bail!(
+                "repair document operation ID must differ from the scan checkpoint operation ID"
+            );
+        }
+        repair_index = Some(cache_eviction_paths::collect_files_for_repair(
+            &datasources,
+            &sources,
+            original_id,
+            &mut report_file_count,
+        )?);
+        normal_roots = None;
+        target = selected_target;
+    } else {
+        repair_index = None;
+        normal_roots = Some(cache_eviction_paths::DatasourceRoots::from_configs(
+            &datasources,
+        ));
+        target = TargetSelector::Bulk;
+    }
+    let datasource_roots = repair_index
+        .as_ref()
+        .map(|repair| &repair.roots)
+        .or(normal_roots.as_ref())
+        .context("eviction scan datasource roots are unavailable")?;
+    let normal_files;
+    let files_on_disk = if let Some(repair) = repair_index.as_ref() {
+        &repair.files
+    } else {
+        normal_files =
+            cache_eviction_paths::collect_files_on_disk(&datasources, &mut report_file_count);
+        &normal_files
+    };
 
-    if files_on_disk.is_empty() {
+    if repair_index.is_none() && files_on_disk.is_empty() && operation_id.is_none() {
         eprintln!("[EvictionScan] No cache files found on disk - skipping to prevent false eviction flags");
         return Ok(ScanResult {
             success: true,
@@ -396,6 +613,20 @@ async fn run_scan(
 
     // Step 3: Connect to database
     let pool = db::create_pool().await?;
+    if let Some(operation_id) = operation_id {
+        ensure_checkpoint(&pool, operation_id).await?;
+    }
+    if repair_index.is_none() && files_on_disk.is_empty() {
+        eprintln!("[EvictionScan] No cache files found on disk - skipping to prevent false eviction flags");
+        return Ok(ScanResult {
+            success: true,
+            processed: 0,
+            evicted: 0,
+            un_evicted: 0,
+            files_on_disk: 0,
+            error: None,
+        });
+    }
 
     // Count total inactive downloads for progress estimation
     let total_estimate: i64 =
@@ -433,7 +664,10 @@ async fn run_scan(
         let download_rows = sqlx::query(
             r#"
             SELECT "Id" as download_id, "IsEvicted" as is_evicted,
-                   "CacheHitBytes" as cache_hit_bytes, "CacheMissBytes" as cache_miss_bytes
+                   "CacheHitBytes" as cache_hit_bytes, "CacheMissBytes" as cache_miss_bytes,
+                   "Datasource" as datasource, "Service" as service, "GameName" as game_name,
+                   "GameAppId" as game_app_id, "DepotId" as depot_id,
+                   "EpicAppId" as epic_app_id
             FROM "Downloads"
             WHERE "IsActive" = false AND "Id" > $1
             ORDER BY "Id"
@@ -466,6 +700,22 @@ async fn run_scan(
                 (r.get("download_id"), (hit, miss))
             })
             .collect();
+        let download_identity: HashMap<i64, DownloadIdentity> = download_rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get("download_id"),
+                    DownloadIdentity {
+                        datasource: row.get("datasource"),
+                        service: row.get("service"),
+                        game_name: row.get("game_name"),
+                        game_app_id: row.get("game_app_id"),
+                        depot_id: row.get("depot_id"),
+                        epic_app_id: row.get("epic_app_id"),
+                    },
+                )
+            })
+            .collect();
 
         let Some(last_download_id) = download_ids.last().copied() else {
             break;
@@ -482,7 +732,6 @@ async fn run_scan(
             SELECT "DownloadId" as download_id, "Service" as service, "Url" as url, "Datasource" as datasource, MAX("BytesServed") as bytes_served
             FROM "LogEntries"
             WHERE "DownloadId" = ANY($1)
-            AND "Service" IS NOT NULL AND "Url" IS NOT NULL
             GROUP BY "DownloadId", "Service", "Url", "Datasource"
             "#
         )
@@ -493,23 +742,30 @@ async fn run_scan(
 
         // Group probe keys by download_id
         let mut download_keys: HashMap<i64, Vec<cache_eviction_paths::ProbeKey>> = HashMap::new();
+        let mut download_origins: HashMap<i64, Vec<Option<String>>> = HashMap::new();
         for row in &log_rows {
             let download_id: i64 = row.get("download_id");
-            let service: String = row.get("service");
-            let url: String = row.get("url");
+            let service: Option<String> = row.get("service");
+            let url: Option<String> = row.get("url");
             let datasource: Option<String> = row.get("datasource");
+            download_origins
+                .entry(download_id)
+                .or_default()
+                .push(datasource.clone());
             // MAX() is typed nullable; NULL means no usable size → 0 → probe-chunk floor.
             let bytes_served: Option<i64> = row.get("bytes_served");
 
-            download_keys.entry(download_id).or_default().push(
-                cache_eviction_paths::ProbeKey::new(
-                    &service,
-                    url,
-                    datasource.as_deref(),
-                    bytes_served.unwrap_or(0),
-                    &datasource_roots,
-                ),
-            );
+            if let (Some(service), Some(url)) = (service, url) {
+                download_keys.entry(download_id).or_default().push(
+                    cache_eviction_paths::ProbeKey::new(
+                        &service,
+                        url,
+                        datasource.as_deref(),
+                        bytes_served.unwrap_or(0),
+                        datasource_roots,
+                    ),
+                );
+            }
         }
 
         // Probe each not-yet-memoized unique key once, in parallel (pure CPU over the
@@ -558,8 +814,29 @@ async fn run_scan(
         let mut ids_to_evict: Vec<i64> = Vec::new();
         let mut ids_to_unevict: Vec<i64> = Vec::new();
         let mut unverifiable_cleared = 0usize;
+        let mut page_processed = 0usize;
 
         for download_id in &download_ids {
+            let identity = download_identity
+                .get(download_id)
+                .context("download identity is missing from its scan page")?;
+            let origins = download_origins
+                .get(download_id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if let Some(repair) = repair_index.as_ref() {
+                if !target.matches(
+                    identity.game_app_id,
+                    identity.depot_id,
+                    identity.epic_app_id.as_deref(),
+                    identity.game_name.as_deref(),
+                    identity.service.as_deref(),
+                ) || !repair.intersects(identity.datasource.as_deref(), origins)
+                {
+                    continue;
+                }
+            }
+            page_processed += 1;
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
             let keys = download_keys.get(download_id);
             let keys_for_probe: &[cache_eviction_paths::ProbeKey] =
@@ -579,8 +856,19 @@ async fn run_scan(
             // verifiable only when the complete key set satisfies its scheme policy; unsupported
             // bare-metal recipes clear stale flags, while offline/unresolved keys abstain.
             let has_probe_keys = !keys_for_probe.is_empty();
-            let can_verify_absence =
-                cache_eviction_paths::keys_can_verify_absence(keys_for_probe, &files_on_disk);
+            let mut can_verify_absence = if let Some(repair) = repair_index.as_ref() {
+                let origins_checked =
+                    repair.origins_can_verify_absence(identity.datasource.as_deref(), origins);
+                let keyless_empty = keys_for_probe.is_empty()
+                    && repair.origins_are_trusted_empty(identity.datasource.as_deref(), origins);
+                origins_checked
+                    && (cache_eviction_paths::keys_can_verify_repair_absence(
+                        keys_for_probe,
+                        repair,
+                    ) || keyless_empty)
+            } else {
+                cache_eviction_paths::keys_can_verify_absence(keys_for_probe, files_on_disk)
+            };
             let has_unknown_recipe = keys_for_probe
                 .iter()
                 .any(cache_eviction_paths::ProbeKey::has_unknown_recipe);
@@ -588,15 +876,32 @@ async fn run_scan(
                 .get(download_id)
                 .copied()
                 .unwrap_or((0, 0));
-            let was_cached = download_was_cached(hit_bytes, miss_bytes, keys_for_probe);
-            match classify_download(
-                has_cache_file,
-                can_verify_absence,
-                has_probe_keys,
-                has_unknown_recipe,
-                is_evicted,
-                was_cached,
-            ) {
+            let was_cached = if keys_for_probe.is_empty() {
+                hit_bytes > 0
+                    || (miss_bytes > 0
+                        && repair_index.as_ref().is_none_or(|repair| {
+                            !repair
+                                .origins_include_bare_metal(identity.datasource.as_deref(), origins)
+                        }))
+            } else {
+                download_was_cached(hit_bytes, miss_bytes, keys_for_probe)
+            };
+            if repair_index.is_some() && keys_for_probe.is_empty() && !was_cached {
+                can_verify_absence = false;
+            }
+            let action = if repair_index.is_some() && !has_cache_file && !can_verify_absence {
+                DownloadAction::NoOp
+            } else {
+                classify_download(
+                    has_cache_file,
+                    can_verify_absence,
+                    has_probe_keys,
+                    has_unknown_recipe,
+                    is_evicted,
+                    was_cached,
+                )
+            };
+            match action {
                 DownloadAction::Evict => ids_to_evict.push(*download_id),
                 DownloadAction::Unevict => ids_to_unevict.push(*download_id),
                 DownloadAction::ClearUnverifiable => {
@@ -614,9 +919,15 @@ async fn run_scan(
             );
         }
 
-        // rust-3: wrap both evict/unevict UPDATEs for this batch in a single transaction
-        // so a kill mid-batch cannot partially flag a batch.
-        if !ids_to_evict.is_empty() || !ids_to_unevict.is_empty() {
+        // Apply every page and its durable counters in one transaction. A page that changes
+        // no flags still advances Processed, so a stopped child cannot lose committed work
+        // between PostgreSQL and the optional progress file.
+        let mut page_evicted = 0usize;
+        let mut page_un_evicted = 0usize;
+        if (operation_id.is_some() && page_processed > 0)
+            || !ids_to_evict.is_empty()
+            || !ids_to_unevict.is_empty()
+        {
             let mut tx = pool
                 .begin()
                 .await
@@ -635,7 +946,7 @@ async fn run_scan(
                     rows.push((*download_id, hit_bytes, miss_bytes));
                 }
                 let changed = evict_unchanged_downloads_tx(&mut tx, &rows).await? as usize;
-                total_evicted += changed;
+                page_evicted = changed;
                 if changed < rows.len() {
                     eprintln!(
                         "[EvictionScan] Left {} changed download(s) for the next scan.",
@@ -644,15 +955,45 @@ async fn run_scan(
                 }
             }
             if !ids_to_unevict.is_empty() {
-                update_download_eviction_state_tx(&mut tx, &ids_to_unevict, false).await?;
-                total_un_evicted += ids_to_unevict.len();
+                let mut rows = Vec::with_capacity(ids_to_unevict.len());
+                for download_id in &ids_to_unevict {
+                    let (hit_bytes, miss_bytes) = download_cache_bytes
+                        .get(download_id)
+                        .copied()
+                        .with_context(|| {
+                            format!(
+                                "Download {download_id} is missing byte totals from its scan page"
+                            )
+                        })?;
+                    rows.push((*download_id, hit_bytes, miss_bytes));
+                }
+                page_un_evicted =
+                    update_download_eviction_state_tx(&mut tx, &rows, false).await? as usize;
+                if page_un_evicted < rows.len() {
+                    eprintln!(
+                        "[EvictionScan] Left {} changed download(s) for the next scan.",
+                        rows.len() - page_un_evicted
+                    );
+                }
+            }
+            if let Some(operation_id) = operation_id {
+                update_checkpoint_tx(
+                    &mut tx,
+                    operation_id,
+                    page_processed,
+                    page_evicted,
+                    page_un_evicted,
+                )
+                .await?;
             }
             tx.commit()
                 .await
                 .with_context(|| "Failed to commit eviction batch transaction")?;
         }
 
-        total_processed += batch_count;
+        total_evicted += page_evicted;
+        total_un_evicted += page_un_evicted;
+        total_processed += page_processed;
 
         // Write progress (50–99% band; never 100% — C# owns completion)
         let db_span = DB_PROGRESS_END - DB_PROGRESS_START;
@@ -742,6 +1083,7 @@ async fn evict_unchanged_downloads_tx(
           AND d."CacheHitBytes" = u.hit
           AND d."CacheMissBytes" = u.miss
           AND d."IsActive" = false
+          AND d."IsEvicted" = false
         "#,
     )
     .bind(ids)
@@ -759,22 +1101,101 @@ async fn evict_unchanged_downloads_tx(
 /// same batch are atomic.
 async fn update_download_eviction_state_tx(
     tx: &mut Transaction<'_, Postgres>,
-    ids: &[i64],
+    rows: &[(i64, i64, i64)],
     is_evicted: bool,
-) -> Result<()> {
+) -> Result<u64> {
     let error_context = if is_evicted {
         "Failed to update evicted downloads (tx)"
     } else {
         "Failed to update un-evicted downloads (tx)"
     };
 
-    sqlx::query(r#"UPDATE "Downloads" SET "IsEvicted" = $1 WHERE "Id" = ANY($2)"#)
-        .bind(is_evicted)
-        .bind(ids)
-        .execute(&mut **tx)
-        .await
-        .with_context(|| error_context)?;
+    let ids: Vec<i64> = rows.iter().map(|(id, _, _)| *id).collect();
+    let hits: Vec<i64> = rows.iter().map(|(_, hit, _)| *hit).collect();
+    let misses: Vec<i64> = rows.iter().map(|(_, _, miss)| *miss).collect();
+    let result = sqlx::query(
+        r#"
+        UPDATE "Downloads" d
+        SET "IsEvicted" = $1
+        FROM UNNEST($2::bigint[], $3::bigint[], $4::bigint[]) AS u(id, hit, miss)
+        WHERE d."Id" = u.id
+          AND d."CacheHitBytes" = u.hit
+          AND d."CacheMissBytes" = u.miss
+          AND d."IsActive" = false
+          AND d."IsEvicted" <> $1
+        "#,
+    )
+    .bind(is_evicted)
+    .bind(ids)
+    .bind(hits)
+    .bind(misses)
+    .execute(&mut **tx)
+    .await
+    .with_context(|| error_context)?;
 
+    Ok(result.rows_affected())
+}
+
+async fn update_checkpoint_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    operation_id: uuid::Uuid,
+    processed: usize,
+    evicted: usize,
+    un_evicted: usize,
+) -> Result<()> {
+    let processed =
+        i32::try_from(processed).context("eviction processed counter exceeds integer")?;
+    let evicted = i32::try_from(evicted).context("eviction counter exceeds integer")?;
+    let un_evicted = i32::try_from(un_evicted).context("un-eviction counter exceeds integer")?;
+    let result = sqlx::query(
+        r#"
+        UPDATE "EvictionScanCheckpoints"
+        SET "Processed" = "Processed" + $2,
+            "Evicted" = "Evicted" + $3,
+            "UnEvicted" = "UnEvicted" + $4
+        WHERE "OperationId" = $1::uuid
+          AND "FinalizedAtUtc" IS NULL
+        "#,
+    )
+    .bind(operation_id.hyphenated().to_string())
+    .bind(processed)
+    .bind(evicted)
+    .bind(un_evicted)
+    .execute(&mut **tx)
+    .await
+    .context("Failed to update eviction scan checkpoint")?;
+
+    if result.rows_affected() != 1 {
+        anyhow::bail!(
+            "eviction scan checkpoint is missing or finalized for operation {}",
+            operation_id
+        );
+    }
+
+    Ok(())
+}
+
+async fn ensure_checkpoint(pool: &PgPool, operation_id: uuid::Uuid) -> Result<()> {
+    let checkpoint_ready: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM "EvictionScanCheckpoints"
+            WHERE "OperationId" = $1::uuid
+              AND "FinalizedAtUtc" IS NULL
+        )
+        "#,
+    )
+    .bind(operation_id.hyphenated().to_string())
+    .fetch_one(pool)
+    .await
+    .context("Failed to verify eviction scan checkpoint")?;
+    if !checkpoint_ready {
+        anyhow::bail!(
+            "eviction scan checkpoint is missing or finalized for operation {}",
+            operation_id
+        );
+    }
     Ok(())
 }
 
@@ -850,10 +1271,14 @@ fn write_progress_file(
 mod tests {
     use super::{
         cache_eviction_paths, classify_download, classify_unverifiable, classify_verifiable,
-        download_was_cached, evict_unchanged_downloads_tx, DatasourceConfig, DownloadAction,
+        download_was_cached, evict_unchanged_downloads_tx, read_repair, run_scan,
+        update_checkpoint_tx, Args, DatasourceConfig, DownloadAction, RepairTarget, TargetSelector,
         UnverifiableAction, VerifiableAction,
     };
+    use clap::Parser;
+    use lancache_processor::cache_repair;
     use lancache_processor::cache_utils;
+    use lancache_processor::progress_events::ProgressReporter;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{PgPool, Row};
     use uuid::Uuid;
@@ -892,6 +1317,287 @@ mod tests {
             0,
             &roots,
         )
+    }
+
+    fn write_repair(
+        directory: &std::path::Path,
+        original_id: Uuid,
+        cache_path: &std::path::Path,
+    ) -> std::path::PathBuf {
+        let path = directory.join("repair.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "operationId": original_id.to_string(),
+                "sources": [{
+                    "name": "default",
+                    "cachePath": cache_path,
+                    "keyScheme": "monolithic"
+                }],
+                "target": null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn repair_document_keeps_original_receipt_owner_separate_from_scan_attempt() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_path = fixture.path().join("cache");
+        std::fs::create_dir_all(cache_path.join("ef").join("cd")).unwrap();
+        let cache_file = cache_path
+            .join("ef")
+            .join("cd")
+            .join("0123456789abcdef0123456789abcdef");
+        std::fs::write(&cache_file, b"cache").unwrap();
+        let original_id = Uuid::new_v4();
+        let attempt_id = Uuid::new_v4();
+        let original_text = original_id.to_string();
+        let receipt = cache_repair::prepare_receipt(&cache_path, Some(&original_text))
+            .unwrap()
+            .unwrap();
+        let receipt_bytes = std::fs::read(&receipt).unwrap();
+        std::fs::remove_file(cache_file).unwrap();
+        let repair_path = write_repair(fixture.path(), original_id, &cache_path);
+
+        let (receipt_owner, sources, target) = read_repair(&repair_path).unwrap();
+        let datasources = [DatasourceConfig {
+            name: "default".to_string(),
+            cache_path: cache_path.to_string_lossy().into_owned(),
+            is_default: true,
+            key_scheme: "monolithic".to_string(),
+        }];
+        let repair = cache_eviction_paths::collect_files_for_repair(
+            &datasources,
+            &sources,
+            receipt_owner,
+            |_| {},
+        )
+        .unwrap();
+
+        assert_eq!(receipt_owner, original_id);
+        assert_ne!(receipt_owner, attempt_id);
+        assert_eq!(target, TargetSelector::Bulk);
+        assert!(repair.files.is_empty());
+        assert_eq!(std::fs::read(&receipt).unwrap(), receipt_bytes);
+        assert!(
+            !cache_repair::receipt_path(&cache_path.canonicalize().unwrap(), attempt_id).exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn repair_rejects_equal_receipt_and_checkpoint_ids_before_scan() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_path = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_path).unwrap();
+        let operation_id = Uuid::new_v4();
+        let repair_path = write_repair(fixture.path(), operation_id, &cache_path);
+        let datasource_path = fixture.path().join("datasources.json");
+        std::fs::write(
+            &datasource_path,
+            serde_json::to_vec(&serde_json::json!([{
+                "name": "default",
+                "cachePath": cache_path,
+                "isDefault": true,
+                "keyScheme": "monolithic"
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let operation_text = operation_id.to_string();
+        let repair_text = repair_path.to_string_lossy().into_owned();
+        let datasource_text = datasource_path.to_string_lossy().into_owned();
+        let error = run_scan(
+            &datasource_text,
+            None,
+            Some(&operation_text),
+            Some(&repair_text),
+            &ProgressReporter::new(false),
+        )
+        .await
+        .err()
+        .expect("equal receipt and checkpoint IDs must fail");
+
+        assert!(error
+            .to_string()
+            .contains("must differ from the scan checkpoint operation ID"));
+    }
+
+    #[test]
+    fn repair_target_accepts_only_supported_selector_forms() {
+        assert_eq!(
+            TargetSelector::from_target(None).unwrap(),
+            TargetSelector::Bulk
+        );
+        assert_eq!(
+            TargetSelector::from_target(Some(RepairTarget {
+                steam_app_id: Some(440),
+                steam_depot_ids: vec![441, 442],
+                epic_game: None,
+                game_name: None,
+                service: None,
+            }))
+            .unwrap(),
+            TargetSelector::Steam {
+                app_id: 440,
+                depot_ids: vec![441, 442]
+            }
+        );
+        assert_eq!(
+            TargetSelector::from_target(Some(RepairTarget {
+                steam_app_id: None,
+                steam_depot_ids: vec![],
+                epic_game: Some("Fortnite".to_string()),
+                game_name: None,
+                service: None,
+            }))
+            .unwrap(),
+            TargetSelector::Epic {
+                game: "Fortnite".to_string()
+            }
+        );
+        assert_eq!(
+            TargetSelector::from_target(Some(RepairTarget {
+                steam_app_id: None,
+                steam_depot_ids: vec![],
+                epic_game: None,
+                game_name: Some("Diablo IV".to_string()),
+                service: Some("battlenet".to_string()),
+            }))
+            .unwrap(),
+            TargetSelector::Named {
+                game: "Diablo IV".to_string(),
+                service: "battlenet".to_string()
+            }
+        );
+        assert_eq!(
+            TargetSelector::from_target(Some(RepairTarget {
+                steam_app_id: None,
+                steam_depot_ids: vec![],
+                epic_game: None,
+                game_name: None,
+                service: Some("steam".to_string()),
+            }))
+            .unwrap(),
+            TargetSelector::Service {
+                service: "steam".to_string()
+            }
+        );
+
+        for invalid in [
+            RepairTarget {
+                steam_app_id: None,
+                steam_depot_ids: vec![],
+                epic_game: None,
+                game_name: None,
+                service: None,
+            },
+            RepairTarget {
+                steam_app_id: None,
+                steam_depot_ids: vec![441],
+                epic_game: None,
+                game_name: None,
+                service: None,
+            },
+            RepairTarget {
+                steam_app_id: Some(440),
+                steam_depot_ids: vec![],
+                epic_game: Some("Fortnite".to_string()),
+                game_name: None,
+                service: None,
+            },
+            RepairTarget {
+                steam_app_id: None,
+                steam_depot_ids: vec![],
+                epic_game: None,
+                game_name: Some("Diablo IV".to_string()),
+                service: None,
+            },
+        ] {
+            assert!(TargetSelector::from_target(Some(invalid)).is_err());
+        }
+    }
+
+    #[test]
+    fn epic_target_uses_game_name_and_nonnull_epic_identity() {
+        let target = TargetSelector::Epic {
+            game: "Fortnite".to_string(),
+        };
+
+        assert!(target.matches(
+            None,
+            None,
+            Some("catalog-slug"),
+            Some("Fortnite"),
+            Some("epic")
+        ));
+        assert!(!target.matches(
+            None,
+            None,
+            Some("Fortnite"),
+            Some("Different Game"),
+            Some("epic")
+        ));
+        assert!(!target.matches(None, None, None, Some("Fortnite"), Some("epic")));
+    }
+
+    #[test]
+    fn steam_target_uses_checked_app_or_captured_depot_identity() {
+        let target = TargetSelector::Steam {
+            app_id: u32::MAX,
+            depot_ids: vec![42],
+        };
+
+        assert!(target.matches(
+            Some(i64::from(u32::MAX)),
+            None,
+            None,
+            Some("Steam Game"),
+            Some("steam")
+        ));
+        assert!(target.matches(None, Some(42), None, Some("Steam Game"), Some("steam")));
+        assert!(!target.matches(
+            Some(i64::from(u32::MAX) + 1),
+            Some(-1),
+            None,
+            Some("Steam Game"),
+            Some("steam")
+        ));
+    }
+
+    #[test]
+    fn operation_id_only_is_valid_and_repair_requires_it() {
+        let operation_id = Uuid::new_v4().to_string();
+        assert!(Args::try_parse_from([
+            "cache_eviction_scan",
+            "datasources.json",
+            "none",
+            "--operation-id",
+            operation_id.as_str(),
+        ])
+        .is_ok());
+        assert!(Args::try_parse_from([
+            "cache_eviction_scan",
+            "datasources.json",
+            "none",
+            "--repair",
+            "repair.json",
+        ])
+        .is_err());
+        assert!(Args::try_parse_from([
+            "cache_eviction_scan",
+            "datasources.json",
+            "none",
+            "--operation-id",
+            operation_id.as_str(),
+            "--repair",
+            "repair.json",
+        ])
+        .is_ok());
     }
 
     #[tokio::test]
@@ -988,6 +1694,233 @@ mod tests {
 
         assert_eq!(changed, 1);
         assert_eq!(rows, vec![(1, true), (2, false), (3, false)]);
+    }
+
+    #[tokio::test]
+    async fn download_transition_and_checkpoint_commit_or_roll_back_together() {
+        const TEST_NAME: &str = "download_transition_and_checkpoint_commit_or_roll_back_together";
+        let Some((pool, schema)) = isolated_pool(TEST_NAME).await else {
+            return;
+        };
+        let operation_id = Uuid::new_v4();
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."Downloads" (
+                "Id" bigint PRIMARY KEY,
+                "CacheHitBytes" bigint NOT NULL,
+                "CacheMissBytes" bigint NOT NULL,
+                "IsActive" boolean NOT NULL,
+                "IsEvicted" boolean NOT NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create atomic download fixture");
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."EvictionScanCheckpoints" (
+                "OperationId" uuid PRIMARY KEY,
+                "Processed" integer NOT NULL,
+                "Evicted" integer NOT NULL,
+                "UnEvicted" integer NOT NULL,
+                "StartedAtUtc" timestamptz NOT NULL,
+                "FinalizedAtUtc" timestamptz NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create atomic checkpoint fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."Downloads"
+                ("Id", "CacheHitBytes", "CacheMissBytes", "IsActive", "IsEvicted")
+            VALUES (1, 10, 20, false, false)
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("seed atomic download fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."EvictionScanCheckpoints"
+                ("OperationId", "Processed", "Evicted", "UnEvicted", "StartedAtUtc")
+            VALUES ($1::uuid, 0, 0, 0, NOW())
+            "#
+        ))
+        .bind(operation_id.hyphenated().to_string())
+        .execute(&pool)
+        .await
+        .expect("seed atomic checkpoint fixture");
+
+        let judged = [(1_i64, 10_i64, 20_i64)];
+        let mut rollback = pool.begin().await.expect("begin rollback transaction");
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *rollback)
+            .await
+            .expect("select rollback schema");
+        assert_eq!(
+            evict_unchanged_downloads_tx(&mut rollback, &judged)
+                .await
+                .unwrap(),
+            1
+        );
+        update_checkpoint_tx(&mut rollback, operation_id, 1, 1, 0)
+            .await
+            .unwrap();
+        rollback.rollback().await.unwrap();
+
+        let rolled_back: (bool, i32, i32) = sqlx::query_as(&format!(
+            r#"
+            SELECT d."IsEvicted", c."Processed", c."Evicted"
+            FROM "{schema}"."Downloads" d
+            CROSS JOIN "{schema}"."EvictionScanCheckpoints" c
+            WHERE d."Id" = 1
+            "#
+        ))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rolled_back, (false, 0, 0));
+
+        let mut committed = pool.begin().await.expect("begin commit transaction");
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *committed)
+            .await
+            .expect("select commit schema");
+        assert_eq!(
+            evict_unchanged_downloads_tx(&mut committed, &judged)
+                .await
+                .unwrap(),
+            1
+        );
+        update_checkpoint_tx(&mut committed, operation_id, 1, 1, 0)
+            .await
+            .unwrap();
+        committed.commit().await.unwrap();
+
+        let committed_row: (bool, i32, i32) = sqlx::query_as(&format!(
+            r#"
+            SELECT d."IsEvicted", c."Processed", c."Evicted"
+            FROM "{schema}"."Downloads" d
+            CROSS JOIN "{schema}"."EvictionScanCheckpoints" c
+            WHERE d."Id" = 1
+            "#
+        ))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let retry_id = Uuid::new_v4();
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."EvictionScanCheckpoints"
+                ("OperationId", "Processed", "Evicted", "UnEvicted", "StartedAtUtc")
+            VALUES ($1::uuid, 0, 0, 0, NOW())
+            "#
+        ))
+        .bind(retry_id.hyphenated().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut retry = pool.begin().await.unwrap();
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *retry)
+            .await
+            .unwrap();
+        let repeated_transition = evict_unchanged_downloads_tx(&mut retry, &judged)
+            .await
+            .unwrap();
+        update_checkpoint_tx(&mut retry, retry_id, 1, repeated_transition as usize, 0)
+            .await
+            .unwrap();
+        retry.commit().await.unwrap();
+        let attempt_rows: Vec<(String, i32, i32)> = sqlx::query_as(&format!(
+            r#"
+            SELECT "OperationId"::text, "Processed", "Evicted"
+            FROM "{schema}"."EvictionScanCheckpoints"
+            ORDER BY "StartedAtUtc", "OperationId"
+            "#
+        ))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(repeated_transition, 0);
+        assert!(attempt_rows.contains(&(operation_id.to_string(), 1, 1)));
+        assert!(attempt_rows.contains(&(retry_id.to_string(), 1, 0)));
+
+        sqlx::query(&format!(
+            r#"UPDATE "{schema}"."Downloads" SET "IsEvicted" = false WHERE "Id" = 1"#
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let missing_id = Uuid::new_v4();
+        let mut missing = pool.begin().await.unwrap();
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *missing)
+            .await
+            .unwrap();
+        assert_eq!(
+            evict_unchanged_downloads_tx(&mut missing, &judged)
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(update_checkpoint_tx(&mut missing, missing_id, 1, 1, 0)
+            .await
+            .is_err());
+        missing.rollback().await.unwrap();
+        let after_missing: bool = sqlx::query_scalar(&format!(
+            r#"SELECT "IsEvicted" FROM "{schema}"."Downloads" WHERE "Id" = 1"#
+        ))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!after_missing);
+
+        let finalized_id = Uuid::new_v4();
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."EvictionScanCheckpoints"
+                ("OperationId", "Processed", "Evicted", "UnEvicted", "StartedAtUtc", "FinalizedAtUtc")
+            VALUES ($1::uuid, 0, 0, 0, NOW(), NOW())
+            "#
+        ))
+        .bind(finalized_id.hyphenated().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut finalized = pool.begin().await.unwrap();
+        sqlx::query(&format!(r#"SET LOCAL search_path TO "{schema}""#))
+            .execute(&mut *finalized)
+            .await
+            .unwrap();
+        assert_eq!(
+            evict_unchanged_downloads_tx(&mut finalized, &judged)
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(update_checkpoint_tx(&mut finalized, finalized_id, 1, 1, 0)
+            .await
+            .is_err());
+        finalized.rollback().await.unwrap();
+        let after_finalized: bool = sqlx::query_scalar(&format!(
+            r#"SELECT "IsEvicted" FROM "{schema}"."Downloads" WHERE "Id" = 1"#
+        ))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!after_finalized);
+
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(committed_row, (true, 1, 1));
     }
 
     #[test]

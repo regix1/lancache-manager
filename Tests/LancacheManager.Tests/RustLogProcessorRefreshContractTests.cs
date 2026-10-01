@@ -5,11 +5,10 @@ using LancacheManager.Infrastructure.Services;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Locks the committed-boundary DownloadsRefresh contract: the refresh fires only when a
-/// valid terminal checkpoint proves committed rows, it precedes every post-pass, the
-/// auto-tag pass emits its own conditional refresh, the trailing silent refresh stays
-/// removed, and every DownloadsRefresh emission awaits NotifyAllAsync (cache-generation
-/// bump before hub send), never fire-and-forget.
+/// Locks the committed-boundary DownloadsRefresh contract: the original run fires only when a
+/// valid terminal checkpoint proves committed rows, it precedes every post-pass, the auto-tag
+/// pass emits its own conditional refresh, and every emission awaits NotifyAllAsync so cache
+/// invalidation precedes the hub send. OperationStateService owns the abnormal recovery refresh.
 /// </summary>
 public sealed class RustLogProcessorRefreshContractTests
 {
@@ -55,6 +54,65 @@ public sealed class RustLogProcessorRefreshContractTests
         Assert.False(RustLogProcessorService.HasCommittedDownloads(TerminalCheckpoint("done", 10)));
     }
 
+    [Theory]
+    [InlineData("completed", true)]
+    [InlineData("completed_with_warnings", true)]
+    [InlineData("partial", false)]
+    [InlineData("failed", false)]
+    [InlineData("cancelled", false)]
+    public void ZeroEntryCheckpointSatisfiesRefreshOnlyForSuccessfulCompletion(
+        string status,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            RustLogProcessorService.SatisfiesDownloadsRefresh(TerminalCheckpoint(status, 0)));
+        Assert.False(
+            RustLogProcessorService.SatisfiesDownloadsRefresh(TerminalCheckpoint(status, 1)));
+    }
+
+    [Fact]
+    public void RefreshTransportFailureIsHandledBeforeAcceptedCountsAreSaved()
+    {
+        var source = ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs");
+        var boundary = source.IndexOf(
+            "var refreshSatisfied = SatisfiesDownloadsRefresh(finalProgress);",
+            StringComparison.Ordinal);
+        var notify = source.IndexOf("await NotifyCommittedDownloadsAsync(finalProgress);", boundary, StringComparison.Ordinal);
+        var transportLog = source.IndexOf(
+            "Downloads refresh failed after an accepted log-processing checkpoint",
+            notify,
+            StringComparison.Ordinal);
+        var save = source.IndexOf("await SaveProcessingSourceAsync(", transportLog, StringComparison.Ordinal);
+
+        Assert.True(boundary >= 0, "the refresh-satisfaction boundary is missing");
+        Assert.True(notify > boundary, "the committed refresh must follow predicate evaluation");
+        Assert.True(transportLog > notify, "refresh transport failure must be logged");
+        Assert.True(save > transportLog, "accepted checkpoint counts must be saved after transport failure");
+    }
+
+    [Fact]
+    public void EveryTerminalBranchUsesTheConfirmedRepairMetrics()
+    {
+        var source = ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs");
+        var finishCalls = CountOccurrences(source, "await FinishProcessingRepairAsync(");
+        var capturedCalls = Regex.Count(
+            source,
+            @"(?:terminalMetrics =|var confirmed =|finalMetrics =) await FinishProcessingRepairAsync\(");
+
+        Assert.Equal(finishCalls, capturedCalls);
+
+        var finishStart = source.IndexOf(
+            "private async Task<LogProcessingTerminalMetrics> FinishProcessingRepairAsync(",
+            StringComparison.Ordinal);
+        var finishEnd = source.IndexOf("private void ReleaseProcessingState", finishStart, StringComparison.Ordinal);
+        var finishBody = source[finishStart..finishEnd];
+        Assert.Contains("repairOwner.FinishRepairAsync(", finishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("repairOwner.SaveRepairAsync(", finishBody, StringComparison.Ordinal);
+        Assert.Contains("retained.EntriesProcessed", finishBody, StringComparison.Ordinal);
+        Assert.Contains("retained.LinesProcessed", finishBody, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CommittedRefreshPrecedesEveryPostPass()
     {
@@ -97,8 +155,6 @@ public sealed class RustLogProcessorRefreshContractTests
         // hub send, so it can serve a refetch a stale batch. It must never appear here.
         Assert.DoesNotContain("NotifyAllFireAndForget", source, StringComparison.Ordinal);
 
-        // Exactly two emission sites: the committed-boundary helper and the auto-tag pass.
-        // A third means the redundant trailing silent refresh (or a duplicate) came back.
         Assert.Equal(2, CountOccurrences(source, "NotifyAllAsync(SignalREvents.DownloadsRefresh"));
     }
 

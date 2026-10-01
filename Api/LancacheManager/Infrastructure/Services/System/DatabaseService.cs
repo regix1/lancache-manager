@@ -61,6 +61,7 @@ public class DatabaseService
         "PrefillCachedApps",
         "BannedPrefillUsers",
         "CacheSnapshots",
+        "EvictionScanCheckpoints",
         "EpicGameMappings",
         "EpicCdnPatterns",
         "XboxGameMappings",
@@ -879,6 +880,22 @@ public class DatabaseService
                                 $"Cleared cache size history ({cacheSnapshotsCount:N0} rows)");
                             break;
 
+                        case "EvictionScanCheckpoints":
+                            var evictionScanCheckpointsCount = await context.EvictionScanCheckpoints
+                                .ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation(
+                                "Cleared {Count:N0} eviction scan checkpoints",
+                                evictionScanCheckpointsCount);
+                            deletedRows += evictionScanCheckpointsCount;
+
+                            await ReportClearedTableAsync(
+                                operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "EvictionScanCheckpoints",
+                                evictionScanCheckpointsCount,
+                                $"Cleared eviction scan checkpoints ({evictionScanCheckpointsCount:N0} rows)");
+                            break;
+
                         case "EpicGameMappings":
                             var epicMappingCount = await context.EpicGameMappings.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {epicMappingCount:N0} Epic game mappings");
@@ -1370,6 +1387,7 @@ public class DatabaseService
             "PrefillCachedApps" => await context.PrefillCachedApps.CountAsync(cancellationToken),
             "BannedPrefillUsers" => await context.BannedPrefillUsers.CountAsync(cancellationToken),
             "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
+            "EvictionScanCheckpoints" => await context.EvictionScanCheckpoints.CountAsync(cancellationToken),
             "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
             "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
             "XboxGameMappings" => await context.XboxGameMappings.CountAsync(cancellationToken),

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -30,11 +31,21 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // clients cannot leak through either transport. Prefill traffic is NOT excluded: nothing in
     // the builder or the Rust tracker filters it, so it appears like any other client unless an
     // operator hides its address by hand.
-    // Initial value before the first Rust snapshot arrives. Two seconds is the minimum/default
-    // window; the Rust tracker reports a window that adapts upward from there toward the
-    // observed log-delivery cadence.
-    private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
+    private DownloadSpeedSnapshot _currentSnapshot;
     private readonly object _snapshotLock = new();
+    private readonly TimeProvider _clock;
+    private readonly string _streamId;
+    private readonly SemaphoreSlim _ageWake = new(0, 1);
+    private readonly Channel<DownloadSpeedSnapshot> _publication;
+    private readonly Dictionary<Guid, Dictionary<string, string>> _runSources = new();
+    private readonly Dictionary<string, Guid> _sourceRuns = new(StringComparer.Ordinal);
+    private Guid _currentRunId;
+    private long _nativeRevision;
+    private long _revision;
+    private long _edgeRevision;
+    private long _queuedRevision;
+    private DateTime _agingUtc;
+    private string _visibilityMark = string.Empty;
     private bool _previousHadActivity = false;
     // Tracks the same edge as _previousHadActivity but over the unfiltered set, so the end of the
     // last download is reported even when the only client downloading was a hidden one.
@@ -109,7 +120,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         ProcessManager processManager,
         DatasourceCapabilityService capabilityService,
         IStateService stateService,
-        IActivityRegistry? activityRegistry = null)
+        IActivityRegistry? activityRegistry = null,
+        TimeProvider? clock = null)
         : base(logger, configuration)
     {
         _pathResolver = pathResolver;
@@ -119,6 +131,18 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         _capabilityService = capabilityService;
         _stateService = stateService;
         _activityRegistry = activityRegistry;
+        _clock = clock ?? TimeProvider.System;
+        _streamId = Guid.NewGuid().ToString("N");
+        _agingUtc = UtcNow();
+        _unreportedSinceUtc = _agingUtc;
+        _currentSnapshot = EmptySnapshot(isAvailable: false, _agingUtc);
+        _publication = Channel.CreateBounded<DownloadSpeedSnapshot>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
+        _activityRegistry?.BindDownloads(GetCurrentSnapshot);
     }
 
     /// <summary>
@@ -128,14 +152,37 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     /// </summary>
     public DownloadSpeedSnapshot GetCurrentSnapshot()
     {
+        var hiddenClientIps = _stateService.GetHiddenClientIps();
+        var evictedMode = _stateService.GetEvictedDataMode();
         DownloadSpeedSnapshot raw;
+        bool changed;
         lock (_snapshotLock)
         {
-            raw = _currentSnapshot;
+            changed = AgeLocked(UtcNow(), CurrentSources());
+            var visibilityMark = string.Join('\u001f', hiddenClientIps.OrderBy(ip => ip, StringComparer.Ordinal)) +
+                "\u001e" + evictedMode;
+            if (_visibilityMark.Length == 0)
+            {
+                _visibilityMark = visibilityMark;
+            }
+            else if (!string.Equals(_visibilityMark, visibilityMark, StringComparison.Ordinal))
+            {
+                _visibilityMark = visibilityMark;
+                _revision++;
+                RebuildLocked(CurrentEntriesLocked(), _agingUtc, _currentSnapshot.IsAvailable);
+                changed = true;
+            }
+            raw = CloneSnapshot(_currentSnapshot);
         }
 
-        return BuildClientVisibleSnapshot(
-            raw, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+        if (changed)
+        {
+            PublishReadChange(
+                raw,
+                BuildClientVisibleSnapshot(raw, hiddenClientIps, evictedMode));
+        }
+
+        return BuildClientVisibleSnapshot(raw, hiddenClientIps, evictedMode);
     }
 
     /// <summary>
@@ -192,26 +239,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     }
 
     /// <summary>
-    /// Raises <see cref="DownloadsEnded"/> on the snapshot where the download set goes from busy
-    /// to idle, then records the new state for the next snapshot to compare against.
-    /// </summary>
-    /// <remarks>
-    /// Reads the UNFILTERED set, not the client-visible projection: hiding a client stops it
-    /// appearing on the dashboard, it does not stop its bytes reaching the cache, so the visible
-    /// edge can arrive while a hidden download is still running.
-    /// </remarks>
-    internal void AnnounceDownloadsEndedIfStopped(DownloadSpeedSnapshot snapshot)
-    {
-        var unfilteredHasActivity = snapshot.HasActiveDownloads;
-        if (_previousHadUnfilteredActivity && !unfilteredHasActivity)
-        {
-            DownloadsEnded?.Invoke();
-        }
-
-        _previousHadUnfilteredActivity = unfilteredHasActivity;
-    }
-
-    /// <summary>
     /// Reads the UNFILTERED speed snapshot together with the moment the tracker last had no answer
     /// to give, which is null while it is publishing. Unfiltered because bytes reaching the cache
     /// do not stop reaching it when an operator hides the client that is sending them, so anything
@@ -228,10 +255,27 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     /// </remarks>
     public (DateTime? UnreportedSinceUtc, DownloadSpeedSnapshot Snapshot) ReadUnfilteredState()
     {
+        bool changed;
+        DownloadSpeedSnapshot snapshot;
+        DateTime? unreportedSinceUtc;
         lock (_snapshotLock)
         {
-            return (_unreportedSinceUtc, _currentSnapshot);
+            changed = AgeLocked(UtcNow(), CurrentSources());
+            snapshot = CloneSnapshot(_currentSnapshot);
+            unreportedSinceUtc = _unreportedSinceUtc;
         }
+
+        if (changed)
+        {
+            PublishReadChange(
+                snapshot,
+                BuildClientVisibleSnapshot(
+                    snapshot,
+                    _stateService.GetHiddenClientIps(),
+                    _stateService.GetEvictedDataMode()));
+        }
+
+        return (unreportedSinceUtc, snapshot);
     }
 
     /// <summary>
@@ -246,10 +290,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         IReadOnlyCollection<string> hiddenClientIps,
         string evictedMode)
     {
-        var filteredClients = snapshot.ClientSpeeds
-            .Where(c => IsVisibleClient(c.ClientIp, hiddenClientIps))
-            .ToList();
-
         var filteredGames = snapshot.GameSpeeds
             .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || IsVisibleClient(g.ClientIp, hiddenClientIps))
             .Select(CloneGameSpeed)
@@ -268,14 +308,34 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             }
         }
 
+        var filteredClients = filteredGames
+            .Where(g => !string.IsNullOrWhiteSpace(g.ClientIp))
+            .GroupBy(g => g.ClientIp, StringComparer.Ordinal)
+            .Select(group => new ClientSpeedInfo
+            {
+                ClientIp = group.Key,
+                BytesPerSecond = group.Sum(g => g.BytesPerSecond),
+                TotalBytes = group.Sum(g => g.TotalBytes),
+                ActiveGames = group.Count(),
+                CacheHitBytes = group.Sum(g => g.CacheHitBytes),
+                CacheMissBytes = group.Sum(g => g.CacheMissBytes),
+                ActiveUntilUtc = group.Max(g => g.ActiveUntilUtc),
+            })
+            .OrderBy(c => c.ClientIp, StringComparer.Ordinal)
+            .ToList();
+
         return new DownloadSpeedSnapshot
         {
+            Version = snapshot.Version,
+            StreamId = snapshot.StreamId,
+            Revision = snapshot.Revision,
             TimestampUtc = snapshot.TimestampUtc,
+            IsAvailable = snapshot.IsAvailable,
             WindowSeconds = snapshot.WindowSeconds,
-            TotalBytesPerSecond = filteredClients.Sum(c => c.BytesPerSecond),
+            TotalBytesPerSecond = filteredGames.Sum(g => g.BytesPerSecond),
             EntriesInWindow = filteredGames.Sum(g => g.RequestCount),
             GameSpeeds = filteredGames,
-            ClientSpeeds = filteredClients
+            ClientSpeeds = filteredClients,
         };
     }
 
@@ -284,6 +344,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
     private static GameSpeedInfo CloneGameSpeed(GameSpeedInfo game) => new()
     {
+        Key = game.Key,
         DepotId = game.DepotId,
         GameName = game.GameName,
         GameAppId = game.GameAppId,
@@ -294,46 +355,27 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         RequestCount = game.RequestCount,
         CacheHitBytes = game.CacheHitBytes,
         CacheMissBytes = game.CacheMissBytes,
-        IsEvicted = game.IsEvicted
+        IsEvicted = game.IsEvicted,
+        FirstSeenUtc = game.FirstSeenUtc,
+        LastSeenUtc = game.LastSeenUtc,
+        ActiveUntilUtc = game.ActiveUntilUtc,
+        Sources = game.Sources.Select(CloneSource).ToList(),
     };
 
-    /// <summary>
-    /// Publishes the current visible active-download set into the unified activity registry so every
-    /// live-download indicator reads one presence signal (the same event the schedule/operation/presence
-    /// dots use). A broadcast failure is swallowed so presence can never disturb the authoritative speed
-    /// path. Reports both the per-game traffic key and each active client IP so game- and client-scoped
-    /// dots can both resolve.
-    /// </summary>
-    private async Task PublishDownloadActivityAsync(DownloadSpeedSnapshot visible)
+    private static DownloadSource CloneSource(DownloadSource source) => new()
     {
-        if (_activityRegistry is null)
-        {
-            return;
-        }
-
-        try
-        {
-            var active = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var game in visible.GameSpeeds)
-            {
-                active[BuildDownloadActivityKey(game)] = 1;
-            }
-            foreach (var client in visible.ClientSpeeds)
-            {
-                var ip = (client.ClientIp ?? string.Empty).Trim();
-                if (ip.Length > 0)
-                {
-                    active[ip] = 1;
-                }
-            }
-
-            await _activityRegistry.ReplaceAsync(ActivityDomains.Download, ActivityAspects.Downloading, active);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to publish download activity snapshot");
-        }
-    }
+        Datasources = [.. source.Datasources],
+        DepotIds = [.. source.DepotIds],
+        FirstSeenUtc = source.FirstSeenUtc,
+        LastSeenUtc = source.LastSeenUtc,
+        ActiveUntilUtc = source.ActiveUntilUtc,
+        MeasuredUntilUtc = source.MeasuredUntilUtc,
+        BytesPerSecond = source.BytesPerSecond,
+        TotalBytes = source.TotalBytes,
+        RequestCount = source.RequestCount,
+        CacheHitBytes = source.CacheHitBytes,
+        CacheMissBytes = source.CacheMissBytes,
+    };
 
     // Mirror of the frontend buildTrafficKey (Web/src/components/features/downloads/liveDownloadPreviews.ts):
     // the live-download status dots read activity by this exact client-qualified identity, so this and the
@@ -371,7 +413,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             ["unknown"] = "Unknown Service",
         };
 
-    private static string BuildDownloadActivityKey(GameSpeedInfo game)
+    internal static string BuildDownloadActivityKey(GameSpeedInfo game)
     {
         var service = NormalizeServiceName(game.Service);
         var client = (game.ClientIp ?? string.Empty).Trim();
@@ -434,6 +476,792 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private static string NormalizeTitle(string? title) =>
         (title ?? string.Empty).Trim().ToLowerInvariant();
 
+    private DateTime UtcNow() => _clock.GetUtcNow().UtcDateTime;
+
+    private DownloadSpeedSnapshot EmptySnapshot(bool isAvailable, DateTime timestampUtc) => new()
+    {
+        Version = 2,
+        StreamId = _streamId,
+        Revision = _revision,
+        TimestampUtc = timestampUtc,
+        IsAvailable = isAvailable,
+        WindowSeconds = 2,
+    };
+
+    private static DownloadSpeedSnapshot CloneSnapshot(DownloadSpeedSnapshot snapshot) => new()
+    {
+        Version = snapshot.Version,
+        StreamId = snapshot.StreamId,
+        Revision = snapshot.Revision,
+        TimestampUtc = snapshot.TimestampUtc,
+        IsAvailable = snapshot.IsAvailable,
+        TotalBytesPerSecond = snapshot.TotalBytesPerSecond,
+        GameSpeeds = snapshot.GameSpeeds.Select(CloneGameSpeed).ToList(),
+        ClientSpeeds = snapshot.ClientSpeeds.Select(client => new ClientSpeedInfo
+        {
+            ClientIp = client.ClientIp,
+            BytesPerSecond = client.BytesPerSecond,
+            TotalBytes = client.TotalBytes,
+            ActiveGames = client.ActiveGames,
+            CacheHitBytes = client.CacheHitBytes,
+            CacheMissBytes = client.CacheMissBytes,
+            ActiveUntilUtc = client.ActiveUntilUtc,
+        }).ToList(),
+        WindowSeconds = snapshot.WindowSeconds,
+        EntriesInWindow = snapshot.EntriesInWindow,
+    };
+
+    private static bool SameContents(DownloadSpeedSnapshot left, DownloadSpeedSnapshot right)
+    {
+        if (left.Version != right.Version || left.IsAvailable != right.IsAvailable ||
+            left.WindowSeconds != right.WindowSeconds ||
+            left.TotalBytesPerSecond != right.TotalBytesPerSecond ||
+            left.EntriesInWindow != right.EntriesInWindow ||
+            left.GameSpeeds.Count != right.GameSpeeds.Count ||
+            left.ClientSpeeds.Count != right.ClientSpeeds.Count)
+        {
+            return false;
+        }
+
+        for (var gameIndex = 0; gameIndex < left.GameSpeeds.Count; gameIndex++)
+        {
+            var leftGame = left.GameSpeeds[gameIndex];
+            var rightGame = right.GameSpeeds[gameIndex];
+            if (!string.Equals(leftGame.Key, rightGame.Key, StringComparison.Ordinal) ||
+                leftGame.DepotId != rightGame.DepotId ||
+                !string.Equals(leftGame.GameName, rightGame.GameName, StringComparison.Ordinal) ||
+                leftGame.GameAppId != rightGame.GameAppId ||
+                !string.Equals(leftGame.Service, rightGame.Service, StringComparison.Ordinal) ||
+                !string.Equals(leftGame.ClientIp, rightGame.ClientIp, StringComparison.Ordinal) ||
+                leftGame.BytesPerSecond != rightGame.BytesPerSecond ||
+                leftGame.TotalBytes != rightGame.TotalBytes ||
+                leftGame.RequestCount != rightGame.RequestCount ||
+                leftGame.CacheHitBytes != rightGame.CacheHitBytes ||
+                leftGame.CacheMissBytes != rightGame.CacheMissBytes ||
+                leftGame.IsEvicted != rightGame.IsEvicted ||
+                leftGame.FirstSeenUtc != rightGame.FirstSeenUtc ||
+                leftGame.LastSeenUtc != rightGame.LastSeenUtc ||
+                leftGame.ActiveUntilUtc != rightGame.ActiveUntilUtc ||
+                leftGame.Sources.Count != rightGame.Sources.Count)
+            {
+                return false;
+            }
+
+            for (var sourceIndex = 0; sourceIndex < leftGame.Sources.Count; sourceIndex++)
+            {
+                var leftSource = leftGame.Sources[sourceIndex];
+                var rightSource = rightGame.Sources[sourceIndex];
+                if (!leftSource.Datasources.SequenceEqual(
+                        rightSource.Datasources,
+                        StringComparer.Ordinal) ||
+                    !leftSource.DepotIds.SequenceEqual(rightSource.DepotIds) ||
+                    leftSource.FirstSeenUtc != rightSource.FirstSeenUtc ||
+                    leftSource.LastSeenUtc != rightSource.LastSeenUtc ||
+                    leftSource.ActiveUntilUtc != rightSource.ActiveUntilUtc ||
+                    leftSource.MeasuredUntilUtc != rightSource.MeasuredUntilUtc ||
+                    leftSource.BytesPerSecond != rightSource.BytesPerSecond ||
+                    leftSource.TotalBytes != rightSource.TotalBytes ||
+                    leftSource.RequestCount != rightSource.RequestCount ||
+                    leftSource.CacheHitBytes != rightSource.CacheHitBytes ||
+                    leftSource.CacheMissBytes != rightSource.CacheMissBytes)
+                {
+                    return false;
+                }
+            }
+        }
+
+        for (var clientIndex = 0; clientIndex < left.ClientSpeeds.Count; clientIndex++)
+        {
+            var leftClient = left.ClientSpeeds[clientIndex];
+            var rightClient = right.ClientSpeeds[clientIndex];
+            if (!string.Equals(leftClient.ClientIp, rightClient.ClientIp, StringComparison.Ordinal) ||
+                leftClient.BytesPerSecond != rightClient.BytesPerSecond ||
+                leftClient.TotalBytes != rightClient.TotalBytes ||
+                leftClient.ActiveGames != rightClient.ActiveGames ||
+                leftClient.CacheHitBytes != rightClient.CacheHitBytes ||
+                leftClient.CacheMissBytes != rightClient.CacheMissBytes ||
+                leftClient.ActiveUntilUtc != rightClient.ActiveUntilUtc)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private Dictionary<string, string> CurrentSources()
+    {
+        return _datasourceService.GetDatasources()
+            .Where(source => source.Enabled && _capabilityService.GetCapabilities(source).CanTrackLiveSpeed)
+            .ToDictionary(source => source.Name, source => source.LogPath, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string SourceKey(string gameKey, DownloadSource source) =>
+        $"{gameKey}\u001f{string.Join('\u001e', source.Datasources.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))}";
+
+    private bool AgeLocked(DateTime nowUtc, Dictionary<string, string> currentSources)
+    {
+        if (nowUtc > _agingUtc)
+        {
+            _agingUtc = nowUtc;
+        }
+
+        nowUtc = _agingUtc;
+        var changed = false;
+        var retained = new List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>();
+        foreach (var game in _currentSnapshot.GameSpeeds)
+        {
+            foreach (var original in game.Sources)
+            {
+                var source = CloneSource(original);
+                var sourceKey = SourceKey(game.Key, original);
+                _sourceRuns.TryGetValue(sourceKey, out var runId);
+
+                if (runId != Guid.Empty && _runSources.TryGetValue(runId, out var captured))
+                {
+                    var aliases = source.Datasources
+                        .Where(name =>
+                            captured.TryGetValue(name, out var capturedRoot) &&
+                            currentSources.TryGetValue(name, out var currentRoot) &&
+                            string.Equals(capturedRoot, currentRoot, StringComparison.Ordinal))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    if (aliases.Count != source.Datasources.Count)
+                    {
+                        source.Datasources = aliases;
+                        changed = true;
+                    }
+                }
+
+                if (source.Datasources.Count == 0 || nowUtc >= source.ActiveUntilUtc)
+                {
+                    changed = true;
+                    continue;
+                }
+
+                if (nowUtc >= source.MeasuredUntilUtc &&
+                    (source.BytesPerSecond != 0 || source.TotalBytes != 0 || source.RequestCount != 0 ||
+                     source.CacheHitBytes != 0 || source.CacheMissBytes != 0))
+                {
+                    source.BytesPerSecond = 0;
+                    source.TotalBytes = 0;
+                    source.RequestCount = 0;
+                    source.CacheHitBytes = 0;
+                    source.CacheMissBytes = 0;
+                    changed = true;
+                }
+
+                retained.Add((game, source, runId));
+            }
+        }
+
+        if (!changed)
+        {
+            return false;
+        }
+
+        _revision++;
+        RebuildLocked(retained, nowUtc, _currentSnapshot.IsAvailable);
+        return true;
+    }
+
+    private void RebuildLocked(
+        IReadOnlyList<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)> entries,
+        DateTime timestampUtc,
+        bool isAvailable)
+    {
+        _sourceRuns.Clear();
+        var games = entries
+            .GroupBy(entry => entry.Game.Key, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var basis = group
+                    .OrderByDescending(entry => entry.Source.LastSeenUtc)
+                    .First().Game;
+                var sources = group
+                    .Select(entry => CloneSource(entry.Source))
+                    .OrderBy(source => source.Datasources.FirstOrDefault(), StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(source => source.FirstSeenUtc)
+                    .ToList();
+                foreach (var entry in group)
+                {
+                    _sourceRuns[SourceKey(group.Key, entry.Source)] = entry.RunId;
+                }
+
+                return new GameSpeedInfo
+                {
+                    Key = group.Key,
+                    DepotId = basis.DepotId,
+                    GameName = basis.GameName,
+                    GameAppId = basis.GameAppId,
+                    Service = basis.Service,
+                    ClientIp = basis.ClientIp,
+                    BytesPerSecond = sources.Sum(source => source.BytesPerSecond),
+                    TotalBytes = sources.Sum(source => source.TotalBytes),
+                    RequestCount = sources.Sum(source => source.RequestCount),
+                    CacheHitBytes = sources.Sum(source => source.CacheHitBytes),
+                    CacheMissBytes = sources.Sum(source => source.CacheMissBytes),
+                    IsEvicted = basis.IsEvicted,
+                    FirstSeenUtc = sources.Min(source => source.FirstSeenUtc),
+                    LastSeenUtc = sources.Max(source => source.LastSeenUtc),
+                    ActiveUntilUtc = sources.Max(source => source.ActiveUntilUtc),
+                    Sources = sources,
+                };
+            })
+            .OrderBy(game => game.Key, StringComparer.Ordinal)
+            .ToList();
+
+        var clients = games
+            .Where(game => !string.IsNullOrWhiteSpace(game.ClientIp))
+            .GroupBy(game => game.ClientIp, StringComparer.Ordinal)
+            .Select(group => new ClientSpeedInfo
+            {
+                ClientIp = group.Key,
+                BytesPerSecond = group.Sum(game => game.BytesPerSecond),
+                TotalBytes = group.Sum(game => game.TotalBytes),
+                ActiveGames = group.Count(),
+                CacheHitBytes = group.Sum(game => game.CacheHitBytes),
+                CacheMissBytes = group.Sum(game => game.CacheMissBytes),
+                ActiveUntilUtc = group.Max(game => game.ActiveUntilUtc),
+            })
+            .OrderBy(client => client.ClientIp, StringComparer.Ordinal)
+            .ToList();
+
+        _currentSnapshot = new DownloadSpeedSnapshot
+        {
+            Version = 2,
+            StreamId = _streamId,
+            Revision = _revision,
+            TimestampUtc = timestampUtc,
+            IsAvailable = isAvailable,
+            WindowSeconds = 2,
+            TotalBytesPerSecond = games.Sum(game => game.BytesPerSecond),
+            EntriesInWindow = games.Sum(game => game.RequestCount),
+            GameSpeeds = games,
+            ClientSpeeds = clients,
+        };
+
+        var retainedRuns = entries.Select(entry => entry.RunId).Where(id => id != Guid.Empty).ToHashSet();
+        foreach (var oldRun in _runSources.Keys
+                     .Where(id => id != _currentRunId && !retainedRuns.Contains(id))
+                     .ToList())
+        {
+            _runSources.Remove(oldRun);
+        }
+    }
+
+    internal void QueueSnapshot(DownloadSpeedSnapshot snapshot)
+    {
+        var queued = CloneSnapshot(snapshot);
+        lock (_snapshotLock)
+        {
+            if (queued.Revision <= _queuedRevision)
+            {
+                return;
+            }
+
+            if (_publication.Writer.TryWrite(queued))
+            {
+                _queuedRevision = queued.Revision;
+                if (_ageWake.CurrentCount == 0)
+                {
+                    _ageWake.Release();
+                }
+            }
+        }
+    }
+
+    private List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)> CurrentEntriesLocked()
+    {
+        var entries = new List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>();
+        foreach (var game in _currentSnapshot.GameSpeeds)
+        {
+            foreach (var source in game.Sources)
+            {
+                _sourceRuns.TryGetValue(SourceKey(game.Key, source), out var runId);
+                entries.Add((game, CloneSource(source), runId));
+            }
+        }
+
+        return entries;
+    }
+
+    private List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>? PrepareNativeSnapshot(
+        DownloadSpeedSnapshot snapshot,
+        Guid runId,
+        Dictionary<string, string> captured,
+        Dictionary<string, string> currentSources,
+        DateTime nowUtc)
+    {
+        if (snapshot.Version != 2 || snapshot.StreamId is null || snapshot.StreamId.Length != 0 || snapshot.Revision <= 0 ||
+            snapshot.WindowSeconds != 2 || !snapshot.IsAvailable || snapshot.TimestampUtc == default ||
+            snapshot.TimestampUtc.Kind != DateTimeKind.Utc || snapshot.TimestampUtc > nowUtc ||
+            snapshot.GameSpeeds is null || snapshot.ClientSpeeds is null ||
+            !double.IsFinite(snapshot.TotalBytesPerSecond) || snapshot.TotalBytesPerSecond < 0 ||
+            snapshot.EntriesInWindow < 0)
+        {
+            return null;
+        }
+
+        var incoming = new List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>();
+        foreach (var game in snapshot.GameSpeeds)
+        {
+            if (string.IsNullOrWhiteSpace(game.Key) || string.IsNullOrWhiteSpace(game.Service) ||
+                game.Sources is null || game.Sources.Count == 0 ||
+                game.FirstSeenUtc == default || game.LastSeenUtc == default || game.ActiveUntilUtc == default ||
+                game.FirstSeenUtc.Kind != DateTimeKind.Utc || game.LastSeenUtc.Kind != DateTimeKind.Utc ||
+                game.ActiveUntilUtc.Kind != DateTimeKind.Utc ||
+                game.FirstSeenUtc > game.LastSeenUtc || game.LastSeenUtc >= game.ActiveUntilUtc ||
+                !double.IsFinite(game.BytesPerSecond) || game.BytesPerSecond < 0 ||
+                game.TotalBytes < 0 || game.RequestCount < 0 ||
+                game.CacheHitBytes < 0 || game.CacheMissBytes < 0)
+            {
+                return null;
+            }
+
+            var preparedGame = CloneGameSpeed(game);
+            preparedGame.Service = preparedGame.Service.Trim();
+            preparedGame.ClientIp = preparedGame.ClientIp.Trim();
+            preparedGame.Key = BuildDownloadActivityKey(preparedGame);
+            if (string.IsNullOrWhiteSpace(preparedGame.Key))
+            {
+                return null;
+            }
+
+            foreach (var original in game.Sources)
+            {
+                if (original.Datasources is null || original.Datasources.Count == 0 ||
+                    original.Datasources.Any(string.IsNullOrWhiteSpace) || original.DepotIds is null ||
+                    original.DepotIds.Any(id => id <= 0) ||
+                    original.FirstSeenUtc == default || original.LastSeenUtc == default ||
+                    original.ActiveUntilUtc == default || original.MeasuredUntilUtc == default ||
+                    original.FirstSeenUtc.Kind != DateTimeKind.Utc ||
+                    original.LastSeenUtc.Kind != DateTimeKind.Utc ||
+                    original.ActiveUntilUtc.Kind != DateTimeKind.Utc ||
+                    original.MeasuredUntilUtc.Kind != DateTimeKind.Utc ||
+                    original.FirstSeenUtc > original.LastSeenUtc ||
+                    original.LastSeenUtc >= original.ActiveUntilUtc ||
+                    original.LastSeenUtc > original.MeasuredUntilUtc ||
+                    original.LastSeenUtc > snapshot.TimestampUtc ||
+                    !double.IsFinite(original.BytesPerSecond) || original.BytesPerSecond < 0 ||
+                    original.TotalBytes < 0 || original.RequestCount < 0 ||
+                    original.CacheHitBytes < 0 || original.CacheMissBytes < 0)
+                {
+                    return null;
+                }
+
+                var aliases = original.Datasources
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Where(name =>
+                        captured.TryGetValue(name, out var capturedRoot) &&
+                        currentSources.TryGetValue(name, out var currentRoot) &&
+                        string.Equals(capturedRoot, currentRoot, StringComparison.Ordinal))
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (aliases.Count == 0)
+                {
+                    continue;
+                }
+
+                if (original.ActiveUntilUtc <= nowUtc)
+                {
+                    continue;
+                }
+
+                var source = CloneSource(original);
+                source.Datasources = aliases;
+                source.DepotIds = source.DepotIds.Distinct().OrderBy(id => id).ToList();
+                if (nowUtc >= source.MeasuredUntilUtc)
+                {
+                    source.BytesPerSecond = 0;
+                    source.TotalBytes = 0;
+                    source.RequestCount = 0;
+                    source.CacheHitBytes = 0;
+                    source.CacheMissBytes = 0;
+                }
+                incoming.Add((preparedGame, source, runId));
+            }
+        }
+
+        foreach (var client in snapshot.ClientSpeeds)
+        {
+            if (string.IsNullOrWhiteSpace(client.ClientIp) || client.ActiveUntilUtc == default ||
+                client.ActiveUntilUtc.Kind != DateTimeKind.Utc ||
+                !double.IsFinite(client.BytesPerSecond) || client.BytesPerSecond < 0 ||
+                client.TotalBytes < 0 || client.ActiveGames < 0 ||
+                client.CacheHitBytes < 0 || client.CacheMissBytes < 0)
+            {
+                return null;
+            }
+        }
+
+        return incoming;
+    }
+
+    private static bool SameMappedSource(
+        (GameSpeedInfo Game, DownloadSource Source, Guid RunId) left,
+        (GameSpeedInfo Game, DownloadSource Source, Guid RunId) right)
+    {
+        if (!string.Equals(left.Game.ClientIp, right.Game.ClientIp, StringComparison.Ordinal) ||
+            !string.Equals(
+                NormalizeServiceName(left.Game.Service),
+                NormalizeServiceName(right.Game.Service),
+                StringComparison.Ordinal) ||
+            !left.Source.Datasources.Intersect(right.Source.Datasources, StringComparer.OrdinalIgnoreCase).Any())
+        {
+            return false;
+        }
+
+        return left.Source.DepotIds.Intersect(right.Source.DepotIds).Any();
+    }
+
+    internal async Task AcceptNativeSnapshotAsync(
+        DownloadSpeedSnapshot snapshot,
+        Guid runId,
+        CancellationToken stoppingToken)
+    {
+        var currentSources = CurrentSources();
+        DownloadSpeedSnapshot? raw = null;
+        lock (_snapshotLock)
+        {
+            if (runId != _currentRunId || !_runSources.TryGetValue(runId, out var captured) ||
+                snapshot.Revision <= _nativeRevision)
+            {
+                return;
+            }
+
+            var nowUtc = UtcNow();
+            if (nowUtc > _agingUtc)
+            {
+                _agingUtc = nowUtc;
+            }
+
+            var incoming = PrepareNativeSnapshot(snapshot, runId, captured, currentSources, _agingUtc);
+            if (incoming is null)
+            {
+                _logger.LogWarning(
+                    "Rejected invalid version {Version} speed snapshot revision {Revision}",
+                    snapshot.Version,
+                    snapshot.Revision);
+                return;
+            }
+
+            var previousSnapshot = CloneSnapshot(_currentSnapshot);
+            var previous = CurrentEntriesLocked();
+            var merged = new List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>();
+            foreach (var next in incoming)
+            {
+                var exactKey = SourceKey(next.Game.Key, next.Source);
+                var matches = previous
+                    .Where(existing =>
+                        SourceKey(existing.Game.Key, existing.Source) == exactKey || SameMappedSource(existing, next))
+                    .ToList();
+                if (matches.Count == 0)
+                {
+                    merged.Add(next);
+                    continue;
+                }
+
+                previous.RemoveAll(matches.Contains);
+                var existing = matches.OrderByDescending(match => match.Source.LastSeenUtc).First();
+                var source = CloneSource(next.Source);
+                if (next.Source.LastSeenUtc < existing.Source.LastSeenUtc)
+                {
+                    merged.AddRange(matches);
+                    continue;
+                }
+                else if (next.Source.LastSeenUtc == existing.Source.LastSeenUtc)
+                {
+                    var firstSeenUtc = matches.Min(match => match.Source.FirstSeenUtc);
+                    source.FirstSeenUtc = firstSeenUtc < source.FirstSeenUtc
+                        ? firstSeenUtc
+                        : source.FirstSeenUtc;
+                    source.ActiveUntilUtc = matches.Max(match => match.Source.ActiveUntilUtc);
+                    source.MeasuredUntilUtc = matches.Max(match => match.Source.MeasuredUntilUtc);
+                }
+                else
+                {
+                    var firstSeenUtc = matches.Min(match => match.Source.FirstSeenUtc);
+                    var activeUntilUtc = matches.Max(match => match.Source.ActiveUntilUtc);
+                    source.FirstSeenUtc = firstSeenUtc < source.FirstSeenUtc
+                        ? firstSeenUtc
+                        : source.FirstSeenUtc;
+                    source.ActiveUntilUtc = activeUntilUtc > source.ActiveUntilUtc
+                        ? activeUntilUtc
+                        : source.ActiveUntilUtc;
+                }
+
+                merged.Add((next.Game, source, runId));
+            }
+
+            merged.AddRange(previous.Where(existing => existing.RunId != runId));
+            _nativeRevision = snapshot.Revision;
+            _unreportedSinceUtc = null;
+            RebuildLocked(merged, snapshot.TimestampUtc, isAvailable: true);
+            if (SameContents(previousSnapshot, _currentSnapshot))
+            {
+                _currentSnapshot.Revision = previousSnapshot.Revision;
+                _currentSnapshot.TimestampUtc = previousSnapshot.TimestampUtc;
+            }
+            else
+            {
+                _revision++;
+                _currentSnapshot.Revision = _revision;
+                raw = CloneSnapshot(_currentSnapshot);
+            }
+        }
+
+        if (raw is null)
+        {
+            return;
+        }
+
+        var visible = BuildClientVisibleSnapshot(
+            raw, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+        await PublishChangeAsync(raw, visible, reportingHealthy: true, stoppingToken);
+    }
+
+    private bool ApplyChange(
+        DownloadSpeedSnapshot raw,
+        DownloadSpeedSnapshot visible,
+        bool reportingHealthy,
+        out bool visibleEnded)
+    {
+        var downloadsEnded = false;
+        visibleEnded = false;
+        lock (_snapshotLock)
+        {
+            if (raw.Revision <= _edgeRevision)
+            {
+                return false;
+            }
+
+            _edgeRevision = raw.Revision;
+            if (reportingHealthy)
+            {
+                downloadsEnded = _previousHadUnfilteredActivity && !raw.HasActiveDownloads;
+                visibleEnded = _previousHadActivity && !visible.HasActiveDownloads;
+                _previousHadUnfilteredActivity = raw.HasActiveDownloads;
+                _previousHadActivity = visible.HasActiveDownloads;
+            }
+        }
+
+        QueueSnapshot(visible);
+        if (downloadsEnded)
+        {
+            DownloadsEnded?.Invoke();
+        }
+
+        return true;
+    }
+
+    private async Task NotifyChangeAsync(bool visibleEnded)
+    {
+        if (visibleEnded)
+        {
+            try
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to publish the current download end");
+            }
+        }
+
+        try
+        {
+            await AnnounceScanBlockedIfChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish the cache scan admission change");
+        }
+    }
+
+    private void PublishReadChange(DownloadSpeedSnapshot raw, DownloadSpeedSnapshot visible)
+    {
+        if (ApplyChange(raw, visible, raw.IsAvailable, out var visibleEnded))
+        {
+            _ = NotifyChangeAsync(visibleEnded);
+        }
+    }
+
+    private async Task PublishChangeAsync(
+        DownloadSpeedSnapshot raw,
+        DownloadSpeedSnapshot visible,
+        bool reportingHealthy,
+        CancellationToken stoppingToken)
+    {
+        if (ApplyChange(raw, visible, reportingHealthy, out var visibleEnded))
+        {
+            await NotifyChangeAsync(visibleEnded);
+        }
+
+        stoppingToken.ThrowIfCancellationRequested();
+    }
+
+    private async Task BeginRunAsync(
+        Guid runId,
+        IReadOnlyDictionary<string, string> sources,
+        DateTime startedAtUtc,
+        CancellationToken stoppingToken)
+    {
+        DownloadSpeedSnapshot? changed = null;
+        lock (_snapshotLock)
+        {
+            _currentRunId = runId;
+            _nativeRevision = 0;
+            _runSources[runId] = new Dictionary<string, string>(sources, StringComparer.OrdinalIgnoreCase);
+            _unreportedSinceUtc = startedAtUtc;
+            if (_currentSnapshot.IsAvailable)
+            {
+                _revision++;
+                RebuildLocked(CurrentEntriesLocked(), startedAtUtc, isAvailable: false);
+                changed = CloneSnapshot(_currentSnapshot);
+            }
+        }
+
+        if (changed is not null)
+        {
+            var visible = BuildClientVisibleSnapshot(
+                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+            await PublishChangeAsync(changed, visible, reportingHealthy: false, stoppingToken);
+        }
+
+        await AnnounceScanBlockedIfChangedAsync();
+        _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
+    }
+
+    private async Task EndRunAsync(Guid runId, CancellationToken stoppingToken)
+    {
+        DownloadSpeedSnapshot? changed = null;
+        lock (_snapshotLock)
+        {
+            if (runId != _currentRunId)
+            {
+                return;
+            }
+
+            _unreportedSinceUtc = UtcNow();
+            if (_currentSnapshot.IsAvailable)
+            {
+                _revision++;
+                RebuildLocked(CurrentEntriesLocked(), _unreportedSinceUtc.Value, isAvailable: false);
+                changed = CloneSnapshot(_currentSnapshot);
+            }
+        }
+
+        if (changed is not null)
+        {
+            var visible = BuildClientVisibleSnapshot(
+                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+            await PublishChangeAsync(changed, visible, reportingHealthy: false, stoppingToken);
+        }
+
+        await AnnounceScanBlockedIfChangedAsync();
+        _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
+    }
+
+    private async Task AgeSnapshotsAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            DateTime? boundary;
+            lock (_snapshotLock)
+            {
+                boundary = _currentSnapshot.GameSpeeds
+                    .SelectMany(game => game.Sources)
+                    .SelectMany(source =>
+                    {
+                        if (source.BytesPerSecond == 0 && source.TotalBytes == 0 && source.RequestCount == 0 &&
+                            source.CacheHitBytes == 0 && source.CacheMissBytes == 0)
+                        {
+                            return new[] { source.ActiveUntilUtc };
+                        }
+
+                        return new[] { source.MeasuredUntilUtc, source.ActiveUntilUtc };
+                    })
+                    .Where(value => value != default)
+                    .Cast<DateTime?>()
+                    .Min();
+            }
+
+            if (boundary is null)
+            {
+                await _ageWake.WaitAsync(stoppingToken);
+            }
+            else
+            {
+                var delay = boundary.Value - UtcNow();
+                if (delay > TimeSpan.Zero)
+                {
+                    using var wait = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                    var delayTask = Task.Delay(delay, _clock, wait.Token);
+                    var wakeTask = _ageWake.WaitAsync(wait.Token);
+                    await Task.WhenAny(delayTask, wakeTask);
+                    await wait.CancelAsync();
+                }
+            }
+
+            await AgeCurrentSnapshotAsync(stoppingToken);
+        }
+    }
+
+    internal async Task AgeCurrentSnapshotAsync(CancellationToken stoppingToken = default)
+    {
+        DownloadSpeedSnapshot? changed = null;
+        lock (_snapshotLock)
+        {
+            if (AgeLocked(UtcNow(), CurrentSources()))
+            {
+                changed = CloneSnapshot(_currentSnapshot);
+            }
+        }
+
+        if (changed is not null)
+        {
+            var visible = BuildClientVisibleSnapshot(
+                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+            await PublishChangeAsync(changed, visible, changed.IsAvailable, stoppingToken);
+        }
+    }
+
+    private async Task PublishSnapshotsAsync(CancellationToken stoppingToken)
+    {
+        long sentRevision = -1;
+        await foreach (var snapshot in _publication.Reader.ReadAllAsync(stoppingToken))
+        {
+            if (snapshot.Revision <= sentRevision)
+            {
+                continue;
+            }
+
+            sentRevision = snapshot.Revision;
+            try
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to publish current download snapshot");
+            }
+
+            if (_activityRegistry is not null)
+            {
+                try
+                {
+                    await _activityRegistry.ReplaceDownloadsAsync(snapshot);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to publish current download activity");
+                }
+            }
+        }
+    }
+
     protected override bool IsEnabled()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -476,108 +1304,117 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        var datasources = _datasourceService.GetDatasources();
         var rustExecutablePath = _rustExecutablePath ?? _pathResolver.GetRustSpeedTrackerPath();
         var consecutiveFailures = 0;
+        var agingTask = AgeSnapshotsAsync(stoppingToken);
+        var publicationTask = PublishSnapshotsAsync(stoppingToken);
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                // Build log directory arguments. The tracker discovers and tails every log source in
-                // each directory (the monolithic cachelog access.log AND per-service bare-metal
-                // *-access.log files), so any datasource whose scheme supports live speed is passed its
-                // directory. Datasources with no single trustworthy layout (Unknown/Mixed) are skipped.
-                var logDirs = datasources
-                    .Where(d => d.Enabled && _capabilityService.GetCapabilities(d).CanTrackLiveSpeed)
-                    .Select(d => $"\"{d.LogPath}\"")
-                    .ToList();
-
-                if (logDirs.Count == 0)
+                try
                 {
-                    if (!_loggedNoTrackableDatasources)
+                    var sources = _datasourceService.GetDatasources()
+                        .Where(source => source.Enabled && _capabilityService.GetCapabilities(source).CanTrackLiveSpeed)
+                        .Select(source => (source.Name, Root: source.LogPath))
+                        .ToList();
+
+                    if (sources.Count == 0)
                     {
-                        _loggedNoTrackableDatasources = true;
-                        _logger.LogInformation(
-                            "No datasource with trackable log sources; live speed tracking is idle");
+                        if (!_loggedNoTrackableDatasources)
+                        {
+                            _loggedNoTrackableDatasources = true;
+                            _logger.LogInformation(
+                                "No datasource with trackable log sources; live speed tracking is idle");
+                        }
+                        consecutiveFailures = 0;
+                        await SafeDelayAsync(TimeSpan.FromSeconds(60), stoppingToken);
+                        continue;
                     }
-                    // Idle without error spam; re-check periodically in case a source appears.
-                    consecutiveFailures = 0;
-                    await SafeDelayAsync(TimeSpan.FromSeconds(60), stoppingToken);
-                    continue;
+
+                    _loggedNoTrackableDatasources = false;
+                    var startedAt = UtcNow();
+                    var runId = Guid.NewGuid();
+                    var captured = sources.ToDictionary(
+                        source => source.Name,
+                        source => source.Root,
+                        StringComparer.OrdinalIgnoreCase);
+                    await BeginRunAsync(runId, captured, startedAt, stoppingToken);
+                    await RunTrackerAsync(rustExecutablePath, sources, runId, stoppingToken);
+
+                    if (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    consecutiveFailures = UtcNow() - startedAt >= _healthyRunDuration
+                        ? 1
+                        : consecutiveFailures + 1;
+                    var exitRestartDelay = RestartDelay(consecutiveFailures);
+                    _logger.LogWarning(
+                        "Rust speed tracker exited on its own ({Count} in a row), restarting in {Delay}",
+                        consecutiveFailures,
+                        exitRestartDelay);
+                    await SafeDelayAsync(exitRestartDelay, stoppingToken);
                 }
-
-                var startedAt = DateTime.UtcNow;
-
-                // Spawning is a transition into "no answer yet", so the window is measured from
-                // here rather than from construction. Startup can put minutes between the two:
-                // the schedule registry is resolved eagerly before app.Run(), which builds every
-                // hosted service, and those constructors read the state file and the database.
-                lock (_snapshotLock)
-                {
-                    _unreportedSinceUtc = startedAt;
-                }
-
-                await AnnounceScanBlockedIfChangedAsync();
-
-                // Arming the clock also sets a time at which the answer changes back with nothing
-                // to report it, so the one announcement for that moment is booked here.
-                _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
-
-                await RunTrackerAsync(rustExecutablePath, logDirs, stoppingToken);
-
-                if (stoppingToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     break;
                 }
+                catch (Exception ex)
+                {
+                    consecutiveFailures++;
+                    var errorRestartDelay = RestartDelay(consecutiveFailures);
+                    _logger.LogError(ex, "Error in RustSpeedTrackerService, restarting in {Delay}", errorRestartDelay);
+                    await SafeDelayAsync(errorRestartDelay, stoppingToken);
+                }
+            }
+        }
+        finally
+        {
+            lock (_snapshotLock)
+            {
+                _publication.Writer.TryComplete();
+                if (_ageWake.CurrentCount == 0)
+                {
+                    _ageWake.Release();
+                }
+            }
 
-                // The only other way out of RunTrackerAsync is the child process exiting on its
-                // own, and nothing about that throws. Without a wait on this path the loop
-                // respawns the tracker as fast as a process can be started, so a child that dies
-                // immediately (an unreachable database, for example) burns a core and floods the
-                // log instead of backing off.
-                consecutiveFailures = DateTime.UtcNow - startedAt >= _healthyRunDuration
-                    ? 1
-                    : consecutiveFailures + 1;
-                var exitRestartDelay = RestartDelay(consecutiveFailures);
-                _logger.LogWarning(
-                    "Rust speed tracker exited on its own ({Count} in a row), restarting in {Delay}",
-                    consecutiveFailures, exitRestartDelay);
-                await SafeDelayAsync(exitRestartDelay, stoppingToken);
+            try
+            {
+                await Task.WhenAll(agingTask, publicationTask);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                break;
-            }
-            catch (Exception ex)
-            {
-                consecutiveFailures++;
-                var errorRestartDelay = RestartDelay(consecutiveFailures);
-                _logger.LogError(ex, "Error in RustSpeedTrackerService, restarting in {Delay}", errorRestartDelay);
-                await SafeDelayAsync(errorRestartDelay, stoppingToken);
             }
         }
     }
 
     private async Task RunTrackerAsync(
         string rustExecutablePath,
-        IReadOnlyList<string> logDirs,
+        List<(string Name, string Root)> sources,
+        Guid runId,
         CancellationToken stoppingToken)
     {
-        var arguments = string.Join(" ", logDirs);
-
-        _logger.LogInformation("Starting Rust speed tracker: {Path} {Args}", rustExecutablePath, arguments);
-
         var startInfo = new ProcessStartInfo
         {
             FileName = rustExecutablePath,
-            Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
         };
+        foreach (var source in sources)
+        {
+            startInfo.ArgumentList.Add("--source");
+            startInfo.ArgumentList.Add(source.Name);
+            startInfo.ArgumentList.Add(source.Root);
+        }
+
+        _logger.LogInformation("Starting Rust speed tracker from {Path} for {Count} datasource aliases", rustExecutablePath, sources.Count);
 
         // Pass TZ environment variable to Rust
         var tz = Environment.GetEnvironmentVariable("TZ");
@@ -586,22 +1423,23 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             startInfo.EnvironmentVariables["TZ"] = tz;
         }
 
-        _rustProcess = Process.Start(startInfo);
+        var process = Process.Start(startInfo);
+        _rustProcess = process;
 
-        if (_rustProcess == null)
+        if (process == null)
         {
             throw new Exception("Failed to start Rust speed tracker process");
         }
 
-        _processManager.Track(_rustProcess);
+        _processManager.Track(process);
 
-        _logger.LogInformation("Rust speed tracker started with PID {Pid}", _rustProcess.Id);
+        _logger.LogInformation("Rust speed tracker started with PID {Pid}", process.Id);
 
         // Monitor stderr in background
         _ = Task.Run(async () =>
         {
             string? line;
-            while ((line = await _rustProcess.StandardError.ReadLineAsync(stoppingToken)) != null)
+            while ((line = await process.StandardError.ReadLineAsync(stoppingToken)) != null)
             {
                 if (!string.IsNullOrEmpty(line))
                 {
@@ -613,9 +1451,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         // Read stdout for JSON speed snapshots
         try
         {
-            while (!stoppingToken.IsCancellationRequested && !_rustProcess.HasExited)
+            while (!stoppingToken.IsCancellationRequested && !process.HasExited)
             {
-                var line = await _rustProcess.StandardOutput.ReadLineAsync(stoppingToken);
+                var line = await process.StandardOutput.ReadLineAsync(stoppingToken);
 
                 if (string.IsNullOrEmpty(line))
                 {
@@ -631,53 +1469,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
                     if (snapshot != null)
                     {
-                        lock (_snapshotLock)
-                        {
-                            _currentSnapshot = snapshot;
-                            _unreportedSinceUtc = null;
-                        }
-
-                        // Broadcast the client-visible projection: hidden clients must be filtered
-                        // BEFORE the hub send (the REST endpoint uses the same builder), otherwise
-                        // a hidden client leaks through SignalR even though it is absent from every
-                        // REST response. Speed activity gating uses the same projection, so a
-                        // hidden-only download broadcasts no speeds; the scan-blocked signal below
-                        // is the one thing that still reports it, deliberately.
-                        var visibleSnapshot = BuildClientVisibleSnapshot(
-                            snapshot,
-                            _stateService.GetHiddenClientIps(),
-                            _stateService.GetEvictedDataMode());
-
-                        var hasActivity = visibleSnapshot.HasActiveDownloads;
-
-                        // Broadcast every active snapshot plus exactly one trailing zero so a
-                        // real end-of-activity edge is reported once, then stay silent while
-                        // idle. The Rust window now adapts to the observed log-delivery
-                        // cadence, so a zero reading here means activity genuinely stopped
-                        // rather than a gap between flush bursts, and no repeat count is
-                        // needed to smooth it for the frontend.
-                        if (hasActivity || _previousHadActivity)
-                        {
-                            await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, visibleSnapshot);
-
-                            // Mirror the SAME visible active set into the unified activity registry so every
-                            // live-download status dot reads one presence signal. Reported AFTER (and never
-                            // gating) the authoritative speed send; on the trailing-zero the empty set clears
-                            // every download dot.
-                            await PublishDownloadActivityAsync(visibleSnapshot);
-                        }
-
-                        if (_previousHadActivity && !hasActivity)
-                        {
-                            // Downloads just ended - refresh the DB-backed active list once.
-                            await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
-                        }
-
-                        _previousHadActivity = hasActivity;
-
-                        AnnounceDownloadsEndedIfStopped(snapshot);
-
-                        await AnnounceScanBlockedIfChangedAsync();
+                        await AcceptNativeSnapshotAsync(snapshot, runId, stoppingToken);
                     }
                 }
                 catch (JsonException ex)
@@ -686,58 +1478,24 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 }
             }
 
-            // Reaching here without a stop request means the tracker process died. Clear the
-            // stored snapshot so the restart gap can never keep serving the last active
-            // reading, and close out visible activity with one trailing zero broadcast (an
-            // application shutdown exits via OperationCanceledException above instead).
             if (!stoppingToken.IsCancellationRequested)
             {
-                var emptySnapshot = new DownloadSpeedSnapshot { WindowSeconds = 2 };
-                lock (_snapshotLock)
-                {
-                    _currentSnapshot = emptySnapshot;
-
-                    // Death is the other transition into "no answer yet". Every transition arms
-                    // the clock; only a published snapshot clears it. A crash loop therefore
-                    // arms repeatedly, but it cannot block scans indefinitely because the restart
-                    // delay doubles from five seconds toward five minutes, so the armed share of
-                    // each cycle shrinks, and a tracker that never spawns at all arms only once
-                    // at construction.
-                    _unreportedSinceUtc = DateTime.UtcNow;
-                }
-
-                await AnnounceScanBlockedIfChangedAsync();
-
-                // A death arms the clock the same way a spawn does, and the restart delay doubles
-                // from five seconds toward five minutes, so most of the gap that follows is time
-                // the gate spends allowing scans with nobody told.
-                _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
-
-                if (_previousHadActivity)
-                {
-                    _previousHadActivity = false;
-                    var emptyVisible = BuildClientVisibleSnapshot(
-                        emptySnapshot,
-                        _stateService.GetHiddenClientIps(),
-                        _stateService.GetEvictedDataMode());
-                    await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, emptyVisible);
-                    await PublishDownloadActivityAsync(emptyVisible);
-                }
+                await EndRunAsync(runId, stoppingToken);
             }
         }
         finally
         {
-            if (_rustProcess != null)
+            if (!process.HasExited)
             {
-                if (!_rustProcess.HasExited)
-                {
-                    _logger.LogInformation("Stopping Rust speed tracker");
-                    _processManager.KillProcessTree(_rustProcess, "speed tracker stop");
-                    await _processManager.WaitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
-                }
+                _logger.LogInformation("Stopping Rust speed tracker");
+                _processManager.KillProcessTree(process, "speed tracker stop");
+                await _processManager.WaitAfterKillAsync(process, TimeSpan.FromSeconds(5));
+            }
 
-                _processManager.Untrack(_rustProcess);
-                _rustProcess.Dispose();
+            _processManager.Untrack(process);
+            process.Dispose();
+            if (ReferenceEquals(_rustProcess, process))
+            {
                 _rustProcess = null;
             }
         }

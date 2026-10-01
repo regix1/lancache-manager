@@ -41,6 +41,7 @@ public sealed record ActivityItem
     public required string Aspect { get; init; }
     public bool IsActive { get; init; } = true;
     public int ActiveCount { get; init; } = 1;
+    public DateTime? ActiveUntilUtc { get; init; }
 }
 
 /// <summary>
@@ -51,5 +52,7 @@ public sealed record ActivityItem
 public sealed record ActivitySnapshot
 {
     public required long Revision { get; init; }
+    public string DownloadStreamId { get; init; } = string.Empty;
+    public long DownloadRevision { get; init; }
     public required IReadOnlyList<ActivityItem> Activities { get; init; }
 }

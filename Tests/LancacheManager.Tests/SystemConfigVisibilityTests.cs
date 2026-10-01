@@ -77,8 +77,8 @@ public sealed class SystemConfigVisibilityTests : IDisposable
             rustProcessHelper: null!,
             datasourceService,
             operationTracker: null!,
-            dbContextFactory: null!,
-            gameCacheDetectionService: null!);
+            capabilityService,
+            operationStateService: null!);
         var cacheManagementService = new CacheManagementService(
             configuration,
             NullLogger<CacheManagementService>.Instance,
@@ -94,7 +94,8 @@ public sealed class SystemConfigVisibilityTests : IDisposable
             envFileReader: null!,
             conflictChecker: null!,
             capabilityService,
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            operationStateService: null!);
 
         _controller = new SystemController(
             stateService,

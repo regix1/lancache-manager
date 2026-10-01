@@ -1,0 +1,1517 @@
+using System.Collections.Concurrent;
+using System.Text.Json;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace LancacheManager.Core.Services;
+
+public partial class OperationStateService
+{
+    private const string InterruptedByRestartError = "Operation interrupted by application restart";
+    private static readonly TimeSpan _repairRetryDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan _completedRepairRetention = TimeSpan.FromHours(48);
+
+    private readonly IServiceScopeFactory _scopes;
+    private readonly IHostApplicationLifetime _applicationLifetime;
+    private readonly ProcessManager _processManager;
+    private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly SemaphoreSlim _admissionGate = new(1, 1);
+    private readonly SemaphoreSlim _repairStateGate = new(1, 1);
+    private readonly SemaphoreSlim _repairGate = new(1, 1);
+    private readonly ConcurrentDictionary<Guid, OperationRepair> _repairs = new();
+    private readonly ConcurrentDictionary<Guid, Lazy<Task>> _repairTasks = new();
+    private readonly ConcurrentDictionary<Guid, byte> _startupRepairs = new();
+    private readonly ConcurrentDictionary<Guid, DateTime> _completedRepairs = new();
+    private readonly TaskCompletionSource<bool> _recoveryOwnership =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<bool> _workChanged =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task? _recoveryTask;
+
+    public async Task PrepareRepairAsync(OperationRepair repair, CancellationToken cancellationToken)
+    {
+        await WaitForRecoveryOwnershipAsync(cancellationToken);
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            var replacement = CopyRepair(repair);
+            ValidateNewRepair(replacement);
+
+            await _repairStateGate.WaitAsync(cancellationToken);
+            try
+            {
+                if (_repairs.ContainsKey(replacement.Id))
+                {
+                    throw new InvalidOperationException($"Operation repair {replacement.Id} is already prepared.");
+                }
+
+                PersistRepairs(replacement);
+                _repairs[replacement.Id] = replacement;
+            }
+            finally
+            {
+                _repairStateGate.Release();
+            }
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
+    }
+
+    public async Task StartWorkAsync(
+        Guid operationId,
+        string? datasource,
+        CancellationToken cancellationToken)
+    {
+        await WaitForRecoveryOwnershipAsync(cancellationToken);
+
+        while (true)
+        {
+            Task? blocker = null;
+            await _admissionGate.WaitAsync(cancellationToken);
+            try
+            {
+                var current = GetRequiredRepair(operationId);
+                if (current.Phase == OperationRepairPhase.Running)
+                {
+                    await SaveRepairCoreAsync(
+                        current,
+                        next => RecordWorkStart(next, datasource),
+                        cancellationToken);
+                    return;
+                }
+                if (current.Phase != OperationRepairPhase.Prepared)
+                {
+                    throw new InvalidOperationException(
+                        $"Operation repair {operationId} cannot start mutation from phase {current.Phase}.");
+                }
+
+                var pending = _repairs.Values
+                    .Where(repair => repair.Id != operationId && repair.Phase == OperationRepairPhase.Repairing)
+                    .OrderBy(repair => repair.StartedAt)
+                    .FirstOrDefault();
+                if (pending is not null)
+                {
+                    blocker = ClaimRepairTask(pending.Id, _startupRepairs.ContainsKey(pending.Id));
+                }
+                else
+                {
+                    await SaveRepairCoreAsync(
+                        current,
+                        next =>
+                        {
+                            next.Phase = OperationRepairPhase.Running;
+                            RecordWorkStart(next, datasource);
+                        },
+                        cancellationToken);
+                    return;
+                }
+            }
+            finally
+            {
+                _admissionGate.Release();
+            }
+
+            await blocker.WaitAsync(cancellationToken);
+        }
+    }
+
+    public async Task SaveRepairAsync(
+        Guid operationId,
+        Action<OperationRepair> update,
+        CancellationToken cancellationToken)
+    {
+        await WaitForRecoveryOwnershipAsync(cancellationToken);
+
+        await _repairStateGate.WaitAsync(cancellationToken);
+        try
+        {
+            var current = GetRequiredRepair(operationId);
+            SaveRepairCore(
+                current,
+                next =>
+                {
+                    update(next);
+                    if (next.Phase != current.Phase)
+                    {
+                        throw new InvalidOperationException(
+                            $"Operation repair {operationId} phase changes are owned by the lifecycle.");
+                    }
+                });
+        }
+        finally
+        {
+            _repairStateGate.Release();
+        }
+    }
+
+    public Task FinishRepairAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error)
+    {
+        return FinishRepairAsync(operationId, success, cancelled, error, update: null);
+    }
+
+    internal async Task FinishRepairAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error,
+        Action<OperationRepair>? update)
+    {
+        var stoppingToken = _applicationLifetime.ApplicationStopping;
+        await WaitForRecoveryOwnershipAsync(stoppingToken);
+
+        Task? repairTask = null;
+        DateTime? retryAt = null;
+        while (repairTask is null)
+        {
+            if (_completedRepairs.ContainsKey(operationId))
+            {
+                return;
+            }
+
+            DateTime? waitUntil = null;
+            await _admissionGate.WaitAsync(stoppingToken);
+            try
+            {
+                if (_completedRepairs.ContainsKey(operationId))
+                {
+                    return;
+                }
+
+                var current = GetRequiredRepair(operationId);
+                if (current.Phase == OperationRepairPhase.Completed)
+                {
+                    return;
+                }
+                if (current.Phase == OperationRepairPhase.Repairing)
+                {
+                    repairTask = ClaimRepairTask(operationId, _startupRepairs.ContainsKey(operationId));
+                    continue;
+                }
+
+                var leftRunning = current.Phase == OperationRepairPhase.Running;
+                try
+                {
+                    await SaveRepairCoreAsync(
+                        current,
+                        next =>
+                        {
+                            if (!next.Outcome.HasValue)
+                            {
+                                update?.Invoke(next);
+                                next.Outcome = success
+                                    ? OperationStatus.Completed
+                                    : cancelled
+                                        ? OperationStatus.Cancelled
+                                        : OperationStatus.Failed;
+                                next.Error = error;
+                            }
+                            next.Phase = OperationRepairPhase.Repairing;
+                            next.RetryAtUtc = retryAt;
+                        },
+                        stoppingToken);
+                    if (leftRunning)
+                    {
+                        SignalWorkChanged();
+                    }
+                    repairTask = ClaimRepairTask(operationId, recovery: false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "Failed to save the repair start for operation {OperationId}",
+                        operationId);
+                    retryAt = UtcNow.Add(_repairRetryDelay);
+                    waitUntil = retryAt;
+                }
+            }
+            finally
+            {
+                _admissionGate.Release();
+            }
+
+            if (waitUntil.HasValue)
+            {
+                await WaitUntilAsync(waitUntil.Value, stoppingToken);
+            }
+        }
+
+        await repairTask;
+    }
+
+    public async Task WaitForRecoveryOwnershipAsync(CancellationToken cancellationToken)
+    {
+        await _recoveryOwnership.Task.WaitAsync(cancellationToken);
+    }
+
+    public IReadOnlyList<OperationRepair> GetPendingRepairs()
+    {
+        return _repairs.Values
+            .Where(repair => repair.Phase != OperationRepairPhase.Completed)
+            .OrderBy(repair => repair.StartedAt)
+            .Select(CopyRepair)
+            .ToList();
+    }
+
+    public bool OwnsRepair(Guid operationId)
+    {
+        return _repairs.ContainsKey(operationId);
+    }
+
+    private async Task ClaimRecoveryOwnershipAsync(CancellationToken cancellationToken)
+    {
+        await _admissionGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_recoveryOwnership.Task.IsCompleted)
+            {
+                await _recoveryOwnership.Task;
+                return;
+            }
+
+            try
+            {
+                var loaded = _stateService.LoadOperationRepairs();
+                var replacements = new List<OperationRepair>(loaded.Count);
+                var changed = false;
+                foreach (var stored in loaded)
+                {
+                    var repair = CopyRepair(stored);
+                    ValidateStoredRepair(repair);
+
+                    if (repair.Phase != OperationRepairPhase.Completed)
+                    {
+                        _startupRepairs.TryAdd(repair.Id, 0);
+                        if (!repair.Outcome.HasValue)
+                        {
+                            repair.Outcome = OperationStatus.Failed;
+                            repair.Error = InterruptedByRestartError;
+                        }
+                        if (repair.Phase != OperationRepairPhase.Repairing)
+                        {
+                            repair.Phase = OperationRepairPhase.Repairing;
+                        }
+                        changed = true;
+                    }
+
+                    replacements.Add(repair);
+                }
+
+                if (changed)
+                {
+                    _stateService.SaveOperationRepairs(replacements);
+                }
+
+                var forgotten = replacements
+                    .Where(CanForgetCompletedLogRepair)
+                    .ToList();
+                var retained = replacements;
+                if (forgotten.Count > 0)
+                {
+                    var forgottenIds = forgotten.Select(repair => repair.Id).ToHashSet();
+                    var trimmed = replacements
+                        .Where(repair => !forgottenIds.Contains(repair.Id))
+                        .ToList();
+                    try
+                    {
+                        _stateService.SaveOperationRepairs(trimmed);
+                        retained = trimmed;
+                        foreach (var repair in forgotten)
+                        {
+                            _completedRepairs[repair.Id] = repair.CompletedAt!.Value;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Could not remove completed log-processing repairs during recovery ownership");
+                    }
+                }
+
+                foreach (var repair in retained)
+                {
+                    _repairs[repair.Id] = repair;
+                }
+                _recoveryOwnership.TrySetResult(true);
+            }
+            catch (Exception ex)
+            {
+                _recoveryOwnership.TrySetException(ex);
+                throw;
+            }
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
+    }
+
+    private void StartRecovery(CancellationToken stoppingToken)
+    {
+        _recoveryTask ??= RecoverAfterSetupAsync(stoppingToken);
+        _ = ObserveRecoveryAsync(_recoveryTask, stoppingToken);
+    }
+
+    private async Task RecoverAfterSetupAsync(CancellationToken stoppingToken)
+    {
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+        await ClearOrphanedCorruptionPresentationAsync(stoppingToken);
+
+        var repairs = _repairs.Values
+            .Where(repair => _startupRepairs.ContainsKey(repair.Id))
+            .OrderBy(repair => repair.StartedAt)
+            .ToList();
+
+        var running = new List<Task>();
+        foreach (var repair in repairs)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+            if (repair.Phase == OperationRepairPhase.Completed)
+            {
+                CleanupCompletedRepairReceipts(repair);
+                continue;
+            }
+
+            running.Add(ClaimRepairTask(repair.Id, recovery: true));
+        }
+        if (running.Count > 0)
+        {
+            await Task.WhenAll(running);
+        }
+    }
+
+    protected virtual async Task ClearOrphanedCorruptionPresentationAsync(
+        CancellationToken stoppingToken)
+    {
+        await using (var scope = _scopes.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<CorruptionDetectionService>()
+                .ClearOrphanedPresentationAsync(stoppingToken);
+        }
+    }
+
+    private async Task ObserveRecoveryAsync(Task recoveryTask, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await recoveryTask;
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Operation repair recovery stopped unexpectedly");
+        }
+    }
+
+    private Task ClaimRepairTask(Guid operationId, bool recovery)
+    {
+        return _repairTasks.GetOrAdd(
+            operationId,
+            id => new Lazy<Task>(
+                () => RunRepairAsync(id, recovery, _applicationLifetime.ApplicationStopping),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
+    private async Task RunRepairAsync(
+        Guid operationId,
+        bool recovery,
+        CancellationToken stoppingToken)
+    {
+        try
+        {
+            if (recovery)
+            {
+                await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+                await RestoreOwnerAsync(CopyRepair(GetRequiredRepair(operationId)), stoppingToken);
+            }
+
+            while (true)
+            {
+                stoppingToken.ThrowIfCancellationRequested();
+                await WaitForRunningWorkAsync(operationId, stoppingToken);
+
+                var repair = CopyRepair(GetRequiredRepair(operationId));
+                if (repair.Phase == OperationRepairPhase.Completed)
+                {
+                    CleanupCompletedRepairReceipts(repair);
+                    if (recovery)
+                    {
+                        CompleteRestoredRepair(operationId);
+                    }
+                    await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
+                    return;
+                }
+
+                if (repair.RetryAtUtc is { } scheduledRetryAt && scheduledRetryAt > UtcNow)
+                {
+                    await WaitUntilAsync(scheduledRetryAt, stoppingToken);
+                    continue;
+                }
+
+                try
+                {
+                    await WaitForNativeProcessesAsync(repair, stoppingToken);
+                    await _repairGate.WaitAsync(stoppingToken);
+                    try
+                    {
+                        repair = CopyRepair(GetRequiredRepair(operationId));
+                        await ApplyRepairAsync(repair, stoppingToken);
+                        await SaveRepairCoreAsync(
+                            GetRequiredRepair(operationId),
+                            next =>
+                            {
+                                next.Phase = OperationRepairPhase.Completed;
+                                next.RetryAtUtc = null;
+                                next.CompletedAt = UtcNow;
+                            },
+                            stoppingToken);
+                        CleanupCompletedRepairReceipts(GetRequiredRepair(operationId));
+                    }
+                    finally
+                    {
+                        _repairGate.Release();
+                    }
+
+                    if (recovery)
+                    {
+                        CompleteRestoredRepair(operationId);
+                    }
+                    await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
+                    return;
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Required repair failed for operation {OperationId}", operationId);
+                    var retryAt = UtcNow.Add(_repairRetryDelay);
+                    try
+                    {
+                        await SaveRepairAsync(
+                            operationId,
+                            next => next.RetryAtUtc = retryAt,
+                            stoppingToken);
+                    }
+                    catch (Exception saveException)
+                    {
+                        _logger.LogError(
+                            saveException,
+                            "Failed to save the retry time for operation repair {OperationId}",
+                            operationId);
+                    }
+
+                    await WaitUntilAsync(retryAt, stoppingToken);
+                }
+            }
+        }
+        finally
+        {
+            _repairTasks.TryRemove(operationId, out _);
+        }
+    }
+
+    private async Task WaitForRunningWorkAsync(Guid operationId, CancellationToken stoppingToken)
+    {
+        while (true)
+        {
+            Task workChanged;
+            await _admissionGate.WaitAsync(stoppingToken);
+            try
+            {
+                if (!_repairs.Values.Any(
+                        repair => repair.Id != operationId && repair.Phase == OperationRepairPhase.Running))
+                {
+                    return;
+                }
+                workChanged = _workChanged.Task;
+            }
+            finally
+            {
+                _admissionGate.Release();
+            }
+
+            await workChanged.WaitAsync(stoppingToken);
+        }
+    }
+
+    private async Task MaintainRepairsAsync(CancellationToken stoppingToken)
+    {
+        await WaitForRecoveryOwnershipAsync(stoppingToken);
+        var cutoff = UtcNow - _completedRepairRetention;
+
+        await _repairStateGate.WaitAsync(stoppingToken);
+        try
+        {
+            var cleanupAccepted = _repairs.Values
+                .Where(repair => repair.Phase == OperationRepairPhase.Completed)
+                .ToDictionary(
+                    repair => repair.Id,
+                    CleanupCompletedRepairReceipts);
+            var forgotten = _repairs.Values
+                .Where(CanForgetCompletedLogRepair)
+                .Select(repair => repair.Id)
+                .ToHashSet();
+            var expired = _repairs.Values
+                .Where(repair => repair.Phase == OperationRepairPhase.Completed
+                    && repair.CompletedAt < cutoff
+                    && cleanupAccepted[repair.Id])
+                .Select(repair => repair.Id)
+                .ToHashSet();
+            var removed = forgotten.Concat(expired).ToHashSet();
+            if (removed.Count > 0)
+            {
+                PersistRepairsWithout(removed);
+                foreach (var operationId in removed)
+                {
+                    if (forgotten.Contains(operationId)
+                        && _repairs.TryGetValue(operationId, out var repair))
+                    {
+                        _completedRepairs[operationId] = repair.CompletedAt!.Value;
+                    }
+                    _repairs.TryRemove(operationId, out _);
+                    _startupRepairs.TryRemove(operationId, out _);
+                }
+            }
+
+            foreach (var operationId in _completedRepairs
+                .Where(item => item.Value < cutoff)
+                .Select(item => item.Key))
+            {
+                _completedRepairs.TryRemove(operationId, out _);
+            }
+        }
+        finally
+        {
+            _repairStateGate.Release();
+        }
+
+        var retainedScanIds = _repairs.Values
+            .Where(repair => repair.EvictionScanId.HasValue)
+            .Select(repair => repair.EvictionScanId!.Value)
+            .ToHashSet();
+        await PruneEvictionScanCheckpointsAsync(cutoff, retainedScanIds, stoppingToken);
+
+        foreach (var repair in _repairs.Values.Where(repair => repair.Phase == OperationRepairPhase.Repairing))
+        {
+            _ = ClaimRepairTask(repair.Id, _startupRepairs.ContainsKey(repair.Id));
+        }
+    }
+
+    private bool CleanupCompletedRepairReceipts(OperationRepair repair)
+    {
+        if (repair.Phase != OperationRepairPhase.Completed)
+        {
+            throw new InvalidOperationException(
+                $"Operation repair {repair.Id} cannot remove root receipts before completion.");
+        }
+
+        var cleanupAccepted = true;
+        foreach (var source in repair.Sources.Where(source => source.ReceiptPath is not null))
+        {
+            cleanupAccepted &= CleanupCompletedRepairReceipt(repair.Id, source);
+        }
+        return cleanupAccepted;
+    }
+
+    private bool CleanupCompletedRepairReceipt(Guid operationId, OperationRepairSource source)
+    {
+        var receiptPath = source.ReceiptPath!;
+        var receiptDirectory = Path.GetDirectoryName(receiptPath);
+        if (string.IsNullOrWhiteSpace(receiptDirectory) || !Directory.Exists(receiptDirectory))
+        {
+            _logger.LogWarning(
+                "Kept root receipt cleanup pending for completed operation {OperationId} because {ReceiptPath} is unavailable",
+                operationId,
+                receiptPath);
+            return false;
+        }
+
+        byte[] receiptBytes;
+        try
+        {
+            receiptBytes = File.ReadAllBytes(receiptPath);
+        }
+        catch (FileNotFoundException)
+        {
+            return true;
+        }
+        catch (IOException exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Kept root receipt cleanup pending for completed operation {OperationId} at {ReceiptPath}",
+                operationId,
+                receiptPath);
+            return false;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Kept root receipt cleanup pending for completed operation {OperationId} at {ReceiptPath}",
+                operationId,
+                receiptPath);
+            return false;
+        }
+
+        if (!ReceiptMatches(receiptBytes, operationId, source.CacheRoot))
+        {
+            _logger.LogWarning(
+                "Kept root receipt {ReceiptPath} because it does not match completed operation {OperationId}",
+                receiptPath,
+                operationId);
+            return false;
+        }
+
+        try
+        {
+            if (!File.ReadAllBytes(receiptPath).SequenceEqual(receiptBytes))
+            {
+                _logger.LogWarning(
+                    "Kept root receipt {ReceiptPath} because it changed during cleanup for operation {OperationId}",
+                    receiptPath,
+                    operationId);
+                return false;
+            }
+
+            File.Delete(receiptPath);
+            if (File.Exists(receiptPath))
+            {
+                _logger.LogWarning(
+                    "Kept root receipt cleanup pending for completed operation {OperationId} at {ReceiptPath}",
+                    operationId,
+                    receiptPath);
+                return false;
+            }
+
+            _logger.LogInformation(
+                "Removed root receipt {ReceiptPath} for completed operation {OperationId}",
+                receiptPath,
+                operationId);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return true;
+        }
+        catch (IOException exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Kept root receipt cleanup pending for completed operation {OperationId} at {ReceiptPath}",
+                operationId,
+                receiptPath);
+            return false;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Kept root receipt cleanup pending for completed operation {OperationId} at {ReceiptPath}",
+                operationId,
+                receiptPath);
+            return false;
+        }
+    }
+
+    private static bool ReceiptMatches(byte[] receiptBytes, Guid operationId, string? cacheRoot)
+    {
+        if (string.IsNullOrWhiteSpace(cacheRoot))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(receiptBytes);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || root.EnumerateObject().Count() != 4
+                || !root.TryGetProperty("version", out var version)
+                || version.ValueKind != JsonValueKind.Number
+                || !version.TryGetInt32(out var versionNumber)
+                || versionNumber != 1
+                || !root.TryGetProperty("operationId", out var storedOperationId)
+                || storedOperationId.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(storedOperationId.GetString(), out var parsedOperationId)
+                || parsedOperationId != operationId
+                || !root.TryGetProperty("cachePath", out var storedCacheRoot)
+                || storedCacheRoot.ValueKind != JsonValueKind.String
+                || !root.TryGetProperty("hadCacheFiles", out var hadCacheFiles)
+                || hadCacheFiles.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+                || !hadCacheFiles.GetBoolean())
+            {
+                return false;
+            }
+
+            var storedPath = storedCacheRoot.GetString();
+            if (string.IsNullOrWhiteSpace(storedPath))
+            {
+                return false;
+            }
+
+            var expected = ResolveCacheRoot(cacheRoot);
+            var actual = ResolveCacheRoot(storedPath);
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            return string.Equals(expected, actual, comparison);
+        }
+        catch (Exception exception) when (exception is JsonException
+            or ArgumentException
+            or IOException
+            or NotSupportedException
+            or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static string ResolveCacheRoot(string cacheRoot)
+    {
+        var directory = new DirectoryInfo(Path.GetFullPath(cacheRoot));
+        return Path.TrimEndingDirectorySeparator(
+            directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? directory.FullName);
+    }
+
+    protected virtual async Task PruneEvictionScanCheckpointsAsync(
+        DateTime cutoff,
+        IReadOnlySet<Guid> retainedScanIds,
+        CancellationToken stoppingToken)
+    {
+        await using var scope = _scopes.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var oldFinalized = await context.EvictionScanCheckpoints
+            .Where(checkpoint => checkpoint.FinalizedAtUtc < cutoff)
+            .ToListAsync(stoppingToken);
+        var removable = oldFinalized
+            .Where(checkpoint => !retainedScanIds.Contains(checkpoint.OperationId))
+            .ToList();
+        if (removable.Count == 0)
+        {
+            return;
+        }
+
+        context.EvictionScanCheckpoints.RemoveRange(removable);
+        await context.SaveChangesAsync(stoppingToken);
+        _logger.LogInformation(
+            "Removed {Count} finalized eviction scan checkpoints older than the repair retention window",
+            removable.Count);
+    }
+
+    private async Task SaveRepairCoreAsync(
+        OperationRepair current,
+        Action<OperationRepair> update,
+        CancellationToken cancellationToken)
+    {
+        await _repairStateGate.WaitAsync(cancellationToken);
+        try
+        {
+            SaveRepairCore(current, update);
+        }
+        finally
+        {
+            _repairStateGate.Release();
+        }
+    }
+
+    private void SaveRepairCore(OperationRepair current, Action<OperationRepair> update)
+    {
+        var latest = GetRequiredRepair(current.Id);
+        var replacement = CopyRepair(latest);
+        update(replacement);
+        ValidateRepairChange(latest, replacement);
+        PersistRepairs(replacement);
+        _repairs[replacement.Id] = replacement;
+    }
+
+    private void PersistRepairs(OperationRepair replacement)
+    {
+        var snapshot = _repairs.Values
+            .Where(repair => repair.Id != replacement.Id)
+            .Append(replacement)
+            .OrderBy(repair => repair.StartedAt)
+            .Select(CopyRepair)
+            .ToList();
+        _stateService.SaveOperationRepairs(snapshot);
+    }
+
+    private void PersistRepairsWithout(HashSet<Guid> operationIds)
+    {
+        var snapshot = _repairs.Values
+            .Where(repair => !operationIds.Contains(repair.Id))
+            .OrderBy(repair => repair.StartedAt)
+            .Select(CopyRepair)
+            .ToList();
+        _stateService.SaveOperationRepairs(snapshot);
+    }
+
+    private async Task ForgetCompletedLogRepairAsync(
+        Guid operationId,
+        CancellationToken stoppingToken)
+    {
+        await _repairStateGate.WaitAsync(stoppingToken);
+        try
+        {
+            if (!_repairs.TryGetValue(operationId, out var repair)
+                || !CanForgetCompletedLogRepair(repair))
+            {
+                return;
+            }
+
+            try
+            {
+                PersistRepairsWithout(new HashSet<Guid> { operationId });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not remove completed log-processing repair {OperationId}",
+                    operationId);
+                return;
+            }
+
+            _completedRepairs[operationId] = repair.CompletedAt!.Value;
+            _repairs.TryRemove(operationId, out _);
+            _startupRepairs.TryRemove(operationId, out _);
+        }
+        finally
+        {
+            _repairStateGate.Release();
+        }
+    }
+
+    private static bool CanForgetCompletedLogRepair(OperationRepair repair)
+    {
+        return repair.Type == OperationType.LogProcessing
+            && repair.Phase == OperationRepairPhase.Completed
+            && !repair.EvictionScanId.HasValue
+            && repair.Sources.All(source => source.ReceiptPath is null);
+    }
+
+    private OperationRepair GetRequiredRepair(Guid operationId)
+    {
+        return _repairs.TryGetValue(operationId, out var repair)
+            ? repair
+            : throw new KeyNotFoundException($"Operation repair {operationId} was not prepared.");
+    }
+
+    private void SignalWorkChanged()
+    {
+        var previous = _workChanged;
+        _workChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        previous.TrySetResult(true);
+    }
+
+    private static void RecordWorkStart(OperationRepair repair, string? datasource)
+    {
+        if (datasource is null)
+        {
+            repair.DatabaseWriteStarted = true;
+            return;
+        }
+
+        var source = repair.Sources.SingleOrDefault(
+            candidate => string.Equals(candidate.Datasource, datasource, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Operation repair {repair.Id} does not contain datasource '{datasource}'.");
+        source.NativeLaunchAuthorized = true;
+    }
+
+    private static OperationRepair CopyRepair(OperationRepair repair)
+    {
+        var json = JsonSerializer.Serialize(repair);
+        return JsonSerializer.Deserialize<OperationRepair>(json)
+            ?? throw new InvalidDataException($"Operation repair {repair.Id} could not be copied.");
+    }
+
+    private static void ValidateNewRepair(OperationRepair repair)
+    {
+        ValidateStoredRepair(repair);
+        if (repair.Phase != OperationRepairPhase.Prepared
+            || repair.Outcome.HasValue
+            || repair.Error is not null
+            || repair.RetryAtUtc.HasValue
+            || repair.CompletedAt.HasValue
+            || repair.DatabaseWriteStarted
+            || repair.Sources.Any(source => source.NativeLaunchAuthorized || source.NativeCompletionAccepted)
+            || StateService.HasConfirmedRepairCounters(repair))
+        {
+            throw new InvalidOperationException($"Operation repair {repair.Id} is not a new prepared repair.");
+        }
+    }
+
+    private static void ValidateStoredRepair(OperationRepair repair)
+    {
+        StateService.ValidateOperationRepair(repair);
+    }
+
+    private static void ValidateRepairChange(OperationRepair current, OperationRepair replacement)
+    {
+        ValidateStoredRepair(replacement);
+        if (current.Version != replacement.Version
+            || current.Id != replacement.Id
+            || current.Type != replacement.Type
+            || !string.Equals(current.Name, replacement.Name, StringComparison.Ordinal)
+            || current.StartedAt != replacement.StartedAt
+            || !NoticeEqual(current.Notice, replacement.Notice)
+            || !TargetEqual(current.Target, replacement.Target)
+            || !CorruptionEqual(current.Corruption, replacement.Corruption)
+            || current.Sources.Count != replacement.Sources.Count)
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} changed immutable identity.");
+        }
+        if (!MetricIdentityEqual(current, replacement))
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} changed metric identity.");
+        }
+        if (ConfirmedCountersDecreased(current, replacement))
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} reduced confirmed counters.");
+        }
+        if (replacement.Phase < current.Phase)
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} moved to an earlier phase.");
+        }
+        if (current.Outcome.HasValue && current.Outcome != replacement.Outcome)
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} changed its original outcome.");
+        }
+        if (current.Error is not null && !string.Equals(current.Error, replacement.Error, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} changed its original error.");
+        }
+        if (current.CompletedAt.HasValue && current.CompletedAt != replacement.CompletedAt)
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} changed its completion time.");
+        }
+        if (current.DatabaseWriteStarted && !replacement.DatabaseWriteStarted)
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} cleared its work checkpoint.");
+        }
+        if (!EvictionScanPointerAllowed(current, replacement))
+        {
+            throw new InvalidOperationException($"Operation repair {current.Id} has an invalid scan attempt pointer.");
+        }
+
+        for (var index = 0; index < current.Sources.Count; index++)
+        {
+            var before = current.Sources[index];
+            var after = replacement.Sources[index];
+            if (!SourceScopeEqual(current.Type, before, after))
+            {
+                throw new InvalidOperationException($"Operation repair {current.Id} changed source scope.");
+            }
+            if (before.NativeLaunchAuthorized && !after.NativeLaunchAuthorized
+                || before.NativeCompletionAccepted && !after.NativeCompletionAccepted)
+            {
+                throw new InvalidOperationException($"Operation repair {current.Id} cleared a source checkpoint.");
+            }
+            if (before.ReceiptPath is not null
+                && !string.Equals(before.ReceiptPath, after.ReceiptPath, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Operation repair {current.Id} changed a root receipt.");
+            }
+            if (before.NativeCompletionAccepted
+                && !before.CorruptionCandidateIds.SequenceEqual(after.CorruptionCandidateIds, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Operation repair {current.Id} changed accepted corruption candidates.");
+            }
+            if (before.NativeCompletionAccepted && !CorruptionCountsEqual(
+                    before.CorruptionCounts,
+                    after.CorruptionCounts))
+            {
+                throw new InvalidOperationException(
+                    $"Operation repair {current.Id} changed accepted corruption counters.");
+            }
+        }
+    }
+
+    private static bool EvictionScanPointerAllowed(OperationRepair current, OperationRepair replacement)
+    {
+        if (current.EvictionScanId == replacement.EvictionScanId)
+        {
+            return true;
+        }
+        if (!replacement.EvictionScanId.HasValue || replacement.EvictionScanId == Guid.Empty)
+        {
+            return false;
+        }
+        if (current.Type == OperationType.EvictionScan)
+        {
+            return !current.EvictionScanId.HasValue
+                && replacement.EvictionScanId == replacement.Id;
+        }
+        if (current.Type is OperationType.CacheClearing
+            or OperationType.GameRemoval
+            or OperationType.ServiceRemoval
+            or OperationType.CorruptionRemoval
+            or OperationType.EvictionRemoval)
+        {
+            return replacement.EvictionScanId != replacement.Id;
+        }
+
+        return false;
+    }
+
+    private static bool MetricIdentityEqual(OperationRepair left, OperationRepair right)
+    {
+        return (left.CacheClearing, right.CacheClearing) switch
+            {
+                (null, null) => true,
+                ({ } first, { } second) =>
+                    string.Equals(first.EntityKey, second.EntityKey, StringComparison.Ordinal)
+                    && string.Equals(first.DatasourceName, second.DatasourceName, StringComparison.OrdinalIgnoreCase),
+                _ => false
+            }
+            && (left.LogRemoval, right.LogRemoval) switch
+            {
+                (null, null) => true,
+                ({ } first, { } second) =>
+                    string.Equals(first.Service, second.Service, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(first.Datasource, second.Datasource, StringComparison.OrdinalIgnoreCase),
+                _ => false
+            }
+            && (left.Removal, right.Removal) switch
+            {
+                (null, null) => true,
+                ({ } first, { } second) =>
+                    string.Equals(first.EntityKey, second.EntityKey, StringComparison.Ordinal)
+                    && string.Equals(first.EntityName, second.EntityName, StringComparison.Ordinal)
+                    && string.Equals(first.EntityKind, second.EntityKind, StringComparison.Ordinal)
+                    && string.Equals(first.Service, second.Service, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(first.EpicAppId, second.EpicAppId, StringComparison.Ordinal)
+                    && first.DetectionMethod == second.DetectionMethod
+                    && first.CorruptionScanId == second.CorruptionScanId,
+                _ => false
+            }
+            && (left.GameDetection, right.GameDetection) switch
+            {
+                (null, null) => true,
+                ({ } first, { } second) =>
+                    first.ParentOperationId == second.ParentOperationId
+                    && first.ScanType == second.ScanType
+                    && first.StartTime == second.StartTime,
+                _ => false
+            }
+            && (left.EvictionRemoval, right.EvictionRemoval) switch
+            {
+                (null, null) => true,
+                ({ } first, { } second) => EvictionSelectionEqual(first.Selection, second.Selection),
+                _ => false
+            };
+    }
+
+    private static bool ConfirmedCountersDecreased(OperationRepair before, OperationRepair after)
+    {
+        return before.CacheClearing is { } firstClearing && after.CacheClearing is { } nextClearing
+                && (nextClearing.DirectoriesProcessed < firstClearing.DirectoriesProcessed
+                    || nextClearing.TotalDirectories < firstClearing.TotalDirectories
+                    || nextClearing.BytesDeleted < firstClearing.BytesDeleted
+                    || nextClearing.FilesDeleted < firstClearing.FilesDeleted
+                    || nextClearing.DatasourcesCleared < firstClearing.DatasourcesCleared)
+            || before.LogProcessing is { } firstProcessing && after.LogProcessing is { } nextProcessing
+                && (nextProcessing.EntriesProcessed < firstProcessing.EntriesProcessed
+                    || nextProcessing.LinesProcessed < firstProcessing.LinesProcessed)
+            || before.LogRemoval is { } firstLogRemoval && after.LogRemoval is { } nextLogRemoval
+                && (nextLogRemoval.FilesProcessed < firstLogRemoval.FilesProcessed
+                    || nextLogRemoval.LinesProcessed < firstLogRemoval.LinesProcessed
+                    || nextLogRemoval.LinesRemoved < firstLogRemoval.LinesRemoved
+                    || nextLogRemoval.DatabaseRecordsDeleted < firstLogRemoval.DatabaseRecordsDeleted)
+            || before.Removal is { } firstRemoval && after.Removal is { } nextRemoval
+                && (nextRemoval.FilesDeleted < firstRemoval.FilesDeleted
+                    || nextRemoval.BytesFreed < firstRemoval.BytesFreed
+                    || nextRemoval.FilesProcessed < firstRemoval.FilesProcessed
+                    || nextRemoval.TotalFiles < firstRemoval.TotalFiles
+                    || nextRemoval.LogEntriesRemoved < firstRemoval.LogEntriesRemoved)
+            || before.GameDetection is { } firstDetection && after.GameDetection is { } nextDetection
+                && (nextDetection.TotalGamesDetected < firstDetection.TotalGamesDetected
+                    || nextDetection.TotalServicesDetected < firstDetection.TotalServicesDetected)
+            || before.EvictionScan is { } firstScan && after.EvictionScan is { } nextScan
+                && (nextScan.Processed < firstScan.Processed
+                    || nextScan.Evicted < firstScan.Evicted
+                    || nextScan.UnEvicted < firstScan.UnEvicted)
+            || before.EvictionRemoval is { } firstEviction && after.EvictionRemoval is { } nextEviction
+                && (nextEviction.DownloadsRemoved < firstEviction.DownloadsRemoved
+                    || nextEviction.LogEntriesRemoved < firstEviction.LogEntriesRemoved);
+    }
+
+    private static bool SourceScopeEqual(
+        OperationType operationType,
+        OperationRepairSource left,
+        OperationRepairSource right)
+    {
+        return string.Equals(left.Datasource, right.Datasource, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.LogRoot, right.LogRoot, StringComparison.Ordinal)
+            && string.Equals(left.CacheRoot, right.CacheRoot, StringComparison.Ordinal)
+            && string.Equals(left.KeyScheme, right.KeyScheme, StringComparison.Ordinal)
+            && left.ResetLogPositions == right.ResetLogPositions
+            && (left.RefreshDownloads == right.RefreshDownloads
+                || operationType == OperationType.LogProcessing
+                    && left.RefreshDownloads
+                    && !right.RefreshDownloads
+                    && right.NativeCompletionAccepted)
+            && left.ReconcileCache == right.ReconcileCache
+            && left.RefreshDetection == right.RefreshDetection
+            && left.InvalidateCorruption == right.InvalidateCorruption
+            && left.ApplyCorruptionCandidates == right.ApplyCorruptionCandidates;
+    }
+
+    private static bool TargetEqual(CacheRepairTarget? left, CacheRepairTarget? right)
+    {
+        return (left, right) switch
+        {
+            (null, null) => true,
+            ({ } first, { } second) => first.SteamAppId == second.SteamAppId
+                && first.SteamDepotIds.SequenceEqual(second.SteamDepotIds)
+                && string.Equals(first.EpicGame, second.EpicGame, StringComparison.Ordinal)
+                && string.Equals(first.GameName, second.GameName, StringComparison.Ordinal)
+                && string.Equals(first.Service, second.Service, StringComparison.Ordinal),
+            _ => false
+        };
+    }
+
+    private static bool CorruptionEqual(CorruptionRepair? left, CorruptionRepair? right)
+    {
+        return (left, right) switch
+        {
+            (null, null) => true,
+            ({ } first, { } second) => first.ScanId == second.ScanId
+                && first.ContractVersion == second.ContractVersion
+                && first.DetectionMethod == second.DetectionMethod
+                && string.Equals(first.Service, second.Service, StringComparison.Ordinal),
+            _ => false
+        };
+    }
+
+    private static bool CorruptionCountsEqual(CorruptionRemovalCounts? left, CorruptionRemovalCounts? right)
+    {
+        return (left, right) switch
+        {
+            (null, null) => true,
+            ({ } first, { } second) => first.UrlsRemoved == second.UrlsRemoved
+                && first.FilesDeleted == second.FilesDeleted
+                && first.LogLinesRemoved == second.LogLinesRemoved
+                && first.DownloadsDeleted == second.DownloadsDeleted
+                && first.LogEntriesDeleted == second.LogEntriesDeleted
+                && first.AlreadyMissing == second.AlreadyMissing
+                && first.Healed == second.Healed
+                && first.BytesFreed == second.BytesFreed,
+            _ => false
+        };
+    }
+
+    private static bool EvictionSelectionEqual(EvictionRemovalMetadata left, EvictionRemovalMetadata right)
+    {
+        return string.Equals(left.Scope, right.Scope, StringComparison.Ordinal)
+            && string.Equals(left.Key, right.Key, StringComparison.Ordinal)
+            && string.Equals(left.GameName, right.GameName, StringComparison.Ordinal);
+    }
+
+    private static bool NoticeEqual(RunNotice? left, RunNotice? right)
+    {
+        return (left, right) switch
+        {
+            (null, null) => true,
+            ({ } first, { } second) => first.Mode == second.Mode
+                && first.Trigger == second.Trigger
+                && first.Actor == second.Actor
+                && first.RestoredOrigin == second.RestoredOrigin,
+            _ => false
+        };
+    }
+
+    protected virtual DateTime UtcNow => DateTime.UtcNow;
+
+    protected virtual Task WaitUntilAsync(DateTime retryAtUtc, CancellationToken stoppingToken)
+    {
+        var remaining = retryAtUtc - UtcNow;
+        return remaining > TimeSpan.Zero
+            ? Task.Delay(remaining, stoppingToken)
+            : Task.CompletedTask;
+    }
+
+    private Task WaitForNativeProcessesAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        if (!_startupRepairs.ContainsKey(repair.Id)
+            || !repair.Sources.Any(source => source.NativeLaunchAuthorized))
+        {
+            return Task.CompletedTask;
+        }
+
+        return _processManager.WaitForProcessesExitAsync(ProcessNames(repair), stoppingToken);
+    }
+
+    internal static IReadOnlyCollection<string> ProcessNames(OperationRepair repair)
+    {
+        return repair.Type switch
+        {
+            OperationType.CacheClearing => ["cache_clear", "rsync", "cache_eviction_scan"],
+            OperationType.EvictionScan => ["cache_game_detect", "cache_eviction_scan"],
+            OperationType.EvictionRemoval => ["cache_purge_log_entries", "cache_eviction_scan"],
+            OperationType.CorruptionDetection or OperationType.CorruptionRemoval =>
+                ["cache_corruption", "cache_eviction_scan"],
+            OperationType.GameDetection => ["cache_game_detect"],
+            OperationType.LogProcessing => ["log_processor"],
+            OperationType.LogRemoval => ["log_service_manager"],
+            OperationType.ServiceRemoval => ["cache_service_remove", "cache_eviction_scan"],
+            OperationType.GameRemoval => GameRemovalProcessNames(repair),
+            _ => []
+        };
+    }
+
+    private static IReadOnlyCollection<string> GameRemovalProcessNames(OperationRepair repair)
+    {
+        if (repair.Target?.SteamAppId.HasValue == true)
+        {
+            return ["cache_steam_remove", "cache_eviction_scan"];
+        }
+        if (!string.IsNullOrWhiteSpace(repair.Target?.EpicGame))
+        {
+            return ["cache_epic_remove", "cache_eviction_scan"];
+        }
+        return repair.Target?.Service?.ToLowerInvariant() switch
+        {
+            "blizzard" => ["cache_blizzard_remove", "cache_eviction_scan"],
+            "riot" => ["cache_riot_remove", "cache_eviction_scan"],
+            "xbox" => ["cache_xbox_remove", "cache_eviction_scan"],
+            _ => throw new InvalidDataException(
+                $"Game removal repair {repair.Id} has no supported native target.")
+        };
+    }
+
+    protected virtual Task RestoreOwnerAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        return DispatchRestoreRepairAsync(repair, stoppingToken);
+    }
+
+    protected virtual Task ApplyRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        return DispatchRepairAsync(repair, stoppingToken);
+    }
+
+    private async Task DispatchRestoreRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        await using var scope = _scopes.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        switch (repair.Type)
+        {
+            case OperationType.CacheClearing:
+                await services.GetRequiredService<CacheClearingService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.LogProcessing:
+                await services.GetRequiredService<RustLogProcessorService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.LogRemoval:
+                await services.GetRequiredService<RustLogRemovalService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.GameRemoval:
+            case OperationType.ServiceRemoval:
+                await services.GetRequiredService<CacheManagementService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.CorruptionRemoval:
+                await services.GetRequiredService<CorruptionDetectionService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.GameDetection:
+                await services.GetRequiredService<GameCacheDetectionService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.EvictionScan:
+            case OperationType.EvictionRemoval:
+                await services.GetRequiredService<CacheReconciliationService>()
+                    .RestoreRepairAsync(repair, stoppingToken);
+                break;
+            default:
+                throw new InvalidDataException($"Operation type {repair.Type} has no repair owner.");
+        }
+    }
+
+    private async Task DispatchRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        await using var scope = _scopes.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        var launchedSources = repair.Sources
+            .Where(source => source.NativeLaunchAuthorized)
+            .ToList();
+
+        var downloadsRefreshOnly = repair.Type == OperationType.LogProcessing
+            && repair.LogProcessing is not null
+            && !repair.EvictionScanId.HasValue
+            && launchedSources.All(source => source.ReceiptPath is null
+                && !source.ResetLogPositions
+                && !source.ReconcileCache
+                && !source.RefreshDetection
+                && !source.InvalidateCorruption
+                && !source.ApplyCorruptionCandidates);
+        if (!downloadsRefreshOnly)
+        {
+            var datasourceService = services.GetRequiredService<DatasourceService>();
+            var capabilityService = services.GetRequiredService<DatasourceCapabilityService>();
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            foreach (var source in launchedSources)
+            {
+                var current = datasourceService.GetDatasource(source.Datasource)
+                    ?? throw new InvalidDataException(
+                        $"Datasource {source.Datasource} is unavailable for operation repair {repair.Id}.");
+                if ((source.LogRoot is not null
+                        && !string.Equals(source.LogRoot, current.LogPath, pathComparison))
+                    || (source.CacheRoot is not null
+                        && !string.Equals(source.CacheRoot, current.CachePath, pathComparison))
+                    || (source.KeyScheme is not null
+                        && !string.Equals(
+                            source.KeyScheme,
+                            capabilityService.GetKeySchemeWireValue(current),
+                            StringComparison.Ordinal)))
+                {
+                    throw new InvalidDataException(
+                        $"Datasource {source.Datasource} changed after operation repair {repair.Id} was prepared.");
+                }
+            }
+        }
+
+        var resetSources = launchedSources
+            .Where(source => source.ResetLogPositions)
+            .ToList();
+        if (repair.Outcome != OperationStatus.Completed && resetSources.Count > 0)
+        {
+            var logProcessor = services.GetRequiredService<RustLogProcessorService>();
+            foreach (var source in resetSources)
+            {
+                logProcessor.ResetLogPosition(source.Datasource);
+            }
+        }
+        if (resetSources.Count > 0)
+        {
+            await services.GetRequiredService<CacheManagementService>()
+                .InvalidateServiceCountsAsync();
+        }
+
+        switch (repair.Type)
+        {
+            case OperationType.CacheClearing:
+                await services.GetRequiredService<CacheClearingService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.LogProcessing:
+                await services.GetRequiredService<RustLogProcessorService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.LogRemoval:
+                await services.GetRequiredService<RustLogRemovalService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.GameRemoval:
+            case OperationType.ServiceRemoval:
+                await services.GetRequiredService<CacheManagementService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.CorruptionRemoval:
+                await services.GetRequiredService<CorruptionDetectionService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.GameDetection:
+                await services.GetRequiredService<GameCacheDetectionService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            case OperationType.EvictionScan:
+            case OperationType.EvictionRemoval:
+                await services.GetRequiredService<CacheReconciliationService>()
+                    .ResumeRepairAsync(repair, stoppingToken);
+                break;
+            default:
+                throw new InvalidDataException($"Operation type {repair.Type} has no repair owner.");
+        }
+
+        var cacheTailOwned = repair.Type is (OperationType.CacheClearing
+            or OperationType.GameRemoval
+            or OperationType.ServiceRemoval
+            or OperationType.CorruptionRemoval)
+            && launchedSources.Any(source => source.ReconcileCache);
+        if (cacheTailOwned)
+        {
+            await services.GetRequiredService<CacheReconciliationService>()
+                .ReconcileRepairAsync(repair, stoppingToken);
+        }
+
+        var evictionTailOwned = repair.Type is OperationType.EvictionScan or OperationType.EvictionRemoval;
+        if (!cacheTailOwned && !evictionTailOwned
+            && launchedSources.Any(source => source.InvalidateCorruption))
+        {
+            await services.GetRequiredService<CorruptionDetectionService>()
+                .InvalidateRepairAsync(repair, stoppingToken);
+        }
+
+        var refreshDetection = repair.Type == OperationType.GameDetection
+            ? repair.DatabaseWriteStarted
+            : launchedSources.Any(source => source.RefreshDetection);
+        if (!cacheTailOwned && !evictionTailOwned && refreshDetection)
+        {
+            await services.GetRequiredService<GameCacheDetectionService>()
+                .RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+            services.GetRequiredService<CacheManagementService>().InvalidateCachedScan();
+        }
+
+        if (NeedsDownloadsRefresh(repair))
+        {
+            await services.GetRequiredService<ISignalRNotificationService>()
+                .NotifyAllAsync(SignalREvents.DownloadsRefresh);
+        }
+    }
+
+    internal static bool NeedsDownloadsRefresh(OperationRepair repair)
+    {
+        var refreshRequested = repair.Sources.Any(
+                source => source.NativeLaunchAuthorized && source.RefreshDownloads)
+            || (repair.Type == OperationType.EvictionRemoval
+                && repair.DatabaseWriteStarted
+                && repair.Sources.Any(source => source.RefreshDownloads));
+        return refreshRequested
+            && repair.Type != OperationType.EvictionScan;
+    }
+
+    private void CompleteRestoredRepair(Guid operationId)
+    {
+        var repair = GetRequiredRepair(operationId);
+        if (_operationTracker.GetOperation(operationId) is null)
+        {
+            return;
+        }
+
+        var success = repair.Outcome == OperationStatus.Completed;
+        var cancelled = repair.Outcome == OperationStatus.Cancelled;
+        _operationTracker.CompleteOperation(
+            operationId,
+            success,
+            repair.Error,
+            cancelled);
+    }
+}

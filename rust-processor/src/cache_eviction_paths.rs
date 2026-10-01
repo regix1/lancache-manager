@@ -1,9 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use anyhow::{bail, Context, Result};
+use lancache_processor::cache_repair;
 use lancache_processor::cache_utils;
+use uuid::Uuid;
 
-use super::DatasourceConfig;
+use super::{DatasourceConfig, RepairSource};
 
 pub(super) struct DatasourceRoots {
     cache_paths_by_name: HashMap<String, (PathBuf, cache_utils::CacheKeyScheme)>,
@@ -14,11 +17,26 @@ pub(super) struct DatasourceRoots {
 
 impl DatasourceRoots {
     pub(super) fn from_configs(datasources: &[DatasourceConfig]) -> Self {
+        let paths = datasources
+            .iter()
+            .map(|source| {
+                (
+                    datasource_lookup_key(&source.name),
+                    PathBuf::from(&source.cache_path),
+                )
+            })
+            .collect();
+        Self::from_paths(datasources, &paths)
+    }
+
+    fn from_paths(datasources: &[DatasourceConfig], paths: &HashMap<String, PathBuf>) -> Self {
         let mut cache_paths_by_name = HashMap::with_capacity(datasources.len());
         let mut default_entry: Option<(PathBuf, cache_utils::CacheKeyScheme)> = None;
 
         for ds in datasources {
-            let cache_path = PathBuf::from(&ds.cache_path);
+            let Some(cache_path) = paths.get(&datasource_lookup_key(&ds.name)).cloned() else {
+                continue;
+            };
             let scheme = cache_utils::CacheKeyScheme::from_config_str(&ds.key_scheme);
             cache_paths_by_name.insert(
                 datasource_lookup_key(&ds.name),
@@ -29,12 +47,14 @@ impl DatasourceRoots {
             }
         }
 
-        let (default_cache_path, default_scheme) = default_entry.unwrap_or_else(|| {
-            (
-                PathBuf::from(&datasources[0].cache_path),
-                cache_utils::CacheKeyScheme::from_config_str(&datasources[0].key_scheme),
-            )
-        });
+        let (default_cache_path, default_scheme) = default_entry
+            .or_else(|| cache_paths_by_name.values().next().cloned())
+            .unwrap_or_else(|| {
+                (
+                    PathBuf::from(&datasources[0].cache_path),
+                    cache_utils::CacheKeyScheme::from_config_str(&datasources[0].key_scheme),
+                )
+            });
 
         Self {
             cache_paths_by_name,
@@ -59,6 +79,73 @@ impl DatasourceRoots {
             }
             Some(_) | None => None,
         }
+    }
+}
+
+pub(super) struct RepairIndex {
+    pub(super) roots: DatasourceRoots,
+    pub(super) files: FilesOnDisk,
+    affected_roots: HashSet<PathBuf>,
+    trusted_empty_roots: HashSet<PathBuf>,
+}
+
+impl RepairIndex {
+    pub(super) fn intersects(&self, primary: Option<&str>, origins: &[Option<String>]) -> bool {
+        std::iter::once(primary)
+            .chain(origins.iter().map(Option::as_deref))
+            .filter_map(|origin| self.roots.resolve(origin).map(|(root, _)| root))
+            .any(|root| self.affected_roots.contains(root))
+    }
+
+    pub(super) fn origins_can_verify_absence(
+        &self,
+        primary: Option<&str>,
+        origins: &[Option<String>],
+    ) -> bool {
+        let mut saw_origin = false;
+        for origin in std::iter::once(primary).chain(origins.iter().map(Option::as_deref)) {
+            saw_origin = true;
+            let Some((root, _)) = self.roots.resolve(origin) else {
+                return false;
+            };
+            let indexed = self
+                .files
+                .digests_for_root(root)
+                .is_some_and(|digests| !digests.is_empty());
+            if !indexed && !self.trusted_empty_roots.contains(root) {
+                return false;
+            }
+        }
+        saw_origin
+    }
+
+    pub(super) fn origins_are_trusted_empty(
+        &self,
+        primary: Option<&str>,
+        origins: &[Option<String>],
+    ) -> bool {
+        let mut saw_origin = false;
+        for origin in std::iter::once(primary).chain(origins.iter().map(Option::as_deref)) {
+            saw_origin = true;
+            let Some((root, _)) = self.roots.resolve(origin) else {
+                return false;
+            };
+            if !self.trusted_empty_roots.contains(root) {
+                return false;
+            }
+        }
+        saw_origin
+    }
+
+    pub(super) fn origins_include_bare_metal(
+        &self,
+        primary: Option<&str>,
+        origins: &[Option<String>],
+    ) -> bool {
+        std::iter::once(primary)
+            .chain(origins.iter().map(Option::as_deref))
+            .filter_map(|origin| self.roots.resolve(origin).map(|(_, scheme)| scheme))
+            .any(|scheme| scheme == cache_utils::CacheKeyScheme::BareMetal)
     }
 }
 
@@ -225,6 +312,20 @@ impl ProbeKey {
         self.has_known_recipe()
     }
 
+    pub(super) fn can_verify_repair_absence(
+        &self,
+        files_on_disk: &FilesOnDisk,
+        trusted_empty_roots: &HashSet<PathBuf>,
+    ) -> bool {
+        let ProbeRecipe::Resolved { root, .. } = &self.recipe else {
+            return false;
+        };
+        let root_checked = files_on_disk
+            .digests_for_root(root)
+            .is_some_and(|digests| !digests.is_empty() || trusted_empty_roots.contains(root));
+        root_checked && self.has_known_recipe()
+    }
+
     fn has_known_recipe(&self) -> bool {
         match &self.recipe {
             ProbeRecipe::Resolved {
@@ -284,6 +385,13 @@ pub(super) fn keys_can_verify_absence(keys: &[ProbeKey], files_on_disk: &FilesOn
     } else {
         keys.iter().any(|key| key.can_verify_absence(files_on_disk))
     }
+}
+
+pub(super) fn keys_can_verify_repair_absence(keys: &[ProbeKey], repair: &RepairIndex) -> bool {
+    !keys.is_empty()
+        && keys
+            .iter()
+            .all(|key| key.can_verify_repair_absence(&repair.files, &repair.trusted_empty_roots))
 }
 
 /// Walks all configured cache directories and indexes file-name digests per datasource root.
@@ -364,6 +472,173 @@ where
     FilesOnDisk { digests_by_root }
 }
 
+pub(super) fn collect_files_for_repair<F>(
+    datasources: &[DatasourceConfig],
+    sources: &[RepairSource],
+    operation_id: Uuid,
+    on_file_count: F,
+) -> Result<RepairIndex>
+where
+    F: FnMut(usize),
+{
+    collect_files_for_repair_with(
+        datasources,
+        sources,
+        operation_id,
+        on_file_count,
+        cache_repair::scan_root,
+        cache_repair::validate_receipt,
+    )
+}
+
+fn collect_files_for_repair_with<F, S, V>(
+    datasources: &[DatasourceConfig],
+    sources: &[RepairSource],
+    operation_id: Uuid,
+    mut on_file_count: F,
+    mut scan_root: S,
+    mut validate_receipt: V,
+) -> Result<RepairIndex>
+where
+    F: FnMut(usize),
+    S: FnMut(&Path) -> Result<cache_repair::RootFiles>,
+    V: FnMut(&Path, Uuid) -> Result<PathBuf>,
+{
+    let current_by_name: HashMap<String, &DatasourceConfig> = datasources
+        .iter()
+        .map(|source| (datasource_lookup_key(&source.name), source))
+        .collect();
+    let mut paths_by_name = HashMap::with_capacity(datasources.len());
+    for source in datasources {
+        let cache_path = Path::new(&source.cache_path);
+        match cache_path.canonicalize() {
+            Ok(path) => {
+                paths_by_name.insert(datasource_lookup_key(&source.name), path);
+            }
+            Err(error) => {
+                eprintln!(
+                    "[EvictionScan] Cache root is unavailable for datasource '{}': {}",
+                    source.name, error
+                );
+            }
+        }
+    }
+
+    let mut affected_roots = HashSet::new();
+    for source in sources {
+        let lookup = datasource_lookup_key(&source.name);
+        let current = current_by_name.get(&lookup).copied().with_context(|| {
+            format!(
+                "repair datasource '{}' is missing from current configuration",
+                source.name
+            )
+        })?;
+        let current_scheme = parse_scheme(&current.key_scheme).with_context(|| {
+            format!(
+                "current datasource '{}' has an unsupported key scheme",
+                current.name
+            )
+        })?;
+        let captured_scheme = parse_scheme(&source.key_scheme).with_context(|| {
+            format!(
+                "repair datasource '{}' has an unsupported key scheme",
+                source.name
+            )
+        })?;
+        if current_scheme != captured_scheme {
+            bail!(
+                "repair datasource '{}' key scheme changed from {} to {}",
+                source.name,
+                source.key_scheme,
+                current.key_scheme
+            );
+        }
+
+        let current_path = paths_by_name.get(&lookup).with_context(|| {
+            format!(
+                "repair datasource '{}' cache root is unavailable",
+                source.name
+            )
+        })?;
+        let captured_path = Path::new(&source.cache_path)
+            .canonicalize()
+            .with_context(|| {
+                format!(
+                    "repair datasource '{}' captured cache root is unavailable",
+                    source.name
+                )
+            })?;
+        if current_path != &captured_path {
+            bail!(
+                "repair datasource '{}' cache root changed from {} to {}",
+                source.name,
+                captured_path.display(),
+                current_path.display()
+            );
+        }
+        affected_roots.insert(current_path.clone());
+    }
+
+    let roots = DatasourceRoots::from_paths(datasources, &paths_by_name);
+    let mut digests_by_root = HashMap::new();
+    let mut trusted_empty_roots = HashSet::new();
+    let mut total_files = 0usize;
+    let unique_roots: HashSet<PathBuf> = paths_by_name.values().cloned().collect();
+
+    for root in unique_roots {
+        let affected = affected_roots.contains(&root);
+        let files = if affected {
+            scan_root(&root)?
+        } else {
+            match scan_root(&root) {
+                Ok(files) => files,
+                Err(error) => {
+                    eprintln!(
+                        "[EvictionScan] Cache root could not be checked at {}: {:#}",
+                        root.display(),
+                        error
+                    );
+                    continue;
+                }
+            }
+        };
+
+        if affected && files.is_empty() {
+            match validate_receipt(&root, operation_id) {
+                Ok(_) => {
+                    trusted_empty_roots.insert(files.canonical_path.clone());
+                }
+                Err(error) => {
+                    eprintln!(
+                        "[EvictionScan] Cache root at {} has no trusted empty-root receipt for operation {}: {:#}. Absence under this root will remain unverified",
+                        root.display(),
+                        operation_id,
+                        error
+                    );
+                }
+            }
+        }
+        total_files += files.digests.len();
+        on_file_count(total_files);
+        digests_by_root.insert(files.canonical_path, files.digests);
+    }
+
+    Ok(RepairIndex {
+        roots,
+        files: FilesOnDisk { digests_by_root },
+        affected_roots,
+        trusted_empty_roots,
+    })
+}
+
+fn parse_scheme(value: &str) -> Option<cache_utils::CacheKeyScheme> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "monolithic" => Some(cache_utils::CacheKeyScheme::Monolithic),
+        "bare_metal" => Some(cache_utils::CacheKeyScheme::BareMetal),
+        _ => None,
+    }
+}
+
 fn datasource_lookup_key(name: &str) -> String {
     name.to_lowercase()
 }
@@ -385,6 +660,284 @@ mod tests {
         FilesOnDisk {
             digests_by_root: HashMap::from([(root.to_path_buf(), digests.into_iter().collect())]),
         }
+    }
+
+    fn repair_source(name: &str, cache_path: &Path, key_scheme: &str) -> RepairSource {
+        RepairSource {
+            name: name.to_string(),
+            cache_path: cache_path.to_string_lossy().into_owned(),
+            key_scheme: key_scheme.to_string(),
+        }
+    }
+
+    fn create_cache_file(root: &Path) -> PathBuf {
+        let digest = "0123456789abcdef0123456789abcdef";
+        let path = root.join("ef").join("cd").join(digest);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"cache").unwrap();
+        path
+    }
+
+    #[test]
+    fn repair_receipt_allows_a_formerly_populated_empty_root() {
+        let root = tempfile::tempdir().unwrap();
+        let cache_file = create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        cache_repair::prepare_receipt(root.path(), Some(&operation_id.to_string())).unwrap();
+        std::fs::remove_file(cache_file).unwrap();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("DEFAULT", root.path(), "monolithic")];
+
+        let repair = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+            .expect("collect receipt-backed empty root");
+
+        assert!(repair.files.is_empty());
+        assert!(repair.intersects(Some("default"), &[]));
+        assert!(repair.origins_can_verify_absence(Some("default"), &[]));
+        assert!(repair.origins_are_trusted_empty(Some("default"), &[]));
+    }
+
+    #[test]
+    fn repair_empty_root_without_receipt_abstains() {
+        let root = tempfile::tempdir().unwrap();
+        let operation_id = Uuid::new_v4();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+
+        let repair = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+            .expect("missing receipt must abstain");
+
+        assert!(repair.files.is_empty());
+        assert!(repair.intersects(Some("default"), &[]));
+        assert!(!repair.origins_can_verify_absence(Some("default"), &[]));
+        assert!(!repair.origins_are_trusted_empty(Some("default"), &[]));
+    }
+
+    #[test]
+    fn rejected_receipts_abstain_without_empty_root_authority() {
+        for case in [
+            "missing",
+            "malformed",
+            "wrong-id",
+            "wrong-path",
+            "unsupported",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(root.path().join("00").join("01")).unwrap();
+            let operation_id = Uuid::new_v4();
+            let receipt_path =
+                cache_repair::receipt_path(&root.path().canonicalize().unwrap(), operation_id);
+            match case {
+                "missing" => {}
+                "malformed" => std::fs::write(&receipt_path, b"{").unwrap(),
+                "wrong-id" => std::fs::write(
+                    &receipt_path,
+                    serde_json::to_vec(&serde_json::json!({
+                        "version": 1,
+                        "operationId": Uuid::new_v4().to_string(),
+                        "cachePath": root.path().canonicalize().unwrap(),
+                        "hadCacheFiles": true
+                    }))
+                    .unwrap(),
+                )
+                .unwrap(),
+                "wrong-path" => std::fs::write(
+                    &receipt_path,
+                    serde_json::to_vec(&serde_json::json!({
+                        "version": 1,
+                        "operationId": operation_id.to_string(),
+                        "cachePath": root.path().join("other"),
+                        "hadCacheFiles": true
+                    }))
+                    .unwrap(),
+                )
+                .unwrap(),
+                "unsupported" => std::fs::write(
+                    &receipt_path,
+                    serde_json::to_vec(&serde_json::json!({
+                        "version": 2,
+                        "operationId": operation_id.to_string(),
+                        "cachePath": root.path().canonicalize().unwrap(),
+                        "hadCacheFiles": true
+                    }))
+                    .unwrap(),
+                )
+                .unwrap(),
+                _ => unreachable!(),
+            }
+            let datasources = [datasource("default", root.path(), "monolithic")];
+            let sources = [repair_source("default", root.path(), "monolithic")];
+
+            let repair = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+                .unwrap_or_else(|error| panic!("{case} receipt must abstain: {error:#}"));
+
+            assert!(!repair.origins_can_verify_absence(Some("default"), &[]));
+            assert!(!repair.origins_are_trusted_empty(Some("default"), &[]));
+        }
+    }
+
+    #[test]
+    fn injected_receipt_read_denial_abstains() {
+        let root = tempfile::tempdir().unwrap();
+        let operation_id = Uuid::new_v4();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+        let validation_calls = std::cell::Cell::new(0usize);
+
+        let repair = collect_files_for_repair_with(
+            &datasources,
+            &sources,
+            operation_id,
+            |_| {},
+            cache_repair::scan_root,
+            |_, _| {
+                validation_calls.set(validation_calls.get() + 1);
+                anyhow::bail!("injected receipt read denial")
+            },
+        )
+        .expect("receipt read denial must abstain");
+
+        assert_eq!(validation_calls.get(), 1);
+        assert!(!repair.origins_can_verify_absence(Some("default"), &[]));
+    }
+
+    #[test]
+    fn strict_scan_failure_after_deletion_still_fails_repair() {
+        let root = tempfile::tempdir().unwrap();
+        let cache_file = create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        cache_repair::prepare_receipt(root.path(), Some(&operation_id.to_string())).unwrap();
+        std::fs::remove_file(cache_file).unwrap();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+        let validation_calls = std::cell::Cell::new(0usize);
+
+        let error = collect_files_for_repair_with(
+            &datasources,
+            &sources,
+            operation_id,
+            |_| {},
+            |_| anyhow::bail!("injected entry inspection failure after deletion"),
+            |_, _| {
+                validation_calls.set(validation_calls.get() + 1);
+                anyhow::bail!("receipt validation must not run")
+            },
+        )
+        .err()
+        .expect("strict scan failure must fail repair");
+
+        assert!(error
+            .to_string()
+            .contains("injected entry inspection failure after deletion"));
+        assert_eq!(validation_calls.get(), 0);
+    }
+
+    #[test]
+    fn nonempty_root_ignores_an_invalid_receipt_and_keeps_positive_hits() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        let receipt_path =
+            cache_repair::receipt_path(&root.path().canonicalize().unwrap(), operation_id);
+        std::fs::write(receipt_path, b"{").unwrap();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+
+        let repair = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+            .expect("nonempty strict index");
+
+        assert_eq!(repair.files.len(), 1);
+        assert!(repair.origins_can_verify_absence(Some("default"), &[]));
+        assert!(!repair.origins_are_trusted_empty(Some("default"), &[]));
+    }
+
+    #[test]
+    fn repair_rejects_changed_scheme() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        cache_repair::prepare_receipt(root.path(), Some(&operation_id.to_string())).unwrap();
+        let datasources = [datasource("default", root.path(), "bare_metal")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+
+        let error = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+            .err()
+            .expect("changed scheme must fail");
+
+        assert!(error.to_string().contains("key scheme changed"));
+    }
+
+    #[test]
+    fn canonical_aliases_share_one_physical_index_and_keep_logical_schemes() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        cache_repair::prepare_receipt(root.path(), Some(&operation_id.to_string())).unwrap();
+        let datasources = [
+            datasource("monolithic", root.path(), "monolithic"),
+            datasource("bare", root.path(), "bare_metal"),
+        ];
+        let sources = [repair_source("monolithic", root.path(), "monolithic")];
+        let mut counts = Vec::new();
+        let walks = std::cell::Cell::new(0usize);
+
+        let repair = collect_files_for_repair_with(
+            &datasources,
+            &sources,
+            operation_id,
+            |count| counts.push(count),
+            |path| {
+                walks.set(walks.get() + 1);
+                cache_repair::scan_root(path)
+            },
+            cache_repair::validate_receipt,
+        )
+        .unwrap();
+
+        assert_eq!(repair.files.len(), 1);
+        assert_eq!(counts, vec![1]);
+        assert_eq!(walks.get(), 1);
+        assert!(repair.intersects(Some("monolithic"), &[]));
+        assert!(repair.intersects(Some("bare"), &[]));
+        assert!(repair.origins_include_bare_metal(Some("bare"), &[]));
+        assert!(!repair.origins_include_bare_metal(Some("monolithic"), &[]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn roots_that_differ_only_by_case_are_walked_separately() {
+        let parent = tempfile::tempdir().unwrap();
+        let lower = parent.path().join("cache");
+        let upper = parent.path().join("CACHE");
+        std::fs::create_dir_all(&lower).unwrap();
+        std::fs::create_dir_all(&upper).unwrap();
+        create_cache_file(&lower);
+        create_cache_file(&upper);
+        let operation_id = Uuid::new_v4();
+        let datasources = [
+            datasource("lower", &lower, "monolithic"),
+            datasource("upper", &upper, "monolithic"),
+        ];
+        let sources = [
+            repair_source("lower", &lower, "monolithic"),
+            repair_source("upper", &upper, "monolithic"),
+        ];
+        let walks = std::cell::Cell::new(0usize);
+
+        collect_files_for_repair_with(
+            &datasources,
+            &sources,
+            operation_id,
+            |_| {},
+            |path| {
+                walks.set(walks.get() + 1);
+                cache_repair::scan_root(path)
+            },
+            cache_repair::validate_receipt,
+        )
+        .unwrap();
+
+        assert_eq!(walks.get(), 2);
     }
 
     #[test]

@@ -12,6 +12,12 @@ namespace LancacheManager.Core.Interfaces;
 public interface IActivityRegistry
 {
     /// <summary>
+    /// Binds the authoritative current-download reader. The registry invokes it before taking its
+    /// own lock so the two state owners cannot deadlock each other.
+    /// </summary>
+    void BindDownloads(Func<DownloadSpeedSnapshot> read);
+
+    /// <summary>
     /// Marks the (<paramref name="domain"/>, <paramref name="key"/>, <paramref name="aspect"/>) entry
     /// active or inactive. Broadcasts a fresh snapshot only when the effective state actually changed,
     /// so a redundant report is a no-op.
@@ -25,6 +31,11 @@ public interface IActivityRegistry
     /// tick (e.g. active downloads). Broadcasts only on a membership/count change.
     /// </summary>
     Task ReplaceAsync(string domain, string aspect, IReadOnlyDictionary<string, int> activeKeys);
+
+    /// <summary>
+    /// Replaces the download projection from the authoritative server snapshot.
+    /// </summary>
+    Task ReplaceDownloadsAsync(DownloadSpeedSnapshot snapshot);
 
     /// <summary>
     /// The current snapshot, used to seed a newly-connected client (SignalR cannot replay events the

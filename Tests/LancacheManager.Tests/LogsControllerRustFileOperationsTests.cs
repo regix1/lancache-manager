@@ -10,6 +10,8 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -21,6 +23,7 @@ public sealed class LogsControllerRustFileOperationsTests
     {
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 17);
+        fixture.State.SetLogTotalLines("alpha", 41);
         fixture.WriteResume("alpha", "alpha-resume");
         fixture.WriteResume("beta", "beta-resume");
 
@@ -31,6 +34,7 @@ public sealed class LogsControllerRustFileOperationsTests
         var response = Assert.IsType<LogPositionResponse>(Assert.IsType<OkObjectResult>(result).Value);
         Assert.Equal(0, response.Position);
         Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
         Assert.Empty(fixture.RustHelper.CountRequests);
         Assert.False(File.Exists(fixture.ResumePath("alpha")));
         Assert.True(File.Exists(fixture.ResumePath("beta")));
@@ -388,6 +392,8 @@ public sealed class LogsControllerRustFileOperationsTests
     private sealed class ControllerFixture : IDisposable
     {
         private readonly string _root;
+        private readonly ServiceProvider _services;
+        private readonly OperationStateService _repairOwner;
 
         public ControllerFixture()
         {
@@ -430,15 +436,32 @@ public sealed class LogsControllerRustFileOperationsTests
             Tracker = new UnifiedOperationTracker(
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 NullLogger<UnifiedOperationTracker>.Instance);
+            OperationStateService? repairOwner = null;
+            RustLogProcessorService? processor = null;
+            _services = new ServiceCollection()
+                .AddSingleton(_ => repairOwner!)
+                .AddSingleton(_ => processor!)
+                .BuildServiceProvider();
+            _repairOwner = repairOwner = new OperationStateService(
+                NullLogger<OperationStateService>.Instance,
+                configuration,
+                State,
+                _services.GetRequiredService<IServiceScopeFactory>(),
+                DispatchProxy.Create<IHostApplicationLifetime, NullReturningProxy>(),
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                Tracker);
+            _repairOwner.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
             Checker = new OperationConflictChecker(
                 Tracker,
+                _repairOwner,
                 NullLogger<OperationConflictChecker>.Instance);
-            Processor = new RustLogProcessorService(
+
+            Processor = processor = new RustLogProcessorService(
                 NullLogger<RustLogProcessorService>.Instance,
                 pathResolver,
                 notifications: null!,
                 State,
-                serviceProvider: null!,
+                _services,
                 RustHelper,
                 Datasources,
                 Tracker);
@@ -484,6 +507,8 @@ public sealed class LogsControllerRustFileOperationsTests
             {
                 Tracker.CompleteOperation(operation.Id, success: false, error: "Disposed test fixture");
             }
+            _repairOwner.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
+            _services.Dispose();
             Directory.Delete(_root, recursive: true);
         }
 
@@ -515,7 +540,7 @@ public sealed class LogsControllerRustFileOperationsTests
             var cachedState = typeof(StateService).GetField(
                 "_cachedState",
                 BindingFlags.Instance | BindingFlags.NonPublic)!;
-            cachedState.SetValue(state, new AppState());
+            cachedState.SetValue(state, new AppState { SetupCompleted = true });
             return state;
         }
     }

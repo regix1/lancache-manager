@@ -5,6 +5,7 @@
 //! them here means the analysis runs once, against the whole surface.
 
 pub mod cache_corruption_detector;
+pub mod cache_repair;
 pub mod cache_structural_scanner;
 pub mod cache_structural_state;
 pub mod cache_utils;

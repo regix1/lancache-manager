@@ -83,14 +83,25 @@ public partial class CacheManagementService
                 ServiceCacheRemovalReport dsReport;
                 try
                 {
+                    if (operationId.HasValue)
+                    {
+                        await _operationStateService.StartWorkAsync(
+                            operationId.Value,
+                            datasource.Name,
+                            cancellationToken);
+                    }
+
                     dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgress, ServiceCacheRemovalReport>(
                     "[ServiceRemoval]",
                     execution,
                     () =>
                     {
+                        var operationArgument = operationId.HasValue
+                            ? $" --operation-id {operationId.Value}"
+                            : string.Empty;
                         var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"");
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
                         NginxLogRotationService.AttachPublicationCheck(reopenCheck, startInfo);
                         _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                             datasource.Name, rustBinaryPath, startInfo.Arguments);
@@ -107,8 +118,8 @@ public partial class CacheManagementService
                                 progressData.PercentComplete,
                                 progressData.StageKey,
                                 progressData.Context,
-                                progressData.FilesProcessed,
-                                0);
+                                aggregatedReport.CacheFilesDeleted,
+                                checked((long)aggregatedReport.TotalBytesFreed));
                         }
                     },
                     async result =>
@@ -168,13 +179,6 @@ public partial class CacheManagementService
                     throw new IOException(reopenResult.ErrorMessage!);
                 }
 
-                // Send final progress update from the report
-                if (onProgress != null)
-                {
-                    // Synthetic completion tick after Rust exits; empty stageKey → registry default.
-                    await onProgress(100, string.Empty, null, dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
-                }
-
                 // Aggregate results from this datasource
                 aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
                 aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
@@ -182,6 +186,23 @@ public partial class CacheManagementService
                 aggregatedReport.DatabaseEntriesDeleted += dsReport.DatabaseEntriesDeleted;
 
                 datasourcesProcessed++;
+                await SaveRemovalSourceAsync(
+                    operationId,
+                    datasource.Name,
+                    aggregatedReport.CacheFilesDeleted,
+                    checked((long)aggregatedReport.TotalBytesFreed),
+                    aggregatedReport.LogEntriesRemoved);
+
+                if (onProgress != null)
+                {
+                    // Synthetic completion tick after Rust exits; empty stageKey → registry default.
+                    await onProgress(
+                        100,
+                        string.Empty,
+                        null,
+                        aggregatedReport.CacheFilesDeleted,
+                        checked((long)aggregatedReport.TotalBytesFreed));
+                }
 
                 _logger.LogInformation(
                     "[ServiceRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for service '{Service}'",
@@ -191,6 +212,13 @@ public partial class CacheManagementService
                 await _rustProcessHelper.DeleteTempFileAsync(execution.ProgressJsonPath);
             }
 
+            if (operationId.HasValue)
+            {
+                await _operationStateService.StartWorkAsync(
+                    operationId.Value,
+                    datasource: null,
+                    cancellationToken);
+            }
             var cleanup = await CleanupRemovalAsync(removalSelection, cancellationToken);
             aggregatedReport.DatabaseEntriesDeleted = cleanup.DownloadsDeleted + cleanup.LogEntriesDeleted;
 
@@ -237,10 +265,12 @@ public partial class CacheManagementService
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
 
-            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
-
-            // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsAsync();
+            if (!operationId.HasValue)
+            {
+                // Untracked internal callers do not enter the retained repair tail.
+                await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
+                await InvalidateServiceCountsAsync();
+            }
 
             return aggregatedReport;
         }

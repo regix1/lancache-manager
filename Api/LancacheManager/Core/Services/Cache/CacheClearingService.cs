@@ -19,8 +19,8 @@ public class CacheClearingService : ScheduledBackgroundService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
-    private readonly GameCacheDetectionService _gameCacheDetectionService;
+    private readonly DatasourceCapabilityService _capabilityService;
+    private readonly OperationStateService _operationStateService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private string _cachePath = null!;
     private CacheDeleteMode _deleteMode;
@@ -41,8 +41,8 @@ public class CacheClearingService : ScheduledBackgroundService
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
-        IDbContextFactory<AppDbContext> dbContextFactory,
-        GameCacheDetectionService gameCacheDetectionService)
+        DatasourceCapabilityService capabilityService,
+        OperationStateService operationStateService)
         : base(logger, configuration)
     {
         _notifications = notifications;
@@ -51,8 +51,8 @@ public class CacheClearingService : ScheduledBackgroundService
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
-        _dbContextFactory = dbContextFactory;
-        _gameCacheDetectionService = gameCacheDetectionService;
+        _capabilityService = capabilityService;
+        _operationStateService = operationStateService;
 
         _deleteMode = CacheDeleteMode.Preserve;
 
@@ -140,7 +140,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 },
                 onTerminalEmit: info => _notifications.NotifyAllAsync(
                     SignalREvents.CacheClearingComplete,
-                    BuildClearCompleteEvent(capturedOperationId, info, completion))
+                    BuildClearCompleteEvent(capturedOperationId, info, completion)),
+                ownerCompletes: true
             );
             var operationId = _currentTrackerOperationId.Value;
             capturedOperationId = operationId;
@@ -158,7 +159,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             // Start the clear operation on a background thread
             _ = Task.Run(async () => await RunCacheClearAsync(operationId, datasourceName,
-                value => completion = value), cts.Token);
+                value => completion = value), CancellationToken.None);
 
             return operationId;
         }
@@ -172,6 +173,7 @@ public class CacheClearingService : ScheduledBackgroundService
         Action<CacheClearComplete> publish)
     {
         var clearedDatasourceNames = new List<string>();
+        var repairPrepared = false;
         try
         {
             _logger.LogInformation($"Executing cache clear operation {operationId}");
@@ -268,15 +270,11 @@ public class CacheClearingService : ScheduledBackgroundService
                 }
                 else
                 {
-                    // An existing root with no hex subdirectories is an already-empty cache, and
-                    // the user explicitly asked to clear it. Keep it as a zero-directory entry so
-                    // the post-clear reconciliation still runs: that is the only path that flags
-                    // byte-backed Downloads evicted once the disk is empty (the eviction scan
-                    // deliberately refuses an empty root because an unmounted cache looks the
-                    // same, and failing the whole clear here left rows from an earlier wipe
-                    // permanently unreconciled). Missing paths above still fail out.
+                    // An existing root with no hex subdirectories contributes a zero-directory
+                    // clear result. No native mutation starts, so this path creates no populated-root
+                    // receipt or eviction exemption.
                     validCachePaths.Add((ds.Name, ds.CachePath, 0));
-                    _logger.LogInformation($"Datasource {ds.Name}: cache already empty at {ds.CachePath}; clear will reconcile the database only");
+                    _logger.LogInformation($"Datasource {ds.Name}: no cache directories found at {ds.CachePath}; native clear will be skipped");
                 }
             }
 
@@ -331,6 +329,43 @@ public class CacheClearingService : ScheduledBackgroundService
 
             _logger.LogInformation($"Using Rust cache cleaner: {rustBinaryPath}");
 
+            var clearSources = validCachePaths
+                .Select(path => datasources.Single(source =>
+                    source.Name.Equals(path.Name, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            var trackedOperation = _operationTracker.GetOperation(operationId)
+                ?? throw new InvalidOperationException($"Cache clear {operationId} is not tracked.");
+            await _operationStateService.PrepareRepairAsync(
+                new OperationRepair
+                {
+                    Id = operationId,
+                    Type = OperationType.CacheClearing,
+                    Name = trackedOperation.Name,
+                    StartedAt = trackedOperation.StartedAt,
+                    Notice = trackedOperation.Notice,
+                    Sources = clearSources.Select(source => new OperationRepairSource
+                    {
+                        Datasource = source.Name,
+                        LogRoot = source.LogPath,
+                        CacheRoot = source.CachePath,
+                        KeyScheme = _capabilityService.GetKeySchemeWireValue(source),
+                        ReceiptPath = Path.Combine(
+                            source.CachePath,
+                            $".lancache-repair-{operationId:N}.json"),
+                        RefreshDownloads = true,
+                        ReconcileCache = true,
+                        RefreshDetection = true,
+                        InvalidateCorruption = true
+                    }).ToList(),
+                    CacheClearing = new CacheClearingRepair
+                    {
+                        EntityKey = datasourceName ?? "all",
+                        DatasourceName = datasourceName
+                    }
+                },
+                trackedOperation.CancellationTokenSource?.Token ?? CancellationToken.None);
+            repairPrepared = true;
+
             _operationTracker.UpdateProgress(operationId, 0, "Starting cache clear...");
             await ReportProgressAsync(operationId);
             SaveOperationToState(operationId);
@@ -354,11 +389,11 @@ public class CacheClearingService : ScheduledBackgroundService
                     ((CacheClearingMetrics)meta).DatasourceName = dsName;
                 });
 
-                // Already-empty root: nothing for the Rust cleaner to delete. The datasource
-                // stays in validCachePaths so the reconciliation after this loop covers it.
+                // A zero-directory result has no native mutation, populated-root receipt, or
+                // eviction exemption.
                 if (dirCount == 0)
                 {
-                    _logger.LogInformation($"Datasource {dsName} cache already empty; skipping Rust cleaner ({dsIndex + 1}/{validCachePaths.Count})");
+                    _logger.LogInformation($"Datasource {dsName}: no cache directories found; skipping native clear ({dsIndex + 1}/{validCachePaths.Count})");
                     clearedDatasourceNames.Add(dsName);
                     continue;
                 }
@@ -374,20 +409,18 @@ public class CacheClearingService : ScheduledBackgroundService
                 operation = _operationTracker.GetOperation(operationId);
                 if (operation?.CancellationTokenSource?.Token.IsCancellationRequested == true)
                 {
-                    // Mark operation as complete (cancelled) in unified tracker
-                    _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
-                    if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
-
-                    await ReportProgressAsync(operationId);
-                    SaveOperationToState(operationId);
-
-                    return;
+                    throw new OperationCanceledException(cancellationToken);
                 }
+
+                await _operationStateService.StartWorkAsync(
+                    operationId,
+                    dsName,
+                    cancellationToken);
 
                 // Build arguments - Rust auto-detects optimal thread count. --progress enables
                 // cache_clear.rs's live stdout progress events, which the hybrid callback below
                 // waits on; without it ProgressReporter.is_enabled() is false and no events flow.
-                var arguments = $"\"{cachePath}\" \"{progressFile}\" {_deleteMode.ToWireString()} --progress";
+                var arguments = $"\"{cachePath}\" \"{progressFile}\" {_deleteMode.ToWireString()} --progress --operation-id \"{operationId}\"";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
@@ -499,6 +532,30 @@ public class CacheClearingService : ScheduledBackgroundService
                     });
                 }
 
+                await _operationStateService.SaveRepairAsync(
+                    operationId,
+                    repair =>
+                    {
+                        var source = repair.Sources.Single(item =>
+                            item.Datasource.Equals(dsName, StringComparison.OrdinalIgnoreCase));
+                        source.NativeCompletionAccepted = true;
+                        repair.CacheClearing = new CacheClearingRepair
+                        {
+                            EntityKey = datasourceName ?? "all",
+                            DatasourceName = datasourceName,
+                            CurrentStageKey = finalProgress?.StageKey,
+                            CurrentContext = finalProgress?.Context is null
+                                ? null
+                                : new Dictionary<string, object?>(finalProgress.Context),
+                            DirectoriesProcessed = totalDirsProcessed,
+                            TotalDirectories = totalDirectoriesAllDatasources,
+                            BytesDeleted = totalBytesDeleted,
+                            FilesDeleted = totalFilesDeleted,
+                            DatasourcesCleared = clearedDatasourceNames.Count + 1
+                        };
+                    },
+                    cancellationToken);
+
                 await _rustProcessHelper.DeleteTempFileAsync(progressFile);
                 _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
                 clearedDatasourceNames.Add(dsName);
@@ -535,88 +592,28 @@ public class CacheClearingService : ScheduledBackgroundService
                 });
             }
 
-            // Every Rust deletion process has now returned success. Disk deletion is irreversible,
-            // so a cancellation arriving after this boundary must not strand the database in its
-            // pre-clear state. Finish the short reconciliation consistently, then publish success.
-            var finalizationToken = CancellationToken.None;
-
-            // The clear operation is authoritative positive evidence that every byte-backed,
-            // inactive Download in these datasource roots has lost its cache files. Reconcile
-            // those rows directly instead of asking Eviction Scan to infer intent from an empty
-            // root (which it deliberately refuses to do because an unmounted cache looks the
-            // same). Keep the eviction flags and all stale detection projections in one
-            // transaction so the UI never observes the old disk snapshot with the new flags.
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(finalizationToken);
-            var reconciliation = await ReconcileSuccessfulCacheClearAsync(
-                dbContext,
-                validCachePaths.Select(path => path.Name).ToArray(),
-                finalizationToken);
-            _logger.LogInformation(
-                "[CacheClearing] Reconciled successful clear: {DownloadsEvicted} downloads marked evicted; cleared {Games} game, {Services} service, {CorruptionCandidates} corruption candidate, and {CorruptionScans} corruption scan projections, and {PrefillDepots} prefill cached-depot rows",
-                reconciliation.DownloadsEvicted,
-                reconciliation.Games,
-                reconciliation.Services,
-                reconciliation.CorruptionCandidates,
-                reconciliation.CorruptionScans,
-                reconciliation.PrefillDepots);
-
-            // The prefill game picker keeps its "Cached" badges in memory, so an open browser would
-            // keep showing the pre-clear ones until it is reloaded.
-            if (reconciliation.PrefillDepots + reconciliation.PrefillApps > 0)
-            {
-                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
-            }
-
-            // The filesystem mutation is now complete and the PostgreSQL projections are no
-            // longer authoritative. Drop each affected baseline before publishing success so a
-            // later Incremental can only build/reuse post-clear state.
-            //
-            // Best-effort by the same argument as the recovery below: the files are already gone
-            // and the eviction flags are committed, so failing the whole clear here would report a
-            // clear that did happen as one that did not. This is two database round trips rather
-            // than the rename it replaced, so it can now lose to a lock wait or a dropped
-            // connection. A baseline that survives is not free reuse either - the scanner still
-            // gates every file on its own fingerprint, and a deleted file matches nothing.
-            try
-            {
-                await InvalidateStructuralCorruptionStateAsync(
-                    dbContext,
-                    _pathResolver,
-                    validCachePaths.Select(path => (path.Name, path.Path)).ToArray(),
-                    finalizationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "[CacheClearing] Could not drop the structural scan baselines for the cleared roots; run a Full scan rather than an Incremental one to rebuild them");
-            }
-
-            // Recreate zero-byte detection projections for the newly evicted entities so the
-            // existing Evicted Items UI can display them immediately. Recovery is best-effort:
-            // the authoritative Downloads.IsEvicted flags are already committed and startup/full
-            // detection reconciliation can rebuild projections if this derived step fails.
-            try
-            {
-                var gamesRecovered = await _gameCacheDetectionService
-                    .RecoverEvictedGamesAsync(finalizationToken);
-                var servicesRecovered = await _gameCacheDetectionService
-                    .RecoverEvictedServicesAsync(finalizationToken);
-                _logger.LogInformation(
-                    "[CacheClearing] Recovered {Games} evicted game and {Services} evicted service projections after cache clear",
-                    gamesRecovered,
-                    servicesRecovered);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogError(
-                    ex,
-                    "[CacheClearing] Evicted-item projection recovery failed; Downloads remain marked evicted and recovery will retry during game detection reconciliation");
-            }
-            finally
-            {
-                _gameCacheDetectionService.InvalidateDetectionCache();
-            }
+            await _operationStateService.SaveRepairAsync(
+                operationId,
+                repair =>
+                {
+                    repair.CacheClearing = new CacheClearingRepair
+                    {
+                        EntityKey = datasourceName ?? "all",
+                        DatasourceName = datasourceName,
+                        DirectoriesProcessed = totalDirsProcessed,
+                        TotalDirectories = totalDirectoriesAllDatasources,
+                        BytesDeleted = totalBytesDeleted,
+                        FilesDeleted = totalFilesDeleted,
+                        DatasourcesCleared = clearedDatasourceNames.Count,
+                        Duration = duration
+                    };
+                },
+                CancellationToken.None);
+            await FinishClearRepairAsync(
+                operationId,
+                success: true,
+                cancelled: false,
+                error: null);
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true,
@@ -635,6 +632,15 @@ public class CacheClearingService : ScheduledBackgroundService
         {
             // Handle cancellation gracefully - this is expected when user cancels
             _logger.LogInformation("Cache clear operation {OperationId} was cancelled", operationId);
+
+            if (repairPrepared)
+            {
+                await FinishClearRepairAsync(
+                    operationId,
+                    success: false,
+                    cancelled: true,
+                    error: null);
+            }
 
             // If a universal force-kill already completed this op, the CompletedFlag-gated
             // CompleteOperation below is a no-op and the onTerminalEmit closure does not re-fire.
@@ -664,29 +670,18 @@ public class CacheClearingService : ScheduledBackgroundService
                 _logger.LogError(ex, "Error in cache clear operation {OperationId}", operationId);
             }
 
-            if (clearedDatasourceNames.Count > 0)
-            {
-                try
-                {
-                    await using var dbContext = await _dbContextFactory.CreateDbContextAsync(
-                        CancellationToken.None);
-                    await ReconcileSuccessfulCacheClearAsync(
-                        dbContext,
-                        clearedDatasourceNames,
-                        CancellationToken.None);
-                }
-                catch (Exception reconciliationError)
-                {
-                    _logger.LogError(
-                        reconciliationError,
-                        "Cache clear failed after physical deletion and reconciliation also failed for {Datasources}",
-                        string.Join(", ", clearedDatasourceNames));
-                }
-            }
-
             var failureMessage = clearedDatasourceNames.Count > 0
                 ? $"Cache clear failed after clearing {string.Join(", ", clearedDatasourceNames)}: {ex.Message}"
                 : $"Cache clear failed: {ex.Message}";
+
+            if (repairPrepared)
+            {
+                await FinishClearRepairAsync(
+                    operationId,
+                    success: false,
+                    cancelled: false,
+                    error: failureMessage);
+            }
 
             // Mark operation as complete (failed) in unified tracker.
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
@@ -729,80 +724,6 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 await transaction.CommitAsync(cancellationToken);
                 return invalidated;
-            }
-            catch
-            {
-                await transaction.RollbackAsync(CancellationToken.None);
-                throw;
-            }
-        });
-    }
-
-    /// <summary>
-    /// Reconciles a cache clear that the application itself completed successfully. Unlike the
-    /// generic eviction scan, this path can trust an empty cache root because the application
-    /// performed the deletion. Active and zero-byte Downloads remain untouched: they either may
-    /// be writing new cache data now or never proved that cache content existed.
-    /// </summary>
-    internal static async Task<(
-        int DownloadsEvicted,
-        int Games,
-        int Services,
-        int CorruptionCandidates,
-        int CorruptionScans,
-        int PrefillDepots,
-        int PrefillApps)> ReconcileSuccessfulCacheClearAsync(
-        AppDbContext context,
-        IReadOnlyCollection<string> clearedDatasourceNames,
-        CancellationToken cancellationToken)
-    {
-        // Matched case-insensitively: Downloads.Datasource drifts in case from the configured
-        // name (rows stored as 'Default' against a 'default' config were observed live), the
-        // startup normalizer only repairs that once per boot, and an ordinal mismatch here
-        // silently reconciles zero rows.
-        var datasourceNames = clearedDatasourceNames
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => name.ToLowerInvariant())
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (datasourceNames.Length == 0)
-        {
-            throw new ArgumentException(
-                "At least one cleared datasource is required for cache-clear reconciliation.",
-                nameof(clearedDatasourceNames));
-        }
-
-        var strategy = context.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync(async () =>
-        {
-            await using var transaction = await context.Database.BeginTransactionAsync(
-                System.Data.IsolationLevel.ReadCommitted,
-                cancellationToken);
-            try
-            {
-                var downloadsEvicted = await context.Downloads
-                    .Where(download =>
-                        !download.IsActive
-                        && !download.IsEvicted
-                        && (download.CacheHitBytes > 0 || download.CacheMissBytes > 0)
-                        && datasourceNames.Contains(download.Datasource.ToLower()))
-                    .ExecuteUpdateAsync(
-                        setters => setters.SetProperty(download => download.IsEvicted, true),
-                        cancellationToken);
-
-                var invalidated = await InvalidateCachedDetectionResultsCoreAsync(
-                    context,
-                    cancellationToken);
-
-                await transaction.CommitAsync(cancellationToken);
-                return (
-                    downloadsEvicted,
-                    invalidated.Games,
-                    invalidated.Services,
-                    invalidated.CorruptionCandidates,
-                    invalidated.CorruptionScans,
-                    invalidated.PrefillDepots,
-                    invalidated.PrefillApps);
             }
             catch
             {
@@ -881,6 +802,100 @@ public class CacheClearingService : ScheduledBackgroundService
             "DELETE FROM structural_namespaces WHERE scope = ANY({0})",
             [scopes],
             cancellationToken);
+    }
+
+    public Task RestoreRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+    {
+        stoppingToken.ThrowIfCancellationRequested();
+        if (repair.Type != OperationType.CacheClearing)
+        {
+            throw new InvalidOperationException(
+                $"Operation type {repair.Type} is not owned by cache clearing.");
+        }
+
+        var metrics = repair.CacheClearing
+            ?? throw new InvalidDataException($"Cache clear repair {repair.Id} has no metrics.");
+        var completion = repair.Outcome == OperationStatus.Completed
+            ? new CacheClearComplete(
+                OperationId: repair.Id,
+                Success: true,
+                Status: OperationStatus.Completed,
+                Message: "Cache clear completed",
+                Cancelled: false,
+                FilesDeleted: (int)metrics.FilesDeleted,
+                DirectoriesProcessed: metrics.DirectoriesProcessed,
+                BytesDeleted: metrics.BytesDeleted,
+                DatasourcesCleared: metrics.DatasourcesCleared,
+                Duration: metrics.Duration)
+            : null;
+        var cts = new CancellationTokenSource();
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            repair.Type,
+            repair.Name,
+            cts,
+            metrics,
+            onTerminalCleanup: () =>
+            {
+                if (_currentTrackerOperationId == repair.Id)
+                {
+                    _currentTrackerOperationId = null;
+                }
+            },
+            onTerminalEmit: terminal => _notifications.NotifyAllAsync(
+                SignalREvents.CacheClearingComplete,
+                BuildClearCompleteEvent(repair.Id, terminal, completion)),
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true);
+        if (!restored)
+        {
+            cts.Dispose();
+            return Task.CompletedTask;
+        }
+
+        _currentTrackerOperationId = repair.Id;
+        return Task.CompletedTask;
+    }
+
+    public Task ResumeRepairAsync(
+        OperationRepair repair,
+        CancellationToken stoppingToken)
+    {
+        if (repair.Type != OperationType.CacheClearing)
+        {
+            throw new InvalidOperationException(
+                $"Operation type {repair.Type} is not owned by cache clearing.");
+        }
+
+        stoppingToken.ThrowIfCancellationRequested();
+        _ = repair.CacheClearing
+            ?? throw new InvalidDataException(
+                $"Cache clearing repair {repair.Id} has no metrics.");
+        return Task.CompletedTask;
+    }
+
+    private async Task FinishClearRepairAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error)
+    {
+        var operation = _operationTracker.GetOperation(operationId);
+        if (operation?.Status.IsTerminal() == true)
+        {
+            success = operation.Status == OperationStatus.Completed;
+            cancelled = operation.Status == OperationStatus.Cancelled;
+            error = operation.Status == OperationStatus.Failed
+                ? operation.Message
+                : null;
+        }
+
+        await _operationStateService.FinishRepairAsync(
+            operationId,
+            success,
+            cancelled,
+            error);
     }
 
     /// <summary>

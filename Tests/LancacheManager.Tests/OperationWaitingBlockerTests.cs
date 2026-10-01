@@ -215,7 +215,7 @@ public sealed class OperationWaitingBlockerTests
                 ? tracker.GetActiveOperations().OrderBy(op => (op.Id == child) == childFirst ? 0 : 1).ToList()
                 : method.Invoke(tracker, args));
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(ordered, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(ordered, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var starts = 0;
         var accepted = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
@@ -234,7 +234,7 @@ public sealed class OperationWaitingBlockerTests
     public async Task EquivalentScanAtPromotionReceivesTheWaitingHandoff()
     {
         var tracker = CreateTracker();
-        var checker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var checker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(tracker, checker, NullLogger<OperationQueueService>.Instance);
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var starts = 0;
@@ -285,7 +285,7 @@ public sealed class OperationWaitingBlockerTests
     {
         var tracker = CreateTracker();
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var notice = new RunNotice(mode, trigger);
@@ -304,7 +304,7 @@ public sealed class OperationWaitingBlockerTests
     public async Task EnqueueBehindActiveOperation_WaitingRowNamesBlockerAsync()
     {
         var tracker = CreateTracker();
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
@@ -330,7 +330,7 @@ public sealed class OperationWaitingBlockerTests
     public async Task BlockerHandoff_WaitingRowNamesNewBlockerAsync()
     {
         var tracker = CreateTracker();
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
@@ -367,7 +367,7 @@ public sealed class OperationWaitingBlockerTests
     public async Task SilentRun_KeepsItsBackgroundRowAndRecordsTheNewBlockerAsync()
     {
         var tracker = CreateTracker();
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
@@ -408,7 +408,7 @@ public sealed class OperationWaitingBlockerTests
     public async Task WaitingRecovery_ReturnsEveryParkedRunWithItsBlockerAsync()
     {
         var tracker = CreateTracker();
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
@@ -453,7 +453,7 @@ public sealed class OperationWaitingBlockerTests
     public async Task StartThrowsAtPromotion_WaitingCardFailsWithTheRealReasonAsync()
     {
         var tracker = CreateTracker();
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 

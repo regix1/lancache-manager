@@ -389,15 +389,33 @@ public class GamesController : ControllerBase
             EpicAppId = epicAppId,
             Service = service
         };
+        var repairTarget = entityKind switch
+        {
+            "steam" => new CacheRepairTarget
+            {
+                SteamAppId = checked((uint)appId!.Value)
+            },
+            "epic" => new CacheRepairTarget
+            {
+                EpicGame = displayName
+            },
+            "named" => new CacheRepairTarget
+            {
+                GameName = displayName,
+                Service = service
+            },
+            _ => throw new InvalidOperationException(
+                $"Unsupported game removal kind '{entityKind}'")
+        };
         var operationId = await TrackedRemovalOperationRunner.StartAsync(
             _operationTracker,
             _notifications,
-            new TrackedRemovalOperationRunner.RemovalOperationConfig<CacheManagementService.GameCacheRemovalReport>(
+            new RemovalOperationConfig<CacheManagementService.GameCacheRemovalReport>(
                 OperationType: OperationType.GameRemoval,
                 OperationLabel: operationLabel,
-                Metadata: removalMetrics,
+                Metrics: removalMetrics,
                 StartedEventName: SignalREvents.GameRemovalStarted,
-                BuildStartedPayload: id => new GameRemovalStarted(
+                BuildStarted: id => new GameRemovalStarted(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
@@ -408,7 +426,7 @@ public class GamesController : ControllerBase
                     Service: service),
                 ProgressEventName: SignalREvents.GameRemovalProgress,
                 InitialStageKey: startingStageKey,
-                BuildInitialProgressPayload: id => new GameRemovalProgress(
+                BuildInitialProgress: id => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
@@ -416,7 +434,7 @@ public class GamesController : ControllerBase
                     StageKey: startingStageKey,
                     Context: RemovalContext(displayName, appId, epicAppId),
                     Service: service),
-                BuildProgressPayload: (id, update) => new GameRemovalProgress(
+                BuildProgress: (id, update) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
@@ -429,7 +447,7 @@ public class GamesController : ControllerBase
                     Service: service),
                 CompleteEventName: SignalREvents.GameRemovalComplete,
                 FinalizingStageKey: "signalr.gameRemove.finalizing",
-                BuildFinalizingProgressPayload: (id, report) => new GameRemovalProgress(
+                BuildFinalizingProgress: (id, report) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
@@ -446,7 +464,7 @@ public class GamesController : ControllerBase
                         bytesFreed: (long)report.TotalBytesFreed,
                         logEntriesRemoved: report.LogEntriesRemoved),
                     Service: service),
-                BuildSuccessPayload: (id, report) => new GameRemovalComplete(
+                BuildSuccess: (id, report) => new GameRemovalComplete(
                     Success: true,
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
@@ -463,7 +481,7 @@ public class GamesController : ControllerBase
                         filesDeleted: report.CacheFilesDeleted,
                         bytesFreed: (long)report.TotalBytesFreed,
                         logEntriesRemoved: report.LogEntriesRemoved)),
-                BuildCancelledPayload: id => new GameRemovalComplete(
+                BuildCancelled: id => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
@@ -475,7 +493,7 @@ public class GamesController : ControllerBase
                     // indistinguishable from a genuine error, so the UI paints it red and
                     // announces it as an alert. A run the user stopped is not a fault.
                     Cancelled: true),
-                BuildErrorProgressPayload: (id, ex) => new GameRemovalProgress(
+                BuildErrorProgress: (id, ex) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
@@ -484,7 +502,7 @@ public class GamesController : ControllerBase
                     PercentComplete: 0.0,
                     Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message),
                     Service: service),
-                BuildErrorCompletePayload: (id, ex) => new GameRemovalComplete(
+                BuildErrorComplete: (id, ex) => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
@@ -497,12 +515,20 @@ public class GamesController : ControllerBase
                     opId,
                     ct,
                     (percentComplete, stageKey, context, filesDeleted, bytesFreed) =>
-                        onProgress(new TrackedRemovalOperationRunner.RemovalProgressUpdate(
+                        onProgress(new RemovalProgressUpdate(
                             percentComplete,
                             stageKey,
                             context,
                             filesDeleted,
                             bytesFreed))),
+                BuildRepair: id => _cacheManagementService.BuildRemovalRepair(
+                    id,
+                    OperationType.GameRemoval,
+                    operationLabel,
+                    removalMetrics,
+                    repairTarget),
+                PrepareRepairAsync: _cacheManagementService.PrepareRepairAsync,
+                FinishRepairAsync: _cacheManagementService.FinishRemovalRepairAsync,
                 ApplyProgressMetrics: (metrics, update) =>
                 {
                     metrics.FilesDeleted = update.FilesDeleted;

@@ -16,6 +16,7 @@ use cache_corruption_detector::{
 };
 use cache_utils::{CacheSliceKind, ObservedByteRange};
 use lancache_processor::cache_corruption_detector;
+use lancache_processor::cache_repair;
 use lancache_processor::cache_structural_scanner;
 use lancache_processor::cache_structural_state;
 use lancache_processor::cache_utils;
@@ -133,6 +134,9 @@ enum Commands {
         stem_positions: Option<String>,
         #[arg(short, long)]
         progress: bool,
+        /// Operation that owns the durable cache-root receipt.
+        #[arg(long = "operation-id")]
+        operation_id: Option<String>,
     },
     /// Remove only persisted structural candidates after complete preflight and revalidation.
     RemoveStructural {
@@ -142,6 +146,9 @@ enum Commands {
         evidence_file: String,
         #[arg(short, long)]
         progress: bool,
+        /// Operation that owns the durable cache-root receipt.
+        #[arg(long = "operation-id")]
+        operation_id: Option<String>,
     },
 }
 
@@ -942,6 +949,7 @@ fn run_structural_remove(
     cache_dir: &Path,
     progress_path: &Path,
     evidence_path: &Path,
+    operation_id: Option<&str>,
     reporter: &ProgressReporter,
 ) -> Result<()> {
     write_progress(
@@ -1004,6 +1012,10 @@ fn run_structural_remove(
                 preflight.push((candidate, ready));
             }
         }
+    }
+
+    if !preflight.is_empty() {
+        cache_repair::prepare_receipt(cache_dir, operation_id)?;
     }
 
     let mut parent_dirs = HashSet::new();
@@ -1122,6 +1134,7 @@ async fn run_remove(
     progress_path: &Path,
     evidence_path: &Path,
     stem_positions: Option<&std::collections::HashMap<String, u64>>,
+    operation_id: Option<&str>,
     reporter: &ProgressReporter,
 ) -> Result<()> {
     write_progress(
@@ -1164,6 +1177,9 @@ async fn run_remove(
         0,
         evidence.exact_paths.len(),
     )?;
+    if !evidence.exact_paths.is_empty() {
+        cache_repair::prepare_receipt(cache_dir, operation_id)?;
+    }
     let cache_outcome =
         delete_exact_paths(cache_dir, &evidence.exact_paths, progress_path, reporter)?;
     let removed_count = completed_exact_removal_count(&cache_outcome)?;
@@ -1468,6 +1484,7 @@ async fn main() -> Result<()> {
             evidence_file,
             stem_positions,
             progress,
+            operation_id,
         } => {
             let reporter = ProgressReporter::new(progress);
             let stem_positions = stem_positions
@@ -1480,6 +1497,7 @@ async fn main() -> Result<()> {
                 Path::new(&progress_json),
                 Path::new(&evidence_file),
                 stem_positions.as_ref(),
+                operation_id.as_deref(),
                 &reporter,
             )
             .await;
@@ -1494,12 +1512,14 @@ async fn main() -> Result<()> {
             progress_json,
             evidence_file,
             progress,
+            operation_id,
         } => {
             let reporter = ProgressReporter::new(progress);
             let result = run_structural_remove(
                 Path::new(&cache_dir),
                 Path::new(&progress_json),
                 Path::new(&evidence_file),
+                operation_id.as_deref(),
                 &reporter,
             );
             progress_events::finish_or_exit(
@@ -1771,8 +1791,13 @@ mod tests {
             "/server/evidence.json",
             "--key-scheme",
             "bare_metal",
+            "--operation-id",
+            "123e4567-e89b-12d3-a456-426614174000",
         ])
         .is_ok());
+        let mut detect_with_operation = fixed_cli_prefix("detect");
+        detect_with_operation.extend(["--operation-id", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert!(Args::try_parse_from(detect_with_operation).is_err());
         assert!(Args::try_parse_from([
             "cache_corruption",
             "structural-summary",
@@ -1819,6 +1844,8 @@ mod tests {
             "/tmp/progress.json",
             "--evidence-file",
             "/server/evidence.json",
+            "--operation-id",
+            "123e4567-e89b-12d3-a456-426614174000",
         ])
         .is_ok());
     }
@@ -2015,6 +2042,7 @@ mod tests {
             &cache_dir,
             &fixture.path().join("progress.json"),
             &evidence,
+            None,
             &ProgressReporter::new(false),
         )
         .unwrap();
@@ -2039,6 +2067,7 @@ mod tests {
             &cache_dir,
             &fixture.path().join("progress.json"),
             &evidence,
+            None,
             &ProgressReporter::new(false),
         )
         .is_err());

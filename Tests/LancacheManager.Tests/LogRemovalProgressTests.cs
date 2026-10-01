@@ -1,11 +1,14 @@
 using LancacheManager.Infrastructure.Services;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -46,6 +49,8 @@ public class LogRemovalProgressTests
     public async Task ExternalCompletion_RejectsOldProgressAndPreservesTheNextRemoval()
     {
         var root = Path.Combine(Path.GetTempPath(), "log-removal-terminal-" + Guid.NewGuid().ToString("N"));
+        ServiceProvider? services = null;
+        OperationStateService? repairOwner = null;
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(Path.Combine(root, "logs"));
         Directory.CreateDirectory(Path.Combine(root, "cache"));
@@ -65,12 +70,49 @@ public class LogRemovalProgressTests
                 NullLogger<UnifiedOperationTracker>.Instance);
             var notifications = DispatchProxy.Create<ISignalRNotificationService, RemovalMessages>();
             var messages = (RemovalMessages)(object)notifications;
-            var removal = new RustLogRemovalService(NullLogger<RustLogRemovalService>.Instance,
+            var retainedState = StateTestMethods.CreateStateService(root);
+            retainedState.SetSetupCompleted(true);
+            var datasourceService = new DatasourceService(
+                configuration,
+                paths,
+                NullLogger<DatasourceService>.Instance);
+            var logProcessor = (RustLogProcessorService)RuntimeHelpers.GetUninitializedObject(
+                typeof(RustLogProcessorService));
+            typeof(RustLogProcessorService)
+                .GetField("_stateService", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(logProcessor, retainedState);
+            typeof(RustLogProcessorService)
+                .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(logProcessor, paths);
+            var cacheManager = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+                typeof(CacheManagementService));
+            typeof(CacheManagementService)
+                .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cacheManager, paths);
+            RustLogRemovalService? removal = null;
+            services = new ServiceCollection()
+                .AddSingleton(datasourceService)
+                .AddSingleton(new DatasourceCapabilityService(datasourceService))
+                .AddSingleton(notifications)
+                .AddSingleton(logProcessor)
+                .AddSingleton(cacheManager)
+                .AddSingleton<RustLogRemovalService>(_ => removal!)
+                .BuildServiceProvider();
+            repairOwner = new OperationStateService(
+                NullLogger<OperationStateService>.Instance,
+                configuration,
+                retainedState,
+                services.GetRequiredService<IServiceScopeFactory>(),
+                DispatchProxy.Create<IHostApplicationLifetime, NullReturningProxy>(),
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                tracker);
+            await repairOwner.StartAsync(CancellationToken.None);
+            removal = new RustLogRemovalService(NullLogger<RustLogRemovalService>.Instance,
                 paths, notifications, null!,
                 new RustProcessHelper(NullLogger<RustProcessHelper>.Instance,
                     new ProcessManager(NullLogger<ProcessManager>.Instance), paths, tracker),
-                null!, null!, new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance),
-                tracker, null!);
+                null!, null!, datasourceService,
+                tracker, null!, repairOwner);
             var sourceField = typeof(RustLogRemovalService).GetField("_cancellationTokenSource", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var start = typeof(RustLogRemovalService).GetMethod("StartRemovalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var firstTask = (Task<bool>)start.Invoke(removal, ["steam"])!;
@@ -78,6 +120,7 @@ public class LogRemovalProgressTests
             var firstRegisteredSource = tracker.GetOperation(first)!.CancellationTokenSource!;
             using var firstCleanupSource = new DisposeTrackingCancellationTokenSource();
             sourceField.SetValue(removal, firstCleanupSource);
+            firstRegisteredSource.Cancel();
             tracker.ForceKillOperation(first);
             tracker.CompleteOperation(first, false, cancelled: true);
             Assert.Throws<ObjectDisposedException>(() => _ = firstRegisteredSource.Token);
@@ -100,6 +143,7 @@ public class LogRemovalProgressTests
             Assert.True(complete.Cancelled);
             Assert.DoesNotContain(messages.Progress, id => id == first);
 
+            nextRegisteredSource.Cancel();
             tracker.ForceKillOperation(next);
             tracker.CompleteOperation(next, false, cancelled: true);
             Assert.Throws<ObjectDisposedException>(() => _ = nextRegisteredSource.Token);
@@ -109,6 +153,11 @@ public class LogRemovalProgressTests
         }
         finally
         {
+            if (repairOwner is not null)
+            {
+                await repairOwner.StopAsync(CancellationToken.None);
+            }
+            services?.Dispose();
             Directory.Delete(root, recursive: true);
         }
     }

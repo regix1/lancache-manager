@@ -117,3 +117,28 @@ test('the Downloads row uses the later end or start as its last activity', () =>
   const unfinished = { ...row, endTimeUtc: '2026-09-30T08:00:00Z' };
   assert.equal(toDownloadGroup(unfinished, []).lastSeen, row.lastStartTimeUtc);
 });
+
+test('current activity controls stay available when history filters are selected', () => {
+  const downloadsTab = parseSource(
+    'src/components/features/downloads/DownloadsTab.tsx',
+    typescript.ScriptKind.TSX
+  ).getFullText();
+  const header = parseSource(
+    'src/components/features/downloads/DownloadsHeader.tsx',
+    typescript.ScriptKind.TSX
+  ).getFullText();
+  const panel = parseSource(
+    'src/components/features/dashboard/RecentDownloadsPanel.tsx',
+    typescript.ScriptKind.TSX
+  ).getFullText();
+  const dashboard = parseSource(
+    'src/components/features/dashboard/Dashboard.tsx',
+    typescript.ScriptKind.TSX
+  ).getFullText();
+
+  assert.doesNotMatch(downloadsTab, /isHistoricalView\s*&&\s*activeTab/);
+  assert.doesNotMatch(header, /disabled:\s*isHistoricalView/);
+  assert.doesNotMatch(panel, /disabled:\s*isHistoricalView/);
+  assert.doesNotMatch(dashboard, /isCardDisabled|card-disabled-overlay/);
+  assert.match(panel, /viewMode === 'recent' && !isHistoricalView/);
+});

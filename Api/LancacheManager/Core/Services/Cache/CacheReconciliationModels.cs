@@ -35,3 +35,18 @@ internal class EvictionScanResult
     public int FilesOnDisk { get; set; }
     public string? Error { get; set; }
 }
+
+internal sealed class CacheRepairDocument
+{
+    public int Version { get; set; } = 1;
+    public required Guid OperationId { get; set; }
+    public required List<CacheRepairSource> Sources { get; set; }
+    public CacheRepairTarget? Target { get; set; }
+}
+
+internal sealed class CacheRepairSource
+{
+    public required string Name { get; set; }
+    public required string CachePath { get; set; }
+    public required string KeyScheme { get; set; }
+}

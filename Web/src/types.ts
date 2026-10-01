@@ -790,12 +790,27 @@ export type CreateClientGroupResult =
   | { status: 'rejected'; error: string; rejectedIps: string[] };
 
 // Real-time download speed types
+export interface DownloadSource {
+  datasources: string[];
+  depotIds: number[];
+  firstSeenUtc: string;
+  lastSeenUtc: string;
+  activeUntilUtc: string;
+  measuredUntilUtc: string;
+  bytesPerSecond: number;
+  totalBytes: number;
+  requestCount: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+}
+
 export interface GameSpeedInfo {
+  key: string;
   depotId: number;
-  gameName?: string;
-  gameAppId?: number;
+  gameName?: string | null;
+  gameAppId?: number | null;
   service: string;
-  clientIp?: string;
+  clientIp: string;
   bytesPerSecond: number;
   /**
    * Bytes observed in the tracker's current rolling window (windowSeconds) only. NOT a
@@ -807,6 +822,11 @@ export interface GameSpeedInfo {
   cacheHitBytes: number;
   cacheMissBytes: number;
   cacheHitPercent: number;
+  isEvicted: boolean;
+  firstSeenUtc: string;
+  lastSeenUtc: string;
+  activeUntilUtc: string;
+  sources: DownloadSource[];
 }
 
 export interface ClientSpeedInfo {
@@ -816,10 +836,15 @@ export interface ClientSpeedInfo {
   activeGames: number;
   cacheHitBytes: number;
   cacheMissBytes: number;
+  activeUntilUtc: string;
 }
 
 export interface DownloadSpeedSnapshot {
+  version: 2;
+  streamId: string;
+  revision: number;
   timestampUtc: string;
+  isAvailable: boolean;
   totalBytesPerSecond: number;
   gameSpeeds: GameSpeedInfo[];
   clientSpeeds: ClientSpeedInfo[];

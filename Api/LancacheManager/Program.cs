@@ -417,6 +417,9 @@ builder.Services.AddSingleton<ISignalRNotificationService, SignalRNotificationSe
 // Register concrete classes (for code that directly references them)
 builder.Services.AddSingleton(sp => (StateService)sp.GetRequiredService<IStateService>());
 
+// Claim retained repair ownership before services that can start cache, log, or database changes.
+builder.Services.AddSingletonHostedService<OperationStateService>();
+
 // Database configuration - build connection string dynamically from env vars or config file
 var baseConnStr = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
@@ -840,9 +843,6 @@ builder.Services.AddDatabaseBackedHostedService<ScheduledPrefillService>(databas
 // (infra polling, not user-facing), not on the Schedules page (matches the prior mechanism).
 builder.Services.AddDatabaseBackedHostedService<PersistentSessionExpiryService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<PersistentContainerImageService>(databaseAvailable);
-
-// Register OperationStateService
-builder.Services.AddSingletonHostedService<OperationStateService>();
 
 // Register background services
 builder.Services.AddDatabaseBackedHostedService<LiveLogMonitorService>(databaseAvailable);

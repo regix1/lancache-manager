@@ -21,20 +21,29 @@ internal static class Program
             {
                 "summary" => new HashSet<string> { "--lookback-days", "--scan-started-utc", "--key-scheme" },
                 "structural-summary" => new HashSet<string> { "--scan-started-utc", "--scan-mode", "--state-scope", "--key-scheme" },
-                _ => new HashSet<string> { "--evidence-file", "--progress", "--key-scheme" }
+                _ => new HashSet<string>
+                {
+                    "--evidence-file",
+                    "--progress",
+                    "--key-scheme",
+                    "--operation-id"
+                }
             };
             var seen = new HashSet<string>();
             string? evidencePath = null;
             for (var index = optionIndex; index < args.Length; index++)
             {
                 var option = args[index];
-                if ((!required.Contains(option) && !(command == "remove" && option == "--stem-positions")) || !seen.Add(option))
+                var optional = command == "remove" && option == "--stem-positions";
+                if ((!required.Contains(option) && !optional) || !seen.Add(option))
                     throw new ArgumentException("An unsupported or repeated corruption option was supplied");
                 if (option == "--progress") continue;
                 if (++index >= args.Length || string.IsNullOrWhiteSpace(args[index]))
                     throw new ArgumentException("A corruption option value was missing");
                 var value = args[index];
                 if (option == "--evidence-file") evidencePath = value;
+                if (option == "--operation-id" && !Guid.TryParse(value, out _))
+                    throw new ArgumentException("The operation ID was invalid");
                 if (option == "--scan-mode" && value is not ("full" or "incremental"))
                     throw new ArgumentException("The structural scan mode was invalid");
                 if (option == "--lookback-days" && (!int.TryParse(value, out var days) || days <= 0))

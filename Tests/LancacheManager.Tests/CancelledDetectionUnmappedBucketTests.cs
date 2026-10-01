@@ -1,64 +1,129 @@
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// A detection run that stops early writes the games and services it reached, but it never
-/// finished walking the cache, so it has no remainder of its own. Nothing else clears
-/// <c>UnmappedServicesJson</c>: the summary refresh does not write that column, and the only clear
-/// is <c>SaveUnmappedServicesAsync(null)</c>. Without that clear, the last full scan's remainder
-/// stays on the singleton row beside the rows the stopped run just saved, and the panel presents
-/// an older measurement as the current one.
-///
-/// Three exits end a run that way and they must agree: the user cancelled it, a linked timeout
-/// fired, or it threw. Guarding one and not its siblings leaves the next reader unable to tell
-/// which behavior was intended.
+/// Verifies the retained-repair contract for the stored unmapped-services bucket. An interrupted
+/// full scan that began database writes invalidates the prior full-scan remainder. Pre-write,
+/// completed, and incremental repairs preserve the prior measurement.
 /// </summary>
 public sealed class CancelledDetectionUnmappedBucketTests
 {
-    [Fact]
-    public void EveryExitThatDidNotFinishTheWalk_ClearsTheStoredBucket()
+    [Theory]
+    [InlineData(OperationStatus.Cancelled)]
+    [InlineData(OperationStatus.Failed)]
+    public async Task EveryExitThatDidNotFinishTheWalk_ClearsTheStoredBucket(
+        OperationStatus outcome)
     {
-        var source = ReadSource("Core", "Services", "Detection", "GameCacheDetectionService.cs");
+        var (original, stored) = await ResumeAndReadBucketAsync(
+            DetectionScanType.Full,
+            outcome,
+            writeStarted: true);
 
-        foreach (var (exit, block) in UnfinishedRunExits(source))
+        Assert.NotEmpty(original);
+        Assert.Null(stored);
+    }
+
+    [Theory]
+    [InlineData(DetectionScanType.Full, OperationStatus.Cancelled, false)]
+    [InlineData(DetectionScanType.Full, OperationStatus.Failed, false)]
+    [InlineData(DetectionScanType.Full, OperationStatus.Completed, true)]
+    [InlineData(DetectionScanType.Incremental, OperationStatus.Cancelled, true)]
+    [InlineData(DetectionScanType.Incremental, OperationStatus.Failed, true)]
+    public async Task RepairsWithoutAnInterruptedFullWrite_PreserveTheStoredBucket(
+        DetectionScanType scan,
+        OperationStatus outcome,
+        bool writeStarted)
+    {
+        var (original, stored) = await ResumeAndReadBucketAsync(scan, outcome, writeStarted);
+
+        Assert.NotEmpty(original);
+        Assert.Equal(original, stored);
+    }
+
+    private static async Task<(string Original, string? Stored)> ResumeAndReadBucketAsync(
+        DetectionScanType scan,
+        OperationStatus outcome,
+        bool writeStarted)
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase("cancelled-detection-bucket-" + Guid.NewGuid().ToString("N"))
+            .Options;
+        var contexts = new TestDbContextFactory(options);
+        var store = new GameCacheDetectionDataService(
+            contexts,
+            NullLogger<GameCacheDetectionDataService>.Instance);
+        await store.SaveUnmappedServicesAsync(
+            [
+                new UnmappedService
+                {
+                    Service = "wsus",
+                    FileCount = 7,
+                    TotalSizeBytes = 4096,
+                    SampleUrls = ["http://wsus.example/update.cab"]
+                }
+            ],
+            CancellationToken.None);
+
+        string original;
+        await using (var before = await contexts.CreateDbContextAsync())
         {
-            Assert.True(
-                block.Contains("ClearUnmappedTotalsAsync(", StringComparison.Ordinal),
-                $"{exit} does not clear the stored unmapped totals");
+            original = Assert.IsType<string>(
+                (await before.CachedDetectionSummaries.SingleAsync()).UnmappedServicesJson);
         }
-    }
 
-    /// <summary>
-    /// The three exits that end a run before it saved a bucket of its own, each scoped to its own
-    /// block so a call belonging to an adjacent exit cannot satisfy another's assertion.
-    /// </summary>
-    private static IEnumerable<(string Exit, string Block)> UnfinishedRunExits(string source)
-    {
-        var cancelled = Marker(source, "catch (OperationCanceledException oce)", 0);
-        var timedOut = Marker(source, "_logger.LogError(oce,", cancelled);
-        var failed = Marker(source, "catch (Exception ex)", timedOut);
-        var teardown = Marker(source, "finally", failed);
-
-        yield return ("The cancellation handler", source[cancelled..timedOut]);
-        yield return ("The timeout handler", source[timedOut..failed]);
-        yield return ("The failure handler", source[failed..teardown]);
-    }
-
-    private static int Marker(string source, string marker, int searchFrom)
-    {
-        var at = source.IndexOf(marker, searchFrom, StringComparison.Ordinal);
-        Assert.True(at >= 0, $"'{marker}' was not found after offset {searchFrom}; the run's exits were restructured");
-        return at;
-    }
-
-    private static string ReadSource(params string[] pathSegments)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "disabled",
+                ["LanCache:DataSources:0:CachePath"] = "unused-cache",
+                ["LanCache:DataSources:0:LogPath"] = "unused-logs",
+                ["LanCache:DataSources:0:Enabled"] = "false"
+            })
+            .Build();
+        var datasources = new DatasourceService(
+            configuration,
+            pathResolver: null!,
+            logger: NullLogger<DatasourceService>.Instance);
+        using var detection = new GameCacheDetectionService(
+            logger: NullLogger<GameCacheDetectionService>.Instance,
+            pathResolver: null!,
+            operationStateService: null!,
+            dbContextFactory: contexts,
+            detectionDataService: store,
+            evictedDetectionPreservationService: null!,
+            unknownGameResolutionService: null!,
+            rustProcessHelper: null!,
+            notifications: null!,
+            datasourceService: datasources,
+            capabilityService: new DatasourceCapabilityService(datasources),
+            operationTracker: null!,
+            cacheScanGate: null!);
+        var repair = new OperationRepair
         {
-            directory = directory.Parent;
-        }
+            Id = Guid.NewGuid(),
+            Type = OperationType.GameDetection,
+            Name = "Game Detection",
+            StartedAt = DateTime.UtcNow,
+            Phase = OperationRepairPhase.Repairing,
+            Outcome = outcome,
+            DatabaseWriteStarted = writeStarted,
+            GameDetection = new GameDetectionMetrics
+            {
+                ScanType = scan,
+                StartTime = DateTime.UtcNow
+            }
+        };
 
-        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
-        return File.ReadAllText(Path.Combine([root, "Api", "LancacheManager", .. pathSegments]));
+        await detection.ResumeRepairAsync(repair, CancellationToken.None);
+
+        await using var after = await contexts.CreateDbContextAsync();
+        var stored = (await after.CachedDetectionSummaries.SingleAsync()).UnmappedServicesJson;
+        return (original, stored);
     }
 }

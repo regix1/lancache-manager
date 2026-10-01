@@ -608,7 +608,7 @@
   "tooltips": {
     "dragToReorder": "Drag to reorder",
     "hideThisCard": "Hide this card",
-    "liveDataOnly": "Live data only - switch to Live mode to see real-time stats",
+    "liveDataOnly": "Current activity is independent of the selected history range",
     "rearrangeCards": "Rearrange cards",
     "resetCardLayout": "Reset card layout to default order",
     "refreshRateControlled": "Refresh rate is controlled by administrator",
@@ -756,11 +756,11 @@
       },
       "activeDownloads": {
         "term": "Active Downloads",
-        "description": "Downloads running right now. Live mode only."
+        "description": "Current inferred download sessions, independent of the selected history range. Quiet sessions can show zero speed."
       },
       "activeClients": {
         "term": "Active Clients",
-        "description": "Clients downloading something right now. Live mode only."
+        "description": "Clients in a current inferred download session, independent of the selected history range."
       },
       "cacheHitRatio": {
         "term": "Cache Hit Ratio",
@@ -788,7 +788,7 @@
       "title": "Downloads",
       "loadFailed": "Failed to load recent downloads",
       "recent": "Recent",
-      "active": "Active",
+      "active": "Active now",
       "inProgress": "In progress",
       "allServices": "All services",
       "allClients": "All clients",
@@ -797,11 +797,11 @@
       "clientPrefix": "Client:",
       "hitRate": "hit rate",
       "period": "Period",
-      "speed": "Speed",
+      "speed": "Current transfer speed",
       "live": "Live",
       "req": "req",
-      "game": "game",
-      "game_other": "games",
+      "game": "download",
+      "game_other": "downloads",
       "client": "client",
       "onDisk": "{{size}} on disk",
       "hitLabel": "hit",
@@ -810,7 +810,7 @@
       "hitTooltipDetailed": "{{percent}} hit rate · {{saved}} served from cache ({{disk}} on disk)",
       "showDetails": "Detailed stats",
       "showingLabel": "Showing",
-      "activeDownloadsOnly": "Active downloads only available in Live mode",
+      "activeDownloadsOnly": "Active now is independent of the selected history range",
       "emptyStates": {
         "noActive": "No Active Downloads",
         "noActiveDesc": "Downloads will appear here in real-time",
@@ -1576,21 +1576,28 @@
       "lastSeconds": "Last {{seconds}}s",
       "windowTooltip": "Traffic observed in the current {{seconds}}-second rolling window. Not included in recorded totals."
     },
+    "activity": {
+      "waitingTitle": "Waiting for activity updates",
+      "waitingDescription": "Current activity will appear after the tracker reports.",
+      "unavailableTitle": "Activity updates unavailable",
+      "unavailableDescription": "The last reported sessions remain visible while their inferred activity period is still current.",
+      "inferenceHelp": "Current activity is inferred from completed cache requests. Quiet sessions can show zero speed. History filters do not change this current view."
+    },
     "header": {
       "historical": {
         "title": "Historical View",
         "viewing": "Viewing past data",
         "unavailable": "Live stats unavailable"
       },
-      "transferSpeed": "Transfer Speed",
+      "transferSpeed": "Current transfer speed",
       "idle": "Idle",
-      "activeGames": "{{count}} game",
-      "activeGames_other": "{{count}} games",
+      "activeGames": "{{count}} download",
+      "activeGames_other": "{{count}} downloads",
       "activeClients": "{{count}} client",
       "activeClients_other": "{{count}} clients",
       "noActive": "No active downloads",
-      "activeTooltip": "Active downloads only available in Live mode",
-      "activeTab": "Active",
+      "activeTooltip": "Active now is independent of the selected history range",
+      "activeTab": "Active now",
       "recentTab": "Recent",
       "todayLabel": "Today:",
       "disabled": "Disabled",
@@ -1624,8 +1631,8 @@
       "gamesCount": "{{count}} game",
       "gamesCount_other": "{{count}} games",
       "summary": {
-        "gamesLabel": "game",
-        "gamesLabel_other": "games",
+        "gamesLabel": "download",
+        "gamesLabel_other": "downloads",
         "clientsLabel": "client",
         "clientsLabel_other": "clients",
         "totalLabel": "total",
@@ -2762,7 +2769,7 @@
       },
       "deletionMethods": {
         "preserveDesc": "Delete files individually (keeps structure)",
-        "fullDesc": "Remove entire directories at once",
+        "fullDesc": "Delete files and remove empty directories",
         "rsyncDesc": "Rsync with empty directory (best for NFS/SMB)"
       },
       "help": {

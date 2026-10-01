@@ -1372,7 +1372,9 @@ public class DownloadCleanupServiceTests
             NullProxy<ILancacheEnvFileReader>(),
             NullProxy<IOperationConflictChecker>(),
             new DatasourceCapabilityService(datasources),
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                typeof(OperationStateService)));
         var logger = new CapturingLogger<DownloadCleanupService>();
         var service = new DownloadCleanupService(
             services,

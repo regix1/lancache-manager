@@ -51,6 +51,10 @@ public interface IStateService
     void RemoveOperationState(string id);
     void UpdateOperationStates(Action<List<OperationState>> updater);
 
+    // Required repair state (stored in data/operations/operation_repairs.json)
+    IReadOnlyList<OperationRepair> LoadOperationRepairs();
+    void SaveOperationRepairs(IReadOnlyList<OperationRepair> repairs);
+
     // Setup Completed Methods
     bool GetSetupCompleted();
     void SetSetupCompleted(bool completed);

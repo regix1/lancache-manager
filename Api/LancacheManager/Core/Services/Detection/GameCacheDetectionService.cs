@@ -117,9 +117,6 @@ public partial class GameCacheDetectionService : IDisposable
         _cacheScanGate = cacheScanGate;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
-
-        // Restore any interrupted operations on startup
-        RestoreInterruptedOperations();
     }
 
     public async Task<Guid?> StartDetectionAsync(RunNotice notice, bool incremental = true, Guid? parentOperationId = null)
@@ -157,6 +154,14 @@ public partial class GameCacheDetectionService : IDisposable
             foreach (var stale in staleOperations)
             {
                 _logger.LogWarning("Cleaning up stale operation {OperationId} that started at {StartTime}", stale.Id, stale.StartedAt);
+                if (_operationStateService.OwnsRepair(stale.Id))
+                {
+                    await _operationStateService.FinishRepairAsync(
+                        stale.Id,
+                        success: false,
+                        cancelled: false,
+                        error: "Stale operation cleaned up");
+                }
                 _operationTracker.CompleteOperation(stale.Id, success: false, error: "Stale operation cleaned up");
             }
 
@@ -204,12 +209,33 @@ public partial class GameCacheDetectionService : IDisposable
                     onTerminalEmit: info => EmitTerminalAsync(registeredId, info, metadata),
                     parentOperationId: parentOperationId,
                     startedAt: metadata.StartTime,
-                    notice: notice);
+                    notice: notice,
+                    ownerCompletes: true);
                 _currentTrackerOperationId = registeredId;
             }
             var operationId = registeredId;
             cancellationToken.Register(() => notice.Cancel(_operationTracker, operationId));
             notice.Attach(_operationTracker, operationId);
+
+            try
+            {
+                await _operationStateService.PrepareRepairAsync(
+                    new OperationRepair
+                    {
+                        Id = operationId,
+                        Type = OperationType.GameDetection,
+                        Name = "Game Detection",
+                        StartedAt = metadata.StartTime,
+                        Notice = notice,
+                        GameDetection = SnapshotDetectionMetrics(metadata)
+                    },
+                    CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                throw;
+            }
 
             // Set initial progress message
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
@@ -225,7 +251,7 @@ public partial class GameCacheDetectionService : IDisposable
                         Type = OperationType.GameDetection.ToWireString(),
                         Status = OperationStatus.Running.ToWireString(),
                         Message = stageKeyStarting,
-                        Data = JsonSerializer.SerializeToElement(new
+                        Fields = JsonSerializer.SerializeToElement(new
                         {
                             operationId,
                             parentOperationId,
@@ -241,14 +267,27 @@ public partial class GameCacheDetectionService : IDisposable
             // Send SignalR notification that detection started. Awaited (not fire-and-forget) so the
             // Started event is on the wire before any progress tick can be emitted by the background
             // run below, which prevents a progress event racing ahead of the card's creation.
-            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
+            try
             {
-                OperationId = operationId,
-                ParentOperationId = parentOperationId,
-                StageKey = stageKeyStarting,
-                scanType,
-                timestamp = DateTime.UtcNow
-            });
+                await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
+                {
+                    OperationId = operationId,
+                    ParentOperationId = parentOperationId,
+                    StageKey = stageKeyStarting,
+                    scanType,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                await _operationStateService.FinishRepairAsync(
+                    operationId,
+                    success: false,
+                    cancelled: false,
+                    error: ex.Message);
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                throw;
+            }
 
             // Start detection in background with cancellation token
             _currentDetectionTask = (operationId, Task.Run(
@@ -868,6 +907,10 @@ public partial class GameCacheDetectionService : IDisposable
 
             // Save all games (Steam + Epic) to database - Epic games now use actual cache file sizes
             // from the Rust processor, so they can be persisted alongside Steam games.
+            await _operationStateService.StartWorkAsync(
+                operationId,
+                datasource: null,
+                cancellationToken);
             await SaveGamesToDatabaseAsync(finalGames, incremental, cancellationToken);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
 
@@ -961,7 +1004,26 @@ public partial class GameCacheDetectionService : IDisposable
 
                 // Save any partial results accumulated before cancellation so the next startup
                 // can resume from where we left off rather than re-scanning from scratch.
-                if (aggregatedGames.Count > 0)
+                var partialWriteAllowed = aggregatedGames.Count > 0 || aggregatedServices.Count > 0;
+                if (partialWriteAllowed)
+                {
+                    try
+                    {
+                        await _operationStateService.StartWorkAsync(
+                            operationId,
+                            datasource: null,
+                            CancellationToken.None);
+                    }
+                    catch (Exception saveEx)
+                    {
+                        _logger.LogWarning(
+                            saveEx,
+                            "[GameDetection] Failed to record partial result persistence");
+                        partialWriteAllowed = false;
+                    }
+                }
+
+                if (partialWriteAllowed && aggregatedGames.Count > 0)
                 {
                     try
                     {
@@ -982,7 +1044,7 @@ public partial class GameCacheDetectionService : IDisposable
                 // Services the run reached are saved the same way. incremental=true skips the
                 // absence-to-evict pass: a cancelled scan's list is partial, and reading absence
                 // as eviction would zero and badge services whose files are still on disk.
-                if (aggregatedServices.Count > 0)
+                if (partialWriteAllowed && aggregatedServices.Count > 0)
                 {
                     try
                     {
@@ -998,16 +1060,12 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                 }
 
-                await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
-
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Cancelled, stageKey: "signalr.gameDetect.cancelled", cancelled: true);
             }
             else
             {
                 _logger.LogError(oce, "[GameDetection] Operation {OperationId} failed due to timeout or internal cancellation", operationId);
-
-                await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
@@ -1017,8 +1075,6 @@ public partial class GameCacheDetectionService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GameDetection] Operation {OperationId} failed", operationId);
-
-            await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
             await FinalizeDetectionAsync(operationId, success: false,
                 status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
@@ -1043,57 +1099,86 @@ public partial class GameCacheDetectionService : IDisposable
     }
 
     /// <summary>
-    /// Drops the stored unmapped totals for a FULL run that ended before it saved its own. Such a
-    /// run never finished walking the cache, so once it has written detection rows the stored
-    /// totals describe a cache those rows have moved past, and nothing else clears that column.
-    /// A run that wrote no rows leaves the totals still matching what is stored beside them, so
-    /// they stay: clearing there would discard a measurement that is still true.
-    /// An incremental run never clears: it measures no unmapped set even when it succeeds, so its
-    /// failure says nothing about the last full scan's bucket.
-    /// </summary>
-    private async Task ClearUnmappedTotalsAsync(bool incremental, int savedGameCount, int savedServiceCount)
-    {
-        if (incremental || (savedGameCount == 0 && savedServiceCount == 0))
-        {
-            return;
-        }
-
-        try
-        {
-            // CancellationToken.None: on the path that needs this most the run's own token is
-            // already cancelled.
-            await _detectionDataService.SaveUnmappedServicesAsync(null, CancellationToken.None);
-        }
-        catch (Exception saveEx)
-        {
-            _logger.LogWarning(saveEx, "[GameDetection] Failed to clear unmapped totals for an unfinished run");
-        }
-    }
-
-    /// <summary>
     /// Finalizes a detection operation by updating the tracker, persisted state, and sending SignalR notification.
     /// Consolidates the common teardown logic shared across success, cancel, and error paths.
     /// </summary>
-    private Task FinalizeDetectionAsync(
+    private async Task FinalizeDetectionAsync(
         Guid operationId, bool success, OperationStatus status, string stageKey, bool cancelled,
         Dictionary<string, object?>? context = null, int? gamesDetected = null, int? servicesDetected = null)
     {
-        var completionContext = context == null ? null : new Dictionary<string, object?>(context);
-        var trackerError = success || cancelled ? null
-            : completionContext?.GetValueOrDefault("errorDetail")?.ToString() ?? stageKey;
-        _operationTracker.CompleteOperation(operationId, success: success, error: trackerError,
-            cancelled: cancelled, onCompleting: operation =>
-            {
-                var metrics = (GameDetectionMetrics)operation.Metadata!;
-                metrics.CompletionStageKey = stageKey;
-                metrics.CompletionContext = completionContext;
-                metrics.TotalGamesDetected = gamesDetected ?? metrics.TotalGamesDetected;
-                metrics.TotalServicesDetected = servicesDetected ?? metrics.TotalServicesDetected;
-                metrics.Error = trackerError;
-                if (success) operation.PercentComplete = 100;
-            });
+        var expectedStatus = cancelled
+            ? OperationStatus.Cancelled
+            : success
+                ? OperationStatus.Completed
+                : OperationStatus.Failed;
+        if (status != expectedStatus)
+        {
+            throw new InvalidDataException("The game detection outcome does not match its terminal status.");
+        }
 
-        return Task.CompletedTask;
+        var completionContext = context == null ? null : new Dictionary<string, object?>(context);
+        string? trackerError = null;
+        if (!success && !cancelled)
+        {
+            if (completionContext?.GetValueOrDefault("errorDetail")?.ToString() is not { Length: > 0 } errorDetail)
+            {
+                throw new InvalidDataException("A failed game detection requires an error detail.");
+            }
+
+            trackerError = errorDetail;
+        }
+
+        var operation = _operationTracker.GetOperation(operationId);
+        var terminalWon = operation?.Status.IsTerminal() == true;
+        var finalSuccess = terminalWon ? operation!.Success : success;
+        var finalCancelled = terminalWon ? operation!.Cancelled : cancelled;
+        var finalError = terminalWon
+            ? finalSuccess || finalCancelled ? null : operation!.Message
+            : trackerError;
+
+        GameDetectionMetrics? finalMetrics = null;
+        if (operation?.Metadata is GameDetectionMetrics currentMetrics)
+        {
+            finalMetrics = SnapshotDetectionMetrics(currentMetrics);
+            if (!terminalWon)
+            {
+                finalMetrics.CompletionStageKey = stageKey;
+                finalMetrics.CompletionContext = completionContext;
+                finalMetrics.TotalGamesDetected = gamesDetected ?? finalMetrics.TotalGamesDetected;
+                finalMetrics.TotalServicesDetected = servicesDetected ?? finalMetrics.TotalServicesDetected;
+                finalMetrics.Error = trackerError;
+            }
+
+            await _operationStateService.SaveRepairAsync(
+                operationId,
+                repair => repair.GameDetection = finalMetrics,
+                CancellationToken.None);
+        }
+
+        await _operationStateService.FinishRepairAsync(
+            operationId,
+            finalSuccess,
+            finalCancelled,
+            finalError);
+
+        _operationTracker.CompleteOperation(operationId, success: finalSuccess, error: finalError,
+            cancelled: finalCancelled, onCompleting: completed =>
+            {
+                if (terminalWon || finalMetrics is null)
+                {
+                    return;
+                }
+
+                completed.Metadata = finalMetrics;
+                if (finalSuccess) completed.PercentComplete = 100;
+            });
+    }
+
+    private static GameDetectionMetrics SnapshotDetectionMetrics(GameDetectionMetrics metrics)
+    {
+        var json = JsonSerializer.Serialize(metrics);
+        return JsonSerializer.Deserialize<GameDetectionMetrics>(json)
+            ?? throw new InvalidDataException("The game detection metrics could not be copied.");
     }
 
     /// <summary>
@@ -1140,7 +1225,7 @@ public partial class GameCacheDetectionService : IDisposable
                 Type = OperationType.GameDetection.ToWireString(),
                 Status = status.ToWireString(),
                 Message = stageKey,
-                Data = JsonSerializer.SerializeToElement(new
+                Fields = JsonSerializer.SerializeToElement(new
                 {
                     operationId,
                     parentOperationId = metrics.ParentOperationId,
@@ -1335,6 +1420,66 @@ public partial class GameCacheDetectionService : IDisposable
         InvalidateDetectionCache();
     }
 
+    public async Task ResumeRepairAsync(OperationRepair repair, CancellationToken cancellationToken)
+    {
+        if (repair.Type != OperationType.GameDetection || repair.GameDetection is null)
+        {
+            throw new InvalidDataException("The retained operation is not a game detection repair.");
+        }
+
+        if (!repair.DatabaseWriteStarted)
+        {
+            return;
+        }
+
+        if (repair.Outcome != OperationStatus.Completed
+            && repair.GameDetection.ScanType == DetectionScanType.Full)
+        {
+            // An interrupted full scan cannot retain an unmapped bucket measured against the rows
+            // that existed before this run wrote its partial result.
+            await _detectionDataService.SaveUnmappedServicesAsync(null, cancellationToken);
+        }
+    }
+
+    public Task RestoreRepairAsync(OperationRepair repair, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (repair.Type != OperationType.GameDetection || repair.GameDetection is null)
+        {
+            throw new InvalidDataException("The retained operation is not a game detection repair.");
+        }
+
+        var metrics = SnapshotDetectionMetrics(repair.GameDetection);
+        metrics.Notice = repair.Notice;
+        var cancellationSource = new CancellationTokenSource();
+        if (!_operationTracker.TryRestoreOperation(
+                repair.Id,
+                OperationType.GameDetection,
+                repair.Name,
+                cancellationSource,
+                metrics,
+                onTerminalCleanup: () =>
+                {
+                    lock (_startLock)
+                    {
+                        if (_currentTrackerOperationId == repair.Id) _currentTrackerOperationId = null;
+                    }
+                },
+                onTerminalEmit: terminal => EmitTerminalAsync(repair.Id, terminal, metrics),
+                parentOperationId: metrics.ParentOperationId,
+                startedAt: repair.StartedAt,
+                notice: repair.Notice,
+                ownerCompletes: true))
+        {
+            cancellationSource.Dispose();
+            return Task.CompletedTask;
+        }
+
+        lock (_startLock) _currentTrackerOperationId = repair.Id;
+        repair.Notice?.Attach(_operationTracker, repair.Id);
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// Serves the retained detection response, loading it once behind the cache lock. The wait and
     /// the load both take the caller's token: a request that has already gone away otherwise holds
@@ -1374,8 +1519,10 @@ public partial class GameCacheDetectionService : IDisposable
     public Task<int> ResolveUnknownGamesInCacheAsync(CancellationToken cancellationToken = default) =>
         _unknownGameResolutionService.ResolveUnknownGamesAsync(cancellationToken);
 
-    private void RestoreInterruptedOperations()
+#pragma warning disable IDE1006
+    public async Task RestoreInterruptedOperations(CancellationToken stoppingToken)
     {
+        await _operationStateService.WaitForRecoveryOwnershipAsync(stoppingToken);
         try
         {
             var allStates = _operationStateService.GetAllStates();
@@ -1388,7 +1535,7 @@ public partial class GameCacheDetectionService : IDisposable
 
             foreach (var state in gameDetectionStates)
             {
-                if (!state.Data.HasValue || !state.Data.Value.TryGetProperty("operationId", out var opIdElement))
+                if (!state.Fields.HasValue || !state.Fields.Value.TryGetProperty("operationId", out var opIdElement))
                 {
                     continue;
                 }
@@ -1405,7 +1552,12 @@ public partial class GameCacheDetectionService : IDisposable
                     continue;
                 }
 
-                var saved = state.Data.Value;
+                if (_operationStateService.OwnsRepair(persistedGuid))
+                {
+                    continue;
+                }
+
+                var saved = state.Fields.Value;
                 Guid? parentOperationId = saved.TryGetProperty("parentOperationId", out var parent) &&
                     parent.ValueKind == JsonValueKind.String && parent.TryGetGuid(out var parentId) ? parentId : null;
                 if (parentOperationId == null && state.CreatedAt <= recentCutoff) continue;
@@ -1455,7 +1607,8 @@ public partial class GameCacheDetectionService : IDisposable
                         onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, metadata),
                         parentOperationId: parentOperationId,
                         startedAt: startedAt,
-                        notice: notice))
+                        notice: notice,
+                        ownerCompletes: true))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.
@@ -1471,24 +1624,57 @@ public partial class GameCacheDetectionService : IDisposable
                     continue;
                 }
 
+                try
+                {
+                    await _operationStateService.PrepareRepairAsync(
+                        new OperationRepair
+                        {
+                            Id = persistedGuid,
+                            Type = OperationType.GameDetection,
+                            Name = "Game Detection",
+                            StartedAt = startedAt,
+                            Notice = notice,
+                            GameDetection = SnapshotDetectionMetrics(metadata)
+                        },
+                        stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _operationTracker.CompleteOperation(persistedGuid, success: false, error: ex.Message);
+                    _logger.LogError(ex, "[GameDetection] Failed to retain interrupted operation {OperationId}", persistedGuid);
+                    continue;
+                }
+
                 _cancellationTokenSource = cancellationSource;
                 lock (_startLock) _currentTrackerOperationId = persistedGuid;
+                notice.Attach(_operationTracker, persistedGuid);
                 _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "signalr.gameDetect.resuming");
 
                 _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
 
                 var cancellationToken = cancellationSource.Token;
-                _currentDetectionTask = (persistedGuid, Task.Run(async () => await RunDetectionAsync(
-                    persistedGuid,
-                    incremental: scanType == DetectionScanType.Incremental,
-                    cancellationToken)));
+                _currentDetectionTask = (persistedGuid, Task.Run(
+                    async () => await RunDetectionAsync(
+                        persistedGuid,
+                        incremental: scanType == DetectionScanType.Incremental,
+                        cancellationToken),
+                    CancellationToken.None));
             }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GameDetection] Error restoring interrupted operations");
         }
     }
+#pragma warning restore IDE1006
 
     /// <summary>
     /// Builds a DetectionOperationResponse from an OperationInfo, preserving the JSON shape expected by the frontend.

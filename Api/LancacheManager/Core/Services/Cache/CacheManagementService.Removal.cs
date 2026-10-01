@@ -1,11 +1,229 @@
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Hubs;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services;
 
 public partial class CacheManagementService
 {
+    public Task RestoreRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateRemovalRepair(repair);
+        var metrics = repair.Removal!;
+        var source = new CancellationTokenSource();
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            repair.Type,
+            repair.Name,
+            source,
+            metrics,
+            onTerminalEmit: terminal => EmitRestoredRemovalAsync(repair, metrics, terminal),
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true);
+        if (!restored)
+        {
+            source.Dispose();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task ResumeRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateRemovalRepair(repair);
+        return Task.CompletedTask;
+    }
+
+    private Task EmitRestoredRemovalAsync(
+        OperationRepair repair,
+        RemovalRepair metrics,
+        OperationTerminalInfo terminal)
+    {
+        var target = repair.Target!;
+        if (repair.Type == OperationType.ServiceRemoval)
+        {
+            var stageKey = terminal.Success
+                ? "signalr.serviceRemove.success"
+                : terminal.Cancelled
+                    ? "signalr.serviceRemove.cancelled"
+                    : "signalr.serviceRemove.failed.generic";
+            return _notifications.NotifyAllAsync(
+                SignalREvents.ServiceRemovalComplete,
+                new ServiceRemovalComplete(
+                    terminal.Success,
+                    target.Service!,
+                    repair.Id,
+                    stageKey,
+                    metrics.FilesDeleted,
+                    metrics.BytesFreed,
+                    metrics.LogEntriesRemoved,
+                    new Dictionary<string, object?> { ["name"] = target.Service },
+                    terminal.Error,
+                    terminal.Cancelled));
+        }
+
+        var epic = target.EpicGame is not null;
+        var named = target.GameName is not null;
+        var gameStageKey = terminal.Success
+            ? epic
+                ? "signalr.epicRemove.complete"
+                : named
+                    ? "signalr.namedRemove.complete"
+                    : "signalr.gameRemove.complete"
+            : terminal.Cancelled
+                ? epic
+                    ? "signalr.epicRemove.cancelled"
+                    : "signalr.gameRemove.cancelled"
+                : epic
+                    ? "signalr.epicRemove.error.fatal"
+                    : "signalr.gameRemove.error.fatal";
+        var gameName = epic ? target.EpicGame : named ? target.GameName : metrics.EntityName;
+        return _notifications.NotifyAllAsync(
+            SignalREvents.GameRemovalComplete,
+            new GameRemovalComplete(
+                terminal.Success,
+                repair.Id,
+                target.SteamAppId,
+                epic ? metrics.EpicAppId : null,
+                gameStageKey,
+                gameName,
+                metrics.FilesDeleted,
+                metrics.BytesFreed,
+                metrics.LogEntriesRemoved,
+                new Dictionary<string, object?>
+                {
+                    ["gameName"] = gameName,
+                    ["service"] = target.Service
+                },
+                terminal.Error,
+                terminal.Cancelled));
+    }
+
+    private static void ValidateRemovalRepair(OperationRepair repair)
+    {
+        if (repair.Type is not (OperationType.GameRemoval or OperationType.ServiceRemoval)
+            || repair.Removal is null
+            || repair.Target is null)
+        {
+            throw new InvalidDataException(
+                $"Operation repair {repair.Id} has no targeted-removal contract.");
+        }
+    }
+
+    internal OperationRepair BuildRemovalRepair(
+        Guid operationId,
+        OperationType operationType,
+        string name,
+        RemovalMetrics metrics,
+        CacheRepairTarget target)
+    {
+        return new OperationRepair
+        {
+            Id = operationId,
+            Type = operationType,
+            Name = name,
+            StartedAt = DateTime.UtcNow,
+            Target = target,
+            Removal = CopyRemovalRepair(metrics),
+            Sources = _datasourceService.GetDatasources()
+                .Select(datasource => new OperationRepairSource
+                {
+                    Datasource = datasource.Name,
+                    LogRoot = datasource.LogPath,
+                    CacheRoot = datasource.CachePath,
+                    KeyScheme = _capabilityService.GetKeySchemeWireValue(datasource),
+                    ReceiptPath = Path.Combine(
+                        datasource.CachePath,
+                        $".lancache-repair-{operationId:N}.json"),
+                    ResetLogPositions = true,
+                    RefreshDownloads = true,
+                    ReconcileCache = true,
+                    RefreshDetection = true,
+                    InvalidateCorruption = true
+                })
+                .ToList()
+        };
+    }
+
+    internal Task PrepareRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        return _operationStateService.PrepareRepairAsync(repair, cancellationToken);
+    }
+
+    internal async Task FinishRemovalRepairAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error)
+    {
+        await _operationStateService.FinishRepairAsync(
+            operationId,
+            success,
+            cancelled,
+            error);
+    }
+
+    private async Task SaveRemovalSourceAsync(
+        Guid? operationId,
+        string datasource,
+        int filesDeleted,
+        long bytesFreed,
+        ulong logEntriesRemoved)
+    {
+        if (!operationId.HasValue)
+        {
+            return;
+        }
+
+        await _operationStateService.SaveRepairAsync(
+            operationId.Value,
+            repair =>
+            {
+                var source = repair.Sources.Single(candidate =>
+                    string.Equals(
+                        candidate.Datasource,
+                        datasource,
+                        StringComparison.OrdinalIgnoreCase));
+                source.NativeCompletionAccepted = true;
+
+                var metrics = repair.Removal
+                    ?? throw new InvalidDataException(
+                        $"Operation repair {operationId.Value} has no removal metrics.");
+                metrics.FilesDeleted = filesDeleted;
+                metrics.BytesFreed = bytesFreed;
+                metrics.LogEntriesRemoved = logEntriesRemoved;
+            },
+            CancellationToken.None);
+    }
+
+    private static RemovalRepair CopyRemovalRepair(RemovalMetrics metrics)
+    {
+        return new RemovalRepair
+        {
+            EntityKey = metrics.EntityKey,
+            EntityName = metrics.EntityName,
+            EntityKind = metrics.EntityKind,
+            Service = metrics.Service,
+            EpicAppId = metrics.EpicAppId,
+            FilesDeleted = metrics.FilesDeleted,
+            BytesFreed = metrics.BytesFreed,
+            FilesProcessed = metrics.FilesProcessed,
+            TotalFiles = metrics.TotalFiles,
+            DetectionMethod = metrics.DetectionMethod,
+            CorruptionScanId = metrics.CorruptionScanId
+        };
+    }
+
     private async Task ValidateRemovalSelectionAsync(
         RemovalSelection selection,
         CancellationToken cancellationToken)

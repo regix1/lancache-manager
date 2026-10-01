@@ -9,6 +9,8 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
@@ -96,7 +98,9 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(datasourceService),
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                typeof(OperationStateService)));
     }
 
     public void Dispose()
@@ -134,6 +138,255 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             _logger.Entries.Select(entry => entry.Message),
             message => message.Contains("Running removal for datasource", StringComparison.Ordinal));
         Assert.DoesNotContain("--skip-file-probe", launch, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovalRunner_GameFailureOrCancellationRetainsConfirmedCountersAsync(
+        bool cancelled)
+    {
+        await using var harness = await RemovalRepairHarness.CreateAsync(
+            Path.Combine(_root, "game-counter-" + cancelled));
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = GameAppId.ToString(),
+            EntityName = "Dota 2",
+            EntityKind = "steam"
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            metrics,
+            async (operationId, cancellationToken, report) =>
+            {
+                await harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
+                await harness.SaveSourceAsync(operationId, "alpha", 9, 200);
+                await report(new RemovalProgressUpdate(
+                    50,
+                    "alpha-complete",
+                    FilesDeleted: 9,
+                    BytesFreed: 200));
+
+                await harness.Owner.StartWorkAsync(operationId, "beta", cancellationToken);
+                await report(new RemovalProgressUpdate(
+                    60,
+                    "beta-progress",
+                    FilesDeleted: 9,
+                    BytesFreed: 200));
+                if (cancelled)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
+                throw new IOException("Injected beta removal failure.");
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        Assert.Equal(
+            cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+            terminal.Status);
+        Assert.Equal(9, metrics.FilesDeleted);
+        Assert.Equal(200L, metrics.BytesFreed);
+        var repair = harness.ReadRepair(operationId);
+        Assert.Equal(OperationRepairPhase.Completed, repair.Phase);
+        Assert.Equal(9, repair.Removal!.FilesDeleted);
+        Assert.Equal(200L, repair.Removal.BytesFreed);
+        var complete = Assert.IsType<SignalRNotifications.GameRemovalComplete>(
+            Assert.Single(
+                harness.ReadMessages(),
+                message => message.Event == "complete").Value);
+        Assert.Equal(9, complete.FilesDeleted);
+        Assert.Equal(200L, complete.BytesFreed);
+        Assert.Equal(cancelled, complete.Cancelled);
+        await harness.CompleteAnotherAsync(OperationType.GameRemoval);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovalRunner_ExternalTerminalKeepsPresentationAndFinishesRepairAsync(
+        bool cancelled)
+    {
+        await using var harness = await RemovalRepairHarness.CreateAsync(
+            Path.Combine(_root, "external-terminal-" + cancelled));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = GameAppId.ToString(),
+            EntityName = "Dota 2",
+            EntityKind = "steam"
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            metrics,
+            async (operationId, cancellationToken, report) =>
+            {
+                await harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
+                await harness.SaveSourceAsync(operationId, "alpha", 9, 200);
+                await report(new RemovalProgressUpdate(
+                    50,
+                    "alpha-complete",
+                    FilesDeleted: 9,
+                    BytesFreed: 200));
+                entered.TrySetResult();
+                await release.Task;
+                await report(new RemovalProgressUpdate(
+                    90,
+                    "late-progress",
+                    FilesDeleted: 90,
+                    BytesFreed: 900));
+                return (90, 900L);
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        harness.Tracker.CompleteOperation(
+            operationId,
+            success: false,
+            error: cancelled ? null : "disk failure",
+            cancelled: cancelled);
+        var completedAt = harness.Tracker.GetOperation(operationId)!.CompletedAt;
+        release.TrySetResult();
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+        var terminal = harness.Tracker.GetOperation(operationId)!;
+        Assert.Equal(
+            cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+            terminal.Status);
+        Assert.Equal(completedAt, terminal.CompletedAt);
+        Assert.Equal(9, metrics.FilesDeleted);
+        Assert.Equal(200L, metrics.BytesFreed);
+        Assert.Equal(9, repair.Removal!.FilesDeleted);
+        Assert.Equal(200L, repair.Removal.BytesFreed);
+        Assert.DoesNotContain(
+            harness.ReadMessages(),
+            message => message.Value is RemovalProgressUpdate { StageKey: "late-progress" });
+        Assert.Single(
+            harness.ReadMessages(),
+            message => message.Event == "complete");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovalRunner_GameProducerKeepsConfirmedCountersDuringBetaProgressAsync(
+        bool cancelled)
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(
+            Path.Combine(_root, "game-producer-" + cancelled),
+            OperationType.GameRemoval);
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = GameAppId.ToString(),
+            EntityName = "Dota 2",
+            EntityKind = "steam"
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            metrics,
+            async (operationId, cancellationToken, report) =>
+            {
+                var result = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    (percent, stage, context, files, bytes) => report(new RemovalProgressUpdate(
+                        percent,
+                        stage,
+                        context,
+                        files,
+                        bytes)),
+                    operationId);
+                return (result.CacheFilesDeleted, checked((long)result.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        try
+        {
+            await harness.WaitForBetaProgressAsync();
+
+            Assert.Equal(1, harness.RawFilesProcessed);
+            Assert.Equal(2, harness.RustCalls);
+            var runningRepair = harness.ReadRepair(operationId);
+            Assert.Equal(9, runningRepair.Removal!.FilesDeleted);
+            Assert.Equal(200L, runningRepair.Removal.BytesFreed);
+            var alpha = runningRepair.Sources.Single(source => source.Datasource == "alpha");
+            var beta = runningRepair.Sources.Single(source => source.Datasource == "beta");
+            Assert.True(alpha.NativeCompletionAccepted);
+            Assert.True(beta.NativeLaunchAuthorized);
+            Assert.False(beta.NativeCompletionAccepted);
+
+            var progress = harness.ReadMessages()
+                .Where(message => message.Value is RemovalProgressUpdate)
+                .Select(message => (RemovalProgressUpdate)message.Value!)
+                .ToList();
+            var betaProgress = Assert.Single(
+                progress,
+                update => update.StageKey == harness.BetaStage);
+            Assert.Equal(9, betaProgress.FilesDeleted);
+            Assert.Equal(200L, betaProgress.BytesFreed);
+            Assert.All(progress, update =>
+            {
+                Assert.True(update.FilesDeleted >= 9);
+                Assert.True(update.BytesFreed >= 200);
+            });
+
+            if (cancelled)
+            {
+                Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+            }
+            else
+            {
+                harness.ReleaseRust();
+            }
+
+            var terminal = await harness.WaitForTerminalAsync(operationId);
+            var repair = await harness.WaitForCompletedRepairAsync(operationId);
+            var complete = Assert.IsType<SignalRNotifications.GameRemovalComplete>(
+                await harness.WaitForCompleteMessageAsync());
+
+            Assert.Equal(
+                cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+                terminal.Status);
+            Assert.Equal(9, complete.FilesDeleted);
+            Assert.Equal(200L, complete.BytesFreed);
+            Assert.Equal(cancelled, complete.Cancelled);
+            Assert.Equal(9, repair.Removal!.FilesDeleted);
+            Assert.Equal(200L, repair.Removal.BytesFreed);
+            Assert.True(repair.Sources.Single(source => source.Datasource == "alpha")
+                .NativeCompletionAccepted);
+            Assert.False(repair.Sources.Single(source => source.Datasource == "beta")
+                .NativeCompletionAccepted);
+            Assert.Single(
+                harness.ReadMessages(),
+                message => message.Event == "complete");
+            Assert.Equal(2, harness.RustCalls);
+            await harness.CompleteAnotherAsync(OperationType.GameRemoval);
+        }
+        finally
+        {
+            harness.ReleaseRust();
+            var operation = harness.Tracker.GetOperation(operationId);
+            if (operation?.Status.IsTerminal() != true)
+            {
+                harness.Tracker.CancelOperation(operationId);
+            }
+            if (harness.RustCalls >= 2)
+            {
+                await harness.WaitForRustExitAsync();
+            }
+            await harness.WaitForTerminalAsync(operationId);
+        }
     }
 
     [Theory]
@@ -284,7 +537,9 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(sources),
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                typeof(OperationStateService)));
         var manager = CreateManager(rotation);
         var method = typeof(CacheManagementService).GetMethod(
             "RunGameRemovalAcrossDatasourcesAsync",
@@ -302,7 +557,8 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
         }
         Task<CacheManagementService.GameCacheRemovalReport> RunAsync(
             CacheManagementService selectedManager,
-            Action<CacheManagementService.GameCacheRemovalReport, CacheManagementService.GameCacheRemovalReport>? aggregate = null) =>
+            Action<CacheManagementService.GameCacheRemovalReport, CacheManagementService.GameCacheRemovalReport>? aggregate = null,
+            Func<double, string, Dictionary<string, object?>?, int, long, Task>? progress = null) =>
             (Task<CacheManagementService.GameCacheRemovalReport>)method.Invoke(
             selectedManager,
             [
@@ -312,10 +568,10 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
                     Array.Empty<string>(),
                     removalKind,
                     gameAppId,
-                    gameName,
-                    service),
+                gameName,
+                service),
                 new CacheManagementService.GameCacheRemovalReport { GameAppId = gameAppId ?? 0 }, CancellationToken.None,
-                null, null,
+                progress, null,
                 aggregate
             ])!;
         var priorUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
@@ -362,9 +618,26 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
                 await File.WriteAllLinesAsync(betaLog, new[] { targetLine, keepLine });
             }
 
-            var report = await RunAsync(manager);
+            var progressCounts = new List<(int Files, long Bytes)>();
+            var report = await RunAsync(
+                manager,
+                progress: (_, _, _, files, bytes) =>
+                {
+                    progressCounts.Add((files, bytes));
+                    return Task.CompletedTask;
+                });
 
             Assert.True(report.LogEntriesRemoved > 0);
+            Assert.NotEmpty(progressCounts);
+            Assert.All(
+                progressCounts.Zip(progressCounts.Skip(1)),
+                pair =>
+                {
+                    Assert.True(pair.First.Files <= pair.Second.Files);
+                    Assert.True(pair.First.Bytes <= pair.Second.Bytes);
+                });
+            Assert.Equal(report.CacheFilesDeleted, progressCounts[^1].Files);
+            Assert.Equal(checked((long)report.TotalBytesFreed), progressCounts[^1].Bytes);
             await using var finalContext = contexts.CreateDbContext();
             var remainingDownload = Assert.Single(await finalContext.Downloads.ToListAsync());
             Assert.Equal("retired", remainingDownload.Datasource);
@@ -493,8 +766,33 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             processes,
             pathResolver,
             TimeProvider.System);
-        var state = DispatchProxy.Create<IStateService, NullReturningProxy>();
-        var cacheManager = new CacheManagementService(
+        var retainedState = StateTestMethods.CreateStateService(runRoot);
+        retainedState.SetSetupCompleted(true);
+        IStateService state = retainedState;
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
+        OperationStateService? repairOwner = null;
+        CacheManagementService? cacheManager = null;
+        RustLogRemovalService? removal = null;
+        RustLogProcessorService? processor = null;
+        using var services = new ServiceCollection()
+            .AddSingleton<OperationStateService>(_ => repairOwner!)
+            .AddSingleton<CacheManagementService>(_ => cacheManager!)
+            .AddSingleton<RustLogRemovalService>(_ => removal!)
+            .AddSingleton<RustLogProcessorService>(_ => processor!)
+            .AddSingleton(sources)
+            .AddSingleton(new DatasourceCapabilityService(sources))
+            .AddSingleton(notifications)
+            .BuildServiceProvider();
+        repairOwner = new OperationStateService(
+            NullLogger<OperationStateService>.Instance,
+            configuration,
+            retainedState,
+            services.GetRequiredService<IServiceScopeFactory>(),
+            DispatchProxy.Create<IHostApplicationLifetime, NullReturningProxy>(),
+            processes,
+            tracker);
+        await repairOwner.StartAsync(CancellationToken.None);
+        cacheManager = new CacheManagementService(
             configuration,
             NullLogger<CacheManagementService>.Instance,
             pathResolver,
@@ -505,23 +803,34 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             contexts,
             gameCacheDetectionService: null!,
             tracker,
-            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            notifications,
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(sources),
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            repairOwner);
         var removalLogger = new CapturingLogger<RustLogRemovalService>();
-        var removal = new RustLogRemovalService(
+        removal = new RustLogRemovalService(
             removalLogger,
             pathResolver,
-            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            notifications,
             cacheManager,
             rust,
             rotation,
             contexts,
             sources,
             tracker,
-            state);
+            state,
+            repairOwner);
+        processor = new RustLogProcessorService(
+            NullLogger<RustLogProcessorService>.Instance,
+            pathResolver,
+            notifications,
+            retainedState,
+            services,
+            rust,
+            sources,
+            tracker);
         var start = typeof(RustLogRemovalService).GetMethod(
             "StartRemovalAsync",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -587,6 +896,17 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
                 FOR EACH ROW EXECUTE FUNCTION reject_target_download_delete();
                 """);
             await File.WriteAllLinesAsync(alphaLog, new[] { targetLine, keepLine });
+            foreach (var datasource in new[] { "alpha", "beta" })
+            {
+                retainedState.SetLogPosition(datasource, 300);
+                retainedState.SetLogSourcePositions(
+                    datasource,
+                    new Dictionary<string, long> { [LogSourceLayout.MonolithicStem] = 300 });
+                retainedState.SetLogTotalLines(datasource, 12);
+                await File.WriteAllTextAsync(
+                    Path.Combine(pathResolver.GetOperationsDirectory(), $"rust_resume_{datasource}.json"),
+                    "resume");
+            }
             OperationInfo? terminal = null;
             tracker.OperationTerminal += operation =>
             {
@@ -607,9 +927,18 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             Assert.Equal(3, await finalContext.Downloads.CountAsync());
             Assert.Equal(3, await finalContext.LogEntries.CountAsync());
             Assert.Equal(3, await finalContext.LogEntries.CountAsync(row => row.DownloadId != null));
+            foreach (var datasource in new[] { "alpha", "beta" })
+            {
+                Assert.Equal(0, retainedState.GetLogPosition(datasource));
+                Assert.Empty(retainedState.GetLogSourcePositions(datasource));
+                Assert.Equal(0, retainedState.GetLogTotalLines(datasource));
+                Assert.False(File.Exists(
+                    Path.Combine(pathResolver.GetOperationsDirectory(), $"rust_resume_{datasource}.json")));
+            }
         }
         finally
         {
+            await repairOwner.StopAsync(CancellationToken.None);
             Environment.SetEnvironmentVariable("DATABASE_URL", priorUrl);
         }
     }

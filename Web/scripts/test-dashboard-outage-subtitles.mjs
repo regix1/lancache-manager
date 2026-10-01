@@ -262,13 +262,16 @@ test('an error box that can end its card drops its bottom margin there', () => {
   assert.deepEqual(missing, []);
 });
 
-test('a past range says "live only" once on the live-only cards, not again in the subtitle', () => {
-  const cards = statCards({ isHistoricalView: true });
+test('a past range keeps current download and client values without a historical subtitle', () => {
+  const cards = statCards({
+    isHistoricalView: true,
+    stats: { totalActiveDownloads: 2, activeClients: 3 }
+  });
 
-  for (const key of ['activeDownloads', 'activeClients']) {
-    assert.equal(cards[key].value, 'dashboard.cards.disabled');
-    assert.equal(cards[key].subtitle, undefined);
-  }
+  assert.equal(cards.activeDownloads.value, 2);
+  assert.equal(cards.activeDownloads.subtitle, undefined);
+  assert.equal(cards.activeClients.value, 3);
+  assert.equal(cards.activeClients.subtitle, undefined);
 });
 
 test('Cache Growth shows one failure message: its box when only it failed, none under the banner or the page box', () => {

@@ -15,6 +15,9 @@ public sealed class SpeedSnapshotVisibilityTests
     private static DownloadSpeedSnapshot BuildRawSnapshot() => new()
     {
         TimestampUtc = new DateTime(2026, 7, 22, 12, 0, 0, DateTimeKind.Utc),
+        StreamId = "visibility-stream",
+        Revision = 9,
+        IsAvailable = true,
         WindowSeconds = 4,
         // Raw totals are deliberately wrong so a test failure proves recomputation.
         TotalBytesPerSecond = 999_999,
@@ -97,37 +100,21 @@ public sealed class SpeedSnapshotVisibilityTests
     }
 
     [Fact]
-    public void SignalRBroadcastAndRestEndpointUseTheSharedBuilder()
+    public void RestAndPublishedProjectionUseTheSameSnapshot()
     {
-        var trackerSource = ReadSource(Path.Combine("Core", "Services", "Logs", "RustSpeedTrackerService.cs"));
+        var raw = BuildRawSnapshot();
+        var tracker = CacheScanGateHarness.TrackerWith(raw, HiddenClients);
+        var rest = tracker.GetCurrentSnapshot();
+        var published = RustSpeedTrackerService.BuildClientVisibleSnapshot(
+            raw, HiddenClients, EvictedDataMode.Show.ToWireString());
 
-        var buildForBroadcast = trackerSource.IndexOf("var visibleSnapshot = BuildClientVisibleSnapshot(", StringComparison.Ordinal);
-        var broadcast = trackerSource.IndexOf("NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, visibleSnapshot)", StringComparison.Ordinal);
-        Assert.True(buildForBroadcast >= 0, "the broadcast must build the client-visible projection");
-        Assert.True(broadcast > buildForBroadcast, "the hub send must use the client-visible projection");
-
-        var controllerSource = ReadSource(Path.Combine("Controllers", "Dashboard", "SpeedsController.cs"));
-        Assert.Contains("_speedTrackerService.GetCurrentSnapshot()", controllerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("GetHiddenClientIps", GetCurrentSpeedsSlice(controllerSource), StringComparison.Ordinal);
-    }
-
-    private static string GetCurrentSpeedsSlice(string controllerSource)
-    {
-        var start = controllerSource.IndexOf("GetCurrentSpeeds()", StringComparison.Ordinal);
-        var end = controllerSource.IndexOf("GetSpeedHistoryAsync", StringComparison.Ordinal);
-        Assert.True(start >= 0 && end > start);
-        return controllerSource[start..end];
-    }
-
-    private static string ReadSource(string relativePath)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
-        return File.ReadAllText(Path.Combine(root, "Api", "LancacheManager", relativePath));
+        Assert.Equal(published.StreamId, rest.StreamId);
+        Assert.Equal(published.Revision, rest.Revision);
+        Assert.Equal(published.IsAvailable, rest.IsAvailable);
+        Assert.Equal(published.TotalBytesPerSecond, rest.TotalBytesPerSecond);
+        Assert.Equal(
+            published.GameSpeeds.Select(game => (game.Service, game.ClientIp, game.RequestCount)),
+            rest.GameSpeeds.Select(game => (game.Service, game.ClientIp, game.RequestCount)));
+        Assert.DoesNotContain(rest.GameSpeeds, game => game.ClientIp == "10.0.0.9");
     }
 }

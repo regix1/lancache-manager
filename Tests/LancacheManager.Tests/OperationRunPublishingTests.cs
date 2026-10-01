@@ -313,6 +313,32 @@ public sealed class OperationRunPublishingTests
     }
 
     [Fact]
+    public void ARestoredLiveIngestPassUsesTheExistingLiveRowRules()
+    {
+        var (tracker, recorder) = CreateRecordingTracker();
+        var operationId = Guid.NewGuid();
+
+        Assert.True(tracker.TryRestoreOperation(
+            operationId,
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource(),
+            notice: new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled),
+            ownerCompletes: true,
+            liveIngest: true));
+
+        var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(operationId));
+        Assert.True(operation.LiveIngest);
+        Assert.Empty(SentRows(recorder));
+
+        tracker.CompleteOperation(operationId, false, error: "restored failure");
+        var row = Assert.Single(SentRows(recorder));
+        Assert.True(row.LiveIngest);
+        Assert.True(row.Retained);
+        Assert.Equal(RunVisibility.Hidden, row.Visibility);
+    }
+
+    [Fact]
     public void LiveLogIngestRowsAreHiddenAndOnlyItsNewestFailureIsKept()
     {
         var (tracker, recorder) = CreateRecordingTracker();
@@ -784,7 +810,7 @@ public sealed class OperationRunPublishingTests
 
     private static OperationQueueService CreateQueue(UnifiedOperationTracker tracker) => new(
         tracker,
-        new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+        OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
         NullLogger<OperationQueueService>.Instance);
 
     private static UnifiedOperationTracker CreateTracker() =>

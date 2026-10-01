@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
@@ -72,7 +73,10 @@ public sealed class CacheScanDetectionPhaseTests
         PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
         var scanId = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            new OperationConflictChecker(
+                tracker,
+                ctx._operationStateService,
+                NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var promoted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan",
@@ -97,10 +101,12 @@ public sealed class CacheScanDetectionPhaseTests
             Assert.False(promoted.Task.IsCompleted);
             if (cancel) tracker.CancelOperation(removalId);
         };
-        await ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await ctx.WaitForRepairAsync(
+            ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None),
+            TimeSpan.FromSeconds(5));
         Assert.NotEqual(Guid.Empty, removalId);
-        // Without cancellation removal reaches the fixture's absent summary service after commit.
-        Assert.Equal(cancel ? OperationStatus.Cancelled : OperationStatus.Failed, tracker.GetOperation(removalId)!.Status);
+        Assert.Equal(cancel ? OperationStatus.Cancelled : OperationStatus.Completed,
+            tracker.GetOperation(removalId)!.Status);
         Assert.Equal(populated ? cancel ? 10 : 5 : 0, await context.PrefillCachedApps.CountAsync());
         if (!cancel) Assert.All(await context.PrefillCachedApps.AsNoTracking().ToListAsync(), app => Assert.Equal("456", app.AppId));
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(scanId)!.Status);
@@ -212,8 +218,9 @@ public sealed class CacheScanDetectionPhaseTests
 
         ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access"] = 10 });
         ctx.State.SetLogTotalLines(source.Name, 20);
+        var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(
-            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            processManager,
             NullLogger<UnifiedOperationTracker>.Instance);
         var paths = new TempDirPathResolver(ctx.Root) { DockerSocketAvailable = true };
         var rust = new SaveRustProcessHelper(target, paths, tracker);
@@ -221,10 +228,34 @@ public sealed class CacheScanDetectionPhaseTests
         var capability = new DatasourceCapabilityService(ctx.Datasources);
         var gate = Idle();
         var configuration = new ConfigurationBuilder().Build();
-        var operationState = new OperationStateService(
-            NullLogger<OperationStateService>.Instance,
+        OperationStateService operationState = null!;
+        CacheReconciliationService repairService = null!;
+        RustLogProcessorService logProcessor = null!;
+        CacheManagementService cacheManagement = null!;
+        CorruptionDetectionService corruptionDetection = null!;
+        var registrations = new ServiceCollection();
+        registrations.AddScoped(_ => new AppDbContext(database.Options));
+        registrations.AddSingleton(_ => operationState!);
+        registrations.AddSingleton(_ => repairService!);
+        registrations.AddSingleton(_ => logProcessor!);
+        registrations.AddSingleton(_ => cacheManagement!);
+        registrations.AddSingleton(_ => corruptionDetection!);
+        registrations.AddSingleton(ctx.Datasources);
+        registrations.AddSingleton(capability);
+        registrations.AddSingleton((ISignalRNotificationService)(object)ctx.Notifications);
+        using var services = registrations.BuildServiceProvider();
+        var lifetime = new TestHostApplicationLifetime();
+        var repairLog = new CapturingLogger<OperationStateService>();
+        var purgeLog = new CapturingLogger<CacheReconciliationService>();
+        operationState = new OperationStateService(
+            repairLog,
             configuration,
-            ctx.State);
+            ctx.State,
+            services.GetRequiredService<IServiceScopeFactory>(),
+            lifetime,
+            processManager,
+            tracker);
+        await operationState.StartAsync(CancellationToken.None);
         var detectionStore = new GameCacheDetectionDataService(
             database.Factory,
             NullLogger<GameCacheDetectionDataService>.Instance);
@@ -242,19 +273,55 @@ public sealed class CacheScanDetectionPhaseTests
             capability,
             tracker,
             gate);
-        var registrations = new ServiceCollection();
-        registrations.AddScoped(_ => new AppDbContext(database.Options));
-        using var services = registrations.BuildServiceProvider();
         var conflicts = new OperationConflictChecker(
             tracker,
+            operationState,
             NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker,
             conflicts,
             NullLogger<OperationQueueService>.Instance);
+        logProcessor = new RustLogProcessorService(
+            NullLogger<RustLogProcessorService>.Instance,
+            paths,
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            ctx.State,
+            services,
+            rust,
+            ctx.Datasources,
+            tracker);
+        corruptionDetection = new CorruptionDetectionService(
+            NullLogger<CorruptionDetectionService>.Instance,
+            configuration,
+            paths,
+            rust,
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            ctx.Datasources,
+            database.Factory,
+            operationState,
+            tracker,
+            capability,
+            gate);
+        cacheManagement = new CacheManagementService(
+            configuration,
+            NullLogger<CacheManagementService>.Instance,
+            paths,
+            rust,
+            nginx,
+            ctx.Datasources,
+            ctx.State,
+            database.Factory,
+            detection,
+            tracker,
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            envFileReader: null!,
+            conflicts,
+            capability,
+            gate,
+            operationState);
         var reconciliation = new CacheReconciliationService(
             services,
-            NullLogger<CacheReconciliationService>.Instance,
+            purgeLog,
             configuration,
             ctx.Datasources,
             ctx.State,
@@ -270,7 +337,17 @@ public sealed class CacheScanDetectionPhaseTests
             new TestHostApplicationLifetime(),
             capability,
             gate);
+        repairService = reconciliation;
         await using var requestContext = new AppDbContext(database.Options);
+        var speedTracker = new RustSpeedTrackerService(
+            NullLogger<RustSpeedTrackerService>.Instance,
+            configuration,
+            paths,
+            ctx.Datasources,
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            capability,
+            ctx.State);
         var controller = new StatsController(
             requestContext,
             clientGroupsRepository: null!,
@@ -284,7 +361,8 @@ public sealed class CacheScanDetectionPhaseTests
             capability,
             clientHostnameService: null!,
             eventsService: null!,
-            gate)
+            gate,
+            speedTracker)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -315,33 +393,67 @@ public sealed class CacheScanDetectionPhaseTests
             }
 
             var originalIdentity = NginxWriterProbe.ReadIdentity(target);
+            var firstLogStart = purgeLog.Entries.Count;
             var firstId = await SaveAsync();
-            var first = await WaitForTerminalAsync(tracker, firstId);
+            var first = await WaitForTerminalAsync(tracker, firstId, RepairErrors);
             Assert.Equal(OperationStatus.Failed, first.Status);
+            var firstWarnings = purgeLog.Entries
+                .Skip(firstLogStart)
+                .Where(entry => entry.Level == LogLevel.Warning && entry.Exception is not null)
+                .ToList();
+            var firstWarning = Assert.Single(firstWarnings);
+            var firstError = Assert.IsType<InvalidOperationException>(firstWarning.Exception);
+            Assert.Contains("first reopen denied", firstError.Message, StringComparison.Ordinal);
+            Assert.Equal(1, nginx.SignalCalls);
             Assert.True(rust.Runs == 1, first.Message);
             Assert.True(rust.PublicationCount == 1, rust.Arguments);
             Assert.NotEqual(originalIdentity, NginxWriterProbe.ReadIdentity(target));
             Assert.DoesNotContain("/remove", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
             Assert.Contains("/keep", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
-            Assert.Equal(8, ctx.State.GetLogSourcePositions(source.Name)["access"]);
-            Assert.Equal(17, ctx.State.GetLogTotalLines(source.Name));
+            Assert.Empty(ctx.State.GetLogSourcePositions(source.Name));
+            Assert.Equal(0, ctx.State.GetLogTotalLines(source.Name));
             await AssertRemovalRowsAsync(database, removed: false);
 
+            var secondLogStart = purgeLog.Entries.Count;
             var secondId = await SaveAsync();
-            var second = await WaitForTerminalAsync(tracker, secondId);
+            var second = await WaitForTerminalAsync(tracker, secondId, RepairErrors);
             Assert.Equal(OperationStatus.Failed, second.Status);
-            Assert.Equal(8, ctx.State.GetLogSourcePositions(source.Name)["access"]);
-            Assert.Equal(17, ctx.State.GetLogTotalLines(source.Name));
+            var secondWarnings = purgeLog.Entries
+                .Skip(secondLogStart)
+                .Where(entry => entry.Level == LogLevel.Warning && entry.Exception is not null)
+                .ToList();
+            var secondWarning = Assert.Single(secondWarnings);
+            var secondError = Assert.IsType<InvalidOperationException>(secondWarning.Exception);
+            Assert.Contains("second reopen denied", secondError.Message, StringComparison.Ordinal);
+            Assert.Equal(2, nginx.SignalCalls);
+            Assert.Empty(ctx.State.GetLogSourcePositions(source.Name));
+            Assert.Equal(0, ctx.State.GetLogTotalLines(source.Name));
             await AssertRemovalRowsAsync(database, removed: false);
 
+            ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long>
+            {
+                ["access"] = 10,
+                ["steam"] = 7
+            });
+            ctx.State.SetLogTotalLines(source.Name, 20);
+            var thirdLogStart = purgeLog.Entries.Count;
             var thirdId = await SaveAsync();
-            var third = await WaitForTerminalAsync(tracker, thirdId);
+            var third = await WaitForTerminalAsync(tracker, thirdId, RepairErrors);
+            Assert.True(third.Status == OperationStatus.Completed, third.Message);
             Assert.Equal(OperationStatus.Completed, third.Status);
-            Assert.Equal(8, ctx.State.GetLogSourcePositions(source.Name)["access"]);
-            Assert.Equal(17, ctx.State.GetLogTotalLines(source.Name));
+            Assert.DoesNotContain(
+                purgeLog.Entries.Skip(thirdLogStart),
+                entry => entry.Level == LogLevel.Warning && entry.Exception is not null);
+            Assert.Equal(3, nginx.SignalCalls);
+            var positions = ctx.State.GetLogSourcePositions(source.Name);
+            Assert.Equal(8, positions["access"]);
+            Assert.Equal(6, positions["steam"]);
+            Assert.Equal(14, ctx.State.GetLogPosition(source.Name));
+            Assert.Equal(16, ctx.State.GetLogTotalLines(source.Name));
             await AssertRemovalRowsAsync(database, removed: true);
 
             Assert.Equal(3, rust.Runs);
+            Assert.Equal(2, rust.PublicationCount);
             Assert.Equal(3, nginx.SignalCalls);
             foreach (var operationId in new[] { firstId, secondId, thirdId })
             {
@@ -353,9 +465,17 @@ public sealed class CacheScanDetectionPhaseTests
                     value => value is EvictionRemovalComplete complete && complete.OperationId == operationId));
             }
             Assert.Equal(0, ctx.Notifications.Count(SignalREvents.EvictionScanStarted));
+
+            string RepairErrors() => string.Join(
+                Environment.NewLine,
+                repairLog.Entries
+                    .Where(entry => entry.Level >= LogLevel.Error)
+                    .Select(entry => $"{entry.Message}: {entry.Exception}"));
         }
         finally
         {
+            lifetime.StopApplication();
+            await operationState.StopAsync(CancellationToken.None);
             if (createdRustMarker && File.Exists(rustPath))
             {
                 Assert.Equal(rustMarker, await File.ReadAllTextAsync(rustPath));
@@ -388,7 +508,7 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal(scanId, Assert.IsType<EvictionScanProgress>(forwarded).OperationId);
         Assert.False(phase.IsCompleted);
 
-        ctx.Tracker.Complete(detection.Id);
+        await ctx.CompleteDetectionAsync(detection.Id);
 
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(ctx.Tracker.Waiting);
@@ -421,7 +541,7 @@ public sealed class CacheScanDetectionPhaseTests
         var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None);
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         Assert.NotEqual(detectionId, detection.Id);
-        ctx.Tracker.Complete(detection.Id);
+        await ctx.CompleteDetectionAsync(detection.Id);
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
@@ -451,7 +571,10 @@ public sealed class CacheScanDetectionPhaseTests
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             new GameDetectionMetrics { ScanType = DetectionScanType.Full });
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            new OperationConflictChecker(
+                tracker,
+                ctx._operationStateService,
+                NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -479,7 +602,10 @@ public sealed class CacheScanDetectionPhaseTests
         var detectionId = tracker.RegisterOperation(
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
         var queue = new OperationQueueService(tracker,
-            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            new OperationConflictChecker(
+                tracker,
+                ctx._operationStateService,
+                NullLogger<OperationConflictChecker>.Instance),
             NullLogger<OperationQueueService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var continued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -622,7 +748,111 @@ public sealed class CacheScanDetectionPhaseTests
 
         Assert.Equal(parkedId, continued);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(parkedId)!.Status);
+        Assert.True(tracker.GetOperation(parkedId)!.OwnerCompletes);
         Assert.Equal(parkedId, Assert.Single(tracker.GetActiveOperations(OperationType.EvictionScan)).Id);
+    }
+
+    [Fact]
+    public async Task RepairScanKeepsTrackerAndCheckpointIdentitiesSeparate()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "lcm-repair-scan-" + Guid.NewGuid().ToString("N"));
+        var paths = new TempDirPathResolver(root);
+        var binary = paths.GetRustEvictionScanPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        await File.WriteAllTextAsync(binary, string.Empty);
+        var processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(
+            processes,
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var rust = new CapturingEvictionRust(processes, paths, tracker);
+        var originalId = Guid.NewGuid();
+        var checkpointId = Guid.NewGuid();
+        var repairPath = Path.Combine(root, "repair.json");
+
+        var result = await rust.RunEvictionScanAsync(
+            Path.Combine(root, "datasources.json"),
+            Path.Combine(root, "progress.json"),
+            CancellationToken.None,
+            originalId,
+            onProgressEvent: null,
+            scanId: checkpointId,
+            repairPath: repairPath);
+
+        Assert.True(result.Success);
+        Assert.Equal(originalId, rust.TrackedOperationId);
+        Assert.Contains($"--operation-id \"{checkpointId}\"", rust.Arguments, StringComparison.Ordinal);
+        Assert.Contains($"--repair \"{repairPath}\"", rust.Arguments, StringComparison.Ordinal);
+        Assert.DoesNotContain(originalId.ToString(), rust.Arguments, StringComparison.OrdinalIgnoreCase);
+        var missingCheckpoint = await rust.RunEvictionScanAsync(
+            Path.Combine(root, "datasources.json"),
+            operationId: originalId,
+            repairPath: repairPath);
+        Assert.False(missingCheckpoint.Success);
+        Assert.NotNull(missingCheckpoint.Error);
+        Assert.Contains("scan ID is required", missingCheckpoint.Error, StringComparison.OrdinalIgnoreCase);
+
+        if (Directory.Exists(root))
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FinalizedInternalCheckpointDoesNotStartAnotherScan()
+    {
+        var databaseName = "lcm-finalized-checkpoint-" + Guid.NewGuid().ToString("N");
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(databaseName)
+            .Options;
+        var registrations = new ServiceCollection();
+        registrations.AddScoped(_ => new AppDbContext(options));
+        using var services = registrations.BuildServiceProvider();
+        var checkpointId = Guid.NewGuid();
+        await using (var scope = services.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.EvictionScanCheckpoints.Add(new EvictionScanCheckpoint
+            {
+                OperationId = checkpointId,
+                Processed = 7,
+                Evicted = 3,
+                StartedAtUtc = DateTime.UtcNow.AddMinutes(-2),
+                FinalizedAtUtc = DateTime.UtcNow.AddMinutes(-1)
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var scan = (CacheReconciliationService)RuntimeHelpers.GetUninitializedObject(
+            typeof(CacheReconciliationService));
+        PhaseContext.SetField(scan, "_serviceProvider", services);
+        await scan.ReconcileRepairAsync(
+            new OperationRepair
+            {
+                Id = Guid.NewGuid(),
+                Type = OperationType.CacheClearing,
+                Name = "Cache Clearing",
+                StartedAt = DateTime.UtcNow.AddMinutes(-3),
+                RetryAtUtc = DateTime.UtcNow.AddSeconds(-1),
+                EvictionScanId = checkpointId,
+                CacheClearing = new CacheClearingRepair { EntityKey = "all" },
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        CacheRoot = "C:/cache",
+                        KeyScheme = "monolithic",
+                        NativeLaunchAuthorized = true,
+                        ReconcileCache = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        await using var verify = new AppDbContext(options);
+        Assert.Single(await verify.EvictionScanCheckpoints.ToListAsync());
     }
 
     [Fact]
@@ -731,8 +961,7 @@ public sealed class CacheScanDetectionPhaseTests
         NotificationMode mode, RunTrigger trigger, RunVisibility expected)
     {
         using var ctx = new PhaseContext();
-        await using var database = await TestDatabase.CreateAsync();
-        await using var context = new AppDbContext(database.Options);
+        await using var context = ctx.CreateContext();
         context.Downloads.Add(new Download
         {
             Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
@@ -742,12 +971,22 @@ public sealed class CacheScanDetectionPhaseTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
-        // What the scan reads on its way to its Remove-mode cleanup; only the Rust step is a stand-in.
+        // What the scan reads on its way to its Remove-mode cleanup. The native stand-in marks
+        // the scan checkpoint finalized so this test can isolate parent-to-child notice transfer.
         ctx.State.SetEvictedDataMode(EvictedDataMode.Remove.ToWireString());
         PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
         PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
         PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
-        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper());
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper(
+            async (operationId, cancellationToken) =>
+            {
+                var checkpoint = await context.EvictionScanCheckpoints
+                    .SingleAsync(item => item.OperationId == operationId, cancellationToken);
+                checkpoint.FinalizedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(cancellationToken);
+            }));
+        var scanNotice = new RunNotice(mode, trigger);
+        var scanId = ctx.RegisterScan(scanNotice);
         RunVisibility? whileRunning = null;
         Guid removalId = default;
         ctx.Notifications.OnSent = (eventName, value) =>
@@ -755,16 +994,17 @@ public sealed class CacheScanDetectionPhaseTests
             if (eventName == SignalREvents.EvictionRemovalStarted && value is EvictionRemovalStarted started)
             {
                 removalId = started.OperationId;
+                Assert.Equal(OperationStatus.Running, tracker.GetOperation(scanId)!.Status);
                 whileRunning = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == started.OperationId).Visibility;
             }
         };
-        var scanNotice = new RunNotice(mode, trigger);
-        var scanId = ctx.RegisterScan(scanNotice);
 
-        await ((Task)typeof(CacheReconciliationService)
+        var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!)
-            .WaitAsync(TimeSpan.FromSeconds(10));
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
 
         Assert.Equal(expected, whileRunning);
         // A fresh notice with the scan's mode and trigger; the scan's own notice stays with the scan.
@@ -833,7 +1073,8 @@ public sealed class CacheScanDetectionPhaseTests
 
     private static async Task<OperationInfo> WaitForTerminalAsync(
         UnifiedOperationTracker tracker,
-        Guid operationId)
+        Guid operationId,
+        Func<string>? diagnostic = null)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (true)
@@ -845,7 +1086,11 @@ public sealed class CacheScanDetectionPhaseTests
                 return operation;
             }
 
-            Assert.True(DateTime.UtcNow < deadline, $"Operation {operationId} did not reach a terminal state");
+            var details = diagnostic is null ? null : diagnostic();
+            var message = string.IsNullOrWhiteSpace(details)
+                ? $"Operation {operationId} did not reach a terminal state"
+                : $"Operation {operationId} did not reach a terminal state{Environment.NewLine}{details}";
+            Assert.True(DateTime.UtcNow < deadline, message);
             await Task.Delay(10);
         }
     }
@@ -913,7 +1158,7 @@ public sealed class CacheScanDetectionPhaseTests
             Assert.False(string.IsNullOrWhiteSpace(resultPath));
             Assert.True(File.Exists(checkPath));
 
-            if (Runs == 1)
+            if (Runs is 1 or 3)
             {
                 var check = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
                     await File.ReadAllTextAsync(checkPath, cancellationToken),
@@ -947,13 +1192,18 @@ public sealed class CacheScanDetectionPhaseTests
                     cancellationToken);
             }
 
-            var report = Runs == 1
-                ? """
-                  {"success":true,"lines_removed":3,"log_lines_removed_by_source":{"access":3},"log_lines_removed_before_position_by_source":{"access":2},"permission_errors":0,"error":null}
-                  """
-                : """
-                  {"success":true,"lines_removed":0,"log_lines_removed_by_source":{},"log_lines_removed_before_position_by_source":{},"permission_errors":0,"error":null}
-                  """;
+            var report = Runs switch
+            {
+                1 => """
+                     {"success":true,"lines_removed":3,"log_lines_removed_by_source":{"access":3},"log_lines_removed_before_position_by_source":{"access":2},"permission_errors":0,"error":null}
+                     """,
+                3 => """
+                     {"success":true,"lines_removed":4,"log_lines_removed_by_source":{"access":3,"steam":1},"log_lines_removed_before_position_by_source":{"access":2,"steam":1},"permission_errors":0,"error":null}
+                     """,
+                _ => """
+                     {"success":true,"lines_removed":0,"log_lines_removed_by_source":{},"log_lines_removed_before_position_by_source":{},"permission_errors":0,"error":null}
+                     """
+            };
             await File.WriteAllTextAsync(quoted[2], report, cancellationToken);
             return new ProcessExecutionResult { ExitCode = 0 };
         }
@@ -1041,6 +1291,11 @@ public sealed class CacheScanDetectionPhaseTests
     {
         private readonly string _root;
         private readonly CacheReconciliationService _scan;
+        private readonly ServiceProvider _services;
+        private readonly PhaseContexts _contexts;
+        internal readonly OperationStateService _operationStateService;
+        private readonly TestHostApplicationLifetime _lifetime;
+        private readonly CapturingLogger<OperationStateService> _repairLog = new();
 
         public FakeTracker Tracker { get; }
         public GameCacheDetectionService Detection { get; }
@@ -1069,8 +1324,6 @@ public sealed class CacheScanDetectionPhaseTests
                 .GetField("_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(stateService, new AppState());
 
-            var operationStateService = new OperationStateService(
-                NullLogger<OperationStateService>.Instance, configuration, stateService);
             var datasourceService = new DatasourceService(
                 configuration, pathResolver, NullLogger<DatasourceService>.Instance);
 
@@ -1080,6 +1333,18 @@ public sealed class CacheScanDetectionPhaseTests
             File.WriteAllText(Path.Combine(datasource.LogPath, "access.log"), string.Empty);
 
             var capabilityService = new DatasourceCapabilityService(datasourceService);
+            var databaseOptions = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase("cache-scan-phase-" + Guid.NewGuid().ToString("N"))
+                .Options;
+            var contexts = new PhaseContexts(databaseOptions);
+            _contexts = contexts;
+            var detectionStore = new GameCacheDetectionDataService(
+                contexts,
+                NullLogger<GameCacheDetectionDataService>.Instance);
+            var detectorPath = pathResolver.GetRustGameDetectorPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(detectorPath)!);
+            File.WriteAllText(detectorPath, string.Empty);
+            Directory.CreateDirectory(datasource.CachePath);
             State = stateService;
             Datasources = datasourceService;
 
@@ -1087,33 +1352,59 @@ public sealed class CacheScanDetectionPhaseTests
                 .Create<ISignalRNotificationService, RecordingNotifications>();
             Tracker = (FakeTracker)DispatchProxy
                 .Create<IUnifiedOperationTracker, FakeTracker>();
+            var detectionRust = new PhaseRust(
+                pathResolver,
+                (IUnifiedOperationTracker)(object)Tracker);
 
-            Detection = new GameCacheDetectionService(
+            OperationStateService operationStateService = null!;
+            GameCacheDetectionService detectionService = null!;
+            CacheReconciliationService reconciliationService = null!;
+            var registrations = new ServiceCollection();
+            registrations.AddSingleton(_ => operationStateService);
+            registrations.AddSingleton(_ => detectionService);
+            registrations.AddSingleton(_ => reconciliationService);
+            registrations.AddSingleton(datasourceService);
+            registrations.AddSingleton(capabilityService);
+            registrations.AddSingleton((ISignalRNotificationService)(object)Notifications);
+            registrations.AddScoped(_ => contexts.CreateDbContext());
+            _services = registrations.BuildServiceProvider();
+            _lifetime = new TestHostApplicationLifetime();
+            _operationStateService = operationStateService = new OperationStateService(
+                _repairLog,
+                configuration,
+                stateService,
+                _services.GetRequiredService<IServiceScopeFactory>(),
+                _lifetime,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                (IUnifiedOperationTracker)(object)Tracker);
+
+            Detection = detectionService = new GameCacheDetectionService(
                 NullLogger<GameCacheDetectionService>.Instance,
                 pathResolver,
                 operationStateService,
-                dbContextFactory: null!,
-                detectionDataService: null!,
+                contexts,
+                detectionStore,
                 evictedDetectionPreservationService: null!,
                 unknownGameResolutionService: null!,
-                rustProcessHelper: null!,
+                detectionRust,
                 (ISignalRNotificationService)(object)Notifications,
                 datasourceService,
                 capabilityService,
                 (IUnifiedOperationTracker)(object)Tracker,
                 Idle());
+            _operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-            _scan = (CacheReconciliationService)RuntimeHelpers.GetUninitializedObject(typeof(CacheReconciliationService));
-            SetField(_scan, "_logger", NullLogger<CacheReconciliationService>.Instance);
-            SetField(_scan, "_operationTracker", (IUnifiedOperationTracker)(object)Tracker);
-            SetField(_scan, "_notifications", (ISignalRNotificationService)(object)Notifications);
-            SetField(_scan, "_gameCacheDetectionService", Detection);
-            SetField(_scan, "_capabilityService", capabilityService);
-            foreach (var name in new[] { "_evictionRemovalTerminalStates", "_evictionScanTerminalStates" })
-            {
-                var field = typeof(CacheReconciliationService).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
-                field.SetValue(_scan, Activator.CreateInstance(field.FieldType));
-            }
+            _scan = reconciliationService = new PhaseReconciliation(
+                _services,
+                configuration,
+                datasourceService,
+                stateService,
+                (ISignalRNotificationService)(object)Notifications,
+                (IUnifiedOperationTracker)(object)Tracker,
+                pathResolver,
+                Detection,
+                _lifetime,
+                capabilityService);
         }
 
         public Guid RegisterScan(RunNotice? notice = null)
@@ -1122,6 +1413,8 @@ public sealed class CacheScanDetectionPhaseTests
                 BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_scan,
                 ["Eviction Scan", new CancellationTokenSource(), notice ?? new RunNotice(NotificationMode.All, RunTrigger.Manual)])!;
         }
+
+        public AppDbContext CreateContext() => _contexts.CreateDbContext();
 
         public Task ReportProgressAsync(Guid id) => (Task)typeof(CacheReconciliationService)
             .GetMethod("ReportScanProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -1134,8 +1427,43 @@ public sealed class CacheScanDetectionPhaseTests
             return (Task)phase.Invoke(_scan, [scanOperationId, token])!;
         }
 
+        public async Task CompleteDetectionAsync(Guid operationId)
+        {
+            Tracker.Complete(operationId);
+            Tracker.Get(operationId)!.CancellationTokenSource!.Cancel();
+            var current = typeof(GameCacheDetectionService)
+                .GetField("_currentDetectionTask", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(Detection);
+            if (current is not null)
+            {
+                var worker = (Task)current.GetType().GetField("Item2")!.GetValue(current)!;
+                await worker.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+
+        public async Task WaitForRepairAsync(Task task, TimeSpan timeout)
+        {
+            try
+            {
+                await task.WaitAsync(timeout);
+            }
+            catch (TimeoutException exception)
+            {
+                var details = string.Join(
+                    Environment.NewLine,
+                    _repairLog.Entries
+                        .Where(entry => entry.Level >= LogLevel.Error)
+                        .Select(entry => $"{entry.Message}: {entry.Exception}"));
+                throw new TimeoutException(details, exception);
+            }
+        }
+
         public void Dispose()
         {
+            Detection.Dispose();
+            _lifetime.StopApplication();
+            _operationStateService.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
+            _services.Dispose();
             try
             {
                 Directory.Delete(_root, recursive: true);
@@ -1152,32 +1480,152 @@ public sealed class CacheScanDetectionPhaseTests
                 .SetValue(target, value);
     }
 
+    private sealed class PhaseContexts(DbContextOptions<AppDbContext> options)
+        : IDbContextFactory<AppDbContext>
+    {
+        public AppDbContext CreateDbContext() => new(options);
+
+        public Task<AppDbContext> CreateDbContextAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(new AppDbContext(options));
+        }
+    }
+
+    private sealed class PhaseRust(
+        IPathResolver pathResolver,
+        IUnifiedOperationTracker operationTracker)
+        : RustProcessHelper(
+            NullLogger<RustProcessHelper>.Instance,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            pathResolver,
+            operationTracker)
+    {
+        public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo process,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new ProcessExecutionResult { ExitCode = 0 };
+        }
+    }
+
+    private sealed class PhaseReconciliation(
+        IServiceProvider services,
+        IConfiguration configuration,
+        DatasourceService datasourceService,
+        IStateService stateService,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker,
+        IPathResolver pathResolver,
+        GameCacheDetectionService gameCacheDetectionService,
+        IHostApplicationLifetime applicationLifetime,
+        DatasourceCapabilityService capabilityService)
+        : CacheReconciliationService(
+            services,
+            NullLogger<CacheReconciliationService>.Instance,
+            configuration,
+            datasourceService,
+            stateService,
+            notifications,
+            operationTracker,
+            null!,
+            null!,
+            pathResolver,
+            null!,
+            gameCacheDetectionService,
+            null!,
+            null!,
+            applicationLifetime,
+            capabilityService,
+            Idle())
+    {
+        public override Task ResumeRepairAsync(
+            OperationRepair repair,
+            CancellationToken stoppingToken)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Captures the process boundary so the test can compare the application operation ID with
+    /// the independent database-checkpoint ID passed to the native command.
+    /// </summary>
+    private sealed class CapturingEvictionRust : RustProcessHelper
+    {
+        public CapturingEvictionRust(
+            ProcessManager processes,
+            IPathResolver paths,
+            IUnifiedOperationTracker tracker)
+            : base(
+                NullLogger<RustProcessHelper>.Instance,
+                processes,
+                paths,
+                tracker)
+        {
+        }
+
+        public Guid? TrackedOperationId { get; private set; }
+        public string Arguments { get; private set; } = string.Empty;
+
+        public override Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo process,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TrackedOperationId = operationId;
+            Arguments = process.Arguments;
+            return Task.FromResult(new ProcessExecutionResult
+            {
+                ExitCode = 0,
+                Output = "{\"success\":true,\"processed\":0,\"evicted\":0,\"unEvicted\":0}"
+            });
+        }
+    }
+
     /// <summary>
     /// The scan's Rust step answering with a finished scan that found nothing newly evicted and
     /// nothing back on disk, so the scan goes on to its Remove-mode cleanup.
     /// </summary>
     private sealed class ScanResultRustProcessHelper : RustProcessHelper
     {
-        public ScanResultRustProcessHelper()
+        private readonly Func<Guid, CancellationToken, Task> _complete;
+
+        public ScanResultRustProcessHelper(Func<Guid, CancellationToken, Task> complete)
             : base(
                 NullLogger<RustProcessHelper>.Instance,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 pathResolver: null!,
                 operationTracker: null!)
         {
+            _complete = complete;
         }
 
-        public override Task<RustExecutionResult> RunEvictionScanAsync(
+        public override async Task<RustExecutionResult> RunEvictionScanAsync(
             string datasourceConfigPath,
             string? progressFile = null,
             CancellationToken cancellationToken = default,
             Guid? operationId = null,
-            Func<RustProgressEvent, Task>? onProgressEvent = null) =>
-            Task.FromResult(new RustExecutionResult
+            Func<RustProgressEvent, Task>? onProgressEvent = null,
+            Guid? scanId = null,
+            string? repairPath = null)
+        {
+            await _complete(Assert.IsType<Guid>(scanId), cancellationToken);
+            return new RustExecutionResult
             {
                 Success = true,
                 Data = """{"success":true,"processed":1,"evicted":0,"unEvicted":0}"""
-            });
+            };
+        }
     }
 
     private sealed class TempDirPathResolver : PathResolverBase
@@ -1234,9 +1682,11 @@ public sealed class CacheScanDetectionPhaseTests
                         Name = (string)args[1]!,
                         Status = (OperationStatus)args[6]!,
                         Metadata = args[3],
+                        CancellationTokenSource = (CancellationTokenSource)args[2]!,
                         ParentOperationId = (Guid?)args[7],
                         StartedAt = (DateTime?)args[8] ?? DateTime.UtcNow,
-                        Notice = (RunNotice?)args[10]
+                        Notice = (RunNotice?)args[10],
+                        OwnerCompletes = (bool)args[13]!
                     };
                     if (args[5] is Func<OperationTerminalInfo, Task> emit)
                         _terminalEmits[operation.Id] = emit;
@@ -1365,6 +1815,11 @@ public sealed class CacheScanDetectionPhaseTests
             {
                 operation = _operations.FirstOrDefault(o => o.Id == id);
                 if (operation == null)
+                {
+                    return;
+                }
+
+                if (operation.Status.IsTerminal())
                 {
                     return;
                 }

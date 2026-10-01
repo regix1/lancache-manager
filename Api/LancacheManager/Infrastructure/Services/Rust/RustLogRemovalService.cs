@@ -23,6 +23,7 @@ public class RustLogRemovalService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IStateService _stateService;
+    private readonly OperationStateService _operationStateService;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Guid? _currentTrackerOperationId;
@@ -120,7 +121,8 @@ public class RustLogRemovalService
         IDbContextFactory<AppDbContext> dbContextFactory,
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
-        IStateService stateService)
+        IStateService stateService,
+        OperationStateService operationStateService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -132,6 +134,149 @@ public class RustLogRemovalService
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
         _stateService = stateService;
+        _operationStateService = operationStateService;
+    }
+
+    public Task RestoreRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var retained = repair.LogRemoval
+            ?? throw new InvalidDataException(
+                $"Operation repair {repair.Id} has no log-removal metrics.");
+        var metrics = new LogRemovalCompletionMetrics(
+            repair.Id,
+            retained.Service,
+            $"Removed {retained.Service} entries",
+            $"Log removal for {retained.Service} failed",
+            $"Service removal for {retained.Service} was cancelled",
+            retained.FilesProcessed,
+            retained.LinesProcessed,
+            retained.LinesRemoved,
+            retained.DatabaseRecordsDeleted,
+            retained.Datasource,
+            retained.StageKey);
+        var source = new CancellationTokenSource();
+        var restored = _operationTracker.TryRestoreOperation(
+            repair.Id,
+            OperationType.LogRemoval,
+            repair.Name,
+            source,
+            new RemovalMetrics
+            {
+                EntityKind = "service",
+                EntityKey = retained.Service.ToLowerInvariant(),
+                EntityName = retained.Service
+            },
+            onTerminalEmit: BuildTerminalEmit(
+                () => repair.Id,
+                () => metrics,
+                () => null),
+            startedAt: repair.StartedAt,
+            notice: repair.Notice,
+            ownerCompletes: true);
+        if (!restored)
+        {
+            source.Dispose();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task ResumeRepairAsync(
+        OperationRepair repair,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (repair.Type != OperationType.LogRemoval || repair.LogRemoval is null)
+        {
+            throw new InvalidDataException(
+                $"Operation repair {repair.Id} has no log-removal contract.");
+        }
+        return Task.CompletedTask;
+    }
+
+    private OperationRepair BuildRepair(
+        Guid operationId,
+        string service,
+        IReadOnlyCollection<ResolvedDatasource> datasources,
+        string? datasource = null)
+    {
+        return new OperationRepair
+        {
+            Id = operationId,
+            Type = OperationType.LogRemoval,
+            Name = "Log Removal",
+            StartedAt = DateTime.UtcNow,
+            LogRemoval = new LogRemovalRepair
+            {
+                Service = service,
+                Datasource = datasource
+            },
+            Sources = datasources.Select(source => new OperationRepairSource
+            {
+                Datasource = source.Name,
+                LogRoot = source.LogPath,
+                ResetLogPositions = true,
+                RefreshDownloads = true
+            }).ToList()
+        };
+    }
+
+    private async Task FinishRepairAsync(
+        Guid operationId,
+        LogRemovalCompletionMetrics metrics,
+        bool success,
+        bool cancelled,
+        string? error)
+    {
+        await _operationStateService.SaveRepairAsync(
+            operationId,
+            repair => repair.LogRemoval = new LogRemovalRepair
+            {
+                Service = metrics.Service,
+                Datasource = metrics.Datasource,
+                FilesProcessed = metrics.FilesProcessed,
+                LinesProcessed = metrics.LinesProcessed,
+                LinesRemoved = metrics.LinesRemoved,
+                DatabaseRecordsDeleted = metrics.DatabaseRecordsDeleted,
+                StageKey = metrics.StageKey
+            },
+            CancellationToken.None);
+        await _operationStateService.FinishRepairAsync(
+            operationId,
+            success,
+            cancelled,
+            error);
+    }
+
+    private async Task SaveSourceAsync(
+        Guid operationId,
+        string datasource,
+        LogRemovalCompletionMetrics metrics)
+    {
+        await _operationStateService.SaveRepairAsync(
+            operationId,
+            repair =>
+            {
+                var source = repair.Sources.Single(candidate =>
+                    string.Equals(
+                        candidate.Datasource,
+                        datasource,
+                        StringComparison.OrdinalIgnoreCase));
+                source.NativeCompletionAccepted = true;
+                repair.LogRemoval = new LogRemovalRepair
+                {
+                    Service = metrics.Service,
+                    Datasource = metrics.Datasource,
+                    FilesProcessed = metrics.FilesProcessed,
+                    LinesProcessed = metrics.LinesProcessed,
+                    LinesRemoved = metrics.LinesRemoved,
+                    DatabaseRecordsDeleted = metrics.DatabaseRecordsDeleted,
+                    StageKey = metrics.StageKey
+                };
+            },
+            CancellationToken.None);
     }
 
     /// <summary>
@@ -221,6 +366,7 @@ public class RustLogRemovalService
         var publishedMetrics = completionMetrics;
         LogRemovalCurrentProgress? currentProgress = null;
         Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
+        var repairPrepared = false;
 
         try
         {
@@ -253,7 +399,8 @@ public class RustLogRemovalService
                     _currentTrackerOperationId = null;
                     _cancellationTokenSource = null;
                 },
-                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress)
+                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress),
+                ownerCompletes: true
             );
             _currentTrackerOperationId = operationId;
             NotifyOperationRegistered();
@@ -305,6 +452,11 @@ public class RustLogRemovalService
 
                 return false;
             }
+
+            await _operationStateService.PrepareRepairAsync(
+                BuildRepair(operationId.Value, service, datasources),
+                cancellationToken);
+            repairPrepared = true;
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
             var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
@@ -442,6 +594,10 @@ public class RustLogRemovalService
                     ProcessExecutionResult result;
                     try
                     {
+                        await _operationStateService.StartWorkAsync(
+                            operationId!.Value,
+                            datasource.Name,
+                            cancellationToken);
                         childStarted = true;
                         result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                             startInfo,
@@ -572,7 +728,10 @@ public class RustLogRemovalService
                     allSuccess = false;
                     if (WasCancelled(operationId, cancellationToken))
                     {
-                        await CompleteCancelledAsync(operationId);
+                        await CompleteCancelledAsync(
+                            operationId,
+                            completionMetrics,
+                            repairPrepared);
                         return false;
                     }
 
@@ -587,6 +746,17 @@ public class RustLogRemovalService
                         datasource.Name,
                         LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
                     processedDatasourceNames.Add(datasource.Name);
+                    completionMetrics = completionMetrics with
+                    {
+                        FilesProcessed = totalFilesProcessed,
+                        LinesProcessed = totalLinesProcessed,
+                        LinesRemoved = totalLinesRemoved,
+                        StageKey = lastStageKey
+                    };
+                    await SaveSourceAsync(
+                        operationId!.Value,
+                        datasource.Name,
+                        completionMetrics);
                 }
 
                 datasourcesProcessed++;
@@ -594,7 +764,10 @@ public class RustLogRemovalService
 
             if (WasCancelled(operationId, cancellationToken))
             {
-                await CompleteCancelledAsync(operationId);
+                await CompleteCancelledAsync(
+                    operationId,
+                    completionMetrics,
+                    repairPrepared);
                 return false;
             }
 
@@ -604,10 +777,11 @@ public class RustLogRemovalService
 
             if (allSuccess && datasourcesProcessed > 0)
             {
-                // Invalidate service counts cache so UI refreshes
-                await _cacheManagementService.InvalidateServiceCountsAsync();
-
                 // Clean up database records for this service
+                await _operationStateService.StartWorkAsync(
+                    operationId!.Value,
+                    datasource: null,
+                    cancellationToken);
                 var dbCleanupResult = await CleanupDbRecordsAsync(operationId!.Value, publishProgress, progressEmitGate,
                     service,
                     processedDatasourceNames,
@@ -642,6 +816,12 @@ public class RustLogRemovalService
                 // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
                 if (operationId.HasValue)
                 {
+                    await FinishRepairAsync(
+                        operationId.Value,
+                        completionMetrics,
+                        success: true,
+                        cancelled: false,
+                        error: null);
                     _operationTracker.CompleteOperation(operationId.Value, success: true,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
@@ -659,6 +839,12 @@ public class RustLogRemovalService
 
                 if (operationId.HasValue)
                 {
+                    await FinishRepairAsync(
+                        operationId.Value,
+                        completionMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: skipMessage);
                     _operationTracker.CompleteOperation(operationId.Value, success: false, error: skipMessage,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
@@ -683,6 +869,12 @@ public class RustLogRemovalService
 
                 if (operationId.HasValue)
                 {
+                    await FinishRepairAsync(
+                        operationId.Value,
+                        completionMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: failMessage);
                     _operationTracker.CompleteOperation(operationId.Value, success: false, error: failMessage,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
@@ -703,6 +895,15 @@ public class RustLogRemovalService
                 // Mark operation as cancelled in unified tracker
                 if (operationId.HasValue)
                 {
+                    if (repairPrepared)
+                    {
+                        await FinishRepairAsync(
+                            operationId.Value,
+                            completionMetrics,
+                            success: false,
+                            cancelled: true,
+                            error: null);
+                    }
                     _operationTracker.CompleteOperation(operationId.Value, success: false, cancelled: true,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
@@ -723,6 +924,15 @@ public class RustLogRemovalService
             // Mark operation as failed in unified tracker
             if (operationId.HasValue)
             {
+                if (repairPrepared)
+                {
+                    await FinishRepairAsync(
+                        operationId.Value,
+                        completionMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: ex.Message);
+                }
                 _operationTracker.CompleteOperation(operationId.Value, success: false, error: ex.Message,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
             }
@@ -740,6 +950,15 @@ public class RustLogRemovalService
             var leakedOperationId = operationId;
             if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal(operationId))
             {
+                if (repairPrepared)
+                {
+                    await FinishRepairAsync(
+                        leakedOperationId.Value,
+                        completionMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: "Log removal ended without reaching a terminal state");
+                }
                 _operationTracker.CompleteOperation(
                     leakedOperationId.Value,
                     success: false,
@@ -812,6 +1031,8 @@ public class RustLogRemovalService
         var publishedMetrics = completionMetrics;
         LogRemovalCurrentProgress? currentProgress = null;
         Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
+        var repairPrepared = false;
+        string? completionError = null;
 
         try
         {
@@ -844,7 +1065,8 @@ public class RustLogRemovalService
                     _currentTrackerOperationId = null;
                     _cancellationTokenSource = null;
                 },
-                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress)
+                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress),
+                ownerCompletes: true
             );
             _currentTrackerOperationId = operationId;
             NotifyOperationRegistered();
@@ -880,6 +1102,18 @@ public class RustLogRemovalService
                 CancelMessage: $"Service removal for {service} in {datasourceName} was cancelled",
                 Datasource: datasourceName);
 
+            var repairDatasource = _datasourceService.GetDatasource(datasourceName)
+                ?? throw new InvalidOperationException(
+                    $"Datasource '{datasourceName}' is no longer configured");
+            await _operationStateService.PrepareRepairAsync(
+                BuildRepair(
+                    operationId.Value,
+                    service,
+                    new[] { repairDatasource },
+                    datasourceName),
+                cancellationToken);
+            repairPrepared = true;
+
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
@@ -893,7 +1127,7 @@ public class RustLogRemovalService
             _logger.LogInformation("Starting Rust log removal for service: {Service} in datasource: {Datasource}", service, datasourceName);
             _logger.LogInformation("Log directory: {LogDir}", logDir);
 
-            return await _cacheManagementService.ExecuteWithLockAsync(async () =>
+            var succeeded = await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
                 var selectedDatasource = _datasourceService.GetDatasource(datasourceName)
                     ?? throw new InvalidOperationException(
@@ -946,6 +1180,10 @@ public class RustLogRemovalService
                 ProcessExecutionResult result;
                 try
                 {
+                    await _operationStateService.StartWorkAsync(
+                        operationId!.Value,
+                        datasourceName,
+                        cancellationToken);
                     result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                         startInfo,
                         operationId,
@@ -1005,8 +1243,7 @@ public class RustLogRemovalService
                             "Cancelled log removal also failed nginx reopen: {Error}",
                             cancelledReopen.ErrorMessage);
                     }
-                    await CompleteCancelledAsync(operationId);
-                    return false;
+                    throw new OperationCanceledException(cancellationToken);
                 }
 
                 if (!string.IsNullOrWhiteSpace(result.Output))
@@ -1041,14 +1278,7 @@ public class RustLogRemovalService
                     {
                         FailureMessage = reopenResult.ErrorMessage!
                     };
-                    if (operationId.HasValue)
-                    {
-                        _operationTracker.CompleteOperation(
-                            operationId.Value,
-                            success: false,
-                            error: reopenResult.ErrorMessage,
-                            onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                    }
+                    completionError = reopenResult.ErrorMessage;
                     return false;
                 }
 
@@ -1059,8 +1289,6 @@ public class RustLogRemovalService
                     _stateService.ClearLogSourcePositions(
                         datasourceName,
                         LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
-
-                    await _cacheManagementService.InvalidateServiceCountsAsync();
 
                     // Note: Database cleanup is not datasource-specific, so we skip it for per-datasource removal
                     // The user would need to remove from all datasources to clean up DB records
@@ -1079,13 +1307,10 @@ public class RustLogRemovalService
 
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
                         service, datasourceName, finalProgress?.LinesRemoved ?? 0);
-
-                    // Mark operation as complete in unified tracker
-                    if (operationId.HasValue)
-                    {
-                        _operationTracker.CompleteOperation(operationId.Value, success: true,
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                    }
+                    await SaveSourceAsync(
+                        operationId!.Value,
+                        datasourceName,
+                        completionMetrics);
                     return true;
                 }
                 else
@@ -1098,27 +1323,36 @@ public class RustLogRemovalService
 
                     _logger.LogError("Log removal failed for {Service} in datasource {Datasource} with exit code {ExitCode}",
                         service, datasourceName, exitCode);
-
-                    // Mark operation as failed in unified tracker
-                    if (operationId.HasValue)
-                    {
-                        _operationTracker.CompleteOperation(operationId.Value, success: false, error: $"Exit code {exitCode}",
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                    }
+                    completionError = $"Exit code {exitCode}";
                     return false;
                 }
             }, cancellationToken);
+
+            await FinishRepairAsync(
+                operationId.Value,
+                completionMetrics,
+                success: succeeded,
+                cancelled: false,
+                error: completionError);
+            _operationTracker.CompleteOperation(
+                operationId.Value,
+                success: succeeded,
+                error: completionError,
+                onCompleting: _ =>
+                {
+                    publishedMetrics = completionMetrics;
+                    currentProgress = null;
+                });
+            return succeeded;
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Service removal for {Service} in {Datasource} was cancelled", service, datasourceName);
 
-            // If a universal force-kill already completed this op, suppress the duplicate
-            // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
-            if (!IsOperationAlreadyTerminal(operationId))
-            {
-                await CompleteCancelledAsync(operationId);
-            }
+            await CompleteCancelledAsync(
+                operationId,
+                completionMetrics,
+                repairPrepared);
 
             return false;
         }
@@ -1135,6 +1369,15 @@ public class RustLogRemovalService
             // Mark operation as failed in unified tracker
             if (operationId.HasValue)
             {
+                if (repairPrepared)
+                {
+                    await FinishRepairAsync(
+                        operationId.Value,
+                        completionMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: ex.Message);
+                }
                 _operationTracker.CompleteOperation(operationId.Value, success: false, error: ex.Message,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
             }
@@ -1152,6 +1395,15 @@ public class RustLogRemovalService
             var leakedOperationId = operationId;
             if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal(operationId))
             {
+                if (repairPrepared)
+                {
+                    await FinishRepairAsync(
+                        leakedOperationId.Value,
+                        completionMetrics,
+                        success: false,
+                        cancelled: false,
+                        error: "Log removal ended without reaching a terminal state");
+                }
                 _operationTracker.CompleteOperation(
                     leakedOperationId.Value,
                     success: false,
@@ -1393,11 +1645,24 @@ public class RustLogRemovalService
         return operation?.Cancelled == true || operation?.Status == OperationStatus.Cancelling;
     }
 
-    private Task CompleteCancelledAsync(Guid? operationId)
+    private async Task CompleteCancelledAsync(
+        Guid? operationId,
+        LogRemovalCompletionMetrics metrics,
+        bool repairPrepared)
     {
         if (operationId.HasValue)
+        {
+            if (repairPrepared)
+            {
+                await FinishRepairAsync(
+                    operationId.Value,
+                    metrics,
+                    success: false,
+                    cancelled: true,
+                    error: null);
+            }
             _operationTracker.CompleteOperation(operationId.Value, success: false, cancelled: true);
-        return Task.CompletedTask;
+        }
     }
 
     private async Task<LogRemovalProgress?> ReadProgressFileAsync(string progressPath)

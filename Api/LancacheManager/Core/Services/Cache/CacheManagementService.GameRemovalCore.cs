@@ -92,14 +92,25 @@ public partial class CacheManagementService
             GameCacheRemovalReport dsReport;
             try
             {
+                if (operationId.HasValue)
+                {
+                    await _operationStateService.StartWorkAsync(
+                        operationId.Value,
+                        datasource.Name,
+                        cancellationToken);
+                }
+
                 dsReport = await RunRustRemovalProcessAsync<GameRemovalProgress, GameCacheRemovalReport>(
                     logTag,
                     execution,
                     () =>
                     {
+                        var operationArgument = operationId.HasValue
+                            ? $" --operation-id {operationId.Value}"
+                            : string.Empty;
                         var process = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{target}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"");
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{target}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
                         NginxLogRotationService.AttachPublicationCheck(reopenCheck, process);
                         _logger.LogInformation("{LogTag} Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                             logTag, datasource.Name, rustBinaryPath, process.Arguments);
@@ -120,8 +131,8 @@ public partial class CacheManagementService
                                 scaledProgress,
                                 progress.StageKey,
                                 progress.Context,
-                                progress.FilesProcessed,
-                                0);
+                                aggregatedReport.CacheFilesDeleted,
+                                checked((long)aggregatedReport.TotalBytesFreed));
                         }
                     },
                     async result =>
@@ -161,22 +172,6 @@ public partial class CacheManagementService
                 throw new IOException(reopenResult.ErrorMessage!);
             }
 
-            if (onProgress != null)
-            {
-                var scaledProgress = ScaleRemovalProgress(
-                    execution.ExecutionIndex + 1,
-                    execution.TotalConfiguredDatasources);
-                // Synthetic per-datasource completion tick; Rust has already written its own
-                // "completed" progress entry. Pass an empty stageKey so the frontend falls
-                // through to the registry's default completed message.
-                await onProgress(
-                    scaledProgress,
-                    string.Empty,
-                    null,
-                    dsReport.CacheFilesDeleted,
-                    (long)dsReport.TotalBytesFreed);
-            }
-
             // Aggregate results from this datasource
             aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
             aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
@@ -189,12 +184,41 @@ public partial class CacheManagementService
             aggregateExtras?.Invoke(aggregatedReport, dsReport);
 
             datasourcesProcessed++;
+            await SaveRemovalSourceAsync(
+                operationId,
+                datasource.Name,
+                aggregatedReport.CacheFilesDeleted,
+                checked((long)aggregatedReport.TotalBytesFreed),
+                aggregatedReport.LogEntriesRemoved);
+
+            if (onProgress != null)
+            {
+                var scaledProgress = ScaleRemovalProgress(
+                    execution.ExecutionIndex + 1,
+                    execution.TotalConfiguredDatasources);
+                // Synthetic per-datasource completion tick; Rust has already written its own
+                // "completed" progress entry. Pass an empty stageKey so the frontend falls
+                // through to the registry's default completed message.
+                await onProgress(
+                    scaledProgress,
+                    string.Empty,
+                    null,
+                    aggregatedReport.CacheFilesDeleted,
+                    checked((long)aggregatedReport.TotalBytesFreed));
+            }
 
             _logger.LogInformation(
                 "{LogTag} Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for {Target}",
                 logTag, datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, targetDescription);
         }
 
+        if (operationId.HasValue)
+        {
+            await _operationStateService.StartWorkAsync(
+                operationId.Value,
+                datasource: null,
+                cancellationToken);
+        }
         await CleanupRemovalAsync(removalSelection, cancellationToken);
 
         _logger.LogInformation(

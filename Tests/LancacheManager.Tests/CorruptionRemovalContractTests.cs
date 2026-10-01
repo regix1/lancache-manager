@@ -10,6 +10,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
@@ -17,11 +18,76 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace LancacheManager.Tests;
 
 public sealed class CorruptionRemovalContractTests
 {
+    [Fact]
+    public async Task OrphanedRunningPresentationCleanupPreservesRepairOwnedStateAndAcceptedScan()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var orphanedId = Guid.NewGuid();
+        var ownedId = Guid.NewGuid();
+        fixture.States.SaveState(orphanedId.ToString(), new LancacheManager.Core.Services.OperationState
+        {
+            Key = orphanedId.ToString(),
+            Type = OperationType.CorruptionDetection.ToWireString(),
+            Status = OperationStatus.Running.ToWireString()
+        });
+        fixture.States.SaveState(ownedId.ToString(), new LancacheManager.Core.Services.OperationState
+        {
+            Key = ownedId.ToString(),
+            Type = OperationType.CorruptionDetection.ToWireString(),
+            Status = OperationStatus.Running.ToWireString()
+        });
+        await fixture.States.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = ownedId,
+                Type = OperationType.CorruptionRemoval,
+                Name = "Corruption removal: steam",
+                StartedAt = DateTime.UtcNow,
+                Corruption = new CorruptionRepair
+                {
+                    ScanId = fixture.ScanId,
+                    ContractVersion = CorruptionReport.SupportedContractVersion,
+                    DetectionMethod = CorruptionDetectionMethod.Structural,
+                    Service = "steam"
+                },
+                Removal = new RemovalRepair
+                {
+                    EntityKey = "steam",
+                    EntityName = "steam",
+                    EntityKind = "service",
+                    Service = "steam",
+                    DetectionMethod = CorruptionDetectionMethod.Structural,
+                    CorruptionScanId = fixture.ScanId
+                },
+                Target = new CacheRepairTarget { Service = "steam" },
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        CacheRoot = fixture.Datasources[0].CachePath,
+                        KeyScheme = "monolithic",
+                        ApplyCorruptionCandidates = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        await fixture.Detection.ClearOrphanedPresentationAsync(CancellationToken.None);
+
+        Assert.Null(fixture.States.GetState(orphanedId.ToString()));
+        Assert.NotNull(fixture.States.GetState(ownedId.ToString()));
+        Assert.True(fixture.States.OwnsRepair(ownedId));
+        Assert.NotEmpty((await fixture.Detection.GetRemovalSelectionAsync(fixture.ScanId, "steam")).CandidateIds);
+    }
+
     [Fact]
     public void ReadContextStemCounts_reads_the_map_a_rust_checkpoint_round_trips()
     {
@@ -97,6 +163,7 @@ public sealed class CorruptionRemovalContractTests
     [Fact]
     public void RustStructuralRemovalCommand_HasNoLogOrServiceArguments()
     {
+        var operationId = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var arguments = RustProcessHelper.BuildCorruptionManagerArguments(
             "remove-structural",
             "C:/logs-secret",
@@ -104,20 +171,22 @@ public sealed class CorruptionRemovalContractTests
             "steam",
             "C:/ops/evidence.json",
             "C:/ops/progress.json",
-            "bare_metal");
+            "bare_metal",
+            operationId: operationId);
 
         Assert.Equal(
-            "remove-structural \"C:/cache\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal",
+            "remove-structural \"C:/cache\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal --operation-id \"11111111-2222-3333-4444-555555555555\"",
             arguments);
         Assert.DoesNotContain("logs-secret", arguments, StringComparison.Ordinal);
         Assert.DoesNotContain("steam", arguments, StringComparison.Ordinal);
         Assert.Throws<ArgumentException>(() => RustProcessHelper.BuildCorruptionManagerArguments(
-            "remove-structural", "", "", null, "evidence", "progress", "bare_metal"));
+            "remove-structural", "", "", null, "evidence", "progress", "bare_metal", null, null));
     }
 
     [Fact]
     public void RustRepeatedMissRemovalCommand_UsesMonolithicKeyScheme()
     {
+        var operationId = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var arguments = RustProcessHelper.BuildCorruptionManagerArguments(
             "remove",
             "C:/logs",
@@ -125,10 +194,11 @@ public sealed class CorruptionRemovalContractTests
             "steam",
             "C:/ops/evidence.json",
             "C:/ops/progress.json",
-            "monolithic");
+            "monolithic",
+            operationId: operationId);
 
         Assert.Equal(
-            "remove \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme monolithic",
+            "remove \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme monolithic --operation-id \"11111111-2222-3333-4444-555555555555\"",
             arguments);
     }
 
@@ -194,6 +264,7 @@ public sealed class CorruptionRemovalContractTests
             ["files"] = 1,
             ["alreadyMissing"] = 1,
             ["healed"] = 1,
+            ["keyVerificationSkipped"] = 0,
             ["bytesFreed"] = 512L
         };
         var outcome = CacheController.ValidateStructuralRemovalCompletion(valid, 3);
@@ -209,6 +280,9 @@ public sealed class CorruptionRemovalContractTests
         var stringlyTyped = new Dictionary<string, object?>(valid) { ["files"] = "1" };
         Assert.Throws<InvalidDataException>(() =>
             CacheController.ValidateStructuralRemovalCompletion(stringlyTyped, 3));
+        var skippedKeys = new Dictionary<string, object?>(valid) { ["keyVerificationSkipped"] = 1 };
+        Assert.Throws<InvalidDataException>(() =>
+            CacheController.ValidateStructuralRemovalCompletion(skippedKeys, 3));
     }
 
     [Fact]
@@ -385,6 +459,33 @@ public sealed class CorruptionRemovalContractTests
         mutationGate.Release();
     }
 
+    [Fact]
+    public async Task PreparedRemovalCapturesEachRootReceiptPath()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, datasourceCount: 2);
+        var selection = await fixture.Detection.GetRemovalSelectionAsync(fixture.ScanId, "steam");
+        var operationId = Guid.NewGuid();
+        var build = typeof(CacheController).GetMethod(
+            "BuildCorruptionRepair",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var repair = Assert.IsType<OperationRepair>(build.Invoke(
+            fixture.Controller,
+            [
+                operationId,
+                DateTime.UtcNow,
+                selection,
+                fixture.Datasources,
+                CacheController.CreateCorruptionRemovalMetadata(selection)
+            ]));
+
+        Assert.Equal("steam", repair.Target?.Service);
+        Assert.Equal("service", repair.Removal?.EntityKind);
+        Assert.Equal(2, repair.Sources.Count);
+        Assert.All(repair.Sources, source => Assert.Equal(
+            Path.Combine(source.CacheRoot!, $".lancache-repair-{operationId:N}.json"),
+            source.ReceiptPath));
+    }
+
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Completed)]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Failed)]
@@ -483,6 +584,21 @@ public sealed class CorruptionRemovalContractTests
     public async Task ProcessCompletion_AccumulatesBothDatasourcesAndPublishesAcceptedProgress(CorruptionDetectionMethod method)
     {
         await using var fixture = new RemovalRun(method, transport: true, datasourceCount: 2);
+        foreach (var datasource in fixture.Datasources)
+        {
+            fixture.State.SetLogSourcePositions(datasource.Name, new Dictionary<string, long>
+            {
+                ["access.log"] = 20,
+                ["steam-access.log"] = 7
+            });
+            fixture.State.SetLogTotalLines(datasource.Name, 30);
+        }
+        fixture.State.SetLogSourcePositions("untouched", new Dictionary<string, long>
+        {
+            ["access.log"] = 40,
+            ["steam-access.log"] = 9
+        });
+        fixture.State.SetLogTotalLines("untouched", 70);
         var run = fixture.RunAsync();
         var evidence = await fixture.Pipe!.ConnectAsync();
         Assert.Equal("default", evidence.Datasource);
@@ -519,6 +635,35 @@ public sealed class CorruptionRemovalContractTests
             Assert.Equal(17L, complete.Context["downloads"]);
             Assert.Equal(22L, complete.Context["logEntries"]);
         }
+        var firstPositions = fixture.State.GetLogSourcePositions("default");
+        var secondPositions = fixture.State.GetLogSourcePositions("secondary");
+        if (method == CorruptionDetectionMethod.Structural)
+        {
+            Assert.Equal(20, firstPositions["access.log"]);
+            Assert.Equal(7, firstPositions["steam-access.log"]);
+            Assert.Equal(27, fixture.State.GetLogPosition("default"));
+            Assert.Equal(30, fixture.State.GetLogTotalLines("default"));
+            Assert.Equal(20, secondPositions["access.log"]);
+            Assert.Equal(7, secondPositions["steam-access.log"]);
+            Assert.Equal(27, fixture.State.GetLogPosition("secondary"));
+            Assert.Equal(30, fixture.State.GetLogTotalLines("secondary"));
+        }
+        else
+        {
+            Assert.Equal(18, firstPositions["access.log"]);
+            Assert.Equal(7, firstPositions["steam-access.log"]);
+            Assert.Equal(25, fixture.State.GetLogPosition("default"));
+            Assert.Equal(27, fixture.State.GetLogTotalLines("default"));
+            Assert.Equal(10, secondPositions["access.log"]);
+            Assert.Equal(7, secondPositions["steam-access.log"]);
+            Assert.Equal(17, fixture.State.GetLogPosition("secondary"));
+            Assert.Equal(19, fixture.State.GetLogTotalLines("secondary"));
+        }
+        var untouchedPositions = fixture.State.GetLogSourcePositions("untouched");
+        Assert.Equal(40, untouchedPositions["access.log"]);
+        Assert.Equal(9, untouchedPositions["steam-access.log"]);
+        Assert.Equal(49, fixture.State.GetLogPosition("untouched"));
+        Assert.Equal(70, fixture.State.GetLogTotalLines("untouched"));
         Assert.DoesNotContain(fixture.Messages.Progress, progress => progress.Status == "completed");
     }
 
@@ -571,16 +716,15 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(8, metrics.FilesProcessed);
         Assert.Equal(30, metrics.TotalFiles);
         Assert.DoesNotContain(fixture.Messages.Progress, progress => progress.StageKey == "late");
-        var totals = bulkType.GetProperty("Totals")!.GetValue(bulk)!;
-        var context = (Dictionary<string, object?>)totals.GetType().GetMethod("ToContext")!.Invoke(totals, ["steam"])!;
-        Assert.Equal(1L, context["count"]);
-        Assert.Equal(method == CorruptionDetectionMethod.Structural ? 1L : 2L, context["files"]);
-        Assert.Equal(method == CorruptionDetectionMethod.Structural ? 1024L : 0L, context["bytesFreed"]);
+        var totals = Assert.IsType<CorruptionRemovalCounts>(bulkType.GetProperty("Totals")!.GetValue(bulk));
+        Assert.Equal(1L, totals.UrlsRemoved);
+        Assert.Equal(method == CorruptionDetectionMethod.Structural ? 1L : 2L, totals.FilesDeleted);
+        Assert.Equal(method == CorruptionDetectionMethod.Structural ? 1024L : 0L, totals.BytesFreed);
         if (method == CorruptionDetectionMethod.RepeatedMiss)
         {
-            Assert.Equal(3L, context["logLines"]);
-            Assert.Equal(4L, context["downloads"]);
-            Assert.Equal(5L, context["logEntries"]);
+            Assert.Equal(3L, totals.LogLinesRemoved);
+            Assert.Equal(4L, totals.DownloadsDeleted);
+            Assert.Equal(5L, totals.LogEntriesDeleted);
         }
         Assert.Equal(outcome == OperationStatus.Completed ? 1 : 0, bulkType.GetField("SucceededServices")!.GetValue(bulk));
         Assert.Equal(outcome == OperationStatus.Failed ? 1 : 0, bulkType.GetField("FailedServices")!.GetValue(bulk));
@@ -686,11 +830,11 @@ public sealed class CorruptionRemovalContractTests
 
     private static string Completion(CorruptionDetectionMethod method, bool second) => method == CorruptionDetectionMethod.Structural
         ? second
-            ? """{"status":"completed","percentComplete":100,"context":{"detectionMethod":"structural","count":1,"files":1,"alreadyMissing":0,"healed":0,"bytesFreed":4096}}"""
-            : """{"status":"completed","percentComplete":100,"context":{"detectionMethod":"structural","count":1,"files":1,"alreadyMissing":0,"healed":0,"bytesFreed":1024}}"""
+            ? """{"status":"completed","percentComplete":100,"context":{"detectionMethod":"structural","count":1,"files":1,"alreadyMissing":0,"healed":0,"keyVerificationSkipped":0,"bytesFreed":4096}}"""
+            : """{"status":"completed","percentComplete":100,"context":{"detectionMethod":"structural","count":1,"files":1,"alreadyMissing":0,"healed":0,"keyVerificationSkipped":0,"bytesFreed":1024}}"""
         : second
-            ? """{"status":"completed","percentComplete":100,"context":{"count":1,"files":7,"logLines":11,"downloads":13,"logEntries":17,"logLinesBySource":{"access.log":11},"logLinesBeforePositionBySource":{"access.log":10}}}"""
-            : """{"status":"completed","percentComplete":100,"context":{"count":1,"files":2,"logLines":3,"downloads":4,"logEntries":5,"logLinesBySource":{"access.log":3},"logLinesBeforePositionBySource":{"access.log":2}}}""";
+            ? """{"status":"completed","percentComplete":100,"context":{"count":1,"files":7,"logLines":11,"downloads":13,"logEntries":17,"logLinesBySource":{"access.log":10,"steam-access.log":1},"logLinesBeforePositionBySource":{"access.log":10,"steam-access.log":0}}}"""
+            : """{"status":"completed","percentComplete":100,"context":{"count":1,"files":2,"logLines":3,"downloads":4,"logEntries":5,"logLinesBySource":{"access.log":2,"steam-access.log":1},"logLinesBeforePositionBySource":{"access.log":2,"steam-access.log":0}}}""";
 
     private sealed class RemovalRun : IDisposable, IAsyncDisposable
     {
@@ -700,9 +844,13 @@ public sealed class CorruptionRemovalContractTests
         public CorruptionDetectionService Detection { get; }
         public CacheController Controller { get; }
         public RemovalMessages Messages { get; }
+        public OperationStateService States => _operationStateService;
+        public StateService State { get; }
         public List<ResolvedDatasource> Datasources { get; }
         public RemovalPipe? Pipe { get; }
         private readonly List<Task> _runs = [];
+        private readonly ServiceProvider _services;
+        private readonly OperationStateService _operationStateService;
 
         public RemovalRun(CorruptionDetectionMethod method, bool transport = false, int datasourceCount = 1)
         {
@@ -800,23 +948,37 @@ public sealed class CorruptionRemovalContractTests
                 }
                 db.SaveChanges();
             }
-            Tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
+            var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+            Tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             var notifications = DispatchProxy.Create<ISignalRNotificationService, RemovalMessages>();
             Messages = (RemovalMessages)(object)notifications;
             Messages.Tracker = Tracker;
-            var rust = new RustProcessHelper(NullLogger<RustProcessHelper>.Instance, new ProcessManager(NullLogger<ProcessManager>.Instance), paths, Tracker);
-            var state = DispatchProxy.Create<IStateService, NullReturningProxy>();
+            var rust = new RustProcessHelper(NullLogger<RustProcessHelper>.Instance, processManager, paths, Tracker);
+            State = StateTestMethods.CreateStateService(_root);
+            _services = new ServiceCollection().BuildServiceProvider();
+            var operationStateService = new CorruptionRepairOwner(
+                NullLogger<OperationStateService>.Instance,
+                configuration,
+                State,
+                _services.GetRequiredService<IServiceScopeFactory>(),
+                new HostLifetime(),
+                processManager,
+                Tracker);
+            _operationStateService = operationStateService;
+            _operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
             Detection = new CorruptionDetectionService(NullLogger<CorruptionDetectionService>.Instance,
-                configuration, paths, rust, notifications, sources, contexts, null!, Tracker, capability, CacheScanGateHarness.Idle());
+                configuration, paths, rust, notifications, sources, contexts, _operationStateService, Tracker, capability, CacheScanGateHarness.Idle());
+            operationStateService.Service = Detection;
             var nginx = new NginxLogRotationService(NullLogger<NginxLogRotationService>.Instance,
-                configuration, new ProcessManager(NullLogger<ProcessManager>.Instance), paths);
+                configuration, processManager, paths);
             var cache = new CacheManagementService(configuration, NullLogger<CacheManagementService>.Instance,
-                paths, rust, nginx, sources, state, contexts, null!, Tracker, notifications,
+                paths, rust, nginx, sources, State, contexts, null!, Tracker, notifications,
                 DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
-                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), capability, CacheScanGateHarness.Idle());
+                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), capability, CacheScanGateHarness.Idle(),
+                _operationStateService);
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, state, CacheScanGateHarness.Idle(), null!);
+                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, State, CacheScanGateHarness.Idle(), null!);
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)
@@ -841,11 +1003,57 @@ public sealed class CorruptionRemovalContractTests
                 try { await run.WaitAsync(TimeSpan.FromSeconds(10)); }
                 catch (Exception) when (run.IsCompleted) { /* The test observes the operation outcome; teardown still drains it. */ }
             }
+            await _operationStateService.StopAsync(CancellationToken.None);
+            await _services.DisposeAsync();
             if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(_root)),
                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())), StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The removal fixture directory is outside the temporary directory");
             Directory.Delete(_root, recursive: true);
         }
+    }
+
+    private sealed class HostLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _started = new();
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _stopped = new();
+
+        public CancellationToken ApplicationStarted => _started.Token;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => _stopped.Token;
+        public void StopApplication() => _stopping.Cancel();
+    }
+
+    private sealed class CorruptionRepairOwner : OperationStateService
+    {
+        public CorruptionRepairOwner(
+            ILogger<OperationStateService> logger,
+            IConfiguration configuration,
+            StateService stateService,
+            IServiceScopeFactory scopes,
+            IHostApplicationLifetime applicationLifetime,
+            ProcessManager processManager,
+            IUnifiedOperationTracker operationTracker)
+            : base(
+                logger,
+                configuration,
+                stateService,
+                scopes,
+                applicationLifetime,
+                processManager,
+                operationTracker)
+        {
+        }
+
+        public CorruptionDetectionService? Service { get; set; }
+
+        protected override Task ApplyRepairAsync(OperationRepair repair, CancellationToken stoppingToken) =>
+            (Service ?? throw new InvalidOperationException("The corruption detection service is not initialized."))
+                .ResumeRepairAsync(repair, stoppingToken);
+
+        protected override Task RestoreOwnerAsync(OperationRepair repair, CancellationToken stoppingToken) =>
+            (Service ?? throw new InvalidOperationException("The corruption detection service is not initialized."))
+                .RestoreRepairAsync(repair, stoppingToken);
     }
 
     public class RemovalMessages : DispatchProxy

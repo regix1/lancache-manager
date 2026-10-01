@@ -16,7 +16,7 @@ public class DashboardBatchResponse
     public object? Services { get; set; }
 
     /// <summary>Top-line dashboard totals for the requested range. Null when that sub-query failed.</summary>
-    public object? Dashboard { get; set; }
+    public DashboardStatsResponse? Dashboard { get; set; }
 
     /// <summary>
     /// Byte and row totals over every download in the requested range, ignoring the service and

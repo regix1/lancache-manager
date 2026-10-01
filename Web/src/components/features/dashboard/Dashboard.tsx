@@ -681,9 +681,7 @@ const Dashboard: React.FC = () => {
       activeDownloads: {
         key: 'activeDownloads',
         title: t('dashboard.cards.activeDownloads'),
-        value: isHistoricalView ? t('dashboard.cards.disabled') : stats.totalActiveDownloads,
-        // In a past range the "Live" chip, the "Disabled" value and the overlay already say it is
-        // live only, so the subtitle adds nothing.
+        value: stats.totalActiveDownloads,
         subtitle:
           !isHistoricalView && stats.periodDownloads != null
             ? t('dashboard.cards.downloadsInRange', { count: stats.periodDownloads })
@@ -697,7 +695,7 @@ const Dashboard: React.FC = () => {
       activeClients: {
         key: 'activeClients',
         title: t('dashboard.cards.activeClients'),
-        value: isHistoricalView ? t('dashboard.cards.disabled') : stats.activeClients,
+        value: stats.activeClients,
         subtitle:
           !isHistoricalView && stats.uniqueClients != null
             ? t('dashboard.cards.uniqueClientsInRange', { count: stats.uniqueClients })
@@ -1143,11 +1141,7 @@ const Dashboard: React.FC = () => {
         {visibleCards.map((card: StatCardData, cardIndex: number) => {
           const flowSpanClass =
             cardLayout === 'balanced' ? getFlowSpanClass(cardIndex, visibleCards.length) : '';
-          // Check if this is a live-only card that should be disabled in historical view
-          // Note: usedSpace now supports historical data via snapshots, so it's never disabled
-          const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
-          const isCardDisabled = isLiveOnlyCard && isHistoricalView;
-
+          const isCurrentCard = card.key === 'activeDownloads' || card.key === 'activeClients';
           // A failed sparkline section keeps the previous window's series, so nothing is drawn.
           const cardSparklineData = sparklinesFailed
             ? undefined
@@ -1170,11 +1164,7 @@ const Dashboard: React.FC = () => {
               } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''} ${
                 dragOverCard === card.key ? 'drag-over' : ''
               } ${isEditMode ? 'cursor-edit' : draggedCard === card.key ? 'cursor-grabbing' : ''} ${
-                isCardDisabled
-                  ? 'card-disabled'
-                  : isDragMode && draggedCard === card.key
-                    ? 'card-dragging'
-                    : ''
+                isDragMode && draggedCard === card.key ? 'card-dragging' : ''
               }`}
               draggable={!isDragMode && !isEditMode}
               onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
@@ -1183,7 +1173,7 @@ const Dashboard: React.FC = () => {
               onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}
               onDragLeave={dragHandlers.onDragLeave}
               onDrop={(e) => dragHandlers.onDrop(e, card.key)}
-              onClick={() => !isCardDisabled && dragHandlers.onCardTap(card.key)}
+              onClick={() => dragHandlers.onCardTap(card.key)}
             >
               {/* Desktop drag handle - smaller, hover-triggered */}
               {
@@ -1230,7 +1220,7 @@ const Dashboard: React.FC = () => {
                 color={card.color}
                 tooltip={card.tooltip}
                 footerControl={card.footerControl}
-                loading={loading}
+                loading={loading && !isCurrentCard}
                 animateValue={!loading}
                 sparklineData={cardSparklineData}
               />
@@ -1253,13 +1243,6 @@ const Dashboard: React.FC = () => {
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
                 </Button>
               </Tooltip>
-
-              {/* Disabled overlay with tooltip for active cards in historical view */}
-              {isCardDisabled && (
-                <Tooltip content={t('tooltips.liveDataOnly')} strategy="overlay">
-                  <div className="card-disabled-overlay pointer-events-none absolute inset-0 z-10 cursor-not-allowed themed-border-radius" />
-                </Tooltip>
-              )}
             </div>
           );
         })}

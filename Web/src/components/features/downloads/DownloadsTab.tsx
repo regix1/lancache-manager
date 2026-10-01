@@ -405,17 +405,6 @@ const DownloadsTab: React.FC = () => {
   // Active/Recent tab state
   const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
 
-  // Determine if we're viewing historical data (not live)
-  // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
-  const isHistoricalView = timeRange !== 'live' || selectedEventIds.length > 0;
-
-  // Auto-switch to Recent tab when user switches to historical view while on Active tab
-  useEffect(() => {
-    if (isHistoricalView && activeTab === 'active') {
-      setActiveTab('recent');
-    }
-  }, [isHistoricalView, activeTab]);
-
   const retroTimeParams = useMemo(() => getTimeRangeParams(), [getTimeRangeParams]);
   const retroEventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
 

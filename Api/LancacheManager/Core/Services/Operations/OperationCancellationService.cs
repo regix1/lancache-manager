@@ -113,10 +113,12 @@ public class OperationCancellationService
 
         _operationTracker.ForceKillOperation(operationId, followHandoff: caller is null);
 
-        // Every OperationType now registers an OnTerminalEmit, so CompleteOperation fires the terminal
-        // SignalR event EXACTLY ONCE (CompletedFlag-gated) for the force-kill case too. No separate
-        // force-kill notification path is needed.
-        _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user", cancelled: true);
+        // An operation with required reconciliation keeps terminal ownership until its worker has
+        // made that state readable. Other operations retain the established force-kill terminal.
+        if (!current.OwnerCompletes)
+        {
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user", cancelled: true);
+        }
         return true;
     }
 }

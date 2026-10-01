@@ -23,31 +23,36 @@ public sealed class DownloadsEndedEventCollection
 [Collection(nameof(DownloadsEndedEventCollection))]
 public class DownloadsEndedAnnouncementTests
 {
+    private static readonly DateTime Now = new(2026, 9, 30, 18, 0, 0, DateTimeKind.Utc);
+    private static readonly string FixtureRoot = Path.Combine(
+        Path.GetTempPath(),
+        nameof(DownloadsEndedAnnouncementTests));
+
     // The client the harness puts in a busy snapshot, named here so a test can hide that one.
     private const string BusyClientIp = "10.0.0.5";
 
     [Fact]
-    public void DownloadsStoppingAnnouncesOnce()
+    public async Task DownloadsStoppingAnnouncesOnce()
     {
-        Assert.Equal(1, CountAnnouncements([Busy(), Idle()], []));
+        Assert.Equal(1, await CountAnnouncements([Busy(), Idle()], []));
     }
 
     [Fact]
-    public void StayingIdleAnnouncesNothingFurther()
+    public async Task StayingIdleAnnouncesNothingFurther()
     {
-        Assert.Equal(1, CountAnnouncements([Busy(), Idle(), Idle(), Idle()], []));
+        Assert.Equal(1, await CountAnnouncements([Busy(), Idle(), Idle(), Idle()], []));
     }
 
     [Fact]
-    public void DownloadsStartingAnnouncesNothing()
+    public async Task DownloadsStartingAnnouncesNothing()
     {
-        Assert.Equal(0, CountAnnouncements([Idle(), Busy()], []));
+        Assert.Equal(0, await CountAnnouncements([Idle(), Busy()], []));
     }
 
     [Fact]
-    public void EachStopIsAnnouncedSeparately()
+    public async Task EachStopIsAnnouncedSeparately()
     {
-        Assert.Equal(2, CountAnnouncements([Busy(), Idle(), Busy(), Idle()], []));
+        Assert.Equal(2, await CountAnnouncements([Busy(), Idle(), Busy(), Idle()], []));
     }
 
     /// <summary>
@@ -56,25 +61,45 @@ public class DownloadsEndedAnnouncementTests
     /// hidden download as idle and announce the end of a download that is still running.
     /// </summary>
     [Fact]
-    public void AHiddenClientDownloadingStillCountsAsBusy()
+    public async Task AHiddenClientDownloadingStillCountsAsBusy()
     {
-        var hiddenOnly = Busy();
-        var visible = RustSpeedTrackerService.BuildClientVisibleSnapshot(
-            hiddenOnly, [BusyClientIp], EvictedDataMode.Show.ToWireString());
+        var firstBusy = Busy();
+        var secondBusy = Busy();
+        var changedSource = Assert.Single(Assert.Single(secondBusy.GameSpeeds).Sources);
+        changedSource.BytesPerSecond = 700;
+        changedSource.TotalBytes = 1_400;
+        changedSource.RequestCount = 3;
+        var counts = new List<int>();
 
-        Assert.False(visible.HasActiveDownloads);
-        Assert.True(hiddenOnly.HasActiveDownloads);
+        var finalCount = await CountAnnouncements(
+            [firstBusy, secondBusy, Idle()],
+            [BusyClientIp],
+            (tracker, count, index) =>
+            {
+                counts.Add(count);
+                if (index == 1)
+                {
+                    Assert.Empty(tracker.GetCurrentSnapshot().GameSpeeds);
+                    Assert.True(tracker.ReadUnfilteredState().Snapshot.HasActiveDownloads);
+                }
+            });
 
-        Assert.Equal(1, CountAnnouncements([hiddenOnly, Idle()], [BusyClientIp]));
+        Assert.Equal(new[] { 0, 0, 1 }, counts);
+        Assert.Equal(1, finalCount);
     }
 
-    /// <summary>
-    /// Feeds the snapshots to the tracker in order and counts the announcements they produce.
-    /// </summary>
-    private static int CountAnnouncements(
-        IReadOnlyList<DownloadSpeedSnapshot> snapshots, IReadOnlyCollection<string> hiddenClientIps)
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void BoundaryAnnouncesOnlyWhileReportingIsHealthy(bool isAvailable, int expected)
     {
-        var tracker = CacheScanGateHarness.TrackerWith(new DownloadSpeedSnapshot(), hiddenClientIps);
+        var activeUntilUtc = Now.AddSeconds(15);
+        var clock = new MutableClock(new DateTimeOffset(activeUntilUtc));
+        var snapshot = SpeedActivityTests.Snapshot(Now.AddSeconds(2), activeUntilUtc, isAvailable);
+        var tracker = CacheScanGateHarness.TrackerWith(snapshot, [], clock);
+        CacheScanGateHarness.SetField(tracker, "_previousHadUnfilteredActivity", true);
+        CacheScanGateHarness.SetField(tracker, "_previousHadActivity", true);
+        CacheScanGateHarness.SetField(tracker, "_edgeRevision", snapshot.Revision);
         var announcements = 0;
 
         void CountOne() => announcements++;
@@ -83,9 +108,69 @@ public class DownloadsEndedAnnouncementTests
         try
         {
             RustSpeedTrackerService.DownloadsEnded += CountOne;
-            foreach (var snapshot in snapshots)
+            _ = tracker.GetCurrentSnapshot();
+        }
+        finally
+        {
+            RestoreDownloadsEnded(otherHandlers);
+        }
+
+        Assert.Equal(expected, announcements);
+        Assert.Empty(tracker.ReadUnfilteredState().Snapshot.GameSpeeds);
+    }
+
+    /// <summary>
+    /// Feeds the snapshots to the tracker in order and counts the announcements they produce.
+    /// </summary>
+    private static async Task<int> CountAnnouncements(
+        IReadOnlyList<DownloadSpeedSnapshot> snapshots,
+        IReadOnlyCollection<string> hiddenClientIps,
+        Action<RustSpeedTrackerService, int, int>? afterSnapshot = null)
+    {
+        var datasources = CacheScanGateHarness.DatasourceServiceWith(
+            ("primary",
+             Path.Combine(FixtureRoot, "cache"),
+             Path.Combine(FixtureRoot, "logs"),
+             true,
+             "monolithic"));
+        var clock = new MutableClock(new DateTimeOffset(Now.AddSeconds(1)));
+        var tracker = CacheScanGateHarness.TrackerWith(
+            new DownloadSpeedSnapshot
             {
-                tracker.AnnounceDownloadsEndedIfStopped(snapshot);
+                StreamId = "event-stream",
+                TimestampUtc = Now,
+            },
+            hiddenClientIps,
+            clock,
+            datasources);
+        var runId = Guid.NewGuid();
+        CacheScanGateHarness.SetField(tracker, "_currentRunId", runId);
+        CacheScanGateHarness.SetField(
+            tracker,
+            "_runSources",
+            new Dictionary<Guid, Dictionary<string, string>>
+            {
+                [runId] = CacheScanGateHarness.CaptureRoots(datasources),
+            });
+        var announcements = 0;
+
+        void CountOne() => announcements++;
+
+        var otherHandlers = TakeOverDownloadsEnded();
+        try
+        {
+            RustSpeedTrackerService.DownloadsEnded += CountOne;
+            for (var index = 0; index < snapshots.Count; index++)
+            {
+                var snapshot = snapshots[index];
+                snapshot.Version = 2;
+                snapshot.StreamId = string.Empty;
+                snapshot.Revision = index + 1;
+                snapshot.TimestampUtc = Now.AddMilliseconds(index);
+                snapshot.IsAvailable = true;
+                snapshot.WindowSeconds = 2;
+                await tracker.AcceptNativeSnapshotAsync(snapshot, runId, CancellationToken.None);
+                afterSnapshot?.Invoke(tracker, announcements, index);
             }
         }
         finally
@@ -98,12 +183,16 @@ public class DownloadsEndedAnnouncementTests
 
     private static DownloadSpeedSnapshot Busy()
     {
-        var snapshot = new DownloadSpeedSnapshot();
-        CacheScanGateHarness.MakeBusy(snapshot);
-        return snapshot;
+        return SpeedActivityTests.Snapshot(
+            Now.AddSeconds(2),
+            Now.AddSeconds(15),
+            isAvailable: true);
     }
 
-    private static DownloadSpeedSnapshot Idle() => new();
+    private static DownloadSpeedSnapshot Idle() => new()
+    {
+        IsAvailable = true,
+    };
 
     /// <summary>
     /// Takes the process-wide event over for the length of one run and returns whatever was
@@ -126,4 +215,11 @@ public class DownloadsEndedAnnouncementTests
         => typeof(RustSpeedTrackerService).GetField(
             nameof(RustSpeedTrackerService.DownloadsEnded),
             BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)!;
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; } = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
 }

@@ -1,27 +1,27 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::io::{self, ErrorKind};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use lancache_processor::progress_utils;
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
-
 use cache_utils::{detect_filesystem_type, FilesystemType};
+use lancache_processor::cache_repair;
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 use progress_events::ProgressReporter;
 
 /// Cache clear utility - clears all cache directories
@@ -45,9 +45,13 @@ struct Args {
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
+
+    /// Operation that owns the durable cache-root receipt.
+    #[arg(long = "operation-id")]
+    operation_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
@@ -112,66 +116,146 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn delete_directory_contents(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
-    if !dir_path.exists() {
-        return Ok(());
-    }
+fn delete_directory_contents(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+    bytes_counter: &AtomicU64,
+) -> Result<()> {
+    let inspect = |entry: &fs::DirEntry| {
+        let file_type = entry.file_type()?;
+        let length = if file_type.is_dir() || file_type.is_symlink() {
+            0
+        } else {
+            entry.metadata()?.len()
+        };
+        Ok((file_type, length))
+    };
+    delete_directory_contents_with(
+        dir_path,
+        files_counter,
+        bytes_counter,
+        &inspect,
+        &|path: &Path| fs::remove_file(path),
+        &|path: &Path| fs::remove_dir(path),
+    )
+}
 
+fn delete_directory_contents_with<I, F, D>(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+    bytes_counter: &AtomicU64,
+    inspect: &I,
+    remove_file: &F,
+    remove_dir: &D,
+) -> Result<()>
+where
+    I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
+    F: Fn(&Path) -> std::io::Result<()>,
+    D: Fn(&Path) -> std::io::Result<()>,
+{
     // Canonicalize the sweep root once. All deletions must live under it.
     let root = match dir_path.canonicalize() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("skipping unsafe root {}: {}", dir_path.display(), e);
-            return Ok(());
+        Ok(root) => root,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to resolve clear root {}", dir_path.display()));
         }
     };
 
-    // Fast recursive deletion - NO metadata reads for speed
-    fn delete_recursive(root: &Path, dir: &Path, files_counter: &AtomicU64) -> Result<()> {
-        if dir.is_dir() {
-            for entry_result in fs::read_dir(dir)? {
-                let entry = entry_result?;
-                let path = entry.path();
-
-                // Refuse to follow symlinks or paths outside the canonical root.
-                let file_type = match entry.file_type() {
-                    Ok(ft) => ft,
-                    Err(e) => {
-                        eprintln!("skipping unsafe path {}: {}", path.display(), e);
-                        continue;
-                    }
-                };
-                if file_type.is_symlink() {
-                    eprintln!(
-                        "skipping unsafe path {}: symlink not allowed",
-                        path.display()
-                    );
-                    continue;
+    fn delete_recursive<I, F, D>(
+        root: &Path,
+        dir: &Path,
+        files_counter: &AtomicU64,
+        bytes_counter: &AtomicU64,
+        inspect: &I,
+        remove_file: &F,
+        remove_dir: &D,
+    ) -> Result<()>
+    where
+        I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
+        F: Fn(&Path) -> std::io::Result<()>,
+        D: Fn(&Path) -> std::io::Result<()>,
+    {
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to enumerate clear path {}", dir.display()));
+            }
+        };
+        for entry_result in entries {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to read an entry under {}", dir.display())
+                    });
                 }
+            };
+            let path = entry.path();
+            let (file_type, length) = match inspect(&entry) {
+                Ok(inspection) => inspection,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to inspect clear path {}", path.display())
+                    });
+                }
+            };
+            if file_type.is_symlink() {
+                eprintln!(
+                    "skipping unsafe path {}: symlink not allowed",
+                    path.display()
+                );
+                continue;
+            }
 
-                if path.is_dir() {
-                    match cache_utils::safe_path_under_root(root, &path) {
-                        Ok(_) => {
-                            delete_recursive(root, &path, files_counter)?;
-                            // Try to remove the empty directory
-                            let _ = fs::remove_dir(&path);
-                        }
-                        Err(e) => {
-                            eprintln!("skipping unsafe path {}: {}", path.display(), e);
-                            continue;
-                        }
+            match cache_utils::safe_path_under_root(root, &path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("refusing unsafe clear path {}", path.display()));
+                }
+            }
+
+            if file_type.is_dir() {
+                delete_recursive(
+                    root,
+                    &path,
+                    files_counter,
+                    bytes_counter,
+                    inspect,
+                    remove_file,
+                    remove_dir,
+                )?;
+                match remove_dir(&path) {
+                    Ok(()) => {}
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
+                        ) => {}
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!("failed to remove clear directory {}", path.display())
+                        });
                     }
-                } else {
-                    match cache_utils::safe_path_under_root(root, &path) {
-                        Ok(_) => {
-                            // Just count and delete - NO metadata read for speed
-                            files_counter.fetch_add(1, Ordering::Relaxed);
-                            let _ = fs::remove_file(&path);
-                        }
-                        Err(e) => {
-                            eprintln!("skipping unsafe path {}: {}", path.display(), e);
-                            continue;
-                        }
+                }
+            } else {
+                match remove_file(&path) {
+                    Ok(()) => {
+                        files_counter.fetch_add(1, Ordering::Relaxed);
+                        bytes_counter.fetch_add(length, Ordering::Relaxed);
+                    }
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!("failed to delete cache file {}", path.display())
+                        });
                     }
                 }
             }
@@ -179,91 +263,184 @@ fn delete_directory_contents(dir_path: &Path, files_counter: &AtomicU64) -> Resu
         Ok(())
     }
 
-    delete_recursive(&root, &root, files_counter)?;
+    delete_recursive(
+        &root,
+        &root,
+        files_counter,
+        bytes_counter,
+        inspect,
+        remove_file,
+        remove_dir,
+    )?;
 
     Ok(())
 }
 
-fn delete_directory_full(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
-    if !dir_path.exists() {
-        return Ok(());
+fn checked_file_totals<I>(dir_path: &Path, inspect: &I) -> Result<(u64, u64)>
+where
+    I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
+{
+    let mut files = 0_u64;
+    let mut bytes = 0_u64;
+    let mut pending = vec![dir_path.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("failed to enumerate clear path {}", directory.display())
+                });
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to read an entry under {}", directory.display())
+                    });
+                }
+            };
+            let path = entry.path();
+            let (file_type, length) = match inspect(&entry) {
+                Ok(inspection) => inspection,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to inspect clear path {}", path.display())
+                    });
+                }
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file() {
+                files += 1;
+                bytes = bytes.saturating_add(length);
+            }
+        }
     }
+    Ok((files, bytes))
+}
 
-    // Count files before deletion using find (efficient even on NFS)
-    // This gives us accurate file counts for the progress display.
-    // IMPORTANT: Avoid `sh -c` here - pass arguments directly to `find` so a
-    // crafted `dir_path` cannot inject shell metacharacters.
-    #[cfg(unix)]
-    let file_count = {
-        use std::process::Command;
-        Command::new("find")
-            .arg(dir_path)
-            .arg("-type")
-            .arg("f")
-            .output()
-            .ok()
-            .and_then(|output| {
-                if output.status.success() {
-                    // Each file path is on its own line - count newlines.
-                    Some(output.stdout.iter().filter(|&&b| b == b'\n').count() as u64)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0)
+fn delete_directory_full(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+    bytes_counter: &AtomicU64,
+) -> Result<()> {
+    let inspect = |entry: &fs::DirEntry| {
+        let file_type = entry.file_type()?;
+        let length = if file_type.is_dir() || file_type.is_symlink() {
+            0
+        } else {
+            entry.metadata()?.len()
+        };
+        Ok((file_type, length))
     };
+    delete_directory_full_with(
+        dir_path,
+        files_counter,
+        bytes_counter,
+        &inspect,
+        &|path: &Path| fs::remove_file(path),
+        &|path: &Path| fs::remove_dir(path),
+    )
+}
 
-    #[cfg(not(unix))]
-    let file_count = {
-        // On Windows, walk the directory to count files before deletion
-        jwalk::WalkDir::new(dir_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-            .count() as u64
-    };
+fn delete_directory_full_with<I, F, D>(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+    bytes_counter: &AtomicU64,
+    inspect: &I,
+    remove_file: &F,
+    remove_dir: &D,
+) -> Result<()>
+where
+    I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
+    F: Fn(&Path) -> io::Result<()>,
+    D: Fn(&Path) -> io::Result<()>,
+{
+    delete_directory_contents_with(
+        dir_path,
+        files_counter,
+        bytes_counter,
+        inspect,
+        remove_file,
+        remove_dir,
+    )?;
 
-    // Remove the entire directory tree in a single syscall. No need to recreate.
-    match fs::remove_dir_all(dir_path) {
-        Ok(_) => {
-            // Add the counted files to the total
-            if file_count > 0 {
-                files_counter.fetch_add(file_count, Ordering::Relaxed);
-            }
+    match remove_dir(dir_path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
             Ok(())
         }
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            // Directory doesn't exist, that's fine
-            Ok(())
-        }
-        Err(err) => {
-            // If the directory vanished despite the error, return success
-            if !dir_path.exists() {
-                if file_count > 0 {
-                    files_counter.fetch_add(file_count, Ordering::Relaxed);
-                }
-                return Ok(());
-            }
-
-            // Otherwise, fail with a clear error message
-            anyhow::bail!(
-                "Fast Mode removal failed for {}: {}. Please switch to 'Preserve Structure' or 'Rsync' mode.",
-                dir_path.display(),
-                err
-            );
-        }
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to remove clear directory {}", dir_path.display())),
     }
 }
 
 #[cfg(target_os = "linux")]
-fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
-    use anyhow::Context;
-    use std::env;
+fn delete_directory_rsync(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+    bytes_counter: &AtomicU64,
+) -> Result<()> {
     use std::process::Command;
 
-    if !dir_path.exists() {
+    delete_directory_rsync_with(
+        dir_path,
+        files_counter,
+        bytes_counter,
+        |empty_dir, target_dir| {
+            Command::new("rsync")
+                .arg("-a")
+                .arg("--delete")
+                .arg("--stats")
+                .arg(format!("{}/", empty_dir.display()))
+                .arg(format!("{}/", target_dir.display()))
+                .output()
+        },
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn delete_directory_rsync_with<E>(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+    bytes_counter: &AtomicU64,
+    execute: E,
+) -> Result<()>
+where
+    E: FnOnce(&Path, &Path) -> io::Result<std::process::Output>,
+{
+    use std::env;
+
+    if !dir_path
+        .try_exists()
+        .with_context(|| format!("failed to inspect rsync target {}", dir_path.display()))?
+    {
         return Ok(());
     }
+
+    let inspect = |entry: &fs::DirEntry| {
+        let file_type = entry.file_type()?;
+        let length = if file_type.is_dir() || file_type.is_symlink() {
+            0
+        } else {
+            entry.metadata()?.len()
+        };
+        Ok((file_type, length))
+    };
+    let (file_count, byte_count) = checked_file_totals(dir_path, &inspect)?;
 
     static EMPTY_TEMPLATE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -286,13 +463,7 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
         }
     };
 
-    let output = Command::new("rsync")
-        .arg("-a")
-        .arg("--delete")
-        .arg("--stats")
-        .arg(format!("{}/", empty_dir.display()))
-        .arg(format!("{}/", dir_path.display()))
-        .output();
+    let output = execute(empty_dir, dir_path);
 
     match output {
         Ok(result) => {
@@ -309,31 +480,16 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
             let stdout = String::from_utf8_lossy(&result.stdout);
             eprintln!("rsync stats for {}:\n{}", dir_path.display(), stdout);
 
-            if let Some(deleted) = parse_rsync_deleted_files(&stdout) {
-                eprintln!("Parsed {} deleted files from rsync stats", deleted);
-                files_counter.fetch_add(deleted, Ordering::Relaxed);
-            } else {
+            if parse_rsync_deleted_files(&stdout).is_none() {
                 eprintln!(
                     "Warning: Could not parse deleted file count from rsync stats for {}",
                     dir_path.display()
                 );
             }
 
-            // Check if directory still contains entries (e.g., rsync couldn't remove them).
-            // A read failure here means the clear was never verified, so it must not be
-            // reported as a success.
-            let mut entries = fs::read_dir(dir_path).with_context(|| {
-                format!(
-                    "could not verify rsync cleared {}. Please try again or switch to a different deletion mode.",
-                    dir_path.display()
-                )
-            })?;
-            if entries.next().is_some() {
-                anyhow::bail!(
-                    "rsync failed to completely clear {}. Directory still contains files. Please try again or switch to a different deletion mode.",
-                    dir_path.display()
-                );
-            }
+            // Rsync reports estimates from the pre-pass. The later repair scan owns absence proof.
+            files_counter.fetch_add(file_count, Ordering::Relaxed);
+            bytes_counter.fetch_add(byte_count, Ordering::Relaxed);
 
             Ok(())
         }
@@ -348,7 +504,11 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
 }
 
 #[cfg(not(target_os = "linux"))]
-fn delete_directory_rsync(_dir_path: &Path, _files_counter: &AtomicU64) -> Result<()> {
+fn delete_directory_rsync(
+    _dir_path: &Path,
+    _files_counter: &AtomicU64,
+    _bytes_counter: &AtomicU64,
+) -> Result<()> {
     anyhow::bail!(
         "Rsync mode is only supported on Linux. Please switch to 'Preserve Structure' or 'Fast Mode' mode."
     );
@@ -407,33 +567,38 @@ fn parse_rsync_deleted_files(stats: &str) -> Option<u64> {
     None
 }
 
-#[cfg(unix)]
-fn get_available_bytes(path: &Path) -> Result<u64> {
-    use std::ffi::CString;
-    use std::mem::MaybeUninit;
-
-    let c_path = CString::new(path.as_os_str().as_bytes())?;
-    let mut stat: MaybeUninit<libc::statvfs> = MaybeUninit::uninit();
-    let res = unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) };
-    if res != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    let stat = unsafe { stat.assume_init() };
-    Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
-}
-
-#[cfg(not(unix))]
-fn get_available_bytes(_path: &Path) -> Result<u64> {
-    Ok(0)
-}
-
 fn clear_cache(
     cache_path: &str,
     progress_path: &Path,
     thread_count: usize,
     delete_mode: &str,
+    operation_id: Option<&str>,
     reporter: &Arc<ProgressReporter>,
 ) -> Result<(usize, usize)> {
+    clear_cache_with(
+        cache_path,
+        progress_path,
+        thread_count,
+        delete_mode,
+        operation_id,
+        reporter,
+        |_| {},
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn clear_cache_with<F>(
+    cache_path: &str,
+    progress_path: &Path,
+    thread_count: usize,
+    delete_mode: &str,
+    operation_id: Option<&str>,
+    reporter: &Arc<ProgressReporter>,
+    after_delete: F,
+) -> Result<(usize, usize)>
+where
+    F: FnOnce(&Path),
+{
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
     eprintln!("Cache path: {}", cache_path);
@@ -463,7 +628,10 @@ fn clear_cache(
     reporter.emit_started("signalr.cacheClear.starting", json!({}));
 
     let cache_dir = Path::new(cache_path);
-    if !cache_dir.exists() {
+    if !cache_dir
+        .try_exists()
+        .with_context(|| format!("failed to inspect cache directory {}", cache_dir.display()))?
+    {
         let msg = format!("Cache directory does not exist: {}", cache_path);
         reporter.emit_failed(
             "signalr.cacheClear.error.dirNotFound",
@@ -473,24 +641,24 @@ fn clear_cache(
         anyhow::bail!("{}", msg);
     }
 
-    // Find all hex directories (00-ff)
-    let hex_dirs: Vec<PathBuf> = fs::read_dir(cache_dir)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_dir()
-                && path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(is_hex)
-                    .unwrap_or(false)
-        })
-        .collect();
+    // Find all hex directories (00-ff) without hiding enumeration or inspection failures.
+    let mut hex_dirs = Vec::new();
+    let entries = fs::read_dir(cache_dir)
+        .with_context(|| format!("failed to enumerate cache root {}", cache_dir.display()))?;
+    for entry in entries {
+        let entry = entry
+            .with_context(|| format!("failed to read an entry under {}", cache_dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect cache path {}", path.display()))?;
+        if file_type.is_dir() && entry.file_name().to_str().map(is_hex).unwrap_or(false) {
+            hex_dirs.push(path);
+        }
+    }
 
     let total_dirs = hex_dirs.len();
     eprintln!("Found {} cache files to clear", total_dirs);
-
-    let initial_available = get_available_bytes(cache_dir).unwrap_or(0);
 
     // Atomic counters for progress tracking
     let dirs_processed = Arc::new(AtomicUsize::new(0));
@@ -513,6 +681,8 @@ fn clear_cache(
     );
     write_progress(progress_path, &progress)?;
 
+    cache_repair::prepare_receipt(cache_dir, operation_id)?;
+
     // Use 4 threads for optimal I/O performance
     eprintln!("Using {} threads for parallel I/O operations", thread_count);
 
@@ -527,8 +697,9 @@ fn clear_cache(
     let dirs_for_monitor = Arc::clone(&dirs_processed);
     let active_for_monitor = Arc::clone(&active_dirs);
     let progress_path_clone = progress_path.to_path_buf();
-    let cache_dir_for_monitor = cache_dir.to_path_buf();
     let progress_enabled = reporter.is_enabled();
+    let workers_done = Arc::new(AtomicBool::new(false));
+    let done_for_monitor = Arc::clone(&workers_done);
     // Owned handle for the monitor thread so it can call the shared ProgressReporter
     // methods directly instead of hand-rolling the JSON envelope itself.
     let reporter_for_monitor = Arc::clone(reporter);
@@ -536,33 +707,10 @@ fn clear_cache(
     // Start a background thread to update progress regularly
     let monitor_handle = std::thread::spawn(move || {
         let mut last_update = Instant::now();
-        // This loop ticks twice a second for the whole clear, and a free-space read that
-        // fails once usually keeps failing, so the reason is reported once, not per tick.
-        let mut free_space_error_reported = false;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             let processed = dirs_for_monitor.load(Ordering::Relaxed);
-            match get_available_bytes(&cache_dir_for_monitor) {
-                Ok(current_available) => {
-                    if current_available >= initial_available {
-                        let freed = current_available - initial_available;
-                        bytes_for_monitor.store(freed, Ordering::Relaxed);
-                    }
-                }
-                // The reported "bytes freed" stops advancing when this fails. Say so,
-                // instead of leaving the number silently frozen for the whole run.
-                Err(e) => {
-                    if !free_space_error_reported {
-                        free_space_error_reported = true;
-                        eprintln!(
-                            "Could not read free space on {}, the bytes-freed total will stop advancing: {}",
-                            cache_dir_for_monitor.display(),
-                            e
-                        );
-                    }
-                }
-            }
             let bytes = bytes_for_monitor.load(Ordering::Relaxed);
             let files = files_for_monitor.load(Ordering::Relaxed);
 
@@ -570,7 +718,7 @@ fn clear_cache(
             // On cancel the worker closures skip remaining dirs without advancing
             // `processed`, so without this check the monitor would loop forever and
             // `monitor_handle.join()` below would deadlock instead of exiting 0.
-            if processed >= total_dirs || cancel::is_cancelled() {
+            if done_for_monitor.load(Ordering::Relaxed) || cancel::is_cancelled() {
                 break; // All done, or cancellation requested
             }
 
@@ -628,12 +776,12 @@ fn clear_cache(
 
     // Process directories in parallel using rayon with limited thread pool
     let active_for_workers = Arc::clone(&active_dirs);
-    pool.install(|| {
-        hex_dirs.par_iter().for_each(|dir| {
+    let deletion_result = pool.install(|| {
+        hex_dirs.par_iter().try_for_each(|dir| -> Result<()> {
             // Cooperative cancellation: skip new hex-dirs if cancel was requested.
-            // An in-flight remove_dir_all finishes (not interruptible mid-call); no new dir starts.
+            // An in-flight filesystem call finishes; no new directory starts.
             if cancel::is_cancelled() {
-                return;
+                return Ok(());
             }
 
             let dir_name = dir
@@ -651,9 +799,9 @@ fn clear_cache(
             eprintln!("Processing directory {}", dir_name);
 
             let result = match delete_mode {
-                "full" => delete_directory_full(dir, &total_files_deleted),
-                "rsync" => delete_directory_rsync(dir, &total_files_deleted),
-                _ => delete_directory_contents(dir, &total_files_deleted),
+                "full" => delete_directory_full(dir, &total_files_deleted, &total_bytes_deleted),
+                "rsync" => delete_directory_rsync(dir, &total_files_deleted, &total_bytes_deleted),
+                _ => delete_directory_contents(dir, &total_files_deleted, &total_bytes_deleted),
             };
 
             // Remove from active list
@@ -662,32 +810,24 @@ fn clear_cache(
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .retain(|d| d != &dir_name_str);
 
-            match result {
-                Ok(()) => {
-                    // Increment counter AFTER processing completes
-                    let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
-                    eprintln!(
-                        "Completed directory {} ({}/{})",
-                        dir_name, processed, total_dirs
-                    );
-                }
-                Err(e) => {
-                    // Still increment on error so we don't get stuck
-                    let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
-                    eprintln!(
-                        "Warning: Failed to clear directory {} ({}/{}): {}",
-                        dir_name, processed, total_dirs, e
-                    );
-                }
-            }
-        });
+            result?;
+            let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!(
+                "Completed directory {} ({}/{})",
+                dir_name, processed, total_dirs
+            );
+            Ok(())
+        })
     });
+    workers_done.store(true, Ordering::Relaxed);
 
     // Wait for monitor thread to finish
-    let _ = monitor_handle.join();
+    monitor_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("cache clear progress monitor stopped unexpectedly"))?;
 
     // If cancellation was requested: flush a partial progress event and exit 0.
-    // An in-flight remove_dir_all may have finished; no new dirs were started after the flag.
+    // An in-flight filesystem call may have finished; no new dirs were started after the flag.
     if cancel::is_cancelled() {
         let processed = dirs_processed.load(Ordering::Relaxed);
         let percent = if total_dirs > 0 {
@@ -707,8 +847,8 @@ fn clear_cache(
             json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": 0usize }),
             processed,
             total_dirs,
-            0,
-            0,
+            total_bytes_deleted.load(Ordering::Relaxed),
+            total_files_deleted.load(Ordering::Relaxed),
             Vec::new(),
         );
         let _ = write_progress(progress_path, &progress);
@@ -723,19 +863,36 @@ fn clear_cache(
         std::process::exit(0);
     }
 
-    let final_dirs = dirs_processed.load(Ordering::Relaxed);
-    let final_bytes = get_available_bytes(cache_dir)
-        .ok()
-        .and_then(|current| {
-            if current >= initial_available {
-                Some(current - initial_available)
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| total_bytes_deleted.load(Ordering::Relaxed));
+    if let Err(error) = deletion_result {
+        let processed = dirs_processed.load(Ordering::Relaxed);
+        let total_bytes = total_bytes_deleted.load(Ordering::Relaxed);
+        let total_files = total_files_deleted.load(Ordering::Relaxed);
+        let percent = if total_dirs > 0 {
+            (processed as f64 / total_dirs as f64) * 100.0
+        } else {
+            0.0
+        };
+        let error_detail = format!("{error:#}");
+        let failed = ProgressData::new(
+            false,
+            percent,
+            "failed".to_string(),
+            "signalr.cacheClear.error.fatal".to_string(),
+            json!({ "errorDetail": error_detail }),
+            processed,
+            total_dirs,
+            total_bytes,
+            total_files,
+            Vec::new(),
+        );
+        let _ = write_progress(progress_path, &failed);
+        return Err(error);
+    }
 
-    total_bytes_deleted.store(final_bytes, Ordering::Relaxed);
+    after_delete(cache_dir);
+
+    let final_dirs = dirs_processed.load(Ordering::Relaxed);
+    let final_bytes = total_bytes_deleted.load(Ordering::Relaxed);
     let final_files = total_files_deleted.load(Ordering::Relaxed);
     let elapsed = start_time.elapsed();
 
@@ -783,7 +940,7 @@ fn get_optimal_thread_count(delete_mode: &str, fs_type: FilesystemType) -> usize
             // Rsync is most efficient on NFS - can use moderate parallelism
             // as each rsync process handles a whole directory tree
             "rsync" => std::cmp::min(cpu_count, 4),
-            // Full mode does remove_dir_all - limited parallelism
+            // Full mode uses a counted recursive walk - keep network churn bounded.
             "full" => 2,
             // Preserve mode is VERY slow on NFS - minimal parallelism
             // to avoid overwhelming the NFS server with unlink() calls
@@ -793,8 +950,8 @@ fn get_optimal_thread_count(delete_mode: &str, fs_type: FilesystemType) -> usize
 
     // Local filesystems: can use higher parallelism
     match delete_mode {
-        // Fast mode uses remove_dir_all which is already efficient
-        // Use fewer threads to avoid overwhelming the filesystem
+        // Full mode removes files and then empty directories with exact unlink counters.
+        // Use fewer threads to avoid overwhelming the filesystem.
         "full" => std::cmp::min(cpu_count, 8),
 
         // Rsync mode - each rsync process is independent
@@ -874,6 +1031,7 @@ fn main() -> anyhow::Result<()> {
         progress_path,
         thread_count,
         delete_mode,
+        args.operation_id.as_deref(),
         &reporter,
     ) {
         Ok((final_dirs, total_dirs)) => {
@@ -893,20 +1051,493 @@ fn main() -> anyhow::Result<()> {
                 json!({ "errorDetail": error_detail }),
                 Some(error_detail.clone()),
             );
+            let previous = fs::read(progress_path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<ProgressData>(&bytes).ok());
             let error_progress = ProgressData::new(
                 false,
-                0.0,
+                previous
+                    .as_ref()
+                    .map(|progress| progress.percent_complete)
+                    .unwrap_or(0.0),
                 "failed".to_string(),
                 "signalr.cacheClear.error.fatal".to_string(),
                 json!({ "errorDetail": error_detail }),
-                0,
-                0,
-                0,
-                0,
+                previous
+                    .as_ref()
+                    .map(|progress| progress.directories_processed)
+                    .unwrap_or(0),
+                previous
+                    .as_ref()
+                    .map(|progress| progress.total_directories)
+                    .unwrap_or(0),
+                previous
+                    .as_ref()
+                    .map(|progress| progress.bytes_deleted)
+                    .unwrap_or(0),
+                previous
+                    .as_ref()
+                    .map(|progress| progress.files_deleted)
+                    .unwrap_or(0),
                 Vec::new(),
             );
             let _ = write_progress(progress_path, &error_progress);
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FIRST_DIGEST: &str = "0123456789abcdef0123456789abcdef";
+    const NEW_DIGEST: &str = "fedcba9876543210fedcba987654cdef";
+
+    fn inspect_entry(entry: &fs::DirEntry) -> io::Result<(fs::FileType, u64)> {
+        let file_type = entry.file_type()?;
+        let length = if file_type.is_dir() || file_type.is_symlink() {
+            0
+        } else {
+            entry.metadata()?.len()
+        };
+        Ok((file_type, length))
+    }
+
+    fn create_cache_file(root: &Path, digest: &str, contents: &[u8]) -> std::path::PathBuf {
+        let path = root
+            .join(&digest[30..32])
+            .join(&digest[28..30])
+            .join(digest);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, contents).unwrap();
+        path
+    }
+
+    #[cfg(target_os = "linux")]
+    static RSYNC_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[cfg(target_os = "linux")]
+    fn run_rsync(empty_dir: &Path, target_dir: &Path) -> io::Result<std::process::Output> {
+        std::process::Command::new("rsync")
+            .arg("-a")
+            .arg("--delete")
+            .arg("--stats")
+            .arg(format!("{}/", empty_dir.display()))
+            .arg(format!("{}/", target_dir.display()))
+            .output()
+    }
+
+    #[test]
+    fn preserve_mode_reports_only_successful_unlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("00");
+        fs::create_dir_all(&directory).unwrap();
+        let first = directory.join("first");
+        let second = directory.join("second");
+        fs::write(&first, b"one").unwrap();
+        fs::write(&second, b"second").unwrap();
+        let remove_calls = AtomicUsize::new(0);
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        let error = delete_directory_contents_with(
+            &directory,
+            &files,
+            &bytes,
+            &inspect_entry,
+            &|path: &Path| {
+                if remove_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    fs::remove_file(path)
+                } else {
+                    Err(std::io::Error::new(
+                        ErrorKind::Other,
+                        "injected unlink failure",
+                    ))
+                }
+            },
+            &|path: &Path| fs::remove_dir(path),
+        )
+        .unwrap_err();
+
+        let removed_bytes = [(&first, 3_u64), (&second, 6_u64)]
+            .into_iter()
+            .filter_map(|(path, length)| (!path.exists()).then_some(length))
+            .sum::<u64>();
+        assert!(error.to_string().contains("failed to delete cache file"));
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), removed_bytes);
+    }
+
+    #[test]
+    fn file_vanishing_during_inspection_is_not_counted() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("00");
+        fs::create_dir_all(&directory).unwrap();
+        let vanished = directory.join("vanished");
+        let remaining = directory.join("remaining");
+        fs::write(&vanished, b"gone").unwrap();
+        fs::write(&remaining, b"remain").unwrap();
+        let vanished = vanished.canonicalize().unwrap();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_contents_with(
+            &directory,
+            &files,
+            &bytes,
+            &|entry: &fs::DirEntry| {
+                if entry.path() == vanished {
+                    fs::remove_file(entry.path())?;
+                    return Err(io::Error::new(
+                        ErrorKind::NotFound,
+                        "injected inspection disappearance",
+                    ));
+                }
+                inspect_entry(entry)
+            },
+            &|path: &Path| fs::remove_file(path),
+            &|path: &Path| fs::remove_dir(path),
+        )
+        .expect("inspection disappearance must be benign");
+
+        assert!(!vanished.exists());
+        assert!(!remaining.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 6);
+    }
+
+    #[test]
+    fn file_vanishing_during_unlink_is_not_counted() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("00");
+        fs::create_dir_all(&directory).unwrap();
+        let vanished = directory.join("vanished");
+        let remaining = directory.join("remaining");
+        fs::write(&vanished, b"gone").unwrap();
+        fs::write(&remaining, b"remain").unwrap();
+        let vanished = vanished.canonicalize().unwrap();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_contents_with(
+            &directory,
+            &files,
+            &bytes,
+            &inspect_entry,
+            &|path: &Path| {
+                if path == vanished {
+                    fs::remove_file(path)?;
+                    return Err(io::Error::new(
+                        ErrorKind::NotFound,
+                        "injected unlink disappearance",
+                    ));
+                }
+                fs::remove_file(path)
+            },
+            &|path: &Path| fs::remove_dir(path),
+        )
+        .expect("unlink disappearance must be benign");
+
+        assert!(!vanished.exists());
+        assert!(!remaining.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 6);
+    }
+
+    #[test]
+    fn directory_not_empty_races_preserve_new_files_and_allow_the_next_root() {
+        let child_root = tempfile::tempdir().unwrap();
+        let original = create_cache_file(child_root.path(), FIRST_DIGEST, b"old");
+        let child = original.parent().unwrap().canonicalize().unwrap();
+        let sweep = child.parent().unwrap().to_path_buf();
+        let new_in_child = child.join(NEW_DIGEST);
+        let created_in_child = std::cell::Cell::new(false);
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_full_with(
+            &sweep,
+            &files,
+            &bytes,
+            &inspect_entry,
+            &|path: &Path| fs::remove_file(path),
+            &|path: &Path| {
+                if path == child && !created_in_child.replace(true) {
+                    fs::write(&new_in_child, b"new")?;
+                }
+                fs::remove_dir(path)
+            },
+        )
+        .expect("child writer race must be benign");
+
+        assert!(new_in_child.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 3);
+
+        let top_root = tempfile::tempdir().unwrap();
+        let original = create_cache_file(top_root.path(), FIRST_DIGEST, b"old");
+        let sweep = original
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let new_at_top = sweep.join("11").join(NEW_DIGEST);
+        let created_at_top = std::cell::Cell::new(false);
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_full_with(
+            &sweep,
+            &files,
+            &bytes,
+            &inspect_entry,
+            &|path: &Path| fs::remove_file(path),
+            &|path: &Path| {
+                if path == sweep && !created_at_top.replace(true) {
+                    fs::create_dir_all(new_at_top.parent().unwrap())?;
+                    fs::write(&new_at_top, b"new")?;
+                }
+                fs::remove_dir(path)
+            },
+        )
+        .expect("top writer race must be benign");
+
+        assert!(new_at_top.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 3);
+
+        let next_root = tempfile::tempdir().unwrap();
+        let next = create_cache_file(next_root.path(), FIRST_DIGEST, b"next");
+        let next_sweep = next.parent().unwrap().parent().unwrap().to_path_buf();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_full(&next_sweep, &files, &bytes).expect("a later root must still run");
+
+        assert!(!next_sweep.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn full_mode_keeps_successful_unlink_counts_before_a_later_error() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("00");
+        fs::create_dir_all(&directory).unwrap();
+        let first = directory.join("first");
+        let second = directory.join("second");
+        fs::write(&first, b"one").unwrap();
+        fs::write(&second, b"second").unwrap();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        let error = delete_directory_full_with(
+            &directory,
+            &files,
+            &bytes,
+            &inspect_entry,
+            &|path: &Path| fs::remove_file(path),
+            &|_| {
+                Err(io::Error::new(
+                    ErrorKind::Other,
+                    "injected directory removal failure",
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("failed to remove clear directory"));
+        assert!(!first.exists());
+        assert!(!second.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 2);
+        assert_eq!(bytes.load(Ordering::SeqCst), 9);
+    }
+
+    #[test]
+    fn rsync_precount_ignores_a_file_that_vanishes_during_inspection() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("00");
+        fs::create_dir_all(&directory).unwrap();
+        let vanished = directory.join("vanished");
+        let remaining = directory.join("remaining");
+        fs::write(&vanished, b"gone").unwrap();
+        fs::write(&remaining, b"remain").unwrap();
+
+        let totals = checked_file_totals(&directory, &|entry: &fs::DirEntry| {
+            if entry.path() == vanished {
+                fs::remove_file(entry.path())?;
+                return Err(io::Error::new(
+                    ErrorKind::NotFound,
+                    "injected precount disappearance",
+                ));
+            }
+            inspect_entry(entry)
+        })
+        .expect("precount disappearance must be benign");
+
+        assert_eq!(totals, (1, 6));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rsync_keeps_a_file_created_after_the_command_and_allows_the_next_root() {
+        let _guard = RSYNC_TEST_LOCK.lock().unwrap();
+        let first_root = tempfile::tempdir().unwrap();
+        let original = create_cache_file(first_root.path(), FIRST_DIGEST, b"old");
+        let first_sweep = original.parent().unwrap().parent().unwrap().to_path_buf();
+        let new_file = first_sweep.join(NEW_DIGEST);
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_rsync_with(&first_sweep, &files, &bytes, |empty_dir, target_dir| {
+            let output = run_rsync(empty_dir, target_dir)?;
+            if output.status.success() {
+                fs::write(&new_file, b"new")?;
+            }
+            Ok(output)
+        })
+        .expect("post-rsync writer must not fail the operation");
+
+        assert!(new_file.exists());
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 3);
+
+        let next_root = tempfile::tempdir().unwrap();
+        let next = create_cache_file(next_root.path(), FIRST_DIGEST, b"next");
+        let next_sweep = next.parent().unwrap().parent().unwrap().to_path_buf();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        delete_directory_rsync_with(&next_sweep, &files, &bytes, run_rsync)
+            .expect("a later rsync root must still run");
+
+        assert_eq!(files.load(Ordering::SeqCst), 1);
+        assert_eq!(bytes.load(Ordering::SeqCst), 4);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rsync_spawn_failure_remains_fatal() {
+        let _guard = RSYNC_TEST_LOCK.lock().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let original = create_cache_file(root.path(), FIRST_DIGEST, b"old");
+        let sweep = original.parent().unwrap().parent().unwrap().to_path_buf();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        let error = delete_directory_rsync_with(&sweep, &files, &bytes, |_, _| {
+            Err(io::Error::new(
+                ErrorKind::NotFound,
+                "injected rsync spawn failure",
+            ))
+        })
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("rsync command not available or failed"));
+        assert_eq!(files.load(Ordering::SeqCst), 0);
+        assert_eq!(bytes.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rsync_nonzero_exit_remains_fatal() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let _guard = RSYNC_TEST_LOCK.lock().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let original = create_cache_file(root.path(), FIRST_DIGEST, b"old");
+        let sweep = original.parent().unwrap().parent().unwrap().to_path_buf();
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        let error = delete_directory_rsync_with(&sweep, &files, &bytes, |_, _| {
+            Ok(std::process::Output {
+                status: std::process::ExitStatus::from_raw(1 << 8),
+                stdout: Vec::new(),
+                stderr: b"injected rsync failure".to_vec(),
+            })
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("rsync failed"));
+        assert_eq!(files.load(Ordering::SeqCst), 0);
+        assert_eq!(bytes.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn files_created_after_deletion_do_not_stop_the_next_root() {
+        let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let mut completed = 0usize;
+        let mut surviving = None;
+
+        for (index, root) in roots.iter().enumerate() {
+            let original = root.path().join("00").join("00").join(FIRST_DIGEST);
+            fs::create_dir_all(original.parent().unwrap()).unwrap();
+            fs::write(&original, b"old").unwrap();
+            let progress_path = root.path().join("progress.json");
+            let reporter = Arc::new(ProgressReporter::new(false));
+            let operation_id = uuid::Uuid::new_v4().to_string();
+            let mut created = None;
+
+            let result = clear_cache_with(
+                root.path().to_str().unwrap(),
+                &progress_path,
+                1,
+                "preserve",
+                Some(&operation_id),
+                &reporter,
+                |cache_root| {
+                    if index == 0 {
+                        let path = cache_root.join("00").join("11").join(NEW_DIGEST);
+                        fs::create_dir_all(path.parent().unwrap()).unwrap();
+                        fs::write(&path, b"new").unwrap();
+                        created = Some(path);
+                    }
+                },
+            )
+            .expect("clear root while a writer creates a later file");
+            let progress: ProgressData =
+                serde_json::from_slice(&fs::read(&progress_path).unwrap()).unwrap();
+
+            assert_eq!(result, (1, 1));
+            assert_eq!(progress.status, "completed");
+            assert_eq!(progress.files_deleted, 1);
+            assert_eq!(progress.bytes_deleted, 3);
+            completed += 1;
+            if index == 0 {
+                surviving = created;
+            }
+        }
+
+        assert_eq!(completed, 2);
+        assert!(surviving.unwrap().exists());
+    }
+
+    #[test]
+    fn operation_id_is_optional_and_accepts_uuid_text() {
+        let omitted = Args::try_parse_from(["cache_clear", "cache", "progress.json"]).unwrap();
+        assert!(omitted.operation_id.is_none());
+
+        let operation_id = uuid::Uuid::new_v4();
+        let operation_text = operation_id.to_string();
+        let supplied = Args::try_parse_from([
+            "cache_clear",
+            "cache",
+            "progress.json",
+            "--operation-id",
+            &operation_text,
+        ])
+        .unwrap();
+        assert_eq!(
+            supplied.operation_id.as_deref(),
+            Some(operation_text.as_str())
+        );
     }
 }

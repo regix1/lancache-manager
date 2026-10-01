@@ -572,6 +572,102 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
+    public async Task CapturedRemovalReplay_IsIdempotentAndNeverTargetsANewerScanAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var capturedScanId = Guid.Parse("00000000-0000-0000-0009-000000000001");
+        var first = StructuralCandidate("MiXeD", 1);
+        var second = StructuralCandidate("kept", 2);
+        var capturedReport = StructuralReport("default", first, second);
+        Validate(capturedReport, CorruptionDetectionMethod.Structural, "default");
+        await service.PersistCompletedScanAsync(
+            capturedScanId,
+            3,
+            LookbackDays,
+            CorruptionDetectionMethod.Structural,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [capturedReport],
+            StructuralScanMode.Full);
+        var captured = new CorruptionRepair
+        {
+            ScanId = capturedScanId,
+            ContractVersion = CorruptionReport.SupportedContractVersion,
+            DetectionMethod = CorruptionDetectionMethod.Structural,
+            Service = "steam"
+        };
+
+        await service.ApplyRemovalSuccessAsync(captured, ["default:MiXeD"]);
+        await service.ApplyRemovalSuccessAsync(captured, ["default:MiXeD"]);
+
+        Assert.Equal(
+            "default:kept",
+            Assert.Single(await service.GetDetailsAsync(capturedScanId, "steam")).CandidateId);
+
+        var newerScanId = Guid.Parse("00000000-0000-0000-0009-000000000002");
+        await PersistScanAsync(
+            service,
+            newerScanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 903,
+            ScanStartedUtc.AddSeconds(2),
+            StructuralScanMode.Full);
+
+        await service.ApplyRemovalSuccessAsync(captured, ["default:MiXeD"]);
+
+        Assert.Equal(
+            "default:kept",
+            Assert.Single(await service.GetSnapshotDetailsAsync(capturedScanId, "steam")).CandidateId);
+        Assert.Equal(
+            "default:scan-903",
+            Assert.Single(await service.GetDetailsAsync(newerScanId, "steam")).CandidateId);
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.ApplyRemovalSuccessAsync(
+            new CorruptionRepair
+            {
+                ScanId = capturedScanId,
+                ContractVersion = CorruptionReport.SupportedContractVersion - 1,
+                DetectionMethod = CorruptionDetectionMethod.Structural,
+                Service = "steam"
+            },
+            ["default:MiXeD"]));
+
+        await service.InvalidateRepairAsync(
+            new OperationRepair
+            {
+                Id = Guid.NewGuid(),
+                Type = OperationType.CorruptionRemoval,
+                Name = "Corruption removal: steam",
+                StartedAt = ScanStartedUtc,
+                Corruption = captured,
+                Removal = new RemovalRepair
+                {
+                    EntityKey = "steam",
+                    EntityName = "steam",
+                    DetectionMethod = CorruptionDetectionMethod.Structural,
+                    CorruptionScanId = capturedScanId
+                },
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        CacheRoot = "/cache/default",
+                        NativeLaunchAuthorized = true,
+                        InvalidateCorruption = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        await using var context = await database.Factory.CreateDbContextAsync();
+        Assert.False((await context.CachedCorruptionDetections.SingleAsync(row =>
+            row.ScanId == capturedScanId && row.ServiceName == "steam")).RemovalAllowed);
+        Assert.True((await context.CachedCorruptionDetections.SingleAsync(row =>
+            row.ScanId == newerScanId && row.ServiceName == "steam")).RemovalAllowed);
+    }
+
+    [Fact]
     public async Task CompletedScans_CoexistPerMethodAndPersistRequestedStructuralModeAsync()
     {
         await using var database = await TestDatabase.CreateAsync();

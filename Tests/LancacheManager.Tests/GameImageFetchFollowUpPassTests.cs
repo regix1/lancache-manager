@@ -112,7 +112,7 @@ public sealed class GameImageFetchFollowUpPassTests
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
-        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var queue = new OperationQueueService(
             tracker,
             conflictChecker,

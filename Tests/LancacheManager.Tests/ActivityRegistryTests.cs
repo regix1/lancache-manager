@@ -103,6 +103,120 @@ public class ActivityRegistryTests
             a => a.Domain == ActivityDomains.Integration && a.Key == "steam" && a.Aspect == ActivityAspects.Authenticated);
     }
 
+    [Fact]
+    public async Task BoundDownloadSnapshotSuppliesMembershipStampAndBoundary()
+    {
+        var activity = CreateRegistry(out _);
+        var activeUntilUtc = new DateTime(2026, 9, 30, 18, 0, 15, DateTimeKind.Utc);
+        var downloads = SpeedActivityTests.Snapshot(
+            activeUntilUtc.AddSeconds(-13),
+            activeUntilUtc,
+            isAvailable: true);
+        activity.BindDownloads(() => downloads);
+
+        var snapshot = await activity.GetSnapshotAsync();
+
+        Assert.Equal(downloads.StreamId, snapshot.DownloadStreamId);
+        Assert.Equal(downloads.Revision, snapshot.DownloadRevision);
+        Assert.Contains(snapshot.Activities, item =>
+            item.Domain == ActivityDomains.Download &&
+            item.Key == downloads.GameSpeeds[0].Key &&
+            item.ActiveUntilUtc == activeUntilUtc);
+        Assert.Contains(snapshot.Activities, item =>
+            item.Domain == ActivityDomains.Download &&
+            item.Key == downloads.ClientSpeeds[0].ClientIp &&
+            item.ActiveUntilUtc == activeUntilUtc);
+    }
+
+    [Fact]
+    public async Task OlderDownloadReplacementCannotRestoreClearedMembership()
+    {
+        var activity = CreateRegistry(out _);
+        var activeUntilUtc = new DateTime(2026, 9, 30, 18, 0, 15, DateTimeKind.Utc);
+        var active = SpeedActivityTests.Snapshot(
+            activeUntilUtc.AddSeconds(-13),
+            activeUntilUtc,
+            isAvailable: true);
+        await activity.ReplaceDownloadsAsync(active);
+        await activity.ReplaceDownloadsAsync(new DownloadSpeedSnapshot
+        {
+            Version = 2,
+            StreamId = active.StreamId,
+            Revision = active.Revision + 1,
+            TimestampUtc = activeUntilUtc,
+            IsAvailable = true,
+            WindowSeconds = 2,
+        });
+        await activity.ReplaceDownloadsAsync(active);
+
+        var snapshot = await activity.GetSnapshotAsync();
+        Assert.Equal(active.Revision + 1, snapshot.DownloadRevision);
+        Assert.DoesNotContain(snapshot.Activities, item => item.Domain == ActivityDomains.Download);
+    }
+
+    [Fact]
+    public async Task NewerEquivalentDownloadSnapshotAdvancesStampWithoutBroadcast()
+    {
+        var activity = CreateRegistry(out var notifier);
+        var activeUntilUtc = new DateTime(2026, 9, 30, 18, 0, 15, DateTimeKind.Utc);
+        var first = SpeedActivityTests.Snapshot(
+            activeUntilUtc.AddSeconds(-13),
+            activeUntilUtc,
+            isAvailable: true);
+        await activity.ReplaceDownloadsAsync(first);
+
+        var next = SpeedActivityTests.Snapshot(
+            activeUntilUtc.AddSeconds(-13),
+            activeUntilUtc,
+            isAvailable: true);
+        next.Revision = first.Revision + 1;
+        next.TimestampUtc = first.TimestampUtc.AddSeconds(1);
+        await activity.ReplaceDownloadsAsync(next);
+
+        Assert.Single(notifier.ActivitySnapshots);
+        var current = await activity.GetSnapshotAsync();
+        Assert.Equal(next.StreamId, current.DownloadStreamId);
+        Assert.Equal(next.Revision, current.DownloadRevision);
+
+        next.StreamId = "replacement-stream";
+        next.Revision = 1;
+        await activity.ReplaceDownloadsAsync(next);
+
+        Assert.Equal(2, notifier.ActivitySnapshots.Count);
+        Assert.Equal(next.StreamId, notifier.ActivitySnapshots[^1].DownloadStreamId);
+        Assert.Equal(next.Revision, notifier.ActivitySnapshots[^1].DownloadRevision);
+    }
+
+    [Fact]
+    public async Task NonDownloadReportAppliesNewestBoundDownloadSnapshot()
+    {
+        var activity = CreateRegistry(out _);
+        var activeUntilUtc = new DateTime(2026, 9, 30, 18, 0, 15, DateTimeKind.Utc);
+        var current = SpeedActivityTests.Snapshot(
+            activeUntilUtc.AddSeconds(-13),
+            activeUntilUtc,
+            isAvailable: true);
+        activity.BindDownloads(() => current);
+        _ = await activity.GetSnapshotAsync();
+        current = new DownloadSpeedSnapshot
+        {
+            Version = 2,
+            StreamId = current.StreamId,
+            Revision = current.Revision + 1,
+            TimestampUtc = activeUntilUtc,
+            IsAvailable = true,
+            WindowSeconds = 2,
+        };
+
+        await activity.ReportAsync(ActivityDomains.Schedule, "logRotation", ActivityAspects.Running, true);
+        var snapshot = await activity.GetSnapshotAsync();
+
+        Assert.Equal(current.Revision, snapshot.DownloadRevision);
+        Assert.DoesNotContain(snapshot.Activities, item => item.Domain == ActivityDomains.Download);
+        Assert.Contains(snapshot.Activities, item =>
+            item.Domain == ActivityDomains.Schedule && item.Key == "logRotation");
+    }
+
     /// <summary>
     /// Records every <c>ActivityUpdated</c> payload; all other notification methods are inert no-ops.
     /// </summary>

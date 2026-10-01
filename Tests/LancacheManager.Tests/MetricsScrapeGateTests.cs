@@ -3,12 +3,14 @@ using System.Diagnostics.Metrics;
 using System.Reflection;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
+[Collection(nameof(DownloadsEndedEventCollection))]
 public sealed class MetricsScrapeGateTests
 {
     [Theory]
@@ -31,7 +33,9 @@ public sealed class MetricsScrapeGateTests
         using var service = new LancacheMetricsService(
             services,
             NullLogger<LancacheMetricsService>.Instance,
-            new ConfigurationBuilder().Build());
+            new ConfigurationBuilder().Build(),
+            Stopwatch.GetTimestamp,
+            EmptyActivity);
         var meter = Assert.IsType<Meter>(typeof(LancacheMetricsService)
             .GetField("_meter", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(service));
@@ -67,7 +71,8 @@ public sealed class MetricsScrapeGateTests
             root,
             NullLogger<LancacheMetricsService>.Instance,
             new ConfigurationBuilder().Build(),
-            () => monotonicTicks);
+            () => monotonicTicks,
+            EmptyActivity);
         var requests = new CountingServices();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => InvokeWorkAsync(service, requests));
@@ -101,7 +106,8 @@ public sealed class MetricsScrapeGateTests
             root,
             NullLogger<LancacheMetricsService>.Instance,
             new ConfigurationBuilder().Build(),
-            () => utcTicks);
+            () => utcTicks,
+            EmptyActivity);
         var controlRequests = new CountingServices();
         utcTicks = 1_000;
         await Assert.ThrowsAsync<InvalidOperationException>(() => InvokeWorkAsync(control, controlRequests));
@@ -151,6 +157,220 @@ public sealed class MetricsScrapeGateTests
             > setup.IndexOf("CREATE DATABASE", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void CurrentGaugesUseOneTypedSnapshotAndClearTogether()
+    {
+        var current = new DownloadSpeedSnapshot
+        {
+            GameSpeeds = [new GameSpeedInfo(), new GameSpeedInfo()],
+            ClientSpeeds = [new ClientSpeedInfo()],
+            TotalBytesPerSecond = 123.5
+        };
+        var reads = 0;
+        using var root = new ServiceCollection().BuildServiceProvider();
+        using var service = new LancacheMetricsService(
+            root,
+            NullLogger<LancacheMetricsService>.Instance,
+            new ConfigurationBuilder().Build(),
+            Stopwatch.GetTimestamp,
+            () =>
+            {
+                reads++;
+                return current;
+            });
+        var meter = ReadField<Meter>(service, "_meter");
+        var activeDownloads = -1;
+        var activeClients = -1;
+        var throughput = -1d;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, currentListener) =>
+        {
+            if (!ReferenceEquals(instrument.Meter, meter))
+            {
+                return;
+            }
+
+            if (instrument.Name is
+                "lancache_active_downloads" or
+                "lancache_active_clients" or
+                "lancache_throughput_bytes_per_second")
+            {
+                currentListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
+        {
+            if (instrument.Name == "lancache_active_downloads")
+            {
+                activeDownloads = measurement;
+            }
+            else if (instrument.Name == "lancache_active_clients")
+            {
+                activeClients = measurement;
+            }
+        });
+        listener.SetMeasurementEventCallback<double>((instrument, measurement, _, _) =>
+        {
+            if (instrument.Name == "lancache_throughput_bytes_per_second")
+            {
+                throughput = measurement;
+            }
+        });
+        listener.Start();
+
+        void Collect(int expectedDownloads, int expectedClients, double expectedThroughput)
+        {
+            activeDownloads = -1;
+            activeClients = -1;
+            throughput = -1;
+            listener.RecordObservableInstruments();
+            Assert.Equal(expectedDownloads, activeDownloads);
+            Assert.Equal(expectedClients, activeClients);
+            Assert.Equal(expectedThroughput, throughput);
+        }
+
+        Collect(2, 1, 123.5);
+
+        current = new DownloadSpeedSnapshot
+        {
+            GameSpeeds = [new GameSpeedInfo(), new GameSpeedInfo()],
+            ClientSpeeds = [new ClientSpeedInfo()],
+            TotalBytesPerSecond = 0
+        };
+        Collect(2, 1, 0);
+
+        current = new DownloadSpeedSnapshot();
+        Collect(0, 0, 0);
+
+        Assert.Equal(9, reads);
+    }
+
+    [Fact]
+    public void CurrentGaugesAgeAtStoredMeasurementAndActivityBoundaries()
+    {
+        var startedAt = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var measuredUntilUtc = startedAt.AddSeconds(2).UtcDateTime;
+        var activeUntilUtc = startedAt.AddSeconds(5).UtcDateTime;
+        var clock = new MutableClock(startedAt.AddSeconds(1));
+        var snapshot = new DownloadSpeedSnapshot
+        {
+            Version = 2,
+            StreamId = "metrics-expiry",
+            Revision = 1,
+            TimestampUtc = startedAt.UtcDateTime,
+            IsAvailable = true,
+            WindowSeconds = 2,
+            TotalBytesPerSecond = 123.5,
+            EntriesInWindow = 4,
+            GameSpeeds =
+            [
+                new GameSpeedInfo
+                {
+                    Key = "steam|10.0.0.5|metrics",
+                    Service = "steam",
+                    ClientIp = "10.0.0.5",
+                    BytesPerSecond = 123.5,
+                    TotalBytes = 247,
+                    RequestCount = 4,
+                    FirstSeenUtc = startedAt.UtcDateTime,
+                    LastSeenUtc = startedAt.UtcDateTime,
+                    ActiveUntilUtc = activeUntilUtc,
+                    Sources =
+                    [
+                        new DownloadSource
+                        {
+                            Datasources = ["test"],
+                            FirstSeenUtc = startedAt.UtcDateTime,
+                            LastSeenUtc = startedAt.UtcDateTime,
+                            MeasuredUntilUtc = measuredUntilUtc,
+                            ActiveUntilUtc = activeUntilUtc,
+                            BytesPerSecond = 123.5,
+                            TotalBytes = 247,
+                            RequestCount = 4,
+                        },
+                    ],
+                },
+            ],
+            ClientSpeeds =
+            [
+                new ClientSpeedInfo
+                {
+                    ClientIp = "10.0.0.5",
+                    BytesPerSecond = 123.5,
+                    TotalBytes = 247,
+                    ActiveGames = 1,
+                    ActiveUntilUtc = activeUntilUtc,
+                },
+            ],
+        };
+        var tracker = CacheScanGateHarness.TrackerWith(snapshot, [], clock);
+        using var root = new ServiceCollection().BuildServiceProvider();
+        using var service = new LancacheMetricsService(
+            root,
+            NullLogger<LancacheMetricsService>.Instance,
+            new ConfigurationBuilder().Build(),
+            Stopwatch.GetTimestamp,
+            tracker.GetCurrentSnapshot);
+        var meter = ReadField<Meter>(service, "_meter");
+        var activeDownloads = -1;
+        var activeClients = -1;
+        var throughput = -1d;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, currentListener) =>
+        {
+            if (!ReferenceEquals(instrument.Meter, meter))
+            {
+                return;
+            }
+
+            if (instrument.Name is
+                "lancache_active_downloads" or
+                "lancache_active_clients" or
+                "lancache_throughput_bytes_per_second")
+            {
+                currentListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
+        {
+            if (instrument.Name == "lancache_active_downloads")
+            {
+                activeDownloads = measurement;
+            }
+            else if (instrument.Name == "lancache_active_clients")
+            {
+                activeClients = measurement;
+            }
+        });
+        listener.SetMeasurementEventCallback<double>((instrument, measurement, _, _) =>
+        {
+            if (instrument.Name == "lancache_throughput_bytes_per_second")
+            {
+                throughput = measurement;
+            }
+        });
+        listener.Start();
+
+        void Collect(int expectedDownloads, int expectedClients, double expectedThroughput)
+        {
+            activeDownloads = -1;
+            activeClients = -1;
+            throughput = -1;
+            listener.RecordObservableInstruments();
+            Assert.Equal(expectedDownloads, activeDownloads);
+            Assert.Equal(expectedClients, activeClients);
+            Assert.Equal(expectedThroughput, throughput);
+        }
+
+        Collect(1, 1, 123.5);
+
+        clock.UtcNow = startedAt.AddSeconds(2);
+        Collect(1, 1, 0);
+
+        clock.UtcNow = startedAt.AddSeconds(5);
+        Collect(0, 0, 0);
+    }
+
     private static Task InvokeWorkAsync(
         LancacheMetricsService service,
         IServiceProvider scopedServices)
@@ -166,10 +386,22 @@ public sealed class MetricsScrapeGateTests
             [scopedServices, CancellationToken.None]));
     }
 
-    private static long ReadTick(LancacheMetricsService service, string field) =>
-        Assert.IsType<long>(typeof(LancacheMetricsService)
+    private static T ReadField<T>(LancacheMetricsService service, string field) =>
+        Assert.IsType<T>(typeof(LancacheMetricsService)
             .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(service));
+
+    private static long ReadTick(LancacheMetricsService service, string field) =>
+        ReadField<long>(service, field);
+
+    private static DownloadSpeedSnapshot EmptyActivity() => new();
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
 
     private sealed class CountingServices : IServiceProvider
     {

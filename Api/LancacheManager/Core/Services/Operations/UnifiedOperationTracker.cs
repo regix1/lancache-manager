@@ -69,7 +69,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                                   OperationStatus initialStatus = OperationStatus.Running,
                                   Guid? parentOperationId = null, DateTime? startedAt = null,
                                   string? blockedByName = null, RunNotice? notice = null,
-                                  bool liveIngest = false, Guid? ownerSessionId = null)
+                                  bool liveIngest = false, Guid? ownerSessionId = null,
+                                  bool ownerCompletes = false)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
@@ -89,6 +90,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             Notice = notice,
             LiveIngest = liveIngest,
             OwnerSessionId = ownerSessionId,
+            OwnerCompletes = ownerCompletes,
             WorkerStarted = initialStatus != OperationStatus.Waiting
         };
 
@@ -121,7 +123,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                                     object? metadata = null, Action? onTerminalCleanup = null,
                                     Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
                                     Guid? parentOperationId = null, DateTime? startedAt = null,
-                                    RunNotice? notice = null)
+                                    RunNotice? notice = null, bool ownerCompletes = false,
+                                    bool liveIngest = false)
     {
         var operation = new OperationInfo
         {
@@ -137,6 +140,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             OnTerminalCleanup = onTerminalCleanup,
             OnTerminalEmit = onTerminalEmit,
             Notice = notice,
+            LiveIngest = liveIngest,
+            OwnerCompletes = ownerCompletes,
             WorkerStarted = true
         };
 
@@ -189,7 +194,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Guid operationId,
         object? state,
         Action? onTerminalCleanup,
-        Func<OperationTerminalInfo, Task>? onTerminalEmit)
+        Func<OperationTerminalInfo, Task>? onTerminalEmit,
+        bool ownerCompletes = false)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -210,6 +216,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Metadata = state;
             operation.OnTerminalCleanup = onTerminalCleanup;
             operation.OnTerminalEmit = onTerminalEmit;
+            operation.OwnerCompletes = ownerCompletes;
             operation.WorkerStarted = true;
             Publish(operation);
         }

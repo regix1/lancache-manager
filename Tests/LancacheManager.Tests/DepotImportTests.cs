@@ -88,7 +88,7 @@ public sealed class DepotImportTests
         fixture.Service.SetNotificationMode(NotificationMode.Hidden);
         var controller = new DepotsController(fixture.Service, fixture.Pics, fixture.State,
             NullLogger<DepotsController>.Instance,
-            new OperationConflictChecker(fixture.Tracker, NullLogger<OperationConflictChecker>.Instance));
+            OperationConflictTestServices.Create(fixture.Tracker, NullLogger<OperationConflictChecker>.Instance));
 
         await controller.ImportDepotMappingsAsync("github", CancellationToken.None);
 
