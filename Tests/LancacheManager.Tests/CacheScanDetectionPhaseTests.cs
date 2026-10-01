@@ -347,7 +347,8 @@ public sealed class CacheScanDetectionPhaseTests
             (ISignalRNotificationService)(object)ctx.Notifications,
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             capability,
-            ctx.State);
+            ctx.State,
+            operationState);
         var controller = new StatsController(
             requestContext,
             clientGroupsRepository: null!,

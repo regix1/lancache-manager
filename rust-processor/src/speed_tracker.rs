@@ -26,8 +26,9 @@ use parser_http_detailed::HttpDetailedParser;
 
 // Configuration
 const WINDOW_SECONDS: i64 = 2;
-// Compatibility name for the existing 15-second activity floor. Per-flow cadence may extend the
-// inferred session to twice this value, while measured throughput still uses WINDOW_SECONDS.
+// The 15-second activity floor, also the ceiling of the throughput window. Per-flow cadence may
+// extend the inferred session to twice this value; measured throughput uses WINDOW_SECONDS,
+// widened by a buffered source's delivery cadence (see effective_window_secs).
 const MAX_WINDOW_SECONDS: i64 = 15;
 // Depth of the per-flow completion-gap ring and each source's transport-delay ring.
 const CADENCE_SAMPLES: usize = 4;
@@ -247,7 +248,8 @@ fn parse_speed_entry(
         observed_at,
         client_ip: entry.client_ip,
         service: entry.service,
-        depot_id: entry.depot_id,
+        // Depot 0 names no real depot, and the server rejects a row that carries it.
+        depot_id: entry.depot_id.filter(|id| *id > 0),
         bytes_sent: entry.bytes_served,
         is_cache_hit: entry.cache_status.eq_ignore_ascii_case("HIT"),
         request_url: entry.url,
@@ -361,13 +363,14 @@ impl FlowState {
         entry: &SpeedLogEntry,
         game_name: Option<String>,
         game_app_id: Option<u32>,
+        window_secs: i64,
     ) -> Option<Self> {
         let active_until = entry.timestamp + chrono::Duration::seconds(MAX_WINDOW_SECONDS);
         if active_until <= entry.observed_at {
             return None;
         }
 
-        let measured_until = entry.timestamp + chrono::Duration::seconds(WINDOW_SECONDS);
+        let measured_until = entry.timestamp + chrono::Duration::seconds(window_secs);
         let mut state = Self {
             datasources: entry.datasources.clone(),
             depot_ids: entry.depot_id.into_iter().collect(),
@@ -382,7 +385,7 @@ impl FlowState {
             cadence_count: 0,
             measurements: VecDeque::new(),
         };
-        state.record_measurement(entry);
+        state.record_measurement(entry, window_secs);
         Some(state)
     }
 
@@ -391,6 +394,7 @@ impl FlowState {
         entry: &SpeedLogEntry,
         game_name: Option<String>,
         game_app_id: Option<u32>,
+        window_secs: i64,
     ) {
         merge_aliases(&mut self.datasources, &entry.datasources);
         if let Some(depot_id) = entry.depot_id {
@@ -434,7 +438,7 @@ impl FlowState {
             }
         }
 
-        self.record_measurement(entry);
+        self.record_measurement(entry, window_secs);
     }
 
     fn horizon_secs(&self, transport_delay_secs: f64) -> i64 {
@@ -447,8 +451,8 @@ impl FlowState {
             .clamp(MAX_WINDOW_SECONDS as f64, (2 * MAX_WINDOW_SECONDS) as f64) as i64
     }
 
-    fn record_measurement(&mut self, entry: &SpeedLogEntry) {
-        let measured_until = entry.timestamp + chrono::Duration::seconds(WINDOW_SECONDS);
+    fn record_measurement(&mut self, entry: &SpeedLogEntry, window_secs: i64) {
+        let measured_until = entry.timestamp + chrono::Duration::seconds(window_secs);
         self.measured_until = self.measured_until.max(measured_until);
         if measured_until > entry.observed_at {
             self.measurements.push_back(MeasuredEntry {
@@ -806,11 +810,30 @@ impl SpeedTracker {
         }
     }
 
+    /// The rolling window sized to the slowest source's measured delivery cadence. A source that
+    /// delivers within the base window contributes nothing (gate `c > WINDOW_SECONDS`), so
+    /// unbuffered/monolithic delivery keeps the exact 2s behavior; a source whose flush cadence
+    /// exceeds the base window widens the window just enough that it never empties between bursts.
+    /// The margin added to the measured cadence is WINDOW_SECONDS itself, so worst-cycle coverage
+    /// (`w - c`) never falls below the speed divisor's floor, and the result is capped at the
+    /// backstop horizon.
+    fn effective_window_secs(&self) -> i64 {
+        let mut eff = WINDOW_SECONDS as f64;
+        for state in self.file_positions.values() {
+            let cadence = state.measured_cadence();
+            if cadence > WINDOW_SECONDS as f64 {
+                eff = eff.max(cadence + WINDOW_SECONDS as f64);
+            }
+        }
+        (eff.ceil() as i64).clamp(WINDOW_SECONDS, MAX_WINDOW_SECONDS)
+    }
+
     fn clean_old_entries(&mut self, now: NaiveDateTime) {
+        let window = chrono::Duration::seconds(self.effective_window_secs());
         for state in self.flows.values_mut() {
             state
                 .measurements
-                .retain(|entry| entry.timestamp + chrono::Duration::seconds(WINDOW_SECONDS) > now);
+                .retain(|entry| entry.timestamp + window > now);
         }
         self.flows.retain(|_, state| state.active_until > now);
     }
@@ -909,6 +932,7 @@ impl SpeedTracker {
         game_name: Option<String>,
         game_app_id: Option<u32>,
     ) {
+        let window_secs = self.effective_window_secs();
         if let ContentKey::SteamApp(app_id) = key.content {
             let mut depots: Vec<u32> = entries.iter().filter_map(|entry| entry.depot_id).collect();
             depots.sort_unstable();
@@ -927,8 +951,10 @@ impl SpeedTracker {
 
         for entry in entries {
             if let Some(state) = self.flows.get_mut(&key) {
-                state.record(&entry, game_name.clone(), game_app_id);
-            } else if let Some(state) = FlowState::new(&entry, game_name.clone(), game_app_id) {
+                state.record(&entry, game_name.clone(), game_app_id, window_secs);
+            } else if let Some(state) =
+                FlowState::new(&entry, game_name.clone(), game_app_id, window_secs)
+            {
                 self.flows.insert(key.clone(), state);
             }
         }
@@ -941,9 +967,12 @@ impl SpeedTracker {
             HashMap::new();
 
         for mut entry in pending {
-            if entry.timestamp > now {
+            // A log host whose clock runs a little ahead still reports live downloads at this
+            // tracker's time; a completion further ahead than the activity floor is dropped.
+            if entry.timestamp > now + chrono::Duration::seconds(MAX_WINDOW_SECONDS) {
                 continue;
             }
+            entry.timestamp = entry.timestamp.min(now);
             entry.service = entry.service.trim().to_ascii_lowercase();
             if entry.depot_id.is_some() {
                 depot_entries.push(entry);
@@ -1121,6 +1150,8 @@ impl SpeedTracker {
         self.accept_entries(now_naive).await;
         self.clean_old_entries(now_naive);
         self.revision = self.revision.saturating_add(1);
+        let window_secs = self.effective_window_secs();
+        let window_start = now_naive - chrono::Duration::seconds(window_secs);
 
         let mut groups: HashMap<(String, String, ContentKey), GameTotals> = HashMap::new();
         for (key, state) in &self.flows {
@@ -1129,6 +1160,18 @@ impl SpeedTracker {
                 .iter()
                 .map(|entry| entry.bytes_sent)
                 .sum();
+            // Speed divides by the part of the window this flow's data actually covers. Buffered
+            // delivery lags the window's end by up to one flush, so dividing by the whole window
+            // would make a steady download sawtooth every flush. The WINDOW_SECONDS floor keeps
+            // unbuffered delivery at exactly bytes / 2 and bounds a lone aging entry's speed.
+            let anchor = state
+                .measurements
+                .iter()
+                .map(|entry| entry.timestamp)
+                .max()
+                .map_or(now_naive, |newest| newest.min(now_naive));
+            let coverage_secs = (anchor - window_start).num_milliseconds() as f64 / 1000.0;
+            let speed_divisor = coverage_secs.clamp(WINDOW_SECONDS as f64, window_secs as f64);
             let cache_hit_bytes: i64 = state
                 .measurements
                 .iter()
@@ -1144,7 +1187,7 @@ impl SpeedTracker {
                 last_seen_utc: format_utc(state.last_seen),
                 active_until_utc: format_utc(state.active_until),
                 measured_until_utc: format_utc(state.measured_until),
-                bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
+                bytes_per_second: total_bytes as f64 / speed_divisor,
                 total_bytes,
                 request_count,
                 cache_hit_bytes,
@@ -1232,7 +1275,12 @@ impl SpeedTracker {
                         game_app_id: group.game_app_id,
                         service,
                         client_ip,
-                        bytes_per_second: group.total_bytes as f64 / WINDOW_SECONDS as f64,
+                        // Each source row has its own divisor, so the game's rate is their sum.
+                        bytes_per_second: group
+                            .sources
+                            .iter()
+                            .map(|source| source.bytes_per_second)
+                            .sum(),
                         total_bytes: group.total_bytes,
                         request_count: group.request_count,
                         cache_hit_bytes: group.cache_hit_bytes,
@@ -1787,7 +1835,10 @@ async fn main() -> Result<()> {
             "Outputs JSON speed snapshots to stdout every {}ms",
             BROADCAST_INTERVAL_MS
         );
-        eprintln!("Measures throughput over {} seconds", WINDOW_SECONDS);
+        eprintln!(
+            "Uses a rolling window sized to each log's delivery cadence (min {}s)",
+            WINDOW_SECONDS
+        );
         // No ProgressReporter/envelope here by design (this bin is a continuous snapshot
         // stream, not a discrete lifecycle operation - see emit_json_line docs). Returning
         // Err (instead of process::exit(1)) still surfaces the fatal reason: anyhow's
@@ -2750,13 +2801,19 @@ mod tests {
     fn same_timestamp_counts_once_per_record_without_renewing_the_session() {
         let base = Utc::now().naive_utc();
         let first = flow_entry(base, base, "10.0.0.6", "wsus", "root-a", "Primary", 1000);
-        let mut state =
-            FlowState::new(&first, Some("Windows Update".to_string()), None).expect("new flow");
+        let mut state = FlowState::new(
+            &first,
+            Some("Windows Update".to_string()),
+            None,
+            WINDOW_SECONDS,
+        )
+        .expect("new flow");
         let active_until = state.active_until;
         state.record(
             &flow_entry(base, base, "10.0.0.6", "wsus", "root-a", "Primary", 2000),
             Some("Windows Update".to_string()),
             None,
+            WINDOW_SECONDS,
         );
         assert_eq!(state.cadence_count, 0);
         assert_eq!(state.active_until, active_until);
@@ -2782,6 +2839,7 @@ mod tests {
             ),
             Some("Windows Update".to_string()),
             None,
+            WINDOW_SECONDS,
         );
         assert_eq!(
             state.active_until, active_until,
@@ -2800,6 +2858,7 @@ mod tests {
                 ),
                 Some("Windows Update".to_string()),
                 None,
+                WINDOW_SECONDS,
             )
             .is_none(),
             "a delayed completion whose candidate has ended cannot resurrect a flow"
@@ -2824,6 +2883,315 @@ mod tests {
         assert!(snapshot.game_speeds.is_empty());
         assert_eq!(snapshot.entries_in_window, 0);
         assert!(tracker.entries.is_empty());
+    }
+
+    // A log host whose clock runs a little ahead still shows its downloads: a completion up to
+    // the activity floor ahead is counted at the tracker's own time, one a minute ahead is not.
+    #[tokio::test]
+    async fn completion_slightly_ahead_is_clamped_and_far_ahead_is_dropped() {
+        let base = Utc::now();
+        let mut tracker = lazy_tracker(Vec::new());
+        for (ahead, client_ip) in [(2, "10.0.0.7"), (60, "10.0.0.8")] {
+            tracker.entries.push_back(flow_entry(
+                (base + Duration::seconds(ahead)).naive_utc(),
+                base.naive_utc(),
+                client_ip,
+                "uplay",
+                "root-a",
+                "Primary",
+                1000,
+            ));
+        }
+
+        let snapshot = tracker.calculate_snapshot(base).await;
+        assert_eq!(snapshot.game_speeds.len(), 1);
+        let game = &snapshot.game_speeds[0];
+        assert_eq!(game.client_ip, "10.0.0.7");
+        assert_eq!(game.total_bytes, 1000);
+        assert_eq!(game.last_seen_utc, snapshot.timestamp_utc);
+        assert_eq!(snapshot.entries_in_window, 1);
+    }
+
+    // A buffered bare-metal log delivers five seconds of completions in one flush. Every sample
+    // between flushes must report the true rate, not a spike followed by zeros, while the
+    // snapshot keeps the two-second base window the server and the browser require.
+    #[tokio::test]
+    async fn buffered_flush_reports_the_true_rate_between_flushes() {
+        let mut tracker = lazy_tracker(Vec::new());
+        let source = PathBuf::from("root-a/uplay-access.log");
+        let base = Utc::now();
+        let rate = 1_000_000i64;
+        let spacing_ms = 100i64;
+        let mut samples = Vec::new();
+        for flush in 1..=6i64 {
+            let flushed_at = base + Duration::seconds(5 * flush);
+            let first = flushed_at - Duration::milliseconds(5000 - spacing_ms);
+            let mut state = tracker
+                .file_positions
+                .get(&source)
+                .copied()
+                .unwrap_or_else(|| SourceState::anchored(0));
+            let delay = state.record_delivery(
+                first.naive_utc(),
+                flushed_at.naive_utc(),
+                flushed_at.naive_utc(),
+            );
+            tracker.file_positions.insert(source.clone(), state);
+            for index in 0..5000 / spacing_ms {
+                let mut entry = flow_entry(
+                    (first + Duration::milliseconds(index * spacing_ms)).naive_utc(),
+                    flushed_at.naive_utc(),
+                    "10.0.0.9",
+                    "uplay",
+                    "root-a",
+                    "Primary",
+                    rate * spacing_ms / 1000,
+                );
+                entry.transport_delay_secs = delay;
+                tracker.entries.push_back(entry);
+            }
+
+            for half_seconds in 0..10 {
+                let now = flushed_at + Duration::milliseconds(500 * half_seconds);
+                let snapshot = tracker.calculate_snapshot(now).await;
+                assert_eq!(snapshot.window_seconds, WINDOW_SECONDS);
+                // The first flush has no earlier history inside the window yet.
+                if flush > 1 {
+                    samples.push(snapshot.total_bytes_per_second);
+                }
+            }
+        }
+
+        for (index, sample) in samples.iter().enumerate() {
+            assert!(
+                (sample - rate as f64).abs() <= rate as f64 * 0.1,
+                "sample {index} reported {sample} B/s for a steady {rate} B/s download"
+            );
+        }
+    }
+
+    // A request for depot 0 names no real depot. It parses as an entry without a depot, so the
+    // server never sees a depot id it must reject.
+    #[tokio::test]
+    async fn depot_zero_request_parses_without_a_depot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+        let tracked = discover_tracked_sources(&[("test".to_string(), dir.to_path_buf())]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        append_bytes(
+            &steam,
+            detailed_steam_line("10.0.0.2", 0, 1000, "MISS").as_bytes(),
+        );
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let entry = tracker.entries.back().expect("the depot 0 line parses");
+        assert_eq!(entry.depot_id, None);
+    }
+
+    // One game seen through two sources whose newest completions differ. Each source row divides
+    // its own bytes by its own coverage, and the game row is the sum of the source rows.
+    #[tokio::test]
+    async fn game_rate_is_the_sum_of_its_source_rates() {
+        let mut tracker = lazy_tracker(Vec::new());
+        let base = Utc::now();
+        let mut state = SourceState::anchored(0);
+        state.record_delivery(
+            (base - Duration::milliseconds(4900)).naive_utc(),
+            base.naive_utc(),
+            base.naive_utc(),
+        );
+        tracker
+            .file_positions
+            .insert(PathBuf::from("root-a/uplay-access.log"), state);
+        assert_eq!(tracker.effective_window_secs(), 7);
+
+        for (root, datasource, seconds_ago, bytes_sent) in [
+            ("root-a", "Primary", 3, 6000),
+            ("root-a", "Primary", 1, 6000),
+            ("root-b", "Secondary", 4, 3000),
+        ] {
+            tracker.record_flow(
+                service_key(root, "10.0.0.14", "uplay"),
+                vec![flow_entry(
+                    (base - Duration::seconds(seconds_ago)).naive_utc(),
+                    base.naive_utc(),
+                    "10.0.0.14",
+                    "uplay",
+                    root,
+                    datasource,
+                    bytes_sent,
+                )],
+                Some("Ubisoft".to_string()),
+                None,
+            );
+        }
+
+        let snapshot = tracker.calculate_snapshot(base).await;
+        assert_eq!(snapshot.window_seconds, WINDOW_SECONDS);
+        assert_eq!(snapshot.game_speeds.len(), 1);
+        let game = &snapshot.game_speeds[0];
+        let rates: Vec<f64> = game
+            .sources
+            .iter()
+            .map(|source| source.bytes_per_second)
+            .collect();
+        assert_eq!(
+            rates,
+            vec![12000.0 / 6.0, 3000.0 / 3.0],
+            "each source divides by the seconds between the window start and its newest completion"
+        );
+        assert_eq!(game.bytes_per_second, rates.iter().sum::<f64>());
+        assert_eq!(snapshot.total_bytes_per_second, game.bytes_per_second);
+    }
+
+    // A buffered per-service log delivers several seconds of history in one flush. Against the
+    // fixed 2s window that burst is entirely in the past, so the window empties and the source
+    // reads inactive (the 1->0 flicker). The adaptive window must widen to cover the delivery span
+    // so the source stays active, and speed must divide by observed coverage.
+    #[tokio::test]
+    async fn buffered_source_window_widens_to_cover_flush_gap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[("test".to_string(), dir.to_path_buf())]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+
+        // Seed to EOF (reads nothing, records no cadence).
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        // One flush delivering a burst whose log timestamps span 5 seconds (8s..3s in the past), all
+        // at once. The source's delay sample is the larger of that span and how late the newest
+        // record arrived, so the span is chosen to exceed the newest record's age.
+        let base = Utc::now().naive_utc();
+        let bytes_each = 1000i64;
+        let mut burst = String::new();
+        for secs in [8i64, 7, 6, 5, 4, 3] {
+            burst.push_str(&detailed_steam_line_at(
+                "10.0.0.2",
+                654321,
+                bytes_each,
+                "MISS",
+                base - Duration::seconds(secs),
+            ));
+        }
+        append_bytes(&steam, burst.as_bytes());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        // Delivery span 5s > base window, so the window widens: ceil(5 + WINDOW_SECONDS) = 7.
+        let w = tracker.effective_window_secs();
+        assert_eq!(
+            w, 7,
+            "a 5s delivery span widens the window to cover the flush gap"
+        );
+
+        // Fixed 2s window: the burst was delivered entirely in the past, so the window is empty and
+        // the source reads inactive - exactly the flicker this change removes.
+        let fixed_start = base - Duration::seconds(WINDOW_SECONDS);
+        let (_, _, fixed_active) =
+            headline_aggregates(&tracker.entries, fixed_start, WINDOW_SECONDS as f64);
+        assert!(
+            !fixed_active,
+            "the fixed 2s window empties between buffered flushes"
+        );
+
+        // Adaptive window: still covers the burst, so the source stays active, and speed divides by
+        // observed coverage (newest in-window timestamp minus window_start), not the whole window.
+        let window_start = base - Duration::seconds(w);
+        let in_window_bytes: i64 = tracker
+            .entries
+            .iter()
+            .filter(|e| e.timestamp >= window_start)
+            .map(|e| e.bytes_sent)
+            .sum();
+        let anchor = tracker
+            .entries
+            .iter()
+            .map(|e| e.timestamp)
+            .filter(|ts| *ts >= window_start)
+            .max()
+            .expect("the widened window contains the burst");
+        let coverage =
+            (anchor.min(Utc::now().naive_utc()) - window_start).num_milliseconds() as f64 / 1000.0;
+        let divisor = coverage.clamp(WINDOW_SECONDS as f64, w as f64);
+        let (bps, cnt, active) = headline_aggregates(&tracker.entries, window_start, divisor);
+        assert!(active, "the adaptive window still sees the buffered burst");
+        assert!(cnt > 0, "the widened window is non-empty");
+        assert_eq!(
+            bps,
+            in_window_bytes as f64 / divisor,
+            "speed divides by observed coverage, not the raw window"
+        );
+    }
+
+    // Unbuffered/monolithic delivery: each poll appends a line carrying the CURRENT timestamp, so
+    // the log's timeline tracks wall-clock and no multi-second gap ever forms. The window must stay
+    // at exactly WINDOW_SECONDS and the divisor must be exactly 2 - bit-for-bit today's behavior.
+    #[tokio::test]
+    async fn unbuffered_source_keeps_two_second_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[("test".to_string(), dir.to_path_buf())]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        for _ in 0..4 {
+            append_bytes(
+                &steam,
+                detailed_steam_line("10.0.0.2", 654321, 1000, "MISS").as_bytes(),
+            );
+            tracker.read_new_entries(&tracked[0]).unwrap();
+        }
+
+        assert_eq!(
+            tracker.effective_window_secs(),
+            WINDOW_SECONDS,
+            "fresh delivery never widens the window - monolithic behavior is preserved"
+        );
+
+        let window_start = Utc::now().naive_utc() - Duration::seconds(WINDOW_SECONDS);
+        let (bps, _, active) =
+            headline_aggregates(&tracker.entries, window_start, WINDOW_SECONDS as f64);
+        assert!(active);
+        assert_eq!(
+            bps,
+            4000.0 / WINDOW_SECONDS as f64,
+            "unbuffered speed divides by exactly 2"
+        );
+    }
+
+    // Two deliveries separated by a long idle gap, each read as soon as it was written. The forty
+    // seconds between them measure idleness, not delivery cadence, so the window must stay at
+    // WINDOW_SECONDS. Each delivery's observation time is set directly because the tail path
+    // stamps every batch with the wall clock.
+    #[tokio::test]
+    async fn idle_gap_does_not_widen_window() {
+        let mut tracker = lazy_tracker(Vec::new());
+        let base = Utc::now().naive_utc();
+        let first = base - Duration::seconds(40);
+        let mut state = SourceState::anchored(0);
+        state.record_delivery(first, first, first);
+        state.record_delivery(base, base, base);
+        tracker
+            .file_positions
+            .insert(PathBuf::from("root-a/steam-access.log"), state);
+
+        assert_eq!(
+            tracker.effective_window_secs(),
+            WINDOW_SECONDS,
+            "an idle gap between deliveries must not be mistaken for slow delivery cadence"
+        );
     }
 
     #[tokio::test]
@@ -2936,8 +3304,8 @@ mod tests {
         entry.observed_at = base;
         entry.source_root = PathBuf::from("root-a");
         entry.datasources = vec!["Primary".to_string()];
-        let state =
-            FlowState::new(&entry, None, None).expect("unresolved depot starts a live flow");
+        let state = FlowState::new(&entry, None, None, WINDOW_SECONDS)
+            .expect("unresolved depot starts a live flow");
         let first_seen = state.first_seen;
         let active_until = state.active_until;
         let old_key = FlowKey {

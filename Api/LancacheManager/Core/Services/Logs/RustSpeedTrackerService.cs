@@ -22,6 +22,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly ProcessManager _processManager;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IStateService _stateService;
+    private readonly OperationStateService _operationStateService;
     private readonly IActivityRegistry? _activityRegistry;
     private bool _loggedNoTrackableDatasources;
     private string? _rustExecutablePath;
@@ -39,6 +40,11 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly Channel<DownloadSpeedSnapshot> _publication;
     private readonly Dictionary<Guid, Dictionary<string, string>> _runSources = new();
     private readonly Dictionary<string, Guid> _sourceRuns = new(StringComparer.Ordinal);
+    // Building the trackable-source map lists every log directory, and every native snapshot and
+    // every API read asks for it. Names, roots and enabled flags are fixed after startup, so the
+    // map is rebuilt at most once a minute; a log file that appears or vanishes shows up late.
+    private Dictionary<string, string>? _currentSources;
+    private DateTime _currentSourcesBuiltUtc;
     private Guid _currentRunId;
     private long _nativeRevision;
     private long _revision;
@@ -90,7 +96,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // An empty snapshot means two different things: the tracker looked and saw nothing, or it has
     // no answer to give. This holds the moment the second state began, and is null while the
     // tracker is publishing. Every transition into having no answer sets it: construction, each
-    // spawn of the child, and each death of the child. Only a parsed snapshot clears it.
+    // spawn of the child, and each death of the child. A child stopped for a log step and its
+    // replacement leave it alone, because the rows it held stay true. Only a parsed snapshot
+    // clears it.
     private DateTime? _unreportedSinceUtc = DateTime.UtcNow;
 
     // Ceiling for the restart backoff. A dependency the tracker can never satisfy (an unreachable
@@ -101,6 +109,10 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // A tracker that stayed up this long did real work, so the next exit starts the backoff over
     // rather than inheriting a streak from an unrelated failure hours earlier.
     private static readonly TimeSpan _healthyRunDuration = TimeSpan.FromMinutes(1);
+
+    // The tracker's activity floor. A clock step back smaller than this keeps aging monotonic,
+    // and a row last seen further ahead of the aging time than this predates a larger step.
+    private static readonly TimeSpan _clockStepTolerance = TimeSpan.FromSeconds(15);
 
     protected override string ServiceName => "RustSpeedTrackerService";
     // Differs from the base default deliberately: this tracker produces the download signal that
@@ -120,6 +132,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         ProcessManager processManager,
         DatasourceCapabilityService capabilityService,
         IStateService stateService,
+        OperationStateService operationStateService,
         IActivityRegistry? activityRegistry = null,
         TimeProvider? clock = null)
         : base(logger, configuration)
@@ -130,6 +143,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         _processManager = processManager;
         _capabilityService = capabilityService;
         _stateService = stateService;
+        _operationStateService = operationStateService;
         _activityRegistry = activityRegistry;
         _clock = clock ?? TimeProvider.System;
         _streamId = Guid.NewGuid().ToString("N");
@@ -591,9 +605,21 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
     private Dictionary<string, string> CurrentSources()
     {
-        return _datasourceService.GetDatasources()
+        // Callers on several threads may each rebuild once; a built map is never changed, so a
+        // reader always holds a whole one. A clock stepped back counts as stale too.
+        var nowUtc = UtcNow();
+        var sources = _currentSources;
+        if (sources is not null && (nowUtc - _currentSourcesBuiltUtc).Duration() <= TimeSpan.FromMinutes(1))
+        {
+            return sources;
+        }
+
+        sources = _datasourceService.GetDatasources()
             .Where(source => source.Enabled && _capabilityService.GetCapabilities(source).CanTrackLiveSpeed)
             .ToDictionary(source => source.Name, source => source.LogPath, StringComparer.OrdinalIgnoreCase);
+        _currentSourcesBuiltUtc = nowUtc;
+        _currentSources = sources;
+        return sources;
     }
 
     private static string SourceKey(string gameKey, DownloadSource source) =>
@@ -805,6 +831,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         }
 
         var incoming = new List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>();
+        // One bad row (a request for depot 0, for one) must not blank every other client's rows.
+        var skippedSources = 0;
         foreach (var game in snapshot.GameSpeeds)
         {
             if (string.IsNullOrWhiteSpace(game.Key) || string.IsNullOrWhiteSpace(game.Service) ||
@@ -848,7 +876,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                     original.TotalBytes < 0 || original.RequestCount < 0 ||
                     original.CacheHitBytes < 0 || original.CacheMissBytes < 0)
                 {
-                    return null;
+                    skippedSources++;
+                    continue;
                 }
 
                 var aliases = original.Datasources
@@ -896,6 +925,14 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             }
         }
 
+        if (skippedSources > 0)
+        {
+            _logger.LogWarning(
+                "Skipped {Count} invalid source rows in speed snapshot revision {Revision}",
+                skippedSources,
+                snapshot.Revision);
+        }
+
         return incoming;
     }
 
@@ -936,6 +973,15 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             {
                 _agingUtc = nowUtc;
             }
+            else if (nowUtc < _agingUtc - _clockStepTolerance)
+            {
+                // Held at the old time, aging would expire every row the restarted clock reports.
+                _logger.LogWarning(
+                    "System clock stepped back from {PreviousUtc:o} to {NowUtc:o}; live download times restart from the new clock",
+                    _agingUtc,
+                    nowUtc);
+                _agingUtc = nowUtc;
+            }
 
             var incoming = PrepareNativeSnapshot(snapshot, runId, captured, currentSources, _agingUtc);
             if (incoming is null)
@@ -949,6 +995,11 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
             var previousSnapshot = CloneSnapshot(_currentSnapshot);
             var previous = CurrentEntriesLocked();
+            // Only a clock stepped back leaves rows seen later than the aging time. Kept, they would
+            // win every merge below and hide the rows reported against the new clock. Dropped here
+            // rather than where the step is noticed, because the snapshot in flight across the step
+            // carries the old time and is rejected before reaching this line.
+            previous.RemoveAll(existing => existing.Source.LastSeenUtc > _agingUtc + _clockStepTolerance);
             var merged = new List<(GameSpeedInfo Game, DownloadSource Source, Guid RunId)>();
             foreach (var next in incoming)
             {
@@ -1102,36 +1153,20 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         stoppingToken.ThrowIfCancellationRequested();
     }
 
-    private async Task BeginRunAsync(
+    private Task BeginRunAsync(
         Guid runId,
         IReadOnlyDictionary<string, string> sources,
         DateTime startedAtUtc,
         CancellationToken stoppingToken)
     {
-        DownloadSpeedSnapshot? changed = null;
         lock (_snapshotLock)
         {
             _currentRunId = runId;
             _nativeRevision = 0;
             _runSources[runId] = new Dictionary<string, string>(sources, StringComparer.OrdinalIgnoreCase);
-            _unreportedSinceUtc = startedAtUtc;
-            if (_currentSnapshot.IsAvailable)
-            {
-                _revision++;
-                RebuildLocked(CurrentEntriesLocked(), startedAtUtc, isAvailable: false);
-                changed = CloneSnapshot(_currentSnapshot);
-            }
         }
 
-        if (changed is not null)
-        {
-            var visible = BuildClientVisibleSnapshot(
-                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
-            await PublishChangeAsync(changed, visible, reportingHealthy: false, stoppingToken);
-        }
-
-        await AnnounceScanBlockedIfChangedAsync();
-        _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
+        return Task.CompletedTask;
     }
 
     private async Task EndRunAsync(Guid runId, CancellationToken stoppingToken)
@@ -1306,6 +1341,10 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     {
         var rustExecutablePath = _rustExecutablePath ?? _pathResolver.GetRustSpeedTrackerPath();
         var consecutiveFailures = 0;
+        // Set only when a log step stopped the last child. The tracker did not lose its answer,
+        // so the next child starts without marking the snapshot unavailable, which would raise
+        // the "unavailable" alert and refuse cache scans after every step.
+        var restartedAfterStep = false;
         var agingTask = AgeSnapshotsAsync(stoppingToken);
         var publicationTask = PublishSnapshotsAsync(stoppingToken);
 
@@ -1334,18 +1373,90 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                     }
 
                     _loggedNoTrackableDatasources = false;
+                    // A step that rewrites the logs or deletes their rows holds them until it ends.
+                    // The child starts after it, anchored at the end of each file as it is then.
+                    do
+                    {
+                        await _operationStateService.WaitForLogStepAsync(active: false, stoppingToken);
+                    }
+                    while (!_operationStateService.TryBeginSpeedTrackerRun());
+
                     var startedAt = UtcNow();
                     var runId = Guid.NewGuid();
                     var captured = sources.ToDictionary(
                         source => source.Name,
                         source => source.Root,
                         StringComparer.OrdinalIgnoreCase);
-                    await BeginRunAsync(runId, captured, startedAt, stoppingToken);
-                    await RunTrackerAsync(rustExecutablePath, sources, runId, stoppingToken);
+                    var stoppedForStep = false;
+                    // The step that takes the logs waits for this acknowledgement, so it is given on
+                    // every way out, before any restart delay.
+                    try
+                    {
+                        await BeginRunAsync(runId, captured, startedAt, stoppingToken);
+                        if (!restartedAfterStep)
+                        {
+                            DownloadSpeedSnapshot? changed = null;
+                            lock (_snapshotLock)
+                            {
+                                _unreportedSinceUtc = startedAt;
+                                if (_currentSnapshot.IsAvailable)
+                                {
+                                    _revision++;
+                                    RebuildLocked(CurrentEntriesLocked(), startedAt, isAvailable: false);
+                                    changed = CloneSnapshot(_currentSnapshot);
+                                }
+                            }
+
+                            if (changed is not null)
+                            {
+                                var visible = BuildClientVisibleSnapshot(
+                                    changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+                                await PublishChangeAsync(changed, visible, reportingHealthy: false, stoppingToken);
+                            }
+
+                            await AnnounceScanBlockedIfChangedAsync();
+                            _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
+                        }
+
+                        restartedAfterStep = false;
+
+                        // Cancelled once the child ends, so its step wait never outlives it. When a
+                        // step takes the logs first, the cancel ends the child: RunTrackerAsync stops
+                        // reading, kills it and waits for it to exit.
+                        using var childStop = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                        var stepStarted = _operationStateService.WaitForLogStepAsync(active: true, childStop.Token);
+                        var run = RunTrackerAsync(rustExecutablePath, sources, runId, childStop.Token);
+                        stoppedForStep = await Task.WhenAny(run, stepStarted) == stepStarted &&
+                            stepStarted.IsCompletedSuccessfully;
+                        await childStop.CancelAsync();
+                        try
+                        {
+                            await run;
+                        }
+                        catch (OperationCanceledException) when (stoppedForStep)
+                        {
+                        }
+
+                        if (!stoppedForStep && !stoppingToken.IsCancellationRequested)
+                        {
+                            await EndRunAsync(runId, stoppingToken);
+                        }
+                    }
+                    finally
+                    {
+                        _operationStateService.EndSpeedTrackerRun();
+                    }
 
                     if (stoppingToken.IsCancellationRequested)
                     {
                         break;
+                    }
+
+                    // Stopped on purpose: restart as soon as the step ends, with no failure counted.
+                    if (stoppedForStep)
+                    {
+                        restartedAfterStep = true;
+                        continue;
                     }
 
                     consecutiveFailures = UtcNow() - startedAt >= _healthyRunDuration
@@ -1476,11 +1587,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 {
                     _logger.LogDebug(ex, "Failed to parse speed snapshot JSON: {Line}", line);
                 }
-            }
-
-            if (!stoppingToken.IsCancellationRequested)
-            {
-                await EndRunAsync(runId, stoppingToken);
             }
         }
         finally

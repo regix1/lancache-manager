@@ -242,7 +242,7 @@ public sealed class MetricsScrapeGateTests
         current = new DownloadSpeedSnapshot();
         Collect(0, 0, 0);
 
-        Assert.Equal(9, reads);
+        Assert.Equal(3, reads);
     }
 
     [Fact]

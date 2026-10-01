@@ -93,6 +93,8 @@ internal static class CacheScanGateHarness
         }));
         SetField(tracker, "_runSources", new Dictionary<Guid, Dictionary<string, string>>());
         SetField(tracker, "_sourceRuns", new Dictionary<string, Guid>(StringComparer.Ordinal));
+        SetField(tracker, "_currentSources", null);
+        SetField(tracker, "_currentSourcesBuiltUtc", default(DateTime));
         return tracker;
     }
 

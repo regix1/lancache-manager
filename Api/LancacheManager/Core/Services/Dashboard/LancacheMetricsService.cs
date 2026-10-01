@@ -30,6 +30,8 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     private readonly string _version;
     private readonly Func<long> _timestamp;
     private readonly Func<DownloadSpeedSnapshot> _readActivity;
+    // The activity snapshot of the collection in progress, read once by the first activity gauge.
+    private DownloadSpeedSnapshot _scrapeActivity = new();
 
     // Thread-safe storage for metric values
     private readonly ConcurrentDictionary<string, ServiceMetrics> _serviceMetrics = new();
@@ -355,21 +357,28 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         // ACTIVITY METRICS (current state)
         // ============================================
+        // A collection reads observable instruments in creation order, and the exporter collects all
+        // three together, so the first gauge takes the snapshot and the next two reuse it: one
+        // scrape ages the snapshot once and its three values agree.
         _meter.CreateObservableGauge(
             "lancache_active_downloads",
-            () => _readActivity().GameSpeeds.Count,
+            () =>
+            {
+                _scrapeActivity = _readActivity();
+                return _scrapeActivity.GameSpeeds.Count;
+            },
             description: "Number of currently active downloads"
         );
 
         _meter.CreateObservableGauge(
             "lancache_active_clients",
-            () => _readActivity().ClientSpeeds.Count,
+            () => _scrapeActivity.ClientSpeeds.Count,
             description: "Number of unique clients with active downloads"
         );
 
         _meter.CreateObservableGauge(
             "lancache_throughput_bytes_per_second",
-            () => _readActivity().TotalBytesPerSecond,
+            () => _scrapeActivity.TotalBytesPerSecond,
             description: "Current download throughput in bytes/s"
         );
 
