@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -16,6 +16,9 @@ const RECEIPT_PREFIX: &str = ".lancache-repair-";
 pub struct RootFiles {
     pub canonical_path: PathBuf,
     pub digests: HashSet<u128>,
+    /// False when a folder or entry below the root could not be read, so a digest missing from
+    /// `digests` proves nothing about this root.
+    pub fully_checked: bool,
 }
 
 impl RootFiles {
@@ -46,9 +49,50 @@ enum WalkAction {
     Stop,
 }
 
-fn walk_root<F>(cache_path: &Path, mut visit_file: F) -> Result<PathBuf>
+/// One entry of a directory listing: reading the entry and reading its type can fail separately.
+type ListedEntry = io::Result<(PathBuf, io::Result<fs::FileType>)>;
+
+/// Lists one directory as `(path, file type)` pairs without following links.
+fn list_directory(directory: &Path) -> io::Result<Vec<ListedEntry>> {
+    Ok(fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| (entry.path(), entry.file_type())))
+        .collect())
+}
+
+/// A path below the cache root that the app may not read is skipped and marks the walk
+/// incomplete; every other failure still stops the walk.
+fn skip_permission_denied<T>(
+    result: io::Result<T>,
+    fully_checked: &mut bool,
+) -> io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            *fully_checked = false;
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Returns the canonical root and whether every folder and entry below it could be read.
+fn walk_root<F>(cache_path: &Path, visit_file: F) -> Result<(PathBuf, bool)>
 where
-    F: FnMut(&fs::DirEntry) -> Result<WalkAction>,
+    F: FnMut(&Path) -> Result<WalkAction>,
+{
+    walk_root_with(cache_path, list_directory, visit_file)
+}
+
+/// `walk_root` with the directory listing passed in, so a test can fail the listing, an entry
+/// read or a type lookup for one path.
+fn walk_root_with<R, F>(
+    cache_path: &Path,
+    mut read_dir: R,
+    mut visit_file: F,
+) -> Result<(PathBuf, bool)>
+where
+    R: FnMut(&Path) -> io::Result<Vec<ListedEntry>>,
+    F: FnMut(&Path) -> Result<WalkAction>,
 {
     let canonical_path = cache_path
         .canonicalize()
@@ -60,18 +104,33 @@ where
         );
     }
 
+    let mut fully_checked = true;
     let mut pending = vec![canonical_path.clone()];
     while let Some(directory) = pending.pop() {
-        let entries = fs::read_dir(&directory)
-            .with_context(|| format!("failed to enumerate cache path {}", directory.display()))?;
+        // The root itself must be readable; only folders below it may be skipped.
+        let listing = if directory == canonical_path {
+            read_dir(&directory).map(Some)
+        } else {
+            skip_permission_denied(read_dir(&directory), &mut fully_checked)
+        };
+        let Some(entries) = listing
+            .with_context(|| format!("failed to enumerate cache path {}", directory.display()))?
+        else {
+            continue;
+        };
         for entry in entries {
-            let entry = entry.with_context(|| {
-                format!("failed to read an entry under {}", directory.display())
-            })?;
-            let path = entry.path();
-            let file_type = entry
-                .file_type()
-                .with_context(|| format!("failed to inspect cache path {}", path.display()))?;
+            let Some((path, file_type)) = skip_permission_denied(entry, &mut fully_checked)
+                .with_context(|| {
+                    format!("failed to read an entry under {}", directory.display())
+                })?
+            else {
+                continue;
+            };
+            let Some(file_type) = skip_permission_denied(file_type, &mut fully_checked)
+                .with_context(|| format!("failed to inspect cache path {}", path.display()))?
+            else {
+                continue;
+            };
             if file_type.is_symlink() {
                 continue;
             }
@@ -79,23 +138,21 @@ where
                 pending.push(path);
                 continue;
             }
-            if file_type.is_file() {
-                if matches!(visit_file(&entry)?, WalkAction::Stop) {
-                    return Ok(canonical_path);
-                }
+            if file_type.is_file() && matches!(visit_file(&path)?, WalkAction::Stop) {
+                return Ok((canonical_path, fully_checked));
             }
         }
     }
 
-    Ok(canonical_path)
+    Ok((canonical_path, fully_checked))
 }
 
 pub fn scan_root(cache_path: &Path) -> Result<RootFiles> {
     let mut digests = HashSet::new();
-    let canonical_path = walk_root(cache_path, |entry| {
-        if let Some(digest) = entry
+    let (canonical_path, fully_checked) = walk_root(cache_path, |path| {
+        if let Some(digest) = path
             .file_name()
-            .to_str()
+            .and_then(|name| name.to_str())
             .and_then(cache_utils::parse_cache_file_digest)
         {
             digests.insert(digest);
@@ -106,6 +163,7 @@ pub fn scan_root(cache_path: &Path) -> Result<RootFiles> {
     Ok(RootFiles {
         canonical_path,
         digests,
+        fully_checked,
     })
 }
 
@@ -114,11 +172,12 @@ where
     F: FnMut(&Path),
 {
     let mut found = false;
-    let canonical_path = walk_root(cache_path, |entry| {
-        on_file(&entry.path());
-        if entry
+    // An incomplete walk that finds no digest writes no receipt, so the root stays unverified.
+    let (canonical_path, _) = walk_root(cache_path, |path| {
+        on_file(path);
+        if path
             .file_name()
-            .to_str()
+            .and_then(|name| name.to_str())
             .and_then(cache_utils::parse_cache_file_digest)
             .is_some()
         {
@@ -361,6 +420,131 @@ mod tests {
         let error = scan_root(&file).unwrap_err();
 
         assert!(error.to_string().contains("cache root is not a directory"));
+    }
+
+    fn permission_denied() -> io::Error {
+        io::Error::from(io::ErrorKind::PermissionDenied)
+    }
+
+    /// Two cache files in different folders: `ef/cd/<DIGEST>` and `10/32/<OTHER>`.
+    fn two_folder_root() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let first = create_cache_file(root.path()).canonicalize().unwrap();
+        let second = root
+            .path()
+            .join("10")
+            .join("32")
+            .join("fedcba9876543210fedcba9876543210");
+        fs::create_dir_all(second.parent().unwrap()).unwrap();
+        fs::write(&second, b"cache").unwrap();
+        let second = second.canonicalize().unwrap();
+        (root, first, second)
+    }
+
+    fn visited_files<R>(root: &Path, read_dir: R) -> Result<(Vec<PathBuf>, bool)>
+    where
+        R: FnMut(&Path) -> io::Result<Vec<ListedEntry>>,
+    {
+        let mut visited = Vec::new();
+        let (_, fully_checked) = walk_root_with(root, read_dir, |path| {
+            visited.push(path.to_path_buf());
+            Ok(WalkAction::Continue)
+        })?;
+        Ok((visited, fully_checked))
+    }
+
+    #[test]
+    fn unreadable_folder_below_the_root_is_skipped_and_marks_the_walk_incomplete() {
+        let (root, first, second) = two_folder_root();
+        let blocked = first.parent().unwrap().to_path_buf();
+
+        let (visited, fully_checked) = visited_files(root.path(), |directory| {
+            if directory == blocked {
+                return Err(permission_denied());
+            }
+            list_directory(directory)
+        })
+        .expect("an unreadable folder below the root must not fail the walk");
+
+        assert_eq!(visited, vec![second]);
+        assert!(!fully_checked);
+    }
+
+    #[test]
+    fn unreadable_entry_below_the_root_is_skipped_and_marks_the_walk_incomplete() {
+        let (root, first, second) = two_folder_root();
+        let parent = first.parent().unwrap().to_path_buf();
+
+        let (mut visited, fully_checked) = visited_files(root.path(), |directory| {
+            let mut entries = list_directory(directory)?;
+            if directory == parent {
+                entries.insert(0, Err(permission_denied()));
+            }
+            Ok(entries)
+        })
+        .expect("an unreadable entry must not fail the walk");
+
+        visited.sort();
+        let mut expected = vec![first, second];
+        expected.sort();
+        assert_eq!(visited, expected);
+        assert!(!fully_checked);
+    }
+
+    #[test]
+    fn uninspectable_entry_below_the_root_is_skipped_and_marks_the_walk_incomplete() {
+        let (root, first, second) = two_folder_root();
+
+        let (visited, fully_checked) = visited_files(root.path(), |directory| {
+            Ok(list_directory(directory)?
+                .into_iter()
+                .map(|entry| {
+                    entry.map(|(path, file_type)| {
+                        if path == first {
+                            (path, Err(permission_denied()))
+                        } else {
+                            (path, file_type)
+                        }
+                    })
+                })
+                .collect())
+        })
+        .expect("an entry whose type cannot be read must not fail the walk");
+
+        assert_eq!(visited, vec![second]);
+        assert!(!fully_checked);
+    }
+
+    #[test]
+    fn unreadable_root_and_other_errors_below_it_still_fail() {
+        let (root, first, _) = two_folder_root();
+        let canonical_root = root.path().canonicalize().unwrap();
+        let blocked = first.parent().unwrap().to_path_buf();
+
+        let root_error = visited_files(root.path(), |directory| {
+            if directory == canonical_root {
+                return Err(permission_denied());
+            }
+            list_directory(directory)
+        })
+        .unwrap_err();
+        let other_error = visited_files(root.path(), |directory| {
+            if directory == blocked {
+                return Err(io::Error::other("injected listing failure"));
+            }
+            list_directory(directory)
+        })
+        .unwrap_err();
+        let (visited, fully_checked) = visited_files(root.path(), list_directory).unwrap();
+
+        assert!(root_error
+            .to_string()
+            .contains("failed to enumerate cache path"));
+        assert!(other_error
+            .to_string()
+            .contains("failed to enumerate cache path"));
+        assert_eq!(visited.len(), 2);
+        assert!(fully_checked);
     }
 
     #[test]

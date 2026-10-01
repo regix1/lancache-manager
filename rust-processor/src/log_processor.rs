@@ -2280,8 +2280,10 @@ impl Processor {
         let game_image_url: Option<String> = None;
         let download_id = if let Some(download_id) = download_id_opt {
             // Only a newer line changes the last URL or reactivates the row. A concurrent resolver
-            // that already named the row also keeps its chosen identity service.
-            sqlx::query("UPDATE \"Downloads\" SET \"StartTimeUtc\" = LEAST(\"StartTimeUtc\", $12), \"EndTimeUtc\" = GREATEST(\"EndTimeUtc\", $1), \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = CASE WHEN $1 > \"EndTimeUtc\" THEN $4 ELSE \"LastUrl\" END, \"IsActive\" = (\"IsActive\" OR $1 > \"EndTimeUtc\"), \"Service\" = CASE WHEN \"GameName\" IS NULL THEN $13 ELSE \"Service\" END, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10 AND \"Datasource\" = $11")
+            // that already named the row also keeps its chosen identity service. The row can be
+            // marked evicted between the select above and this update; an evicted row must not
+            // absorb new bytes, so a missed update takes the insert below.
+            let updated = sqlx::query("UPDATE \"Downloads\" SET \"StartTimeUtc\" = LEAST(\"StartTimeUtc\", $12), \"EndTimeUtc\" = GREATEST(\"EndTimeUtc\", $1), \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = CASE WHEN $1 > \"EndTimeUtc\" THEN $4 ELSE \"LastUrl\" END, \"IsActive\" = (\"IsActive\" OR $1 > \"EndTimeUtc\"), \"Service\" = CASE WHEN \"GameName\" IS NULL THEN $13 ELSE \"Service\" END, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10 AND \"Datasource\" = $11 AND \"IsEvicted\" = false")
                 .bind(last_utc_dt)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
@@ -2297,6 +2299,11 @@ impl Processor {
                 .bind(download_service)
                 .execute(&mut **tx)
                 .await?;
+            (updated.rows_affected() > 0).then_some(download_id)
+        } else {
+            None
+        };
+        let download_id = if let Some(download_id) = download_id {
             download_id
         } else {
             let row = sqlx::query("INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\", \"XboxProductId\") VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13) RETURNING \"Id\"")
@@ -5529,6 +5536,106 @@ mod session_continuity_tests {
         );
         assert!(!stored.get::<bool, _>("IsActive"));
         assert_eq!(stored.get::<i64, _>("CacheHitBytes"), 20);
+
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn row_evicted_between_lookup_and_update_takes_no_new_bytes() {
+        let name = "row_evicted_between_lookup_and_update_takes_no_new_bytes";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let path = directory.path().join("access.log");
+        std::fs::write(
+            &path,
+            log_line(
+                "steam",
+                "10.0.2.1",
+                "02/Jan/2026:12:00:00",
+                "/depot/401/chunk/a",
+                10,
+                "a",
+            ),
+        )
+        .expect("write eviction race fixture");
+        run(&pool, directory.path(), 0, "race-first", "race").await;
+        let evicted_id =
+            sqlx::query_scalar::<_, i64>(r#"SELECT "Id" FROM "Downloads" WHERE "Datasource" = $1"#)
+                .bind("race")
+                .fetch_one(&pool)
+                .await
+                .expect("read the row to evict");
+
+        // The uncommitted eviction holds the row lock, so the processor selects the row while it
+        // is still current and then waits on the lock in its update.
+        let mut eviction = pool.begin().await.expect("begin eviction");
+        let eviction_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+            .fetch_one(&mut *eviction)
+            .await
+            .expect("read eviction backend");
+        sqlx::query(
+            r#"UPDATE "Downloads" SET "IsActive" = false, "IsEvicted" = true WHERE "Id" = $1"#,
+        )
+        .bind(evicted_id)
+        .execute(&mut *eviction)
+        .await
+        .expect("evict the row");
+        append(
+            &path,
+            &log_line(
+                "steam",
+                "10.0.2.1",
+                "02/Jan/2026:12:00:05",
+                "/depot/401/chunk/b",
+                20,
+                "b",
+            ),
+        );
+        let release = async {
+            let mut waiting = false;
+            for _ in 0..1500 {
+                waiting = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(eviction_pid)
+                .fetch_one(&pool)
+                .await
+                .expect("read lock waiters");
+                if waiting {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(waiting, "the processor never waited on the evicted row");
+            eviction.commit().await.expect("commit eviction");
+        };
+
+        tokio::join!(
+            run(&pool, directory.path(), 1, "race-second", "race"),
+            release
+        );
+
+        let rows = sqlx::query_as::<_, (i64, i64, bool)>(
+            r#"SELECT "Id", "CacheHitBytes", "IsEvicted" FROM "Downloads" WHERE "Datasource" = $1 ORDER BY "Id""#,
+        )
+        .bind("race")
+        .fetch_all(&pool)
+        .await
+        .expect("read rows after the race");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], (evicted_id, 10, true));
+        assert_eq!((rows[1].1, rows[1].2), (20, false));
+        let new_line_owner = sqlx::query_scalar::<_, i64>(
+            r#"SELECT "DownloadId" FROM "LogEntries" WHERE "Datasource" = $1 AND "Url" = $2"#,
+        )
+        .bind("race")
+        .bind("/depot/401/chunk/b")
+        .fetch_one(&pool)
+        .await
+        .expect("read the new line's download");
+        assert_eq!(new_line_owner, rows[1].0);
 
         drop_schema(pool, &schema, options).await;
     }

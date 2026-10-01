@@ -603,6 +603,16 @@ where
             }
         };
 
+        // A root with folders that could not be read stays out of both maps, so absence under
+        // it remains unverified even with a valid empty-root receipt.
+        if !files.fully_checked {
+            eprintln!(
+                "[EvictionScan] Cache root at {} has folders that could not be read. Absence under this root will remain unverified",
+                root.display()
+            );
+            continue;
+        }
+
         if affected && files.is_empty() {
             match validate_receipt(&root, operation_id) {
                 Ok(_) => {
@@ -799,6 +809,46 @@ mod tests {
 
         assert_eq!(validation_calls.get(), 1);
         assert!(!repair.origins_can_verify_absence(Some("default"), &[]));
+    }
+
+    #[test]
+    fn incompletely_checked_root_abstains_even_with_a_valid_receipt() {
+        for populated in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let cache_file = create_cache_file(root.path());
+            let operation_id = Uuid::new_v4();
+            cache_repair::prepare_receipt(root.path(), Some(&operation_id.to_string())).unwrap();
+            if !populated {
+                std::fs::remove_file(cache_file).unwrap();
+            }
+            let datasources = [datasource("default", root.path(), "monolithic")];
+            let sources = [repair_source("default", root.path(), "monolithic")];
+
+            let repair = collect_files_for_repair_with(
+                &datasources,
+                &sources,
+                operation_id,
+                |_| {},
+                |path| {
+                    Ok(cache_repair::RootFiles {
+                        fully_checked: false,
+                        ..cache_repair::scan_root(path)?
+                    })
+                },
+                cache_repair::validate_receipt,
+            )
+            .expect("an incompletely checked root must abstain, not fail");
+
+            assert!(repair.files.is_empty(), "populated: {populated}");
+            assert!(
+                !repair.origins_can_verify_absence(Some("default"), &[]),
+                "populated: {populated}"
+            );
+            assert!(
+                !repair.origins_are_trusted_empty(Some("default"), &[]),
+                "populated: {populated}"
+            );
+        }
     }
 
     #[test]

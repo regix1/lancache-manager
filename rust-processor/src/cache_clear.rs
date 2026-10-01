@@ -163,6 +163,7 @@ where
         }
     };
 
+    #[allow(clippy::too_many_arguments)]
     fn delete_recursive<I, F, D>(
         root: &Path,
         dir: &Path,
@@ -171,6 +172,7 @@ where
         inspect: &I,
         remove_file: &F,
         remove_dir: &D,
+        failed_deletes: &mut Option<(u64, anyhow::Error)>,
     ) -> Result<()>
     where
         I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
@@ -231,6 +233,7 @@ where
                     inspect,
                     remove_file,
                     remove_dir,
+                    failed_deletes,
                 )?;
                 match remove_dir(&path) {
                     Ok(()) => {}
@@ -252,10 +255,20 @@ where
                         bytes_counter.fetch_add(length, Ordering::Relaxed);
                     }
                     Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    // One file that cannot be deleted must not leave the rest of the cache in
+                    // place; the count and the first failure are reported once at the end.
                     Err(error) => {
-                        return Err(error).with_context(|| {
-                            format!("failed to delete cache file {}", path.display())
-                        });
+                        failed_deletes
+                            .get_or_insert_with(|| {
+                                (
+                                    0,
+                                    anyhow::Error::new(error).context(format!(
+                                        "failed to delete cache file {}",
+                                        path.display()
+                                    )),
+                                )
+                            })
+                            .0 += 1;
                     }
                 }
             }
@@ -263,6 +276,7 @@ where
         Ok(())
     }
 
+    let mut failed_deletes = None;
     delete_recursive(
         &root,
         &root,
@@ -271,8 +285,15 @@ where
         inspect,
         remove_file,
         remove_dir,
+        &mut failed_deletes,
     )?;
 
+    if let Some((count, first_failure)) = failed_deletes {
+        return Err(first_failure.context(format!(
+            "{count} cache file(s) could not be deleted under {}",
+            root.display()
+        )));
+    }
     Ok(())
 }
 
@@ -372,6 +393,12 @@ where
         remove_file,
         remove_dir,
     )?;
+
+    // A hex folder that is a link keeps the link and its emptied target, as the default mode
+    // does; removing a link with rmdir fails on Linux.
+    if fs::symlink_metadata(dir_path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Ok(());
+    }
 
     match remove_dir(dir_path) {
         Ok(()) => Ok(()),
@@ -652,7 +679,25 @@ where
         let file_type = entry
             .file_type()
             .with_context(|| format!("failed to inspect cache path {}", path.display()))?;
-        if file_type.is_dir() && entry.file_name().to_str().map(is_hex).unwrap_or(false) {
+        if !entry.file_name().to_str().map(is_hex).unwrap_or(false) {
+            continue;
+        }
+        // A hex folder can be a link to another disk; its target is cleared like a real folder.
+        let is_dir = if file_type.is_symlink() {
+            match fs::metadata(&path) {
+                Ok(metadata) => metadata.is_dir(),
+                // A link whose target is gone has nothing to clear.
+                Err(error) if error.kind() == ErrorKind::NotFound => false,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to inspect linked cache path {}", path.display())
+                    });
+                }
+            }
+        } else {
+            file_type.is_dir()
+        };
+        if is_dir {
             hex_dirs.push(path);
         }
     }
@@ -774,14 +819,16 @@ where
         }
     });
 
-    // Process directories in parallel using rayon with limited thread pool
+    // Process directories in parallel using rayon with limited thread pool. A directory that
+    // fails does not stop the others; the first failure is reported once after all of them.
     let active_for_workers = Arc::clone(&active_dirs);
-    let deletion_result = pool.install(|| {
-        hex_dirs.par_iter().try_for_each(|dir| -> Result<()> {
+    let failures = Mutex::new(Vec::<anyhow::Error>::new());
+    pool.install(|| {
+        hex_dirs.par_iter().for_each(|dir| {
             // Cooperative cancellation: skip new hex-dirs if cancel was requested.
             // An in-flight filesystem call finishes; no new directory starts.
             if cancel::is_cancelled() {
-                return Ok(());
+                return;
             }
 
             let dir_name = dir
@@ -810,16 +857,31 @@ where
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .retain(|d| d != &dir_name_str);
 
-            result?;
+            if let Err(error) = result {
+                failures
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(error);
+                return;
+            }
             let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
             eprintln!(
                 "Completed directory {} ({}/{})",
                 dir_name, processed, total_dirs
             );
-            Ok(())
         })
     });
     workers_done.store(true, Ordering::Relaxed);
+    let failures = failures
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let failed_dirs = failures.len();
+    let deletion_result = match failures.into_iter().next() {
+        Some(first_failure) => Err(first_failure.context(format!(
+            "{failed_dirs} of {total_dirs} cache directories could not be fully cleared"
+        ))),
+        None => Ok(()),
+    };
 
     // Wait for monitor thread to finish
     monitor_handle
@@ -1164,9 +1226,94 @@ mod tests {
             .into_iter()
             .filter_map(|(path, length)| (!path.exists()).then_some(length))
             .sum::<u64>();
-        assert!(error.to_string().contains("failed to delete cache file"));
+        let message = format!("{error:#}");
+        assert!(message.contains("1 cache file(s) could not be deleted"));
+        assert!(message.contains("failed to delete cache file"));
         assert_eq!(files.load(Ordering::SeqCst), 1);
         assert_eq!(bytes.load(Ordering::SeqCst), removed_bytes);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_deleted_does_not_stop_the_other_deletes() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("00");
+        let paths = [
+            directory.join("first"),
+            directory.join("11").join("second"),
+            directory.join("22").join("third"),
+        ];
+        for path in &paths {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"cache").unwrap();
+        }
+        let failed_path = std::cell::RefCell::new(None::<std::path::PathBuf>);
+        let files = AtomicU64::new(0);
+        let bytes = AtomicU64::new(0);
+
+        let error = delete_directory_contents_with(
+            &directory,
+            &files,
+            &bytes,
+            &inspect_entry,
+            &|path: &Path| {
+                let mut failed_path = failed_path.borrow_mut();
+                if failed_path.is_none() {
+                    *failed_path = Some(path.to_path_buf());
+                    return Err(io::Error::new(
+                        ErrorKind::PermissionDenied,
+                        "injected unlink failure",
+                    ));
+                }
+                fs::remove_file(path)
+            },
+            &|path: &Path| fs::remove_dir(path),
+        )
+        .unwrap_err();
+
+        let failed_path = failed_path.into_inner().unwrap();
+        let message = format!("{error:#}");
+        assert!(failed_path.exists());
+        assert_eq!(paths.iter().filter(|path| path.exists()).count(), 1);
+        assert_eq!(files.load(Ordering::SeqCst), 2);
+        assert_eq!(bytes.load(Ordering::SeqCst), 10);
+        assert!(message.contains("1 cache file(s) could not be deleted"));
+        assert!(message.contains(&failed_path.display().to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linked_hex_folders_are_cleared_in_the_default_and_full_modes() {
+        for mode in ["preserve", "full"] {
+            let root = tempfile::tempdir().unwrap();
+            let target = tempfile::tempdir().unwrap();
+            let cached = create_cache_file(target.path(), FIRST_DIGEST, b"old");
+            let link = root.path().join("00");
+            std::os::unix::fs::symlink(target.path(), &link).unwrap();
+            let progress_path = root.path().join("progress.json");
+            let reporter = Arc::new(ProgressReporter::new(false));
+
+            let result = clear_cache_with(
+                root.path().to_str().unwrap(),
+                &progress_path,
+                1,
+                mode,
+                None,
+                &reporter,
+                |_| {},
+            )
+            .unwrap_or_else(|error| panic!("{mode} clear of a linked hex folder: {error:#}"));
+
+            assert_eq!(result, (1, 1), "{mode}");
+            assert!(!cached.exists(), "{mode}");
+            assert!(
+                fs::symlink_metadata(&link)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                "{mode}"
+            );
+            assert!(target.path().is_dir(), "{mode}");
+        }
     }
 
     #[test]
