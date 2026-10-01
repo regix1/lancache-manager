@@ -919,6 +919,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Closed,
             operation.Repairing,
             operation.RepairError,
+            operation.Metadata is CacheClearingRepair { FullRepair: true },
             operation.ConsecutiveFailures,
             operation.LatestRunSucceeded,
             prefill?.ScheduleId,

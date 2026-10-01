@@ -33,6 +33,8 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// <param name="Repairing">True while a repair the run owes is running; the row stays until it ends.</param>
 /// <param name="RepairError">Why the run's repair failed out, which keeps the row until it is closed;
 /// null when no repair failed.</param>
+/// <param name="FullRepair">True when the run is the one full repair per datasource that a set-aside
+/// repair file starts.</param>
 /// <param name="LiveIngest">True for a live log ingest pass; the browser keeps only its kept failure.</param>
 /// <param name="IntegrationLogin">True for a mapping sign-in run, which belongs to no schedule.</param>
 /// <param name="OwnerSessionId">The auth session whose browser alone draws this run; null for everyone.</param>
@@ -43,7 +45,7 @@ public sealed record OperationRun(
     Guid OperationId, string OperationType, string Name, string Status, RunVisibility Visibility,
     double PercentComplete, string Message, string? Error, string? BlockedByName,
     Guid? PreviousOperationId, Guid? ParentOperationId, Guid? NextOperationId, string? Warning,
-    bool Retained, bool Closed, bool Repairing, string? RepairError, int ConsecutiveFailures,
+    bool Retained, bool Closed, bool Repairing, string? RepairError, bool FullRepair, int ConsecutiveFailures,
     bool LatestRunSucceeded, Guid? ScheduleId,
     PrefillPlatform? ServiceId, bool LiveIngest, bool IntegrationLogin, Guid? OwnerSessionId,
     long? CompletedRevision, DateTime StartedAt, long Revision);

@@ -39,7 +39,8 @@ public sealed class IntegrationCancellationTests
         await reporter.StartAsync(login: login);
         ((Notifications)(object)notifications).OnSend = null;
         var cancellation = new OperationCancellationService(tracker,
-            new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance);
+            new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+            NullLogger<OperationCancellationService>.Instance);
         Assert.Throws<ForbiddenException>(() => cancellation.Cancel(reporter.OperationId, fixture.Other));
         await Assert.ThrowsAsync<ForbiddenException>(() => cancellation.ForceKillAsync(reporter.OperationId, fixture.Other));
         Assert.Throws<ForbiddenException>(() => cancellation.Cancel(reporter.OperationId,
@@ -71,7 +72,8 @@ public sealed class IntegrationCancellationTests
         forwarding.Origin = origin;
         forwarding.Successor = successor;
         var cancellation = new OperationCancellationService(proxy,
-            new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance);
+            new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+            NullLogger<OperationCancellationService>.Instance);
         if (forceKill) Assert.True(await cancellation.ForceKillAsync(origin, fixture.Owner));
         else Assert.Equal(OperationCancelResult.Requested, cancellation.Cancel(origin, fixture.Owner));
         Assert.True(forwarding.Recorded);

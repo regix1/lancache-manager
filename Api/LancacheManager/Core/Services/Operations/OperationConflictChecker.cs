@@ -29,10 +29,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         CancellationToken ct)
     {
         await _operationStateService.WaitForRecoveryOwnershipAsync(ct);
-        if (RepairBlocks(newType) && _operationStateService.GetPendingRepairs()
-                .Where(repair => repair.Phase == OperationRepairPhase.Repairing)
-                .OrderBy(repair => repair.StartedAt)
-                .FirstOrDefault() is { } pendingRepair)
+        if (RepairBlocks(newType) && _operationStateService.GetBlockingRepair() is { } pendingRepair)
         {
             return new OperationConflictResponse
             {
@@ -78,8 +75,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     }
 
     private static bool RepairBlocks(OperationType type) => type is
-        OperationType.LogProcessing
-        or OperationType.LogRemoval
+        OperationType.LogRemoval
         or OperationType.CacheClearing
         or OperationType.CacheSizeScan
         or OperationType.GameDetection
@@ -97,6 +93,18 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     /// </summary>
     private static OperationConflictResponse? Evaluate(OperationType newType, ConflictScope newScope, OperationInfo activeOp)
     {
+        // Every job that touches the log files takes turns with a log pass on the log file lock, so
+        // a new log pass starts at once and waits there; only another log pass can conflict with it.
+        if (newType == OperationType.LogProcessing && activeOp.Type != OperationType.LogProcessing) return null;
+
+        // These jobs share only the log files with a running log pass, and the log file lock orders
+        // that, so they start at once and their log step waits for the datasource the batch is on.
+        if (activeOp.Type == OperationType.LogProcessing
+            && (RewritesAccessLog(newType) || newType is OperationType.LogRemoval or OperationType.EvictionScan))
+        {
+            return null;
+        }
+
         var activeScope = DeriveScope(activeOp);
         var activeService = ServiceForScope(activeScope);
         var newService = ServiceForScope(newScope);
@@ -159,11 +167,14 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         // Running several simultaneously races shared files (access.log, cache dirs) and floods
         // slow clients with progress events, so any two heavy ops conflict - the second one parks
         // in the operation queue (purple waiting card) instead of running alongside the first.
+        // The log pass pairs that returned at the top are the exception.
         var newIsHeavy = IsHeavyDataOp(newType, newScope);
         var activeIsHeavy = IsHeavyDataOp(activeOp.Type, activeScope);
         if (newIsHeavy && activeIsHeavy)
         {
-            if (newType == activeOp.Type && newScope.Matches(activeScope))
+            // A live pass covers only the datasources with new log lines, so a request handed to it
+            // as a duplicate would skip the rest; it gets the plain conflict and runs on its own.
+            if (newType == activeOp.Type && newScope.Matches(activeScope) && !activeOp.LiveIngest)
             {
                 // Identical request -> "duplicate" so the queue idempotently returns the
                 // active op instead of parking a second copy.
@@ -186,15 +197,14 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
-        // ---- 1b. Log-pipeline ops (LogRemoval / LogProcessing) vs removals ----
-        // Heavy×heavy pairings (including duplicates) are already handled by section 1a above, so
-        // a log op reaching this point faces only the non-heavy ops. Of those, every REMOVAL type
-        // (game/service/corruption/eviction) also rewrites access.log to prune the removed
-        // entity's lines - the same file the log pipeline reads/rewrites. They used to run
-        // "concurrently" here but in reality serialized on an internal lock, leaving the second
-        // op stuck at 0% with a running card and no explanation. Conflicting them instead sends
-        // the second op through the wait queue (purple waiting card). Read-only detections still
-        // never conflict with the log pipeline.
+        // ---- 1b. Log removal vs removals ----
+        // Heavy×heavy pairings (including duplicates) are already handled by section 1a above, and
+        // a new log pass returned at the top, so a log removal reaching this point faces only the
+        // non-heavy ops. Of those, every REMOVAL type (game/service/corruption/eviction) also
+        // rewrites access.log to prune the removed entity's lines - the same file the log removal
+        // rewrites. Conflicting them sends the second op through the wait queue (purple waiting
+        // card) instead of leaving it stuck at 0% with a running card and no explanation.
+        // Read-only detections never conflict with the log pipeline.
         if (newType == OperationType.LogRemoval || newType == OperationType.LogProcessing)
         {
             if (RewritesAccessLog(activeOp.Type))
@@ -211,8 +221,9 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             return null;
         }
 
-        // Mirror: a log-pipeline op is active and the NEW op is a removal that would rewrite
-        // access.log underneath it → BLOCK (queued). Anything else (scans/detections) → ALLOW.
+        // Mirror: a log removal is active and the NEW op is a removal that would rewrite access.log
+        // underneath it → BLOCK (queued). Against an active log pass those removals returned at the
+        // top. Anything else (scans/detections) → ALLOW.
         if (activeOp.Type == OperationType.LogRemoval || activeOp.Type == OperationType.LogProcessing)
         {
             if (RewritesAccessLog(newType))

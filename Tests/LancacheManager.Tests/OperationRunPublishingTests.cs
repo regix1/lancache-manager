@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
@@ -424,12 +426,135 @@ public sealed class OperationRunPublishingTests
         var controller = new OperationsController(
             tracker,
             new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance),
-                NullLogger<OperationCancellationService>.Instance));
+                OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance));
         var failed = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         tracker.CompleteOperation(failed, success: false, error: "Disk read failed");
 
         Assert.IsType<NoContentResult>(controller.CloseRun(failed));
         Assert.IsType<NotFoundObjectResult>(controller.CloseRun(failed));
+    }
+
+    [Fact]
+    public async Task RepairingOperationIsNotReapedUntilRepairEndsAsync()
+    {
+        var (tracker, recorder) = CreateRecordingTracker();
+        var cleared = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+        // A kept failure closed while its repair runs has no reaper left from completion, so only
+        // the one EndRepair schedules can remove it.
+        var closed = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+        tracker.BeginRepair(cleared);
+        tracker.BeginRepair(closed);
+        tracker.CompleteOperation(cleared, success: true);
+        tracker.CompleteOperation(closed, success: false, error: "Disk read failed");
+
+        var repairing = await WaitForRowAsync(recorder, row => row.OperationId == cleared && row.Status == "completed");
+        Assert.True(repairing.Repairing);
+        Assert.True(tracker.CloseRun(closed));
+        OperationWaitingBlockerTests.Reap(tracker, cleared);
+        Assert.True(Run(tracker, cleared).Repairing);
+        Assert.True(Run(tracker, closed).Repairing);
+
+        tracker.EndRepair(cleared, null);
+        tracker.EndRepair(closed, null);
+        var ended = await WaitForRowAsync(recorder, row => row.OperationId == cleared && !row.Repairing);
+        Assert.Null(ended.RepairError);
+        Assert.False(ended.Retained);
+        Assert.NotNull(tracker.GetOperation(cleared));
+        Assert.NotNull(tracker.GetOperation(closed));
+
+        // A bounded wait for the reapers, which fire about ten seconds after the repairs end.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while ((tracker.GetOperation(cleared) is not null || tracker.GetOperation(closed) is not null)
+            && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+        Assert.Null(tracker.GetOperation(cleared));
+        Assert.Null(tracker.GetOperation(closed));
+    }
+
+    [Fact]
+    public async Task RepairFailedRunIsKeptUntilClosedAsync()
+    {
+        var (tracker, recorder) = CreateRecordingTracker();
+        var id = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+        tracker.BeginRepair(id);
+        tracker.CompleteOperation(id, success: true);
+
+        tracker.EndRepair(id, "Repair failed: disk gone");
+        var failed = await WaitForRowAsync(recorder, row => row.OperationId == id && row.RepairError is not null);
+        Assert.False(failed.Repairing);
+        Assert.True(failed.Retained);
+        OperationWaitingBlockerTests.Reap(tracker, id);
+        Assert.Equal("Repair failed: disk gone", Run(tracker, id).RepairError);
+
+        tracker.BeginRepair(id);
+        var retried = await WaitForRowAsync(recorder, row => row.OperationId == id && row.Revision > failed.Revision);
+        Assert.True(retried.Repairing);
+        Assert.Null(retried.RepairError);
+        tracker.EndRepair(id, "Repair failed: disk gone");
+        await WaitForRowAsync(recorder, row => row.OperationId == id && row.Revision > retried.Revision);
+        OperationWaitingBlockerTests.Reap(tracker, id);
+        Assert.True(Run(tracker, id).Retained);
+
+        Assert.True(tracker.CloseRun(id));
+        await WaitForRowAsync(recorder, row => row.OperationId == id && row.Closed);
+        Assert.Null(tracker.GetOperation(id));
+    }
+
+    [Fact]
+    public async Task RepairFailedPhaseChildIsKeptAndClosableAsync()
+    {
+        var (tracker, recorder) = CreateRecordingTracker();
+        var parent = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var phase = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            parentOperationId: parent, notice: new RunNotice(NotificationMode.Hidden, RunTrigger.Manual));
+        tracker.BeginRepair(phase);
+        tracker.CompleteOperation(phase, success: true);
+        Assert.False(tracker.CloseRun(phase));
+
+        tracker.EndRepair(phase, "Repair failed: disk gone");
+        var row = await WaitForRowAsync(recorder, sent => sent.OperationId == phase && sent.RepairError is not null);
+        Assert.True(row.Retained);
+        OperationWaitingBlockerTests.Reap(tracker, phase);
+        Assert.NotNull(tracker.GetOperation(phase));
+
+        Assert.True(tracker.CloseRun(phase));
+        await WaitForRowAsync(recorder, sent => sent.OperationId == phase && sent.Closed);
+        Assert.Null(tracker.GetOperation(phase));
+    }
+
+    [Fact]
+    public void RunRowsCarryTheRepairFieldsOnRestAndSignalR()
+    {
+        var tracker = CreateTracker();
+        var plain = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+        var full = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            new CacheClearingRepair { FullRepair = true });
+        tracker.BeginRepair(full);
+        // Program.cs: REST drops nulls, SignalR only sets camelCase.
+        var rest = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+        var signalR = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        var plainSignalR = JsonSerializer.Serialize(Run(tracker, plain), signalR);
+        Assert.Contains("\"repairing\":false", plainSignalR);
+        Assert.Contains("\"repairError\":null", plainSignalR);
+        Assert.Contains("\"fullRepair\":false", plainSignalR);
+        var plainRest = JsonSerializer.Serialize(Run(tracker, plain), rest);
+        Assert.Contains("\"repairing\":false", plainRest);
+        Assert.DoesNotContain("repairError", plainRest);
+        var fullRest = JsonSerializer.Serialize(Run(tracker, full), rest);
+        Assert.Contains("\"repairing\":true", fullRest);
+        Assert.Contains("\"fullRepair\":true", fullRest);
+
+        tracker.CompleteOperation(full, success: true);
+        tracker.EndRepair(full, "disk gone");
+        Assert.Contains("\"repairError\":\"disk gone\"", JsonSerializer.Serialize(Run(tracker, full), rest));
+        Assert.Contains("\"repairError\":\"disk gone\"", JsonSerializer.Serialize(Run(tracker, full), signalR));
     }
 
     [Fact]

@@ -1542,6 +1542,7 @@ public sealed class OperationRepairTests : IDisposable
         var cancellation = new OperationCancellationService(
             tracker,
             processManager,
+            OperationConflictTestServices.Owner,
             NullLogger<OperationCancellationService>.Instance);
         var emitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var operationId = tracker.RegisterOperation(
@@ -1577,6 +1578,7 @@ public sealed class OperationRepairTests : IDisposable
         var cancellation = new OperationCancellationService(
             tracker,
             processManager,
+            OperationConflictTestServices.Owner,
             NullLogger<OperationCancellationService>.Instance);
         var emitted = 0;
         var operationId = tracker.RegisterOperation(

@@ -22,8 +22,18 @@ namespace LancacheManager.Tests;
 /// its work executes as a tracked background operation, because a fire-and-forget start drops
 /// the loop's executing flag back to false for the whole run.
 /// </summary>
-public sealed class OperationWaitingBlockerTests
+public sealed class OperationWaitingBlockerTests : IDisposable
 {
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "lm-blocker-repair-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -180,14 +190,15 @@ public sealed class OperationWaitingBlockerTests
         Assert.Empty(links);
     }
 
-    private static void Reap(UnifiedOperationTracker tracker, Guid id)
+    internal static void Reap(UnifiedOperationTracker tracker, Guid id)
     {
         typeof(UnifiedOperationTracker).GetMethod("ReapOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(tracker, [id]);
     }
 
     private static OperationsController CreateController(UnifiedOperationTracker tracker) => new(
         tracker,
-        new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance))
+        new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance),
+            OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance))
         {
             ControllerContext = new ControllerContext
             {
@@ -437,6 +448,7 @@ public sealed class OperationWaitingBlockerTests
             new OperationCancellationService(
                 tracker,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
+                OperationConflictTestServices.Owner,
                 NullLogger<OperationCancellationService>.Instance));
 
         // Both runs are parked, so the endpoint lists both; how each is drawn comes from its run row.
@@ -528,6 +540,187 @@ public sealed class OperationWaitingBlockerTests
         tracker.CompleteOperation(operationId, success: true);
 
         await schedulesBroadcast.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task BlockerClearedFiresOnEndRepairAndNotifyAsync()
+    {
+        var tracker = CreateTracker();
+        using var raised = new SemaphoreSlim(0);
+        tracker.BlockerCleared += () => raised.Release();
+
+        tracker.EndRepair(Guid.NewGuid(), null);
+        Assert.True(await raised.WaitAsync(TimeSpan.FromSeconds(5)));
+        tracker.NotifyBlockerCleared();
+        Assert.True(await raised.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task RepairEndPromotesParkedWaiterAsync()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            });
+        var queue = new OperationQueueService(
+            harness.Tracker,
+            new OperationConflictChecker(harness.Tracker, harness.Owner, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var repair = OperationConflictTestServices.NewCacheClearRepair(Guid.NewGuid());
+        await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(repair.Id, success: false, cancelled: false, error: "interrupted");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var terminals = 0;
+        harness.Tracker.OperationTerminal += _ => Interlocked.Increment(ref terminals);
+        var started = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queued = await queue.EnqueueAsync(OperationType.GameRemoval, ConflictScope.NamedGame("blizzard", "Diablo IV"),
+            "Game Removal", () =>
+            {
+                started.TrySetResult(Volatile.Read(ref terminals));
+                return Task.FromResult<Guid?>(Guid.NewGuid());
+            }, CancellationToken.None);
+        Assert.True(queued.Queued);
+
+        release.TrySetResult();
+
+        // The waiter starts with no operation ending before it: the repair's end alone wakes the queue.
+        Assert.Equal(0, await started.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ForceKillRecordsTheRepairOutcomeAndEndsTheJobAsync(bool workStarted)
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            apply: async (_, cancellationToken) => await release.Task.WaitAsync(cancellationToken));
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var emitted = new TaskCompletionSource<OperationRepair>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var emits = 0;
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            onTerminalEmit: _ =>
+            {
+                Interlocked.Increment(ref emits);
+                emitted.TrySetResult(Assert.Single(harness.StateService.LoadOperationRepairs()));
+                return Task.CompletedTask;
+            },
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        if (workStarted)
+        {
+            await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        }
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+        Assert.True(await cancellation.ForceKillAsync(id));
+
+        // The outcome was stored before the job's terminal was sent.
+        var atTerminal = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(workStarted ? OperationRepairPhase.Repairing : OperationRepairPhase.Completed, atTerminal.Phase);
+        Assert.Equal(OperationStatus.Cancelled, atTerminal.Outcome);
+        var operation = harness.Tracker.GetOperation(id)!;
+        Assert.Equal(1, operation.CompletedFlag);
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Equal(workStarted, operation.Repairing);
+        Assert.Equal(1, Volatile.Read(ref emits));
+    }
+
+    [Fact]
+    public async Task ForceKillEndsTheJobWhenTheOutcomeSaveFailsAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        var applies = 0;
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            stateService: state,
+            apply: (_, _) =>
+            {
+                Interlocked.Increment(ref applies);
+                return Task.CompletedTask;
+            },
+            waitUntil: (_, cancellationToken) => Task.Delay(Timeout.Infinite, cancellationToken));
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        state.FailNextRepairWrite = true;
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+
+        var operation = harness.Tracker.GetOperation(id)!;
+        Assert.Equal(1, operation.CompletedFlag);
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.True(operation.Repairing);
+        Assert.Equal(id, harness.Owner.GetBlockingRepair()?.Id);
+        Assert.Equal(0, Volatile.Read(ref applies));
+    }
+
+    [Fact]
+    public async Task ForceKillOfAnEndedOperationChangesNothingAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        harness.Tracker.CompleteOperation(id, success: true);
+        var completedAt = harness.Tracker.GetOperation(id)!.CompletedAt;
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+
+        var operation = harness.Tracker.GetOperation(id)!;
+        Assert.Equal(OperationStatus.Completed, operation.Status);
+        Assert.Equal(completedAt, operation.CompletedAt);
+        Assert.False(operation.Repairing);
+        Assert.Equal(OperationRepairPhase.Running, Assert.Single(harness.Owner.GetPendingRepairs()).Phase);
+    }
+
+    [Fact]
+    public void ALaterScheduledFailureLeavesAFailedOutRepairCard()
+    {
+        var tracker = CreateTracker();
+        var schedules = CreateRegistry(new IdleScanProbeService(), tracker);
+        // Detached and called directly, so the endings are handled in a known order.
+        var handle = (Action<OperationInfo>)Delegate.CreateDelegate(typeof(Action<OperationInfo>), schedules,
+            typeof(ServiceScheduleRegistry).GetMethod("OnTrackedOperationTerminal", BindingFlags.Instance | BindingFlags.NonPublic)!);
+        tracker.OperationTerminal -= handle;
+        OperationInfo Fail(bool owesRepair)
+        {
+            var id = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+            if (owesRepair) tracker.BeginRepair(id);
+            tracker.CompleteOperation(id, success: false, error: "Disk read failed");
+            var operation = tracker.GetOperation(id)!;
+            handle(operation);
+            return operation;
+        }
+
+        var repairFailed = Fail(owesRepair: true);
+        tracker.EndRepair(repairFailed.Id, "Repair failed: disk gone");
+        var plain = Fail(owesRepair: false);
+        var latest = Fail(owesRepair: false);
+
+        var kept = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == repairFailed.Id);
+        Assert.False(kept.Closed);
+        Assert.Equal("Repair failed: disk gone", kept.RepairError);
+        Assert.Null(tracker.GetOperation(plain.Id));
+        Assert.Equal(3, tracker.GetOperation(latest.Id)!.ConsecutiveFailures);
     }
 
     private static UnifiedOperationTracker CreateTracker()

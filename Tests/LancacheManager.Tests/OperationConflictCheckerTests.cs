@@ -33,6 +33,13 @@ public class OperationConflictCheckerTests
                 requestedScope,
                 CancellationToken.None);
 
+            // A log pass waits for the upgrade's log steps at the log file lock instead.
+            if (requestedType == OperationType.LogProcessing)
+            {
+                Assert.Null(response);
+                continue;
+            }
+
             Assert.NotNull(response);
             Assert.Equal("OPERATION_CONFLICT", response!.Code);
             Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", response.StageKey);
@@ -83,7 +90,7 @@ public class OperationConflictCheckerTests
             OperationStatus.Waiting);
 
         var response = await tracker.Checker.CheckAsync(
-            OperationType.LogProcessing,
+            OperationType.GameDetection,
             ConflictScope.Bulk(),
             CancellationToken.None);
 
@@ -91,10 +98,10 @@ public class OperationConflictCheckerTests
     }
 
     [Theory]
-    [InlineData(OperationType.CacheClearing, OperationType.LogProcessing,
-        "Cannot start LogProcessing: a CacheClearing operation is in progress.")]
-    [InlineData(OperationType.DatabaseReset, OperationType.LogProcessing,
-        "Cannot start LogProcessing: a DatabaseReset operation is in progress.")]
+    [InlineData(OperationType.CacheClearing, OperationType.GameDetection,
+        "Cannot start GameDetection: a CacheClearing operation is in progress.")]
+    [InlineData(OperationType.DatabaseReset, OperationType.GameDetection,
+        "Cannot start GameDetection: a DatabaseReset operation is in progress.")]
     [InlineData(OperationType.LogProcessing, OperationType.CacheClearing,
         "Cannot start CacheClearing: another operation (LogProcessing) is still running.")]
     [InlineData(OperationType.LogProcessing, OperationType.DatabaseReset,
@@ -119,6 +126,41 @@ public class OperationConflictCheckerTests
         var json = JsonSerializer.Serialize(response, ConflictJsonOptions());
         using var document = JsonDocument.Parse(json);
         Assert.Equal(expectedError, document.RootElement.GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.EvictionScan)]
+    [InlineData(OperationType.GameDetection)]
+    [InlineData(OperationType.CacheClearing)]
+    [InlineData(OperationType.DatabaseReset)]
+    [InlineData(OperationType.DownloadHistoryUpgrade)]
+    public async Task Allows_LogProcessing_Beside_ActiveOperationAsync(OperationType activeType)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task Allows_LogProcessing_Beside_GameDetectionAndGameRemovalAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.GameDetection, "Game Detection");
+        RegisterNamedGameRemoval(tracker.Tracker, service: "blizzard", gameName: "Diablo IV");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.Null(response);
     }
 
     [Fact]
@@ -154,7 +196,7 @@ public class OperationConflictCheckerTests
         RegisterBulkOperation(tracker.Tracker, OperationType.CacheSizeScan, "Cache Size Scan");
 
         var response = await tracker.Checker.CheckAsync(
-            OperationType.LogProcessing,
+            OperationType.GameDetection,
             ConflictScope.Bulk(),
             CancellationToken.None);
 
@@ -163,7 +205,7 @@ public class OperationConflictCheckerTests
     }
 
     [Theory]
-    [InlineData(OperationType.LogProcessing)]
+    [InlineData(OperationType.GameRemoval)]
     [InlineData(OperationType.DatabaseReset)]
     public async Task RepairingRecordBlocksAffectedWorkWithOriginalOperationIdAsync(
         OperationType requestedType)
@@ -178,9 +220,62 @@ public class OperationConflictCheckerTests
 
         Assert.NotNull(response);
         Assert.Equal(repairId, response!.ActiveOperationId);
-        Assert.Equal(nameof(OperationType.LogProcessing), response.ActiveOperationType);
+        Assert.Equal(nameof(OperationType.CacheClearing), response.ActiveOperationType);
         Assert.Equal("repair", response.ActiveOperationScope);
         Assert.Equal(true, response.Context!["repairPending"]);
+    }
+
+    [Fact]
+    public async Task Allows_LogProcessing_When_Repair_IsRepairingAsync()
+    {
+        using var tracker = new TrackerHarness();
+        await tracker.AddRepairBlockerAsync();
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task PendingRepairOutcomeBlocksGameRemovalAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-conflict-pending-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var state = OperationRepairTests.CreateFailingStateService(root);
+            await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+                root,
+                stateService: state,
+                waitUntil: (_, cancellationToken) => Task.Delay(Timeout.Infinite, cancellationToken));
+            var checker = new OperationConflictChecker(
+                harness.Tracker,
+                harness.Owner,
+                NullLogger<OperationConflictChecker>.Instance);
+            var repair = OperationConflictTestServices.NewCacheClearRepair(Guid.NewGuid());
+            await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+            await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+            state.FailNextRepairWrite = true;
+            await harness.Owner.FinishRepairAsync(repair.Id, success: false, cancelled: false, error: "interrupted");
+
+            var response = await checker.CheckAsync(
+                OperationType.GameRemoval,
+                ConflictScope.NamedGame("blizzard", "Diablo IV"),
+                CancellationToken.None);
+
+            Assert.NotNull(response);
+            Assert.Equal(repair.Id, response!.ActiveOperationId);
+            Assert.Equal("repair", response.ActiveOperationScope);
+            Assert.Equal(true, response.Context!["repairPending"]);
+            Assert.Equal(OperationRepairPhase.Running, Assert.Single(harness.Owner.GetPendingRepairs()).Phase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -283,7 +378,7 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Blocks_LogProcessing_When_BulkCorruptionScan_IsActiveAsync()
+    public async Task Allows_LogProcessing_When_BulkCorruptionScan_IsActiveAsync()
     {
         using var tracker = new TrackerHarness();
         RegisterBulkCorruptionDetection(tracker.Tracker);
@@ -293,9 +388,7 @@ public class OperationConflictCheckerTests
             ConflictScope.Bulk(),
             CancellationToken.None);
 
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
-        Assert.Equal(nameof(OperationType.CorruptionDetection), response.ActiveOperationType);
+        Assert.Null(response);
     }
 
     [Theory]
@@ -344,9 +437,10 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Blocks_LogRemoval_When_LogProcessing_IsActiveAsync()
+    public async Task Allows_LogRemoval_When_LogProcessing_IsActiveAsync()
     {
-        // Log removal rewrites access.log while log processing reads it - never concurrent.
+        // The log file lock orders the log removal's rewrite after the datasource the log pass
+        // is reading, so the removal starts at once.
         using var tracker = new TrackerHarness();
         RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
 
@@ -355,8 +449,25 @@ public class OperationConflictCheckerTests
             ConflictScope.Service("steam"),
             CancellationToken.None);
 
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Null(response);
+    }
+
+    [Theory]
+    [InlineData(OperationType.ServiceRemoval)]
+    [InlineData(OperationType.CorruptionRemoval)]
+    [InlineData(OperationType.EvictionRemoval)]
+    [InlineData(OperationType.EvictionScan)]
+    public async Task Allows_RemovalOrEvictionScan_When_LogProcessing_IsActiveAsync(OperationType requestedType)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckAsync(
+            requestedType,
+            requestedType == OperationType.EvictionScan ? ConflictScope.Bulk() : ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.Null(response);
     }
 
     [Fact]
@@ -389,6 +500,27 @@ public class OperationConflictCheckerTests
 
         Assert.NotNull(response);
         Assert.Equal("errors.conflict.duplicate", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task LiveLogPass_Reports_Heavy_Not_DuplicateAsync()
+    {
+        // A live pass reads only the datasources with new log lines, so "Process logs" queues and
+        // runs on its own instead of being handed to it.
+        using var tracker = new TrackerHarness();
+        tracker.Tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource(),
+            liveIngest: true);
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
     }
 
 
@@ -429,10 +561,10 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Blocks_GameRemoval_When_LogProcessing_IsActiveAsync()
+    public async Task Allows_GameRemoval_When_LogProcessing_IsActiveAsync()
     {
-        // Log processing reads access.log from a saved position; a removal shrinking the file
-        // underneath it corrupts the position, so the removal queues.
+        // The removal's log rewrite waits at the log file lock for the datasource the log pass is
+        // reading, so the removal starts at once instead of queuing behind the whole pass.
         using var tracker = new TrackerHarness();
         RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
 
@@ -441,8 +573,7 @@ public class OperationConflictCheckerTests
             ConflictScope.NamedGame("blizzard", "Diablo IV"),
             CancellationToken.None);
 
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Null(response);
     }
 
     [Fact]
@@ -650,24 +781,9 @@ public class OperationConflictCheckerTests
 
         public async Task<Guid> AddRepairBlockerAsync()
         {
-            var repair = new OperationRepair
-            {
-                Id = Guid.NewGuid(),
-                Type = OperationType.LogProcessing,
-                Name = "Log processing",
-                StartedAt = DateTime.UtcNow,
-                Sources =
-                [
-                    new OperationRepairSource
-                    {
-                        Datasource = "alpha",
-                        LogRoot = "logs/alpha",
-                        CacheRoot = "cache/alpha",
-                        KeyScheme = "steam"
-                    }
-                ],
-                LogProcessing = new LogProcessingRepair()
-            };
+            // A log pass with no source flags completes without a repair, so the blocker is a cache
+            // clear, whose failed outcome always owes one.
+            var repair = OperationConflictTestServices.NewCacheClearRepair(Guid.NewGuid());
             await _repairHarness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
             await _repairHarness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
             _repairFinish = _repairHarness.Owner.FinishRepairAsync(
@@ -734,4 +850,26 @@ internal static class OperationConflictTestServices
     {
         return new OperationConflictChecker(tracker, _repair.Value.Owner, logger);
     }
+
+    // A cache clear record whose failed or cancelled outcome owes a repair; the id lets a test
+    // give it the id of a tracked operation.
+    public static OperationRepair NewCacheClearRepair(Guid id) => new()
+    {
+        Id = id,
+        Type = OperationType.CacheClearing,
+        Name = "Cache clear",
+        StartedAt = DateTime.UtcNow,
+        Sources =
+        [
+            new OperationRepairSource
+            {
+                Datasource = "alpha",
+                LogRoot = "logs/alpha",
+                CacheRoot = "cache/alpha",
+                KeyScheme = "steam",
+                ReconcileCache = true
+            }
+        ],
+        CacheClearing = new CacheClearingRepair { EntityKey = "bulk" }
+    };
 }

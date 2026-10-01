@@ -16,15 +16,18 @@ public class OperationCancellationService
 {
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ProcessManager _processManager;
+    private readonly OperationStateService _operationStateService;
     private readonly ILogger<OperationCancellationService> _logger;
 
     public OperationCancellationService(
         IUnifiedOperationTracker operationTracker,
         ProcessManager processManager,
+        OperationStateService operationStateService,
         ILogger<OperationCancellationService> logger)
     {
         _operationTracker = operationTracker;
         _processManager = processManager;
+        _operationStateService = operationStateService;
         _logger = logger;
     }
 
@@ -113,12 +116,13 @@ public class OperationCancellationService
 
         _operationTracker.ForceKillOperation(operationId, followHandoff: caller is null);
 
-        // An operation with required reconciliation keeps terminal ownership until its worker has
-        // made that state readable. Other operations retain the established force-kill terminal.
-        if (!current.OwnerCompletes)
+        // Force stop ends the job but never its repair: the outcome is recorded first, so the card
+        // turns to repairing (or ends when nothing is owed) at once.
+        if (_operationStateService.OwnsRepair(operationId))
         {
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user", cancelled: true);
+            await _operationStateService.RecordForceStopAsync(operationId);
         }
+        _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user", cancelled: true);
         return true;
     }
 }
