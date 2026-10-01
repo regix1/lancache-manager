@@ -63,6 +63,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// <inheritdoc />
     public event Action<OperationInfo>? OperationTerminal;
 
+    /// <inheritdoc />
+    public event Action? BlockerCleared;
+
     public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                                   object? metadata = null, Action? onTerminalCleanup = null,
                                   Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
@@ -540,6 +543,60 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return true;
     }
 
+    public void BeginRepair(Guid operationId)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return;
+        lock (operation)
+        {
+            operation.Repairing = true;
+            operation.RepairError = null;
+            Publish(operation);
+        }
+
+        _ = DrainRunsAsync();
+    }
+
+    public void EndRepair(Guid operationId, string? error)
+    {
+        if (_operations.TryGetValue(operationId, out var operation))
+        {
+            var reap = false;
+            lock (operation)
+            {
+                if (operation.Repairing)
+                {
+                    operation.Repairing = false;
+                    operation.RepairError = error;
+                    Publish(operation);
+                    // The reaper scheduled at completion, and the reap CloseRun runs, both leave a
+                    // repairing row in place, so the row is reaped from here instead.
+                    reap = error is null && operation.Status.IsTerminal()
+                        && (!KeepsUntilClosed(operation) || operation.Closed);
+                }
+            }
+
+            _ = DrainRunsAsync();
+            if (reap) ScheduleReaper(operationId);
+        }
+
+        // The queue can be parked on a repair whose operation the tracker no longer holds (reaped,
+        // or a repair restored after a restart).
+        NotifyBlockerCleared();
+    }
+
+    public void NotifyBlockerCleared()
+    {
+        // Fire-and-forget off the caller's stack, like OperationTerminal; handler faults are contained.
+        if (BlockerCleared is { } subscribers)
+        {
+            _ = Task.Run(() =>
+            {
+                try { subscribers(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "BlockerCleared handler threw"); }
+            });
+        }
+    }
+
     public IDisposable BeginPromotion(Guid waitingOperationId, OperationType type)
     {
         // Set here, in a synchronous call, so the value flows into the start delegate the caller
@@ -631,7 +688,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // Frozen now so no later write (the terminal callback below replacing the metadata the
             // flags live in, a notice trigger raised without this lock, a handoff floor, the link
             // removed when the successor is reaped) changes how the ended run is drawn or whether it
-            // is kept; every later KeepsUntilClosed call gives this answer. [55]
+            // is kept; every later KeepsUntilClosed call gives this answer, except that a repair that
+            // fails out after completion keeps the row until it is closed. [55]
             operation.CompletedVisibility = ReadVisibility(operation);
             try { onCompleting?.Invoke(operation); }
             catch (Exception ex) { publicationError = ex; }
@@ -751,7 +809,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         var stale = links.Where(link => ResolveHandoff(link.Key) == operationId).ToArray();
         lock (operation)
         {
-            if (operation.CompletedFlag == 0 || !operation.Status.IsTerminal()) return;
+            // A repairing row stays until EndRepair, which schedules the reaper again. A row whose
+            // repair failed out stays until it is closed, also when the reaper scheduled at
+            // completion fires after the failure.
+            if (operation.CompletedFlag == 0 || !operation.Status.IsTerminal() || operation.Repairing
+                || (operation.RepairError is not null && !operation.Closed)) return;
             ((ICollection<KeyValuePair<Guid, OperationInfo>>)_operations).Remove(new(operationId, operation));
         }
         foreach (var entry in _entityKeyIndex.Where(entry => entry.Value == operationId).ToArray())
@@ -855,6 +917,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             ReadWarning(operation.Metadata),
             KeepsUntilClosed(operation),
             operation.Closed,
+            operation.Repairing,
+            operation.RepairError,
             operation.ConsecutiveFailures,
             operation.LatestRunSucceeded,
             prefill?.ScheduleId,
@@ -885,19 +949,21 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// plain success are not kept; the browser lets them leave on their own unless Keep
     /// Notifications Visible holds them. Phases (operations with a parent) are not kept, except a
     /// per-platform scheduled prefill run, which owns its card even when restored under its
-    /// run-level container.
+    /// run-level container. A run whose repair failed out is always kept, a phase included, so its
+    /// Retry stays until someone closes it.
     /// </summary>
     internal static bool KeepsUntilClosed(OperationInfo operation) =>
-        (operation.ParentOperationId == null || operation.Metadata is ScheduledPrefillServiceRunState)
-        && !(operation.Metadata is ScheduledPrefillOperationMetadata)
-        && !_operationTypesWithoutCard.Contains(operation.Type)
-        && operation.Status switch
-        {
-            OperationStatus.Failed => true,
-            OperationStatus.Completed => ReadWarning(operation.Metadata) != null,
-            OperationStatus.Skipped => ReadVisibility(operation) == RunVisibility.Card,
-            _ => false
-        };
+        operation.RepairError is not null
+        || ((operation.ParentOperationId == null || operation.Metadata is ScheduledPrefillServiceRunState)
+            && !(operation.Metadata is ScheduledPrefillOperationMetadata)
+            && !_operationTypesWithoutCard.Contains(operation.Type)
+            && operation.Status switch
+            {
+                OperationStatus.Failed => true,
+                OperationStatus.Completed => ReadWarning(operation.Metadata) != null,
+                OperationStatus.Skipped => ReadVisibility(operation) == RunVisibility.Card,
+                _ => false
+            });
 
     /// <summary>
     /// True for an operation the browser gets no row for: the scheduled-prefill run-level container,

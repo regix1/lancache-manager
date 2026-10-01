@@ -30,6 +30,9 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// <param name="Warning">The raw detection error of a run that succeeded with a warning; null otherwise.</param>
 /// <param name="Retained">True for an ending that stays until someone closes its card.</param>
 /// <param name="Closed">True on the one row sent when a kept ending is closed.</param>
+/// <param name="Repairing">True while a repair the run owes is running; the row stays until it ends.</param>
+/// <param name="RepairError">Why the run's repair failed out, which keeps the row until it is closed;
+/// null when no repair failed.</param>
 /// <param name="LiveIngest">True for a live log ingest pass; the browser keeps only its kept failure.</param>
 /// <param name="IntegrationLogin">True for a mapping sign-in run, which belongs to no schedule.</param>
 /// <param name="OwnerSessionId">The auth session whose browser alone draws this run; null for everyone.</param>
@@ -40,7 +43,8 @@ public sealed record OperationRun(
     Guid OperationId, string OperationType, string Name, string Status, RunVisibility Visibility,
     double PercentComplete, string Message, string? Error, string? BlockedByName,
     Guid? PreviousOperationId, Guid? ParentOperationId, Guid? NextOperationId, string? Warning,
-    bool Retained, bool Closed, int ConsecutiveFailures, bool LatestRunSucceeded, Guid? ScheduleId,
+    bool Retained, bool Closed, bool Repairing, string? RepairError, int ConsecutiveFailures,
+    bool LatestRunSucceeded, Guid? ScheduleId,
     PrefillPlatform? ServiceId, bool LiveIngest, bool IntegrationLogin, Guid? OwnerSessionId,
     long? CompletedRevision, DateTime StartedAt, long Revision);
 

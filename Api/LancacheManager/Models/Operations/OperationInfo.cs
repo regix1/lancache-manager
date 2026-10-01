@@ -66,6 +66,14 @@ public class OperationInfo
     [System.Text.Json.Serialization.JsonIgnore]
     public bool Closed { get; set; }
 
+    /// <summary>True while a repair this operation owes runs; the row is kept until it ends.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Repairing { get; set; }
+
+    /// <summary>Why the operation's repair failed out; the row is kept until someone closes it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? RepairError { get; set; }
+
     /// <summary>Failures in a row for the schedule this kept ending belongs to; written by the schedule registry.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public int ConsecutiveFailures { get; set; }

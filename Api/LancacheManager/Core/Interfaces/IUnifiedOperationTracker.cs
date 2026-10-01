@@ -175,6 +175,34 @@ public interface IUnifiedOperationTracker
     bool CloseRun(Guid operationId);
 
     /// <summary>
+    /// Marks the operation's row as repairing and sends it; a terminal row is then not reaped until
+    /// <see cref="EndRepair"/>. Also clears an earlier repair failure, so a retried repair draws as
+    /// repairing again. Does nothing for an unknown operation.
+    /// </summary>
+    void BeginRepair(Guid operationId);
+
+    /// <summary>
+    /// Ends the repair <see cref="BeginRepair"/> started and sends the row: a null
+    /// <paramref name="error"/> lets an ended, not-kept run be reaped as usual, a non-null one keeps
+    /// the row until someone closes it. Always raises <see cref="BlockerCleared"/>, also for an
+    /// unknown operation, because the queue may be parked on that repair.
+    /// </summary>
+    void EndRepair(Guid operationId, string? error);
+
+    /// <summary>
+    /// Raises <see cref="BlockerCleared"/> for something other than an operation ending that may let
+    /// a queued operation start.
+    /// </summary>
+    void NotifyBlockerCleared();
+
+    /// <summary>
+    /// Raised when something other than an operation ending may let a queued operation start (a
+    /// repair ended, or a saved repair outcome landed). Fired off the caller's stack,
+    /// fire-and-forget; handler faults are logged and contained.
+    /// </summary>
+    event Action? BlockerCleared;
+
+    /// <summary>
     /// Marks the start delegate the caller awaits next as the promotion of
     /// <paramref name="waitingOperationId"/>, so the run of <paramref name="type"/> it registers in
     /// that async flow names the waiting run as its predecessor. Dispose the scope when the

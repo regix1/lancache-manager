@@ -13,7 +13,9 @@ namespace LancacheManager.Core.Services;
 ///    (onTerminalCleanup, cancel) that must not await.
 ///  - Promotion is triggered by <see cref="IUnifiedOperationTracker.OperationTerminal"/>, which
 ///    fires exactly once per op for success, failure, cancel AND force-kill (CompletedFlag gate),
-///    so a crashed/force-killed blocker still unblocks its waiters.
+///    so a crashed/force-killed blocker still unblocks its waiters, and by
+///    <see cref="IUnifiedOperationTracker.BlockerCleared"/>, which fires when a repair ends or a
+///    saved repair outcome lands, because neither is an operation reaching its terminal.
 ///
 /// A waiting op is a REAL tracker registration (status Waiting) so the universal cancel
 /// endpoint works on it and the frontend card carries a real operationId. At promotion the
@@ -74,6 +76,8 @@ public sealed class OperationQueueService : IOperationQueue
         // Single terminal hook: every op (success/failed/cancelled/force-killed) funnels
         // through CompleteOperation, so every terminal event can promote waiters.
         _tracker.OperationTerminal += op => { _ = PromoteEligibleAsync(); };
+        // A waiter parked on a repair has no operation terminal to wait for.
+        _tracker.BlockerCleared += () => { _ = PromoteEligibleAsync(); };
     }
 
     public async Task<QueuedOperationResponse> EnqueueAsync(
