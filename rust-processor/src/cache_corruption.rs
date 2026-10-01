@@ -120,8 +120,25 @@ enum Commands {
         #[arg(short, long)]
         progress: bool,
     },
-    /// Remove only exact paths and observations supplied by the persisted evidence file.
+    /// Remove only the exact cache paths supplied by the persisted evidence file. The
+    /// evidence's log lines and database observations go in `remove-logs`, which the host
+    /// runs as its own locked log step.
     Remove {
+        log_dir: String,
+        cache_dir: String,
+        service: String,
+        progress_json: String,
+        #[arg(long)]
+        evidence_file: String,
+        #[arg(short, long)]
+        progress: bool,
+        /// Operation that owns the durable cache-root receipt.
+        #[arg(long = "operation-id")]
+        operation_id: Option<String>,
+    },
+    /// Remove only the exact access.log lines and database observations supplied by the
+    /// persisted evidence file.
+    RemoveLogs {
         log_dir: String,
         cache_dir: String,
         service: String,
@@ -134,9 +151,6 @@ enum Commands {
         stem_positions: Option<String>,
         #[arg(short, long)]
         progress: bool,
-        /// Operation that owns the durable cache-root receipt.
-        #[arg(long = "operation-id")]
-        operation_id: Option<String>,
     },
     /// Remove only persisted structural candidates after complete preflight and revalidation.
     RemoveStructural {
@@ -1127,13 +1141,11 @@ fn run_structural_remove(
     Ok(())
 }
 
-async fn run_remove(
-    log_dir: &Path,
+fn run_remove(
     cache_dir: &Path,
     service: &str,
     progress_path: &Path,
     evidence_path: &Path,
-    stem_positions: Option<&std::collections::HashMap<String, u64>>,
     operation_id: Option<&str>,
     reporter: &ProgressReporter,
 ) -> Result<()> {
@@ -1157,16 +1169,6 @@ async fn run_remove(
         evidence.threshold
     );
 
-    // Preflight every non-filesystem dependency before the first unlink. A later mutation error
-    // still retains persisted evidence, but avoid preventable partial work (bad log root/DB config).
-    crate::log_layout::discover_log_sources(log_dir)
-        .context("failed to discover access logs before removal")?;
-    let matcher = ExactLogMatcher::new(evidence.observations.clone());
-    let prefilter = matcher.prefilter()?;
-    let pool = db::create_pool()
-        .await
-        .context("failed to connect to the database before corruption removal")?;
-
     write_progress(
         progress_path,
         reporter,
@@ -1183,6 +1185,49 @@ async fn run_remove(
     let cache_outcome =
         delete_exact_paths(cache_dir, &evidence.exact_paths, progress_path, reporter)?;
     let removed_count = completed_exact_removal_count(&cache_outcome)?;
+
+    // The host's locked `remove-logs` step finishes the removal and owns the counted completion.
+    write_progress(
+        progress_path,
+        reporter,
+        "completed",
+        "signalr.gameRemove.finalizing",
+        json!({
+            "count": removed_count,
+            "service": service,
+            "files": cache_outcome.deleted_files,
+            "alreadyMissing": cache_outcome.already_missing,
+            "keyVerificationSkipped": cache_outcome.key_verification_skipped,
+            "bytesFreed": cache_outcome.bytes_freed
+        }),
+        100.0,
+        evidence.exact_paths.len(),
+        evidence.exact_paths.len(),
+    )?;
+    Ok(())
+}
+
+async fn run_remove_logs(
+    log_dir: &Path,
+    cache_dir: &Path,
+    service: &str,
+    progress_path: &Path,
+    evidence_path: &Path,
+    stem_positions: Option<&std::collections::HashMap<String, u64>>,
+    reporter: &ProgressReporter,
+) -> Result<()> {
+    let evidence = load_and_validate_removal_evidence(evidence_path, cache_dir, service)?;
+
+    // Preflight every non-filesystem dependency before the first log rewrite. A later mutation
+    // error still retains persisted evidence, but avoid preventable partial work (bad log
+    // root/DB config).
+    crate::log_layout::discover_log_sources(log_dir)
+        .context("failed to discover access logs before removal")?;
+    let matcher = ExactLogMatcher::new(evidence.observations.clone());
+    let prefilter = matcher.prefilter()?;
+    let pool = db::create_pool()
+        .await
+        .context("failed to connect to the database before corruption removal")?;
 
     write_progress(
         progress_path,
@@ -1258,18 +1303,14 @@ async fn run_remove(
     let (downloads_deleted, log_entries_deleted) =
         delete_database_observations(&pool, &evidence.datasource, &evidence.observations).await?;
 
+    // The host's Complete event carries the aggregate counts of both steps.
     write_progress(
         progress_path,
         reporter,
         "completed",
-        "signalr.corruptionRemove.complete",
+        "signalr.gameRemove.finalizing",
         json!({
-            "count": removed_count,
             "service": service,
-            "files": cache_outcome.deleted_files,
-            "alreadyMissing": cache_outcome.already_missing,
-            "keyVerificationSkipped": cache_outcome.key_verification_skipped,
-            "bytesFreed": cache_outcome.bytes_freed,
             "logLines": log_outcome.lines_removed,
             // Per-stem removed-line counts; the C# harvester subtracts them from the saved
             // ingestion positions so this purge cannot shift them past unread lines.
@@ -1477,6 +1518,31 @@ async fn main() -> Result<()> {
             );
         }
         Commands::Remove {
+            // Kept so the host's argument string stays valid; the log step is `remove-logs`.
+            log_dir: _,
+            cache_dir,
+            service,
+            progress_json,
+            evidence_file,
+            progress,
+            operation_id,
+        } => {
+            let reporter = ProgressReporter::new(progress);
+            let result = run_remove(
+                Path::new(&cache_dir),
+                &service,
+                Path::new(&progress_json),
+                Path::new(&evidence_file),
+                operation_id.as_deref(),
+                &reporter,
+            );
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.corruptionRemove.error.fatal",
+                result,
+            );
+        }
+        Commands::RemoveLogs {
             log_dir,
             cache_dir,
             service,
@@ -1484,20 +1550,18 @@ async fn main() -> Result<()> {
             evidence_file,
             stem_positions,
             progress,
-            operation_id,
         } => {
             let reporter = ProgressReporter::new(progress);
             let stem_positions = stem_positions
                 .as_deref()
                 .and_then(log_purge::read_stem_positions);
-            let result = run_remove(
+            let result = run_remove_logs(
                 Path::new(&log_dir),
                 Path::new(&cache_dir),
                 &service,
                 Path::new(&progress_json),
                 Path::new(&evidence_file),
                 stem_positions.as_ref(),
-                operation_id.as_deref(),
                 &reporter,
             )
             .await;
@@ -1793,6 +1857,38 @@ mod tests {
             "bare_metal",
             "--operation-id",
             "123e4567-e89b-12d3-a456-426614174000",
+        ])
+        .is_ok());
+        assert!(
+            Args::try_parse_from([
+                "cache_corruption",
+                "remove",
+                "/logs",
+                "/cache",
+                "steam",
+                "/tmp/progress.json",
+                "--evidence-file",
+                "/server/evidence.json",
+                "--stem-positions",
+                "/tmp/positions.json",
+            ])
+            .is_err(),
+            "remove does not touch access.log, so it takes no stem positions"
+        );
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "remove-logs",
+            "/logs",
+            "/cache",
+            "steam",
+            "/tmp/progress.json",
+            "--evidence-file",
+            "/server/evidence.json",
+            "--stem-positions",
+            "/tmp/positions.json",
+            "--progress",
+            "--key-scheme",
+            "bare_metal",
         ])
         .is_ok());
         let mut detect_with_operation = fixed_cli_prefix("detect");

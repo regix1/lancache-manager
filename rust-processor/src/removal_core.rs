@@ -3,11 +3,13 @@
 //! All five removal bins (`cache_steam_remove`, `cache_epic_remove`,
 //! `cache_blizzard_remove`, `cache_riot_remove`, `cache_xbox_remove`) share an
 //! almost-identical TAIL: collect on-disk slices → parallel delete with progress →
-//! clean up empty directories → purge access.log → permission-error gate → delete
-//! DB rows → write report. Only the HEAD differs (how each service maps its identity
-//! to a `HashMap<url, (service, bytes)>`) plus one tail wrinkle unique to Steam (the
-//! access.log purge is depot-scoped, not url-only). This module owns the shared tail;
-//! each bin owns its head and hands the tail a `RemovalPlan`.
+//! clean up empty directories → permission-error gate → delete DB rows → write
+//! report. Only the HEAD differs (how each service maps its identity to a
+//! `HashMap<url, (service, bytes)>`) plus one report wrinkle unique to Steam (its
+//! access.log purge targets are depot-scoped, not url-only). This module owns the
+//! shared tail; each bin owns its head and hands the tail a `RemovalPlan`. The bins
+//! never rewrite access.log: the report names the purge targets and the host removes
+//! those lines in its own locked step.
 //!
 //! Behavior is byte-identical to the pre-consolidation bins:
 //!   * `remove_cache_files` walks every on-disk slice via the scheme-aware
@@ -15,9 +17,7 @@
 //!   * progress is emitted in the 10%-70% band using each service's own stage keys,
 //!   * the `ProgressCadence` enum reproduces the two existing emit cadences verbatim
 //!     (Steam = every integer-percent advance OR every 8th probe; Epic/named =
-//!     every integer-percent advance only),
-//!   * the `LogScope` enum reproduces the two existing access.log purge predicates
-//!     (Steam = url ∪ safe-depot-id; Epic/named = url-only).
+//!     every integer-percent advance only).
 
 use anyhow::Result;
 use serde::Serialize;
@@ -28,7 +28,6 @@ use std::path::{Path, PathBuf};
 
 use crate::cache_utils;
 use crate::cancel;
-use crate::log_purge;
 use crate::progress_events::ProgressReporter;
 use crate::progress_utils;
 
@@ -48,28 +47,15 @@ pub struct RemovalStageKeys {
     pub cache_file_progress: &'static str,
 }
 
-/// How the access.log purge is scoped. Steam removal narrows the purge to lines
-/// whose depot id is exclusively owned by the target game (cross-game safety);
-/// every other service purges url-only.
-///
-/// `#[allow(dead_code)]`: each variant / API item below is used by SOME removal bin
-/// but not all, and every bin compiles `removal_core` independently (no lib crate),
-/// so per-crate dead-code analysis flags the items a given bin does not touch (e.g.
-/// Steam constructs neither `LogScope` nor `purge_log_entries`; Epic/named never use
-/// the `OnPercentAdvanceOrEveryEighth` cadence). This mirrors the per-bin
-/// `#[allow(dead_code)]` pattern already used in `log_purge.rs`.
-#[allow(dead_code)]
-pub enum LogScope {
-    /// Epic / Blizzard / Riot / Xbox: remove lines whose URL is in the removal set.
-    Urls,
-    /// Steam: remove lines whose URL is in the set OR whose depot id is in the
-    /// (already cross-game-narrowed) `safe_depot_ids` set.
-    UrlsAndDepots(HashSet<u32>),
-}
-
 /// How often `remove_cache_files` emits a progress entry. Reproduces the two
 /// distinct cadences that existed before consolidation so event volume is unchanged.
-/// See the `LogScope` note above for why `#[allow(dead_code)]` is needed here.
+///
+/// `#[allow(dead_code)]`: each variant / API item below is used by SOME removal bin
+/// but not all, and every bin compiled `removal_core` independently before it moved
+/// into the lib crate, so per-crate dead-code analysis flagged the items a given bin
+/// does not touch (e.g. Epic/named never use the `OnPercentAdvanceOrEveryEighth`
+/// cadence). This mirrors the per-bin `#[allow(dead_code)]` pattern already used in
+/// `log_purge.rs`.
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub enum ProgressCadence {
@@ -114,7 +100,7 @@ pub struct CacheRemovalOutcome {
 /// passes None, so its event volume is unchanged; a count run passes Some, because the walk
 /// IS the whole run and takes minutes on an entity with many logged URLs.
 ///
-/// `#[allow(dead_code)]`: see the `LogScope` note above. Each removal bin compiles this module
+/// `#[allow(dead_code)]`: see the `ProgressCadence` note above. Each removal bin compiles this module
 /// independently, and only the bins that offer a count construct this.
 #[allow(dead_code)]
 pub struct CollectionProgress<'a> {
@@ -305,7 +291,7 @@ pub struct CacheFileCount {
 /// of those files exist on disk, and write the count report. The delete loop lives in a
 /// different function, so it is unreachable from here, and no path is derived a second way.
 ///
-/// `#[allow(dead_code)]`: see the `LogScope` note above. Only the bins that offer a count call this.
+/// `#[allow(dead_code)]`: see the `ProgressCadence` note above. Only the bins that offer a count call this.
 #[allow(dead_code)]
 pub fn count_cache_files(
     cache_dir: &Path,
@@ -563,31 +549,6 @@ pub fn remove_cache_files(
     })
 }
 
-/// Run the access.log purge for the chosen scope. Steam narrows to safe depot ids;
-/// every other service is url-only. (Steam calls `log_purge::remove_log_entries_for_game`
-/// directly so it can also pass a per-file progress callback, so this helper is unused
-/// in the Steam crate — see the `LogScope` `#[allow(dead_code)]` note above.)
-#[allow(dead_code)]
-pub fn purge_log_entries(
-    log_dir: &Path,
-    urls_to_remove: &HashSet<String>,
-    scope: &LogScope,
-    stem_positions: Option<&std::collections::HashMap<String, u64>>,
-) -> Result<log_purge::LogRewriteOutcome> {
-    match scope {
-        LogScope::Urls => {
-            log_purge::remove_log_entries_for_urls(log_dir, urls_to_remove, stem_positions)
-        }
-        LogScope::UrlsAndDepots(safe_depot_ids) => log_purge::remove_log_entries_for_game(
-            log_dir,
-            urls_to_remove,
-            safe_depot_ids,
-            None,
-            stem_positions,
-        ),
-    }
-}
-
 /// Bare-metal KEY verification left one or more cache files untouched. Abort the
 /// log/DB tail so provenance is preserved for a corrected retry.
 pub fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
@@ -604,19 +565,14 @@ pub fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> 
 /// Build the PUID/PGID permission-error abort message shared by every removal bin.
 /// Returned so the caller can `eprintln!` it, write the report with `failed` status,
 /// and `bail!` with the same text (identical to the prior per-bin logic).
-pub fn permission_error_message(
-    total_permission_errors: usize,
-    cache_permission_errors: usize,
-    log_permission_errors: usize,
-) -> String {
+pub fn permission_error_message(permission_errors: usize) -> String {
     let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
     let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
     format!(
         "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
         This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
-        Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership. \
-        Cache permission errors: {}, Log permission errors: {}",
-        total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
+        Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
+        permission_errors, puid, pgid
     )
 }
 
@@ -625,7 +581,6 @@ pub fn permission_error_message(
 pub struct RemovalLifecycleKeys {
     pub cache_removing: &'static str,
     pub dirs_cleaning: &'static str,
-    pub logs_removing: &'static str,
     pub db_deleting: &'static str,
 }
 
@@ -638,9 +593,7 @@ pub struct RemovalTail {
     pub deleted_files: usize,
     pub bytes_freed: u64,
     pub empty_dirs_removed: usize,
-    pub log_entries_removed: u64,
-    pub log_lines_removed_by_source: HashMap<String, u64>,
-    pub log_lines_removed_before_position_by_source: HashMap<String, u64>,
+    pub purge_urls: Vec<String>,
 }
 
 /// Final report the Epic and name-keyed removal bins write to their output JSON.
@@ -651,14 +604,9 @@ pub struct RemovalReport {
     pub cache_files_deleted: usize,
     pub total_bytes_freed: u64,
     pub empty_dirs_removed: usize,
-    pub log_entries_removed: u64,
-    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
-    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
-    pub log_lines_removed_by_source: HashMap<String, u64>,
-    /// The already-read subset of `log_lines_removed_by_source` (series index below the
-    /// saved position). This is the amount the position itself comes back by; the full
-    /// map above is what the on-disk total-line count comes down by.
-    pub log_lines_removed_before_position_by_source: HashMap<String, u64>,
+    /// URLs whose access.log lines the host removes in its own locked step. Empty on the
+    /// no-URL and failure exits, so a failed run leaves the lines in place.
+    pub purge_urls: Vec<String>,
 }
 
 impl RemovalReport {
@@ -672,11 +620,7 @@ impl RemovalReport {
             cache_files_deleted: tail.deleted_files,
             total_bytes_freed: tail.bytes_freed,
             empty_dirs_removed: tail.empty_dirs_removed,
-            log_entries_removed: tail.log_entries_removed,
-            log_lines_removed_by_source: tail.log_lines_removed_by_source.clone(),
-            log_lines_removed_before_position_by_source: tail
-                .log_lines_removed_before_position_by_source
-                .clone(),
+            purge_urls: tail.purge_urls.clone(),
         }
     }
 
@@ -689,19 +633,18 @@ impl RemovalReport {
 }
 
 /// The URL-scoped removal step sequence shared by the Epic and name-keyed bins: cache-file
-/// delete, empty-dir cleanup, bare-metal verification gate, access-log purge, and the
-/// permission gate, ending on the `removing_database` emit. The caller then deletes its own
-/// DB rows and writes the final report from the returned tail. Returns `Ok(None)` when a
-/// cancellation arrived during the cache sweep (partial dirs are cleaned; log/DB work is
-/// skipped and the bin exits 0). `write_failure_report` runs on the two abort paths so the
-/// bin's own report shape still lands on disk before the error propagates.
+/// delete, empty-dir cleanup, bare-metal verification gate and the permission gate, ending
+/// on the `removing_database` emit. The caller then deletes its own DB rows and writes the
+/// final report from the returned tail, whose `purge_urls` the host purges from access.log.
+/// Returns `Ok(None)` when a cancellation arrived during the cache sweep (partial dirs are
+/// cleaned; DB work is skipped and the bin exits 0). `write_failure_report` runs on the two
+/// abort paths so the bin's own report shape still lands on disk before the error propagates.
 ///
-/// Steam does NOT use this: its log purge is depot-scoped with per-file progress, and its
-/// report carries depot ids - the one tail divergence that bin keeps.
+/// Steam does NOT use this: its purge targets are depot-scoped, and its report carries
+/// depot ids - the one tail divergence that bin keeps.
 #[allow(clippy::too_many_arguments)]
 pub fn run_url_removal_steps(
     cache_dir: &Path,
-    log_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
     progress_path: &Path,
     reporter: &ProgressReporter,
@@ -709,7 +652,6 @@ pub fn run_url_removal_steps(
     lifecycle: &RemovalLifecycleKeys,
     cadence: ProgressCadence,
     reach: SliceReach,
-    stem_positions_path: Option<&str>,
     write_failure_report: &dyn Fn(&RemovalTail) -> Result<()>,
 ) -> Result<Option<RemovalTail>> {
     // Step 1: Remove cache files
@@ -761,9 +703,7 @@ pub fn run_url_removal_steps(
         deleted_files: outcome.deleted_files,
         bytes_freed: outcome.bytes_freed,
         empty_dirs_removed,
-        log_entries_removed: 0,
-        log_lines_removed_by_source: Default::default(),
-        log_lines_removed_before_position_by_source: Default::default(),
+        purge_urls: Vec::new(),
     };
 
     // A failed bare-metal KEY check is not a successful removal. The cache helper
@@ -774,46 +714,18 @@ pub fn run_url_removal_steps(
         return Err(error);
     }
 
-    // Step 3: Remove log entries from access log text files
-    write_progress(
-        progress_path,
-        reporter,
-        "removing_logs",
-        lifecycle.logs_removing,
-        json!({}),
-        80.0,
-        0,
-        0,
-    )?;
-    eprintln!("\nRemoving log entries...");
-    let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let stem_positions = stem_positions_path.and_then(log_purge::read_stem_positions);
-    let log_outcome = purge_log_entries(
-        log_dir,
-        &urls_to_remove,
-        &LogScope::Urls,
-        stem_positions.as_ref(),
-    )?;
-    tail.log_entries_removed = log_outcome.lines_removed;
-    let log_permission_errors = log_outcome.permission_errors;
-    tail.log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
-    tail.log_lines_removed_before_position_by_source =
-        log_outcome.lines_removed_before_position_by_stem;
-
-    // Step 4: Check for permission errors before touching database
-    let total_permission_errors = outcome.permission_errors + log_permission_errors;
-    if total_permission_errors > 0 {
-        let error_msg = permission_error_message(
-            total_permission_errors,
-            outcome.permission_errors,
-            log_permission_errors,
-        );
+    // Step 3: Check for permission errors before touching database
+    if outcome.permission_errors > 0 {
+        let error_msg = permission_error_message(outcome.permission_errors);
         eprintln!("\n{}", error_msg);
         write_failure_report(&tail)?;
         anyhow::bail!("{}", error_msg);
     }
 
-    // Step 5 hand-off: the caller deletes its own database records next.
+    // Named only once both gates pass, so a failed run's report leaves the log lines in place.
+    tail.purge_urls = url_data.keys().cloned().collect();
+
+    // Step 4 hand-off: the caller deletes its own database records next.
     write_progress(
         progress_path,
         reporter,
@@ -949,6 +861,51 @@ mod tests {
         let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
         assert!(error.contains("2 file(s)"));
         assert!(error.contains("access logs, and database records were left intact"));
+    }
+
+    #[test]
+    fn url_removal_leaves_access_logs_untouched_and_reports_the_purge_urls() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let service = "epicgames";
+        let url = "/Builds/Org/o-abc/chunk.chunk";
+        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, service, url);
+        write_cache_file(&cache_path, None);
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_path = log_dir.join("access.log");
+        fs::write(
+            &log_path,
+            format!(
+                "[{service}] 192.0.2.10 / - - - [01/Oct/2026:10:00:00 +0000] \"GET {url} HTTP/1.1\" 200 1024 \"-\" \"Test\" \"HIT\" \"cdn.test\" \"-\"\n"
+            ),
+        )
+        .unwrap();
+        let log_bytes = fs::read(&log_path).unwrap();
+
+        let urls = HashMap::from([(url.to_string(), (service.to_string(), 0_i64))]);
+        let tail = run_url_removal_steps(
+            &cache_dir,
+            &urls,
+            &temp.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            &TEST_STAGE_KEYS,
+            &RemovalLifecycleKeys {
+                cache_removing: "test.cache.removing",
+                dirs_cleaning: "test.dirs.cleaning",
+                db_deleting: "test.db.deleting",
+            },
+            ProgressCadence::OnPercentAdvance,
+            SliceReach::ForwardWalkIsComplete,
+            &|_| panic!("a clean removal writes no failure report"),
+        )
+        .unwrap()
+        .expect("no cancellation was requested");
+
+        assert!(!cache_path.exists());
+        assert_eq!(tail.deleted_files, 1);
+        assert_eq!(tail.purge_urls, vec![url.to_string()]);
+        assert_eq!(fs::read(&log_path).unwrap(), log_bytes);
     }
 
     #[test]

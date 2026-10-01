@@ -12,7 +12,6 @@ use lancache_processor::cache_repair;
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::db;
-use lancache_processor::log_purge;
 use lancache_processor::progress_events;
 use lancache_processor::removal_core;
 use progress_events::ProgressReporter;
@@ -21,11 +20,11 @@ use removal_core::{ProgressCadence, RemovalStageKeys};
 /// Steam game cache removal utility - removes all cache files for a specific game.
 ///
 /// Unlike the other removal bins, Steam removal carries a depot-safety HEAD: cache-file
-/// URL selection and the access.log purge are both narrowed to depots EXCLUSIVELY owned
-/// by the target game, so removing one game never strips another game's cache slices or
-/// HIT/MISS log lines (depots are many-to-one with AppId). The shared delete/cleanup/
-/// purge/permission tail lives in `removal_core`; this bin owns the depot head and the
-/// depot-bearing report.
+/// URL selection and the access.log purge targets it reports are both narrowed to depots
+/// EXCLUSIVELY owned by the target game, so removing one game never strips another game's
+/// cache slices or HIT/MISS log lines (depots are many-to-one with AppId). The host removes
+/// those lines in its own locked step. The shared delete/cleanup/permission tail lives in
+/// `removal_core`; this bin owns the depot head and the depot-bearing report.
 #[derive(clap::Parser, Debug)]
 #[command(name = "cache_steam_remove")]
 #[command(about = "Removes all cache files for a specific Steam game by scanning logs")]
@@ -44,11 +43,6 @@ struct Args {
 
     /// Path to progress JSON file
     progress_json: String,
-
-    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
-    /// log purge split removed lines at the read position so the position adjustment is exact.
-    #[arg(long = "stem-positions")]
-    stem_positions: Option<String>,
 
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
@@ -91,15 +85,12 @@ struct RemovalReport {
     cache_files_deleted: usize,
     total_bytes_freed: u64,
     empty_dirs_removed: usize,
-    log_entries_removed: u64,
-    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
-    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
-    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
-    /// The already-read subset of `log_lines_removed_by_source` (series index below the saved
-    /// position). This is the amount the position itself comes back by; the full map above is
-    /// what the on-disk total-line count comes down by.
-    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
     depot_ids: Vec<u32>,
+    /// The host removes every access.log line whose URL is listed here or whose depot is in
+    /// `purge_depot_ids`. A URL whose depot is already in that set is left out, because the
+    /// depot match covers its lines and a big game's URL list is millions long.
+    purge_urls: Vec<String>,
+    purge_depot_ids: Vec<u32>,
 }
 
 /// Preserve URL provenance when a bare-metal candidate's recipe-computed key
@@ -495,7 +486,7 @@ async fn main() -> Result<()> {
     // The log predicate (log_purge.rs) removes any line whose `depot_id ∈ valid_depot_ids`, so a
     // depot shared with another AppId (SteamDepotMappings AppId<>$1) or another game's Downloads
     // (GameAppId<>$1) would strip THAT game's HIT/MISS lines. Subtract the shared set; the result
-    // (`safe_depot_ids`) is what we hand to the log purge below. This mirrors the C#
+    // (`safe_depot_ids`) is what the report hands to the host's log purge. This mirrors the C#
     // `safeDepotIds` guard. Cache-file URL selection is narrowed separately inside
     // get_game_urls_from_db (Query 1), so deletion and the log rewrite stay in the same scope.
     //
@@ -523,9 +514,9 @@ async fn main() -> Result<()> {
     let url_data = get_game_urls_from_db(&pool, game_app_id, &safe_depot_ids).await?;
 
     // A count run stops here. It walks the same list a removal would walk, reports how many of
-    // those files exist on disk, and returns before the cache sweep, the directory cleanup, the
-    // access.log purge and the database delete below are reachable. A game with no URLs reports
-    // zero rather than taking the no-URL exit, so the confirmation always has a number.
+    // those files exist on disk, and returns before the cache sweep, the directory cleanup and
+    // the database delete below are reachable. A game with no URLs reports zero rather than
+    // taking the no-URL exit, so the confirmation always has a number.
     if args.count_only {
         // The same (service, bytes) projection the delete phase feeds to the shared tail; cache
         // paths are purely (service, url), and the depot set plays no part in either.
@@ -560,10 +551,9 @@ async fn main() -> Result<()> {
             cache_files_deleted: 0,
             total_bytes_freed: 0,
             empty_dirs_removed: 0,
-            log_entries_removed: 0,
-            log_lines_removed_by_source: Default::default(),
-            log_lines_removed_before_position_by_source: Default::default(),
             depot_ids: vec![],
+            purge_urls: vec![],
+            purge_depot_ids: vec![],
         };
 
         let json = serde_json::to_string_pretty(&report)?;
@@ -624,7 +614,7 @@ async fn main() -> Result<()> {
         )?;
 
         // If cancellation arrived during cache removal, finish directory cleanup of dirs
-        // already collected, then exit 0.  Log/DB work is skipped — C# re-runs detection.
+        // already collected, then exit 0.  Report/DB work is skipped — C# re-runs detection.
         if cancel::is_cancelled() {
             eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
             cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
@@ -650,64 +640,18 @@ async fn main() -> Result<()> {
             cache_files_deleted: deleted_files,
             total_bytes_freed: bytes_freed,
             empty_dirs_removed,
-            log_entries_removed: 0,
-            log_lines_removed_by_source: Default::default(),
-            log_lines_removed_before_position_by_source: Default::default(),
             depot_ids: vec![],
+            purge_urls: vec![],
+            purge_depot_ids: vec![],
         };
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
         return Err(error);
     }
 
-    // Remove log entries for this game. Per-file progress fills the 80-90% band
-    // so a run over a game with few cache files still surfaces visible stages.
-    removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
-    eprintln!("\nRemoving log entries...");
-    let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let log_file_progress = |processed: usize, total: usize| {
-        let percent = 80.0 + (processed as f64 / total.max(1) as f64) * 10.0;
-        let _ = removal_core::write_progress(
-            &progress_path,
-            &reporter,
-            "removing_logs",
-            "signalr.gameRemove.logs.fileProgress",
-            json!({ "n": processed, "total": total }),
-            percent,
-            processed,
-            total,
-        );
-    };
-    // Use the narrowed `safe_depot_ids` (exclusively-owned depots) for the log purge so shared-depot
-    // lines belonging to OTHER games are not stripped. This depot-scoped purge is the one tail
-    // divergence Steam carries; every other bin purges url-only
-    // (removal_core::LogScope::Urls). Steam calls log_purge directly so it can also pass the
-    // per-file progress callback that fills the 80-90% band.
-    let stem_positions = args
-        .stem_positions
-        .as_deref()
-        .and_then(log_purge::read_stem_positions);
-    let log_outcome = log_purge::remove_log_entries_for_game(
-        &log_dir,
-        &urls_to_remove,
-        &safe_depot_ids,
-        Some(&log_file_progress),
-        stem_positions.as_ref(),
-    )?;
-    let log_entries_removed = log_outcome.lines_removed;
-    let log_permission_errors = log_outcome.permission_errors;
-    let log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
-    let log_lines_removed_before_position_by_source =
-        log_outcome.lines_removed_before_position_by_stem;
-
     // CRITICAL: Check for permission errors before deleting database records
-    let total_permission_errors = cache_permission_errors + log_permission_errors;
-    if total_permission_errors > 0 {
-        let error_msg = removal_core::permission_error_message(
-            total_permission_errors,
-            cache_permission_errors,
-            log_permission_errors,
-        );
+    if cache_permission_errors > 0 {
+        let error_msg = removal_core::permission_error_message(cache_permission_errors);
         eprintln!("\n{}", error_msg);
 
         // Still write report but with error status
@@ -717,11 +661,9 @@ async fn main() -> Result<()> {
             cache_files_deleted: deleted_files,
             total_bytes_freed: bytes_freed,
             empty_dirs_removed,
-            log_entries_removed,
-            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
-            log_lines_removed_before_position_by_source:
-                log_lines_removed_before_position_by_source.clone(),
             depot_ids: vec![],
+            purge_urls: vec![],
+            purge_depot_ids: vec![],
         };
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
@@ -754,22 +696,25 @@ async fn main() -> Result<()> {
         cache_files_deleted: deleted_files,
         total_bytes_freed: bytes_freed,
         empty_dirs_removed,
-        log_entries_removed,
-        log_lines_removed_by_source,
-        log_lines_removed_before_position_by_source,
         depot_ids: all_depot_ids.into_iter().collect(),
+        purge_urls: url_data
+            .iter()
+            .filter(|(_url, (_service, _bytes, depot_ids))| depot_ids.is_disjoint(&safe_depot_ids))
+            .map(|(url, _)| url.clone())
+            .collect(),
+        purge_depot_ids: safe_depot_ids.into_iter().collect(),
     };
 
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "gameAppId": game_app_id }), 100.0, 0, 0)?;
+    // The host's locked log step finishes the removal and owns the counted completion.
+    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.finalizing", json!({}), 100.0, 0, 0)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);
     eprintln!("Space freed: {:.2} MB", report.total_bytes_freed as f64 / 1_048_576.0);
     eprintln!("Empty directories removed: {}", report.empty_dirs_removed);
-    eprintln!("Log entries removed: {}", report.log_entries_removed);
     eprintln!("Report saved to: {}", output_json.display());
 
     Ok(())

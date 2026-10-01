@@ -15,11 +15,12 @@ use lancache_processor::removal_core;
 use progress_events::ProgressReporter;
 use removal_core::{ProgressCadence, RemovalReport, RemovalStageKeys};
 
-/// Epic game cache removal utility - removes all cache files, log entries,
-/// and database records for a specific Epic game identified by name.
+/// Epic game cache removal utility - removes all cache files and database records
+/// for a specific Epic game identified by name, and reports the URLs whose
+/// access.log lines the host removes in its own locked step.
 ///
 /// Identity is `(GameName, EpicAppId IS NOT NULL)`. The shared delete/cleanup/
-/// purge/permission tail lives in `removal_core`; this bin owns only the Epic
+/// permission tail lives in `removal_core`; this bin owns only the Epic
 /// HEAD: the `GameName + EpicAppId` URL query and the matching DB-row delete.
 #[derive(clap::Parser, Debug)]
 #[command(name = "cache_epic_remove")]
@@ -39,11 +40,6 @@ struct Args {
 
     /// Path to progress JSON file
     progress_json: String,
-
-    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
-    /// log purge split removed lines at the read position so the position adjustment is exact.
-    #[arg(long = "stem-positions")]
-    stem_positions: Option<String>,
 
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
@@ -275,9 +271,9 @@ async fn main() -> Result<()> {
     let url_data = get_epic_game_urls_from_db(&pool, game_name).await?;
 
     // A count run stops here. It walks the same list a removal would walk, reports how many of
-    // those files exist on disk, and returns before the cache sweep, the access.log purge and
-    // the database delete below are reachable. A game with no URLs reports zero rather than
-    // taking the no-URL exit, so the confirmation always has a number.
+    // those files exist on disk, and returns before the cache sweep and the database delete
+    // below are reachable. A game with no URLs reports zero rather than taking the no-URL exit,
+    // so the confirmation always has a number.
     if args.count_only {
         let collection_progress = removal_core::CollectionProgress {
             progress_path: &progress_path,
@@ -320,12 +316,11 @@ async fn main() -> Result<()> {
         .await?;
     }
 
-    // Steps 1-4 (cache delete, dir cleanup, verification gate, log purge, permission gate)
-    // are the URL-scoped sequence shared with the name-keyed bins.
+    // Steps 1-3 (cache delete, dir cleanup, verification gate, permission gate) are the
+    // URL-scoped sequence shared with the name-keyed bins.
     let lifecycle = removal_core::RemovalLifecycleKeys {
         cache_removing: "signalr.epicRemove.cache.removing",
         dirs_cleaning: "signalr.epicRemove.dirs.cleaning",
-        logs_removing: "signalr.epicRemove.logs.removing",
         db_deleting: "signalr.epicRemove.db.deleting",
     };
     let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
@@ -334,7 +329,6 @@ async fn main() -> Result<()> {
     cache_repair::prepare_receipt(&cache_dir, args.operation_id.as_deref())?;
     let Some(tail) = removal_core::run_url_removal_steps(
         &cache_dir,
-        &log_dir,
         &url_data,
         &progress_path,
         &reporter,
@@ -343,7 +337,6 @@ async fn main() -> Result<()> {
         ProgressCadence::OnPercentAdvance,
         // An Epic chunk object is at most two slices, which a walk from slice 0 always reaches.
         removal_core::SliceReach::ForwardWalkIsComplete,
-        args.stem_positions.as_deref(),
         &write_failure_report,
     )?
     else {
@@ -366,13 +359,13 @@ async fn main() -> Result<()> {
     let report = RemovalReport::from_tail(game_name, &tail);
     report.write(&output_json)?;
 
-    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }), 100.0, 0, 0)?;
+    // The host's locked log step finishes the removal and owns the counted completion.
+    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.finalizing", json!({}), 100.0, 0, 0)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);
     eprintln!("Space freed: {:.2} MB", report.total_bytes_freed as f64 / 1_048_576.0);
     eprintln!("Empty directories removed: {}", report.empty_dirs_removed);
-    eprintln!("Log entries removed: {}", report.log_entries_removed);
     eprintln!("Report saved to: {}", output_json.display());
 
     Ok(())

@@ -8,9 +8,9 @@
 // entries for the evicted games, which prevents a subsequent `ResetLogPosition`
 // from resurrecting them on log re-parse.
 //
-// Mirrors the single-game flow in `cache_steam_remove`, but batches N games into
-// a single pass for drastically better performance when the user bulk-removes
-// evicted data.
+// Batches N games into a single pass for drastically better performance when the
+// user bulk-removes evicted data. Game and service removals run it as their own
+// log step too, with the purge targets their removal binary reported.
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -35,7 +35,7 @@ struct Args {
     /// Directory containing log files (e.g. /logs or H:/logs)
     log_dir: String,
 
-    /// Path to input JSON file: { "urls": [...], "depot_ids": [...] }
+    /// Path to input JSON file: { "urls": [...], "depot_ids": [...], "service": optional }
     input_json: String,
 
     /// Path to output JSON file: { "lines_removed": u64, "permission_errors": usize }
@@ -62,6 +62,9 @@ struct PurgeRequest {
     urls: Vec<String>,
     #[serde(default)]
     depot_ids: Vec<u32>,
+    /// Set by a service removal: only that service's lines with a listed URL go.
+    #[serde(default)]
+    service: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -218,6 +221,10 @@ fn run_purge(
         .with_context(|| format!("Failed to read input JSON {}", args.input_json))?;
     let request: PurgeRequest = serde_json::from_slice(&input_bytes)
         .with_context(|| format!("Failed to parse input JSON {}", args.input_json))?;
+    // The service match takes URLs only; a depot match would reach other services' lines.
+    if request.service.is_some() && !request.depot_ids.is_empty() {
+        anyhow::bail!("A service purge does not accept depot IDs");
+    }
 
     let url_count = request.urls.len();
     let depot_count = request.depot_ids.len();
@@ -262,9 +269,9 @@ fn run_purge(
         anyhow::bail!("Log directory does not exist: {}", args.log_dir);
     }
 
-    // Call the shared helper (same function used by cache_steam_remove).
-    // Pass a progress callback that maps per-file completion into the 15%-95% range
-    // so the host's progress-file poller sees granular progress between the existing ticks.
+    // Call the shared helper. The game purge takes a progress callback that maps per-file
+    // completion into the 15%-95% range so the host's progress-file poller sees granular
+    // progress between the existing ticks; the service purge has no callback.
     let progress_cb = |files_done: usize, total_files: usize| {
         if total_files > 0 {
             let fraction = files_done as f64 / total_files as f64;
@@ -286,14 +293,23 @@ fn run_purge(
         .stem_positions
         .as_deref()
         .and_then(log_purge::read_stem_positions);
-    let purge_outcome = remove_log_entries_for_game(
-        log_dir_path,
-        &urls,
-        &depot_ids,
-        Some(&progress_cb),
-        stem_positions.as_ref(),
-    )
-    .context("remove_log_entries_for_game failed")?;
+    let purge_outcome = match &request.service {
+        Some(service) => log_purge::remove_log_entries_for_service(
+            log_dir_path,
+            service,
+            &urls,
+            stem_positions.as_ref(),
+        )
+        .context("remove_log_entries_for_service failed")?,
+        None => remove_log_entries_for_game(
+            log_dir_path,
+            &urls,
+            &depot_ids,
+            Some(&progress_cb),
+            stem_positions.as_ref(),
+        )
+        .context("remove_log_entries_for_game failed")?,
+    };
     let lines_removed = purge_outcome.lines_removed;
     let permission_errors = purge_outcome.permission_errors;
     let log_lines_removed_by_source = purge_outcome.lines_removed_by_stem;
@@ -351,4 +367,75 @@ fn run_purge(
         depot_count,
         error: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn log_line(service: &str, url: &str) -> String {
+        format!(
+            "[{service}] 192.0.2.10 / - - - [01/Oct/2026:10:00:00 +0000] \"GET {url} HTTP/1.1\" 200 1024 \"-\" \"Test\" \"HIT\" \"cdn.test\" \"-\"\n"
+        )
+    }
+
+    fn purge(dir: &Path, request: serde_json::Value) -> Result<PurgeReport> {
+        let input = dir.join("request.json");
+        fs::write(&input, request.to_string()).unwrap();
+        let args = Args::try_parse_from([
+            "cache_purge_log_entries",
+            dir.join("logs").to_str().unwrap(),
+            input.to_str().unwrap(),
+            dir.join("report.json").to_str().unwrap(),
+        ])
+        .unwrap();
+        run_purge(&args, None, &ProgressReporter::new(false))
+    }
+
+    #[test]
+    fn service_purge_removes_only_that_services_lines_with_a_listed_url() {
+        let temp = tempfile::tempdir().unwrap();
+        let log_path = temp.path().join("logs").join("access.log");
+        fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+        let kept_other_service = log_line("epicgames", "/depot/1/chunk/a");
+        let kept_other_url = log_line("steam", "/depot/1/chunk/b");
+        fs::write(
+            &log_path,
+            format!(
+                "{}{kept_other_service}{kept_other_url}",
+                log_line("steam", "/depot/1/chunk/a")
+            ),
+        )
+        .unwrap();
+
+        let report = purge(
+            temp.path(),
+            json!({ "service": "steam", "urls": ["/depot/1/chunk/a"] }),
+        )
+        .unwrap();
+
+        assert_eq!(report.lines_removed, 1);
+        assert_eq!(
+            fs::read_to_string(&log_path).unwrap(),
+            format!("{kept_other_service}{kept_other_url}")
+        );
+    }
+
+    #[test]
+    fn service_purge_with_depot_ids_fails_and_leaves_the_log_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let log_path = temp.path().join("logs").join("access.log");
+        fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+        let contents = log_line("steam", "/depot/1/chunk/a");
+        fs::write(&log_path, &contents).unwrap();
+
+        let error = purge(
+            temp.path(),
+            json!({ "service": "steam", "urls": ["/depot/1/chunk/a"], "depot_ids": [1] }),
+        )
+        .expect_err("a service purge with depot IDs must fail");
+
+        assert!(error.to_string().contains("depot IDs"));
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), contents);
+    }
 }

@@ -6,10 +6,11 @@
 //! string they pin, so the entire body lives here and each bin is a three-line
 //! wrapper that calls [`run`] with its service.
 //!
-//! Cache-file deletion, the access.log purge, the permission gate, and the final
-//! report are all delegated to [`crate::removal_core`] (the tail shared with the
-//! Steam and Epic bins). This module owns only the name-keyed HEAD: the DB queries
-//! that map `(service, game_name)` to URLs and the DB-row delete.
+//! Cache-file deletion, the permission gate, and the final report (which names the
+//! URLs whose access.log lines the host removes) are all delegated to
+//! [`crate::removal_core`] (the tail shared with the Steam and Epic bins). This module
+//! owns only the name-keyed HEAD: the DB queries that map `(service, game_name)` to
+//! URLs and the DB-row delete.
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -45,11 +46,6 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
-    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
-    /// log purge split removed lines at the read position so the position adjustment is exact.
-    #[arg(long = "stem-positions")]
-    stem_positions: Option<String>,
-
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
@@ -78,11 +74,11 @@ struct Args {
 }
 
 /// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`)
-/// for every stage EXCEPT starting/complete, matching the pre-consolidation
+/// for every stage EXCEPT starting, matching the pre-consolidation
 /// `cache_named_game_remove` bin. Steam still owns `signalr.gameRemove.*` for
-/// starting/complete (it has a real gameAppId); named services (blizzard/riot/xbox)
+/// starting (it has a real gameAppId); named services (blizzard/riot/xbox)
 /// have neither a Steam nor an Epic AppId, so they get the existing AppID-free
-/// `signalr.namedRemove.*` starting/complete keys. This family already exists in
+/// `signalr.namedRemove.*` starting key. This family already exists in
 /// en.json/zh.json (mirrors `signalr.epicRemove.*` text) and is already computed by
 /// `GamesController.StartRemovalAsync`'s `isNamed` branch for the Started/Complete
 /// SignalR events — reused here (not a new `namedGameRemove.*` family) so the
@@ -95,32 +91,12 @@ const NAMED_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
 /// Stage key for the starting progress event. AppID-free — named games have no
 /// Steam/Epic AppId, so the template must not reference `{{gameAppId}}`.
 const NAMED_GAME_REMOVE_STARTING_KEY: &str = "signalr.namedRemove.starting";
-/// Stage key for the completed progress event. Same AppID-free rationale.
-const NAMED_GAME_REMOVE_COMPLETE_KEY: &str = "signalr.namedRemove.complete";
 
 /// Context for the starting progress event. Carries `gameName` and `service`, and
 /// deliberately never a `gameAppId` key — named games (blizzard/riot/xbox) don't have
 /// one. Extracted as a pure fn so the shape is unit-testable without a live removal run.
 fn starting_context(game_name: &str, service: &str) -> serde_json::Value {
     json!({ "gameName": game_name, "service": service })
-}
-
-/// Context for the completed progress event. Same no-`gameAppId` contract as
-/// [`starting_context`].
-fn complete_context(
-    game_name: &str,
-    service: &str,
-    files: usize,
-    gb: f64,
-    log_entries: u64,
-) -> serde_json::Value {
-    json!({
-        "files": files,
-        "gb": gb,
-        "logEntries": log_entries,
-        "gameName": game_name,
-        "service": service,
-    })
 }
 
 /// Normalize the wrapper-pinned service to the form the DB gate expects. The DB
@@ -315,10 +291,10 @@ async fn validate_named_game_selection(
 /// service ("blizzard", "riot", "xbox") pinned by the wrapper bin.
 ///
 /// The orchestration skeleton (arg parse → starting → empty-url early return →
-/// cache delete → cancel cleanup → dir cleanup → log purge → permission gate →
-/// DB delete → final report) is identical to the prior `cache_named_game_remove`
-/// `main`, with the cache delete / log purge / permission message delegated to
-/// `removal_core`.
+/// cache delete → cancel cleanup → dir cleanup → permission gate → DB delete →
+/// final report) follows the prior `cache_named_game_remove` `main`, with the
+/// cache delete / permission message delegated to `removal_core`. The host removes
+/// the report's `purge_urls` from access.log in its own locked step.
 pub async fn run(service: &str) -> Result<()> {
     let args = Args::parse();
     cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
@@ -402,9 +378,9 @@ pub async fn run(service: &str) -> Result<()> {
         let url_data = get_named_game_urls_from_db(&pool, &service, game_name).await?;
 
         // A count run stops here. It walks the same list a removal would walk, reports how many of
-        // those files exist on disk, and returns before the cache sweep, the access.log purge and
-        // the database delete below are reachable. A game with no URLs reports zero rather than
-        // taking the no-URL exit, so the confirmation always has a number.
+        // those files exist on disk, and returns before the cache sweep and the database delete
+        // below are reachable. A game with no URLs reports zero rather than taking the no-URL
+        // exit, so the confirmation always has a number.
         if args.count_only {
             let collection_progress = removal_core::CollectionProgress {
                 progress_path: &progress_path,
@@ -471,12 +447,11 @@ pub async fn run(service: &str) -> Result<()> {
             .await?;
         }
 
-        // Steps 1-4 (cache delete, dir cleanup, verification gate, log purge, permission gate)
-        // are the URL-scoped sequence shared with the Epic bin.
+        // Steps 1-3 (cache delete, dir cleanup, verification gate, permission gate) are the
+        // URL-scoped sequence shared with the Epic bin.
         let lifecycle = removal_core::RemovalLifecycleKeys {
             cache_removing: "signalr.gameRemove.cache.removing",
             dirs_cleaning: "signalr.gameRemove.dirs.cleaning",
-            logs_removing: "signalr.gameRemove.logs.removing",
             db_deleting: "signalr.gameRemove.db.deleting",
         };
         let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
@@ -485,7 +460,6 @@ pub async fn run(service: &str) -> Result<()> {
         cache_repair::prepare_receipt(&cache_dir, args.operation_id.as_deref())?;
         let Some(tail) = removal_core::run_url_removal_steps(
             &cache_dir,
-            &log_dir,
             &url_data,
             &progress_path,
             &reporter,
@@ -495,7 +469,6 @@ pub async fn run(service: &str) -> Result<()> {
             // Blizzard TACT archives, Riot bundles and Xbox payloads are range-served, so a slice
             // can sit behind an eviction hole the forward walk cannot cross.
             removal_core::SliceReach::SweepKeyHeaders,
-            args.stem_positions.as_deref(),
             &write_failure_report,
         )?
         else {
@@ -519,18 +492,13 @@ pub async fn run(service: &str) -> Result<()> {
         let report = RemovalReport::from_tail(game_name, &tail);
         report.write(&output_json)?;
 
+        // The host's locked log step finishes the removal and owns the counted completion.
         removal_core::write_progress(
             &progress_path,
             &reporter,
             "completed",
-            NAMED_GAME_REMOVE_COMPLETE_KEY,
-            complete_context(
-                game_name,
-                &service,
-                report.cache_files_deleted,
-                report.total_bytes_freed as f64 / 1_073_741_824.0,
-                report.log_entries_removed,
-            ),
+            "signalr.gameRemove.finalizing",
+            json!({}),
             100.0,
             0,
             0,
@@ -543,7 +511,6 @@ pub async fn run(service: &str) -> Result<()> {
             report.total_bytes_freed as f64 / 1_048_576.0
         );
         eprintln!("Empty directories removed: {}", report.empty_dirs_removed);
-        eprintln!("Log entries removed: {}", report.log_entries_removed);
         eprintln!("Report saved to: {}", output_json.display());
 
         Ok(())
@@ -618,20 +585,16 @@ mod tests {
         assert!(PRIMARY_URL_QUERY.contains("LOWER(d.\"Service\") = $2"));
     }
 
-    /// The named-removal starting/complete stage keys must be the existing AppID-free
+    /// The named-removal starting stage key must be the existing AppID-free
     /// `namedRemove.*` family (already used by GamesController's REST-side Started/Complete
     /// events and already present in en.json/zh.json), not the Steam
-    /// `signalr.gameRemove.starting/.complete` keys (which the i18n templates hardcode
+    /// `signalr.gameRemove.starting` key (which the i18n template hardcodes
     /// `(AppID {{gameAppId}})` into — the placeholder bug this fix removes).
     #[test]
     fn named_stage_keys_are_the_appid_free_family() {
         assert_eq!(
             NAMED_GAME_REMOVE_STARTING_KEY,
             "signalr.namedRemove.starting"
-        );
-        assert_eq!(
-            NAMED_GAME_REMOVE_COMPLETE_KEY,
-            "signalr.namedRemove.complete"
         );
     }
 
@@ -648,23 +611,6 @@ mod tests {
             ctx.get("service").and_then(|v| v.as_str()),
             Some("blizzard")
         );
-        assert!(
-            ctx.get("gameAppId").is_none(),
-            "named context must not carry gameAppId"
-        );
-    }
-
-    /// `complete_context` carries the same no-`gameAppId` contract plus the removal totals.
-    #[test]
-    fn complete_context_has_game_name_and_no_game_app_id() {
-        let ctx = complete_context("Halo Infinite", "xbox", 11, 0.0094, 42);
-        assert_eq!(
-            ctx.get("gameName").and_then(|v| v.as_str()),
-            Some("Halo Infinite")
-        );
-        assert_eq!(ctx.get("service").and_then(|v| v.as_str()), Some("xbox"));
-        assert_eq!(ctx.get("files").and_then(|v| v.as_u64()), Some(11));
-        assert_eq!(ctx.get("logEntries").and_then(|v| v.as_u64()), Some(42));
         assert!(
             ctx.get("gameAppId").is_none(),
             "named context must not carry gameAppId"

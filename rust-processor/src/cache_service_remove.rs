@@ -12,10 +12,8 @@ use lancache_processor::cache_repair;
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::db;
-use lancache_processor::log_purge;
 use lancache_processor::progress_events;
 use lancache_processor::removal_core;
-use log_purge::remove_log_entries_for_service;
 use progress_events::ProgressReporter;
 
 /// Service cache removal utility - removes all cache files for a specific service
@@ -37,11 +35,6 @@ struct Args {
 
     /// Path to progress JSON file
     progress_json: String,
-
-    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
-    /// log purge split removed lines at the read position so the position adjustment is exact.
-    #[arg(long = "stem-positions")]
-    stem_positions: Option<String>,
 
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(
@@ -79,14 +72,10 @@ struct RemovalReport {
     service_name: String,
     cache_files_deleted: usize,
     total_bytes_freed: u64,
-    log_entries_removed: u64,
-    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
-    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
-    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
-    /// The already-read subset of the map above (series index below the saved position);
-    /// the amount the position itself comes back by.
-    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
     database_entries_deleted: u64,
+    /// URLs whose access.log lines of this service the host removes in its own locked step.
+    /// Empty on a failed run, so its log lines stay in place.
+    purge_urls: Vec<String>,
 }
 
 impl RemovalReport {
@@ -95,10 +84,8 @@ impl RemovalReport {
             service_name: service.to_string(),
             cache_files_deleted,
             total_bytes_freed,
-            log_entries_removed: 0,
-            log_lines_removed_by_source: Default::default(),
-            log_lines_removed_before_position_by_source: Default::default(),
             database_entries_deleted: 0,
+            purge_urls: Vec::new(),
         }
     }
 }
@@ -533,9 +520,9 @@ async fn main() -> Result<()> {
     let urls = get_service_urls_from_db(&pool, service).await?;
 
     // A count run stops here. It walks the same list a removal would walk, reports how many of
-    // those files exist on disk, and returns before the delete loop, the log purge and the
-    // database delete below are reachable. A service with no URLs reports zero rather than
-    // taking the no-URL exit, so the confirmation always has a number to show.
+    // those files exist on disk, and returns before the delete loop and the database delete
+    // below are reachable. A service with no URLs reports zero rather than taking the no-URL
+    // exit, so the confirmation always has a number to show.
     if args.count_only {
         let collection_progress = removal_core::CollectionProgress {
             progress_path: &progress_path,
@@ -619,43 +606,11 @@ async fn main() -> Result<()> {
         return Err(error);
     }
 
-    // Step 3: Remove log entries
-    removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
-    let url_set: HashSet<String> = urls.into_keys().collect();
-    let stem_positions = args
-        .stem_positions
-        .as_deref()
-        .and_then(log_purge::read_stem_positions);
-    let log_outcome = remove_log_entries_for_service(&log_dir, service, &url_set, stem_positions.as_ref())?;
-    let log_entries_removed = log_outcome.lines_removed;
-    let log_permission_errors = log_outcome.permission_errors;
-    let log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
-    let log_lines_removed_before_position_by_source =
-        log_outcome.lines_removed_before_position_by_stem;
-
     // CRITICAL: Check for permission errors before deleting database records
-    let total_permission_errors = cache_permission_errors + log_permission_errors;
-    if total_permission_errors > 0 {
-        let error_msg = removal_core::permission_error_message(
-            total_permission_errors,
-            cache_permission_errors,
-            log_permission_errors,
-        );
+    if cache_permission_errors > 0 {
+        let error_msg = removal_core::permission_error_message(cache_permission_errors);
         eprintln!("\n{}", error_msg);
-        // The log purge already ran, so its counts must reach the host even though this run
-        // aborts: without them the saved read position stays ahead of the shortened log and
-        // the next incremental run skips that many unread lines. Mirrors the sibling
-        // removal binaries, which write their report on this same path.
-        let report = RemovalReport {
-            service_name: service.to_string(),
-            cache_files_deleted,
-            total_bytes_freed,
-            log_entries_removed,
-            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
-            log_lines_removed_before_position_by_source:
-                log_lines_removed_before_position_by_source.clone(),
-            database_entries_deleted: 0,
-        };
+        let report = RemovalReport::partial(service, cache_files_deleted, total_bytes_freed);
         write_removal_report(&output_json, &report)?;
         anyhow::bail!("{}", error_msg);
     }
@@ -675,25 +630,23 @@ async fn main() -> Result<()> {
     };
 
     // Success report for the C# host. The stderr summary below stays as its fallback parse,
-    // but only this JSON carries the per-stem purge counts the position adjustment needs.
+    // but only this JSON carries the purge targets the host's log step needs.
     let report = RemovalReport {
         service_name: service.to_string(),
         cache_files_deleted,
         total_bytes_freed,
-        log_entries_removed,
-        log_lines_removed_by_source,
-        log_lines_removed_before_position_by_source,
         database_entries_deleted,
+        purge_urls: urls.into_keys().collect(),
     };
     write_removal_report(&output_json, &report)?;
 
-    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
+    // The host's locked log step finishes the removal and owns the counted completion.
+    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.finalizing", json!({}), 100.0, cache_files_deleted, url_count)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Service: {}", service);
     eprintln!("Cache files deleted: {}", cache_files_deleted);
     eprintln!("Bytes freed: {:.2} GB", total_bytes_freed as f64 / 1_073_741_824.0);
-    eprintln!("Log entries removed: {}", log_entries_removed);
     eprintln!("Database entries deleted: {}", database_entries_deleted);
     eprintln!("Removal completed successfully");
 
@@ -816,7 +769,7 @@ mod tests {
         assert_eq!(report["service_name"], "steam");
         assert_eq!(report["cache_files_deleted"], 3);
         assert_eq!(report["total_bytes_freed"], 4096);
-        assert_eq!(report["log_entries_removed"], 0);
+        assert_eq!(report["purge_urls"], serde_json::json!([]));
         assert_eq!(report["database_entries_deleted"], 0);
     }
 
