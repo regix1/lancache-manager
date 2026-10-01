@@ -162,7 +162,7 @@ public class ProcessManager : IHostedService, IDisposable
     /// <summary>
     /// Waits for a process to exit after a kill signal, with timeout.
     /// </summary>
-    public async Task WaitAfterKillAsync(Process process, TimeSpan timeout)
+    public virtual async Task WaitAfterKillAsync(Process process, TimeSpan timeout)
     {
         var processId = ReadProcessId(process);
         if (!IsRunning(process))
@@ -283,9 +283,14 @@ public class ProcessManager : IHostedService, IDisposable
                         var executable = process.ProcessName;
                         if (!string.Equals(executable, processName, StringComparison.OrdinalIgnoreCase))
                         {
-                            var path = process.MainModule?.FileName
-                                ?? throw new InvalidOperationException(
-                                    $"Could not identify process {process.Id} while waiting for {processName}.");
+                            var path = process.MainModule?.FileName;
+                            if (path is null)
+                            {
+                                // A process that exited but is not reaped yet has no memory maps, so
+                                // .NET reports no main module for it; it has nothing left to wait on.
+                                process.Dispose();
+                                continue;
+                            }
                             executable = Path.GetFileNameWithoutExtension(path);
                         }
 

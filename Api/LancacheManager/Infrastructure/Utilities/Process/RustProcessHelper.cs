@@ -242,6 +242,13 @@ public partial class RustProcessHelper
         {
             cancelRegistration.Dispose();
 
+            // The card must not read Cancelled while the killed child can still write to the cache,
+            // the logs or the database. 5 s is the post-kill wait GracefulCancelAsync already uses.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                await _processManager.WaitAfterKillAsync(process, TimeSpan.FromSeconds(5));
+            }
+
             if (operationId.HasValue)
             {
                 _operationTracker.DisassociateProcess(operationId.Value, process);
@@ -1230,6 +1237,13 @@ public partial class RustProcessHelper
                 && !string.IsNullOrEmpty(keyScheme)
                 && operationId.HasValue =>
                 $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\""
+                    + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\""),
+            "remove-logs" when !string.IsNullOrEmpty(service)
+                && !string.IsNullOrEmpty(cachePath)
+                && !string.IsNullOrEmpty(evidenceFile)
+                && !string.IsNullOrEmpty(progressFile)
+                && !string.IsNullOrEmpty(keyScheme) =>
+                $"remove-logs \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}"
                     + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\""),
             "remove-structural" when !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)

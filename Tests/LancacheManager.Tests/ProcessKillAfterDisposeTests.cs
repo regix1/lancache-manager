@@ -13,9 +13,9 @@ namespace LancacheManager.Tests;
 /// and escaped. The cancellation itself had already succeeded, so the user was shown a failure for
 /// work that had stopped exactly as they asked.
 ///
-/// These tests reach that state without spawning anything: a Process for the current process, once
-/// disposed, is associated with nothing, which is the same state a run's Process is left in after
-/// its finally releases it.
+/// The dispose tests reach that state without spawning anything: a Process for the current process,
+/// once disposed, is associated with nothing, which is the same state a run's Process is left in
+/// after its finally releases it.
 /// </summary>
 public sealed class ProcessKillAfterDisposeTests
 {
@@ -114,5 +114,94 @@ public sealed class ProcessKillAfterDisposeTests
         process.Dispose();
 
         Assert.True(tracker.ForceKillOperation(operationId));
+    }
+
+    [Fact]
+    public async Task CancelledRun_WaitsForTheKilledChildBeforeReleasingItAsync()
+    {
+        var manager = new KillWaitProcessManager();
+        var helper = new RustProcessHelper(
+            NullLogger<RustProcessHelper>.Instance,
+            manager,
+            pathResolver: null!,
+            operationTracker: null!);
+        using var cts = new CancellationTokenSource();
+        var start = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("ping", "-n 30 127.0.0.1")
+            : new ProcessStartInfo("sleep", "30");
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardOutput = true;
+
+        var run = helper.RunTrackedProcessAsync(
+            start,
+            operationId: null,
+            cts.Token,
+            async process =>
+            {
+                await process.WaitForExitAsync(cts.Token);
+                return process.ExitCode;
+            });
+        await cts.CancelAsync();
+
+        // Without the post-kill wait the run releases the child and completes first.
+        Assert.Same(
+            manager.WaitStarted.Task,
+            await Task.WhenAny(manager.WaitStarted.Task, run).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.False(run.IsCompleted);
+        Assert.Equal(TimeSpan.FromSeconds(5), manager.WaitTimeout);
+
+        manager.Release.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public void RemoveLogsCommand_IsTheRemoveShapeWithoutOperationId()
+    {
+        var withPositions = RustProcessHelper.BuildCorruptionManagerArguments(
+            "remove-logs",
+            "C:/logs",
+            "C:/cache",
+            "steam",
+            "C:/ops/evidence.json",
+            "C:/ops/progress.json",
+            "bare_metal",
+            "C:/ops/positions.json");
+        var withoutPositions = RustProcessHelper.BuildCorruptionManagerArguments(
+            "remove-logs",
+            "C:/logs",
+            "C:/cache",
+            "steam",
+            "C:/ops/evidence.json",
+            "C:/ops/progress.json",
+            "monolithic");
+
+        Assert.Equal(
+            "remove-logs \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal --stem-positions \"C:/ops/positions.json\"",
+            withPositions);
+        Assert.Equal(
+            "remove-logs \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme monolithic",
+            withoutPositions);
+    }
+
+    private sealed class KillWaitProcessManager : ProcessManager
+    {
+        public TaskCompletionSource WaitStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TimeSpan? WaitTimeout { get; private set; }
+
+        public KillWaitProcessManager()
+            : base(NullLogger<ProcessManager>.Instance)
+        {
+        }
+
+        public override async Task WaitAfterKillAsync(Process process, TimeSpan timeout)
+        {
+            WaitTimeout = timeout;
+            WaitStarted.TrySetResult();
+            await Release.Task;
+        }
     }
 }
