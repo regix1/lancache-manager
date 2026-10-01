@@ -973,8 +973,11 @@ public class StateService : IStateService
                 {
                     var json = File.ReadAllText(_operationRepairsFilePath);
                     ValidateRepairVersions(json);
-                    var repairs = JsonSerializer.Deserialize<List<OperationRepair>>(json)
-                        ?? throw new InvalidDataException("The operation repair file must contain a JSON array.");
+                    // Finished rows of an older version are dropped here and leave the file at the next save.
+                    var repairs = (JsonSerializer.Deserialize<List<OperationRepair>>(json)
+                        ?? throw new InvalidDataException("The operation repair file must contain a JSON array."))
+                        .Where(repair => repair.Version == OperationRepair.CurrentVersion)
+                        .ToList();
                     ValidateOperationRepairs(repairs);
                     _cachedOperationRepairs = repairs;
                 }
@@ -1037,7 +1040,11 @@ public class StateService : IStateService
             {
                 throw new InvalidDataException("Every operation repair must contain a numeric Version.");
             }
-            if (versionNumber != OperationRepair.CurrentVersion)
+            if (versionNumber != OperationRepair.CurrentVersion
+                && !(versionNumber < OperationRepair.CurrentVersion
+                    && row.TryGetProperty(nameof(OperationRepair.Phase), out var phase)
+                    && phase.ValueKind == JsonValueKind.String
+                    && phase.ValueEquals(nameof(OperationRepairPhase.Completed))))
             {
                 throw new InvalidDataException($"Unsupported operation repair version {versionNumber}.");
             }

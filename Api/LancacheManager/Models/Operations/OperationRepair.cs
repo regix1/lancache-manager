@@ -5,7 +5,7 @@ namespace LancacheManager.Models;
 
 public sealed class OperationRepair
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
     public required Guid Id { get; set; }
@@ -50,6 +50,8 @@ public sealed class OperationRepairSource
     public string? KeyScheme { get; set; }
     public bool NativeLaunchAuthorized { get; set; }
     public bool NativeCompletionAccepted { get; set; }
+    public bool LogRewriteStarted { get; set; }
+    public bool LogPositionsKept { get; set; }
     public string? ReceiptPath { get; set; }
     public bool ResetLogPositions { get; set; }
     public bool RefreshDownloads { get; set; }
@@ -82,6 +84,7 @@ public sealed class CacheClearingRepair : CacheClearingMetrics
 {
     public int DatasourcesCleared { get; set; }
     public double? Duration { get; set; }
+    public bool FullRepair { get; set; }
 }
 
 public sealed class RemovalRepair : RemovalMetrics

@@ -27,6 +27,9 @@ public partial class OperationStateService
     private readonly ConcurrentDictionary<Guid, Lazy<Task>> _repairTasks = new();
     private readonly ConcurrentDictionary<Guid, byte> _startupRepairs = new();
     private readonly ConcurrentDictionary<Guid, DateTime> _completedRepairs = new();
+    private readonly ConcurrentDictionary<Guid, Func<Task>> _pendingOutcomes = new();
+    private readonly ConcurrentDictionary<Guid, Action<OperationRepair>> _unsavedChanges = new();
+    private readonly ConcurrentDictionary<Guid, byte> _forceStoppedOwners = new();
     private readonly TaskCompletionSource<bool> _recoveryOwnership =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TaskCompletionSource<bool> _workChanged =
@@ -92,13 +95,13 @@ public partial class OperationStateService
                         $"Operation repair {operationId} cannot start mutation from phase {current.Phase}.");
                 }
 
-                var pending = _repairs.Values
-                    .Where(repair => repair.Id != operationId && repair.Phase == OperationRepairPhase.Repairing)
-                    .OrderBy(repair => repair.StartedAt)
-                    .FirstOrDefault();
+                var pending = GetBlockingRepair();
                 if (pending is not null)
                 {
-                    blocker = ClaimRepairTask(pending.Id, _startupRepairs.ContainsKey(pending.Id));
+                    // An outcome that has not landed owes no repair yet, so it is waited for, never claimed.
+                    blocker = _pendingOutcomes.ContainsKey(pending.Id)
+                        ? _workChanged.Task
+                        : ClaimRepairTask(pending.Id, _startupRepairs.ContainsKey(pending.Id));
                 }
                 else
                 {
@@ -133,22 +136,57 @@ public partial class OperationStateService
         try
         {
             var current = GetRequiredRepair(operationId);
-            SaveRepairCore(
-                current,
-                next =>
-                {
-                    update(next);
-                    if (next.Phase != current.Phase)
+            try
+            {
+                SaveRepairCore(
+                    current,
+                    next =>
                     {
-                        throw new InvalidOperationException(
-                            $"Operation repair {operationId} phase changes are owned by the lifecycle.");
-                    }
-                });
+                        update(next);
+                        if (next.Phase != current.Phase)
+                        {
+                            throw new InvalidOperationException(
+                                $"Operation repair {operationId} phase changes are owned by the lifecycle.");
+                        }
+                    });
+            }
+            catch (Exception exception) when (current.Phase == OperationRepairPhase.Running
+                && exception is IOException or UnauthorizedAccessException)
+            {
+                // A checkpoint whose file write failed (a rejected change is never kept) is carried by
+                // the outcome save, so the repair still sees what the owner recorded.
+                _unsavedChanges.AddOrUpdate(operationId, update, (_, kept) => kept + update);
+                throw;
+            }
         }
         finally
         {
             _repairStateGate.Release();
         }
+    }
+
+    public Task MarkLogRewriteStartedAsync(Guid operationId, string datasource)
+    {
+        return SaveRepairSourceAsync(operationId, datasource, source => source.LogRewriteStarted = true);
+    }
+
+    public Task MarkLogPositionsKeptAsync(Guid operationId, string datasource)
+    {
+        return SaveRepairSourceAsync(operationId, datasource, source => source.LogPositionsKept = true);
+    }
+
+    private Task SaveRepairSourceAsync(
+        Guid operationId,
+        string datasource,
+        Action<OperationRepairSource> change)
+    {
+        return SaveRepairAsync(
+            operationId,
+            repair => change(repair.Sources.SingleOrDefault(
+                    candidate => string.Equals(candidate.Datasource, datasource, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException(
+                    $"Operation repair {repair.Id} does not contain datasource '{datasource}'.")),
+            CancellationToken.None);
     }
 
     public Task FinishRepairAsync(
@@ -169,89 +207,215 @@ public partial class OperationStateService
     {
         var stoppingToken = _applicationLifetime.ApplicationStopping;
         await WaitForRecoveryOwnershipAsync(stoppingToken);
+        await RecordOutcomeAsync(operationId, success, cancelled, error, update, forceStop: false, stoppingToken);
+    }
 
-        Task? repairTask = null;
-        DateTime? retryAt = null;
-        while (repairTask is null)
+    // Force stop records the outcome in one call that never waits for a repair or a failed save, so
+    // the request returns at once; the owner's own FinishRepairAsync still follows it.
+    public async Task RecordForceStopAsync(Guid operationId)
+    {
+        var stoppingToken = _applicationLifetime.ApplicationStopping;
+        await WaitForRecoveryOwnershipAsync(stoppingToken);
+        await RecordOutcomeAsync(
+            operationId,
+            success: false,
+            cancelled: true,
+            error: null,
+            update: null,
+            forceStop: true,
+            stoppingToken);
+    }
+
+    private async Task RecordOutcomeAsync(
+        Guid operationId,
+        bool success,
+        bool cancelled,
+        string? error,
+        Action<OperationRepair>? update,
+        bool forceStop,
+        CancellationToken stoppingToken)
+    {
+        OperationRepair? saved = null;
+        var nextPhase = OperationRepairPhase.Repairing;
+        var refreshDownloads = false;
+        var saveFailed = false;
+        var startRetry = false;
+        await _admissionGate.WaitAsync(stoppingToken);
+        try
         {
-            if (_completedRepairs.ContainsKey(operationId))
+            var phase = _completedRepairs.ContainsKey(operationId)
+                ? OperationRepairPhase.Completed
+                : GetRequiredRepair(operationId).Phase;
+            if (phase is OperationRepairPhase.Repairing or OperationRepairPhase.Completed)
             {
+                if (!forceStop && _forceStoppedOwners.TryRemove(operationId, out _))
+                {
+                    SignalWorkChanged();
+                }
+                if (phase == OperationRepairPhase.Repairing)
+                {
+                    _ = ClaimRepairTask(operationId, _startupRepairs.ContainsKey(operationId));
+                }
                 return;
             }
 
-            DateTime? waitUntil = null;
-            await _admissionGate.WaitAsync(stoppingToken);
+            // A prepared record never started its work, so it owes no repair; a log pass that owes
+            // only a downloads refresh sends it here instead of through a repair.
+            var current = GetRequiredRepair(operationId);
+            if (phase == OperationRepairPhase.Prepared || IsDownloadsRefreshOnly(current))
+            {
+                nextPhase = OperationRepairPhase.Completed;
+            }
             try
             {
-                if (_completedRepairs.ContainsKey(operationId))
-                {
-                    return;
-                }
-
-                var current = GetRequiredRepair(operationId);
-                if (current.Phase == OperationRepairPhase.Completed)
-                {
-                    return;
-                }
-                if (current.Phase == OperationRepairPhase.Repairing)
-                {
-                    repairTask = ClaimRepairTask(operationId, _startupRepairs.ContainsKey(operationId));
-                    continue;
-                }
-
-                var leftRunning = current.Phase == OperationRepairPhase.Running;
-                try
-                {
-                    await SaveRepairCoreAsync(
-                        current,
-                        next =>
-                        {
-                            if (!next.Outcome.HasValue)
-                            {
-                                update?.Invoke(next);
-                                next.Outcome = success
-                                    ? OperationStatus.Completed
-                                    : cancelled
-                                        ? OperationStatus.Cancelled
-                                        : OperationStatus.Failed;
-                                next.Error = error;
-                            }
-                            next.Phase = OperationRepairPhase.Repairing;
-                            next.RetryAtUtc = retryAt;
-                        },
-                        stoppingToken);
-                    if (leftRunning)
+                await SaveRepairCoreAsync(
+                    current,
+                    next =>
                     {
-                        SignalWorkChanged();
-                    }
-                    repairTask = ClaimRepairTask(operationId, recovery: false);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(
-                        ex,
-                        "Failed to save the repair start for operation {OperationId}",
-                        operationId);
-                    retryAt = UtcNow.Add(_repairRetryDelay);
-                    waitUntil = retryAt;
-                }
+                        if (!next.Outcome.HasValue)
+                        {
+                            _unsavedChanges.TryGetValue(operationId, out var kept);
+                            (kept + update)?.Invoke(next);
+                            next.Outcome = success
+                                ? OperationStatus.Completed
+                                : cancelled
+                                    ? OperationStatus.Cancelled
+                                    : OperationStatus.Failed;
+                            next.Error = error;
+                        }
+                        next.Phase = nextPhase;
+                        if (nextPhase == OperationRepairPhase.Completed)
+                        {
+                            next.CompletedAt = UtcNow;
+                            refreshDownloads = NeedsDownloadsRefresh(next);
+                        }
+                        saved = next;
+                    },
+                    stoppingToken);
             }
-            finally
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                _admissionGate.Release();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to save the repair outcome for operation {OperationId}",
+                    operationId);
+                saveFailed = true;
+                _operationTracker.BeginRepair(operationId);
+                // The owner's call carries the real outcome and its update, so it replaces a stored
+                // force stop: a retry that landed with force stop's forceStop: true after the owner had
+                // already called would add an owner barrier nobody removes.
+                Func<Task> retry = () => RecordOutcomeAsync(
+                    operationId,
+                    success,
+                    cancelled,
+                    error,
+                    update,
+                    forceStop,
+                    stoppingToken);
+                startRetry = _pendingOutcomes.TryAdd(operationId, retry);
+                if (!startRetry && !forceStop)
+                {
+                    _pendingOutcomes[operationId] = retry;
+                }
             }
 
-            if (waitUntil.HasValue)
+            if (!saveFailed)
             {
-                await WaitUntilAsync(waitUntil.Value, stoppingToken);
+                _unsavedChanges.TryRemove(operationId, out _);
+                if (phase == OperationRepairPhase.Running)
+                {
+                    SignalWorkChanged();
+                }
+                if (nextPhase == OperationRepairPhase.Repairing)
+                {
+                    if (forceStop)
+                    {
+                        _forceStoppedOwners.TryAdd(operationId, 0);
+                    }
+                    _operationTracker.BeginRepair(operationId);
+                    _ = ClaimRepairTask(operationId, recovery: false);
+                }
             }
         }
+        finally
+        {
+            _admissionGate.Release();
+        }
 
-        await repairTask;
+        if (startRetry)
+        {
+            _ = Task.Run(async () =>
+            {
+                var wait = true;
+                while (true)
+                {
+                    if (wait)
+                    {
+                        await WaitUntilAsync(UtcNow.Add(_repairRetryDelay), stoppingToken);
+                    }
+
+                    Func<Task> call;
+                    await _admissionGate.WaitAsync(stoppingToken);
+                    try
+                    {
+                        call = _pendingOutcomes[operationId];
+                    }
+                    finally
+                    {
+                        _admissionGate.Release();
+                    }
+                    await call();
+
+                    OperationRepairPhase? landed = null;
+                    await _admissionGate.WaitAsync(stoppingToken);
+                    try
+                    {
+                        var stored = _completedRepairs.ContainsKey(operationId)
+                            ? OperationRepairPhase.Completed
+                            : GetRequiredRepair(operationId).Phase;
+                        wait = stored is not (OperationRepairPhase.Repairing or OperationRepairPhase.Completed);
+                        // An owner's call that replaced the stored one while it ran still has to run.
+                        if (!wait && _pendingOutcomes.TryRemove(KeyValuePair.Create(operationId, call)))
+                        {
+                            SignalWorkChanged();
+                            landed = stored;
+                        }
+                    }
+                    finally
+                    {
+                        _admissionGate.Release();
+                    }
+
+                    if (landed.HasValue)
+                    {
+                        _operationTracker.NotifyBlockerCleared();
+                        if (landed == OperationRepairPhase.Completed)
+                        {
+                            // A skipped record or a log pass has no repair task to end its row.
+                            _operationTracker.EndRepair(operationId, null);
+                        }
+                        return;
+                    }
+                }
+            });
+        }
+        if (saveFailed || nextPhase == OperationRepairPhase.Repairing)
+        {
+            return;
+        }
+
+        if (refreshDownloads)
+        {
+            await using var scope = _scopes.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>()
+                .NotifyAllAsync(SignalREvents.DownloadsRefresh);
+        }
+        CleanupCompletedRepairReceipts(saved!);
+        await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
     }
 
     public async Task WaitForRecoveryOwnershipAsync(CancellationToken cancellationToken)
@@ -266,6 +430,16 @@ public partial class OperationStateService
             .OrderBy(repair => repair.StartedAt)
             .Select(CopyRepair)
             .ToList();
+    }
+
+    public OperationRepair? GetBlockingRepair()
+    {
+        return _repairs.Values
+            .Where(repair => repair.Phase == OperationRepairPhase.Repairing
+                || _pendingOutcomes.ContainsKey(repair.Id))
+            .OrderBy(repair => repair.StartedAt)
+            .Select(CopyRepair)
+            .FirstOrDefault();
     }
 
     public bool OwnsRepair(Guid operationId)
@@ -435,6 +609,7 @@ public partial class OperationStateService
         bool recovery,
         CancellationToken stoppingToken)
     {
+        var completed = false;
         try
         {
             if (recovery)
@@ -457,6 +632,7 @@ public partial class OperationStateService
                         CompleteRestoredRepair(operationId);
                     }
                     await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
+                    completed = true;
                     return;
                 }
 
@@ -495,6 +671,7 @@ public partial class OperationStateService
                         CompleteRestoredRepair(operationId);
                     }
                     await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
+                    completed = true;
                     return;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -527,6 +704,10 @@ public partial class OperationStateService
         finally
         {
             _repairTasks.TryRemove(operationId, out _);
+            if (completed)
+            {
+                _operationTracker.EndRepair(operationId, null);
+            }
         }
     }
 
@@ -1024,7 +1205,9 @@ public partial class OperationStateService
                 throw new InvalidOperationException($"Operation repair {current.Id} changed source scope.");
             }
             if (before.NativeLaunchAuthorized && !after.NativeLaunchAuthorized
-                || before.NativeCompletionAccepted && !after.NativeCompletionAccepted)
+                || before.NativeCompletionAccepted && !after.NativeCompletionAccepted
+                || before.LogRewriteStarted && !after.LogRewriteStarted
+                || before.LogPositionsKept && !after.LogPositionsKept)
             {
                 throw new InvalidOperationException($"Operation repair {current.Id} cleared a source checkpoint.");
             }
@@ -1039,9 +1222,16 @@ public partial class OperationStateService
                 throw new InvalidOperationException(
                     $"Operation repair {current.Id} changed accepted corruption candidates.");
             }
-            if (before.NativeCompletionAccepted && !CorruptionCountsEqual(
-                    before.CorruptionCounts,
-                    after.CorruptionCounts))
+            // The log step writes its three counts until it keeps the log positions; a redo after a
+            // reset writes them then.
+            if (before.NativeCompletionAccepted
+                && (!CorruptionCountsEqual(before.CorruptionCounts, after.CorruptionCounts)
+                    || before.LogPositionsKept
+                        && before.CorruptionCounts is { } keptCounts
+                        && after.CorruptionCounts is { } nextCounts
+                        && (keptCounts.LogLinesRemoved != nextCounts.LogLinesRemoved
+                            || keptCounts.LogEntriesDeleted != nextCounts.LogEntriesDeleted
+                            || keptCounts.DownloadsDeleted != nextCounts.DownloadsDeleted)))
             {
                 throw new InvalidOperationException(
                     $"Operation repair {current.Id} changed accepted corruption counters.");
@@ -1184,8 +1374,9 @@ public partial class OperationStateService
         return (left, right) switch
         {
             (null, null) => true,
+            // The Steam removal stores its safe depot set once, after its native step reports it.
             ({ } first, { } second) => first.SteamAppId == second.SteamAppId
-                && first.SteamDepotIds.SequenceEqual(second.SteamDepotIds)
+                && (first.SteamDepotIds.Count == 0 || first.SteamDepotIds.SequenceEqual(second.SteamDepotIds))
                 && string.Equals(first.EpicGame, second.EpicGame, StringComparison.Ordinal)
                 && string.Equals(first.GameName, second.GameName, StringComparison.Ordinal)
                 && string.Equals(first.Service, second.Service, StringComparison.Ordinal),
@@ -1213,9 +1404,6 @@ public partial class OperationStateService
             (null, null) => true,
             ({ } first, { } second) => first.UrlsRemoved == second.UrlsRemoved
                 && first.FilesDeleted == second.FilesDeleted
-                && first.LogLinesRemoved == second.LogLinesRemoved
-                && first.DownloadsDeleted == second.DownloadsDeleted
-                && first.LogEntriesDeleted == second.LogEntriesDeleted
                 && first.AlreadyMissing == second.AlreadyMissing
                 && first.Healed == second.Healed
                 && first.BytesFreed == second.BytesFreed,
@@ -1361,16 +1549,7 @@ public partial class OperationStateService
             .Where(source => source.NativeLaunchAuthorized)
             .ToList();
 
-        var downloadsRefreshOnly = repair.Type == OperationType.LogProcessing
-            && repair.LogProcessing is not null
-            && !repair.EvictionScanId.HasValue
-            && launchedSources.All(source => source.ReceiptPath is null
-                && !source.ResetLogPositions
-                && !source.ReconcileCache
-                && !source.RefreshDetection
-                && !source.InvalidateCorruption
-                && !source.ApplyCorruptionCandidates);
-        if (!downloadsRefreshOnly)
+        if (!IsDownloadsRefreshOnly(repair))
         {
             var datasourceService = services.GetRequiredService<DatasourceService>();
             var capabilityService = services.GetRequiredService<DatasourceCapabilityService>();
@@ -1485,6 +1664,21 @@ public partial class OperationStateService
             await services.GetRequiredService<ISignalRNotificationService>()
                 .NotifyAllAsync(SignalREvents.DownloadsRefresh);
         }
+    }
+
+    private static bool IsDownloadsRefreshOnly(OperationRepair repair)
+    {
+        return repair.Type == OperationType.LogProcessing
+            && repair.LogProcessing is not null
+            && !repair.EvictionScanId.HasValue
+            && repair.Sources
+                .Where(source => source.NativeLaunchAuthorized)
+                .All(source => source.ReceiptPath is null
+                    && !source.ResetLogPositions
+                    && !source.ReconcileCache
+                    && !source.RefreshDetection
+                    && !source.InvalidateCorruption
+                    && !source.ApplyCorruptionCandidates);
     }
 
     internal static bool NeedsDownloadsRefresh(OperationRepair repair)
