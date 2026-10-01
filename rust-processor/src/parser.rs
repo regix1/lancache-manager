@@ -7,11 +7,13 @@ use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
 use serde::Deserialize;
+use std::net::IpAddr;
 
 #[derive(Deserialize)]
 pub(crate) struct CachelogRecord {
     pub(crate) cache_identifier: String,
     remote_addr: String,
+    forwarded_for: Option<String>,
     time_local: String,
     method: String,
     path: String,
@@ -43,6 +45,27 @@ pub(crate) fn parse_cachelog_json(line: &str) -> Option<CachelogRecord> {
     }
 
     Some(record)
+}
+
+/// A reverse proxy on the cache host or LAN reaches nginx from a loopback or private address and
+/// names the requesting device in X-Forwarded-For; the last entry is the address that proxy saw.
+/// A public source is never trusted to name another client. Dual-stack sockets write IPv4 peers as
+/// `::ffff:a.b.c.d`, so both addresses are read in canonical form and the device is stored that
+/// way. Without a usable forwarded address, the logged `remote_addr` is kept exactly as written.
+fn resolve_client_ip(remote_addr: &str, forwarded: Option<&str>) -> String {
+    forwarded
+        .and_then(|value| value.rsplit(',').next())
+        .and_then(|entry| entry.trim().parse::<IpAddr>().ok())
+        .filter(|_| {
+            remote_addr
+                .parse::<IpAddr>()
+                .is_ok_and(|proxy| match proxy.to_canonical() {
+                    IpAddr::V4(v4) => v4.is_private() || v4.is_loopback(),
+                    IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
+                })
+        })
+        .map(|client| client.to_canonical().to_string())
+        .unwrap_or_else(|| remote_addr.to_string())
 }
 
 pub struct LogParser {
@@ -133,7 +156,7 @@ impl LogParser {
 
             (
                 service,
-                record.remote_addr,
+                resolve_client_ip(&record.remote_addr, record.forwarded_for.as_deref()),
                 record.method,
                 record.time_local,
                 record.path,
@@ -163,7 +186,10 @@ impl LogParser {
 
             (
                 service,
-                captures.name("ip")?.as_str().to_string(),
+                resolve_client_ip(
+                    captures.name("ip")?.as_str(),
+                    captures.name("forwarded").map(|capture| capture.as_str()),
+                ),
                 captures.name("method")?.as_str().to_string(),
                 captures.name("time")?.as_str().to_string(),
                 captures.name("url")?.as_str().to_string(),
@@ -591,6 +617,77 @@ mod tests {
             assert_eq!(entry.client_ip, remote_addr);
             assert_eq!(entry.service, expected_service);
         }
+    }
+
+    #[test]
+    fn proxied_records_use_the_forwarded_client() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let cases = [
+            ("172.18.0.1", "192.168.42.61", "192.168.42.61"),
+            ("127.0.0.1", "192.168.42.61", "192.168.42.61"),
+            ("::1", "fd00::61", "fd00::61"),
+            ("fd00::1", "192.168.42.61", "192.168.42.61"),
+            ("10.42.40.10", "203.0.113.7, 192.168.42.61", "192.168.42.61"),
+            ("192.168.42.61", "-", "192.168.42.61"),
+            ("172.18.0.1", "not an address", "172.18.0.1"),
+            ("198.51.100.20", "192.168.42.61", "198.51.100.20"),
+            // Accepted: two proxies credit the inner proxy, and a private-address client that
+            // sends its own X-Forwarded-For is counted under the address it names.
+            ("172.18.0.1", "192.168.42.61, 192.168.42.5", "192.168.42.5"),
+            ("192.168.42.61", "192.168.42.99", "192.168.42.99"),
+            ("172.18.0.1", "::ffff:192.168.42.61", "192.168.42.61"),
+            ("::ffff:172.18.0.1", "192.168.42.61", "192.168.42.61"),
+            ("::1", "FD00:0:0:0:0:0:0:61", "fd00::61"),
+            ("::ffff:192.168.42.61", "-", "::ffff:192.168.42.61"),
+        ];
+
+        for (remote_addr, forwarded, expected) in cases {
+            let text = format!(
+                "[xboxlive] {remote_addr} / {forwarded} - - [28/Sep/2026:18:32:23 +1000] \"GET /6/a/b HTTP/1.1\" 206 1 \"-\" \"-\" \"HIT\" \"assets1.xboxlive.com\" \"bytes=0-0\""
+            );
+            let mut json = official_json();
+            json["remote_addr"] = serde_json::json!(remote_addr);
+            json["forwarded_for"] = serde_json::json!(forwarded);
+
+            assert_eq!(
+                parser.parse_line(&text).expect("text record").client_ip,
+                expected,
+                "text {remote_addr} / {forwarded}"
+            );
+            assert_eq!(
+                parser
+                    .parse_line(&json.to_string())
+                    .expect("JSON record")
+                    .client_ip,
+                expected,
+                "JSON {remote_addr} / {forwarded}"
+            );
+        }
+
+        let mut without_forwarded = official_json();
+        without_forwarded["remote_addr"] = serde_json::json!("172.18.0.1");
+        without_forwarded
+            .as_object_mut()
+            .expect("JSON object")
+            .remove("forwarded_for");
+        assert_eq!(
+            parser
+                .parse_line(&without_forwarded.to_string())
+                .expect("JSON record")
+                .client_ip,
+            "172.18.0.1"
+        );
+
+        let mut empty_forwarded = official_json();
+        empty_forwarded["remote_addr"] = serde_json::json!("192.168.1.20");
+        empty_forwarded["forwarded_for"] = serde_json::json!("");
+        assert_eq!(
+            parser
+                .parse_line(&empty_forwarded.to_string())
+                .expect("JSON record")
+                .client_ip,
+            "192.168.1.20"
+        );
     }
 
     #[test]

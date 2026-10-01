@@ -69,10 +69,12 @@ So **Xbox prefill is not supported on a bare-metal cache**. A session will run t
 Prefer the container-style combined log? Patch the bare-metal nginx config instead. Add the standard format to the `http {}` block of `nginx.conf`:
 
 ```nginx
-log_format cachelog '[$cacheidentifier] $remote_addr / - - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
+log_format cachelog '[$cacheidentifier] $remote_addr / $http_x_forwarded_for - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
 ```
 
-Then in each site file under `caches-available/`, set the service name and point every site at one shared log file:
+**Version note:** logging `$http_x_forwarded_for` needs a LANCache Manager release newer than v1.10.6; v1.10.6 and older drop every line where that field is filled. `:dev` images built before 29 Sep 2026 also drop those lines, even though they show version 1.10.7.
+
+Then in each site file under `caches-available/`, set the service name and replace the site's existing `access_log` directive (the one that writes its per-service `http-detailed` log) with the shared one below, so nginx writes each request to one log file only:
 
 ```nginx
 set $cacheidentifier steam;   # blizzard / epicgames / riot / wsus per site

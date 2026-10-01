@@ -62,10 +62,12 @@ endscript
 如果你希望使用容器风格的合并日志，也可以修改裸机版 nginx 配置。在 `nginx.conf` 的 `http {}` 块中添加标准格式：
 
 ```nginx
-log_format cachelog '[$cacheidentifier] $remote_addr / - - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
+log_format cachelog '[$cacheidentifier] $remote_addr / $http_x_forwarded_for - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
 ```
 
-然后在 `caches-available/` 下的每个站点文件中设置服务名，并让所有站点指向同一个日志文件：
+**版本说明：** 记录 `$http_x_forwarded_for` 需要高于 v1.10.6 的 LANCache Manager 版本；v1.10.6 及更早版本会丢弃该字段有值的每一行日志。2026 年 9 月 29 日之前构建的 `:dev` 镜像虽然显示版本 1.10.7，也会丢弃这些行。
+
+然后在 `caches-available/` 下的每个站点文件中设置服务名，并用下面的共享日志行替换站点原有的 `access_log` 指令（即写入该服务 `http-detailed` 日志的那一条），这样 nginx 的每个请求只会写入一个日志文件：
 
 ```nginx
 set $cacheidentifier steam;   # 各站点分别为 blizzard / epicgames / riot / wsus
