@@ -1749,84 +1749,97 @@ public class CorruptionDetectionService
             .Select(root => root.Datasource.ToLowerInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-        try
+        await using var policyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var retryPolicy = policyContext.Database.CreateExecutionStrategy();
+        await retryPolicy.ExecuteAsync(async () =>
         {
-            if (dbContext.Database.IsRelational())
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+            try
             {
-                await CacheClearingService.InvalidateStructuralCorruptionStateAsync(
-                    dbContext,
-                    _pathResolver,
-                    changedRoots,
-                    cancellationToken);
-            }
-
-            var scans = repair.Type == OperationType.CorruptionRemoval
-                    && repair.Corruption is { } captured
-                ? await dbContext.CachedCorruptionScans
-                    .Where(scan => scan.ScanId == captured.ScanId)
-                    .ToListAsync(cancellationToken)
-                : await dbContext.CachedCorruptionScans
-                    .Where(scan => scan.IsCurrent)
-                    .ToListAsync(cancellationToken);
-            var scanIds = scans.Select(scan => scan.ScanId).ToList();
-            if (scanIds.Count > 0)
-            {
-                var changedRows = await dbContext.CachedCorruptionDetections
-                    .Where(row => scanIds.Contains(row.ScanId)
-                        && row.ServiceName != ProjectionServiceName
-                        && datasourceNames.Contains(row.DatasourceName.ToLower()))
-                    .ToListAsync(cancellationToken);
-                foreach (var row in changedRows)
+                if (dbContext.Database.IsRelational())
                 {
-                    row.RemovalAllowed = false;
+                    await CacheClearingService.InvalidateStructuralCorruptionStateAsync(
+                        dbContext,
+                        _pathResolver,
+                        changedRoots,
+                        cancellationToken);
                 }
 
-                var allRows = await dbContext.CachedCorruptionDetections
-                    .Where(row => scanIds.Contains(row.ScanId)
-                        && row.ServiceName != ProjectionServiceName)
-                    .ToListAsync(cancellationToken);
-                var projections = await dbContext.CachedCorruptionDetections
-                    .Where(row => scanIds.Contains(row.ScanId)
-                        && row.ServiceName == ProjectionServiceName)
-                    .ToDictionaryAsync(row => row.ScanId, cancellationToken);
-                foreach (var scan in scans)
+                var scans = repair.Type == OperationType.CorruptionRemoval
+                        && repair.Corruption is { } captured
+                    ? await dbContext.CachedCorruptionScans
+                        .Where(scan => scan.ScanId == captured.ScanId)
+                        .ToListAsync(cancellationToken)
+                    : await dbContext.CachedCorruptionScans
+                        .Where(scan => scan.IsCurrent)
+                        .ToListAsync(cancellationToken);
+                var scanIds = scans.Select(scan => scan.ScanId).ToList();
+                if (scanIds.Count > 0)
                 {
-                    if (!projections.TryGetValue(scan.ScanId, out var projectionRow))
+                    var changedQuery = dbContext.CachedCorruptionDetections
+                        .Where(row => scanIds.Contains(row.ScanId)
+                            && row.ServiceName != ProjectionServiceName
+                            && datasourceNames.Contains(row.DatasourceName.ToLower()));
+                    if (repair.Type == OperationType.CorruptionRemoval
+                        && repair.Corruption is { } capturedRemoval)
                     {
-                        throw new InvalidDataException(
-                            $"Corruption scan {scan.ScanId} omitted its projection");
+                        // A corruption removal deletes only its own service's chunks; the other
+                        // services' rows on the same datasource still describe untouched files.
+                        changedQuery = changedQuery.Where(row => row.ServiceName == capturedRemoval.Service);
                     }
 
-                    var projection = JsonSerializer.Deserialize<CachedCorruptionProjection>(
-                            projectionRow.CandidatesJson,
-                            _candidateJsonOptions)
-                        ?? throw new InvalidDataException(
-                            $"Corruption scan {scan.ScanId} has a null projection");
-                    var candidates = allRows
-                        .Where(row => row.ScanId == scan.ScanId)
-                        .SelectMany(DeserializeCandidates)
-                        .ToList();
-                    projection.DetectionCounts = ProjectDetectionCounts(
-                        candidates,
-                        scan.DetectionMode.ToDetectionMethod());
-                    projectionRow.CandidatesJson = JsonSerializer.Serialize(
-                        projection,
-                        _candidateJsonOptions);
-                }
-            }
+                    var changedRows = await changedQuery.ToListAsync(cancellationToken);
+                    foreach (var row in changedRows)
+                    {
+                        row.RemovalAllowed = false;
+                    }
 
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+                    var allRows = await dbContext.CachedCorruptionDetections
+                        .Where(row => scanIds.Contains(row.ScanId)
+                            && row.ServiceName != ProjectionServiceName)
+                        .ToListAsync(cancellationToken);
+                    var projections = await dbContext.CachedCorruptionDetections
+                        .Where(row => scanIds.Contains(row.ScanId)
+                            && row.ServiceName == ProjectionServiceName)
+                        .ToDictionaryAsync(row => row.ScanId, cancellationToken);
+                    foreach (var scan in scans)
+                    {
+                        if (!projections.TryGetValue(scan.ScanId, out var projectionRow))
+                        {
+                            throw new InvalidDataException(
+                                $"Corruption scan {scan.ScanId} omitted its projection");
+                        }
+
+                        var projection = JsonSerializer.Deserialize<CachedCorruptionProjection>(
+                                projectionRow.CandidatesJson,
+                                _candidateJsonOptions)
+                            ?? throw new InvalidDataException(
+                                $"Corruption scan {scan.ScanId} has a null projection");
+                        var candidates = allRows
+                            .Where(row => row.ScanId == scan.ScanId)
+                            .SelectMany(DeserializeCandidates)
+                            .ToList();
+                        projection.DetectionCounts = ProjectDetectionCounts(
+                            candidates,
+                            scan.DetectionMode.ToDetectionMethod());
+                        projectionRow.CandidatesJson = JsonSerializer.Serialize(
+                            projection,
+                            _candidateJsonOptions);
+                    }
+                }
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
     }
 
     public async Task ResumeRepairAsync(

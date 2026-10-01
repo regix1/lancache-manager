@@ -668,6 +668,108 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
+    public async Task RepairInvalidation_RunsWhenTheDatabaseRetriesTransientFailuresAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var scanId = Guid.Parse("00000000-0000-0000-000a-000000000001");
+        await PersistScanAsync(
+            NewService(database.Factory),
+            scanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 1001,
+            ScanStartedUtc.AddSeconds(1),
+            StructuralScanMode.Full);
+        string connectionString;
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            connectionString = context.Database.GetConnectionString()!;
+        }
+
+        var retryingService = NewService(new TestDbContextFactory(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseNpgsql(connectionString, options =>
+                    options.EnableRetryOnFailure(3, TimeSpan.Zero, null))
+                .Options));
+        await retryingService.InvalidateRepairAsync(
+            new OperationRepair
+            {
+                Id = Guid.NewGuid(),
+                Type = OperationType.GameRemoval,
+                Name = "Game removal",
+                StartedAt = ScanStartedUtc,
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        CacheRoot = "/cache/default",
+                        NativeLaunchAuthorized = true,
+                        InvalidateCorruption = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        await using var verify = await database.Factory.CreateDbContextAsync();
+        Assert.False((await verify.CachedCorruptionDetections.SingleAsync(row =>
+            row.ScanId == scanId && row.ServiceName == "steam")).RemovalAllowed);
+    }
+
+    [Fact]
+    public async Task CurrentScanRemovalInvalidation_KeepsOtherServicesOnTheDatasourceRemovableAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.Parse("00000000-0000-0000-000a-000000000002");
+        var epicCandidate = StructuralCandidate("epic-chunk", 2);
+        epicCandidate.Service = "epic";
+        var report = StructuralReport("default", StructuralCandidate("steam-chunk", 1), epicCandidate);
+        Validate(report, CorruptionDetectionMethod.Structural, "default");
+        await service.PersistCompletedScanAsync(
+            scanId,
+            3,
+            LookbackDays,
+            CorruptionDetectionMethod.Structural,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [report],
+            StructuralScanMode.Full);
+
+        await service.InvalidateRepairAsync(
+            new OperationRepair
+            {
+                Id = Guid.NewGuid(),
+                Type = OperationType.CorruptionRemoval,
+                Name = "Corruption removal: steam",
+                StartedAt = ScanStartedUtc,
+                Corruption = new CorruptionRepair
+                {
+                    ScanId = scanId,
+                    ContractVersion = CorruptionReport.SupportedContractVersion,
+                    DetectionMethod = CorruptionDetectionMethod.Structural,
+                    Service = "steam"
+                },
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        CacheRoot = "/cache/default",
+                        NativeLaunchAuthorized = true,
+                        InvalidateCorruption = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        await using var context = await database.Factory.CreateDbContextAsync();
+        Assert.False((await context.CachedCorruptionDetections.SingleAsync(row =>
+            row.ScanId == scanId && row.ServiceName == "steam")).RemovalAllowed);
+        Assert.True((await context.CachedCorruptionDetections.SingleAsync(row =>
+            row.ScanId == scanId && row.ServiceName == "epic")).RemovalAllowed);
+    }
+
+    [Fact]
     public async Task CompletedScans_CoexistPerMethodAndPersistRequestedStructuralModeAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
