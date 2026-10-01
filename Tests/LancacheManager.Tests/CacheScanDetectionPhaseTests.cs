@@ -1072,6 +1072,402 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Same(notice, tracker.GetOperation(row.OperationId)!.Notice);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ACompletedClearEvictsTheFinishedDownloadsNoScanWillReach(bool skipsCacheScan)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        using var harness = new DatabaseReconciliation(database, database.Options);
+        var clearStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        var receipt = Path.Combine(harness.Root, ".lancache-repair-receipt.json");
+        await File.WriteAllTextAsync(receipt, "{}");
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            // 'default' has no key scheme, so no scan can reach it; 'secondary' has a receipt and
+            // a key scheme, so only a skipped scan leaves it to this evict.
+            seed.Downloads.AddRange(
+                ClearedDownload("unscanned-before", "Default", clearStartedAt.AddMinutes(-1), gameAppId: 10),
+                ClearedDownload("unscanned-after", "Default", clearStartedAt.AddMinutes(1), gameAppId: 11),
+                ClearedDownload("unscanned-active", "Default", clearStartedAt.AddMinutes(-1), gameAppId: 12, isActive: true),
+                ClearedDownload("unscanned-zero-byte", "Default", clearStartedAt.AddMinutes(-1), gameAppId: 13, bytes: 0),
+                ClearedDownload("unscanned-service", "Default", clearStartedAt.AddMinutes(-1), service: "wsus"),
+                ClearedDownload("receipt-before", "secondary", clearStartedAt.AddMinutes(-1), gameAppId: 20),
+                ClearedDownload("not-cleared", "third", clearStartedAt.AddMinutes(-1), gameAppId: 30));
+            seed.CachedGameDetections.AddRange(
+                CachedGame(10, totalSizeBytes: 1024),
+                CachedGame(20, totalSizeBytes: 2048),
+                CachedGame(30, totalSizeBytes: 512));
+            seed.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = "wsus",
+                CacheFilesFound = 3,
+                TotalSizeBytes = 4096
+            });
+            AddPrefillRows(seed);
+            await seed.SaveChangesAsync();
+        }
+        await new GameCacheDetectionDataService(
+                database.Factory,
+                NullLogger<GameCacheDetectionDataService>.Instance)
+            .RefreshDiskSummaryAsync();
+        await using (var before = new AppDbContext(database.Options))
+        {
+            Assert.Equal(7680UL, (await before.CachedDetectionSummaries.SingleAsync()).IdentifiedCacheBytes);
+        }
+
+        await harness.Scan.EvictClearedSourcesAsync(
+            ClearRepair(
+                clearStartedAt,
+                OperationStatus.Completed,
+                ClearSource("default", keyScheme: null, receiptPath: null),
+                ClearSource("secondary", "monolithic", receipt)),
+            skipsCacheScan,
+            CancellationToken.None);
+
+        await using var verify = new AppDbContext(database.Options);
+        var evicted = await verify.Downloads.ToDictionaryAsync(row => row.ClientIp, row => row.IsEvicted);
+        Assert.True(evicted["unscanned-before"]);
+        Assert.False(evicted["unscanned-after"]);
+        Assert.False(evicted["unscanned-active"]);
+        Assert.False(evicted["unscanned-zero-byte"]);
+        Assert.True(evicted["unscanned-service"]);
+        Assert.Equal(skipsCacheScan, evicted["receipt-before"]);
+        Assert.False(evicted["not-cleared"]);
+        var games = await verify.CachedGameDetections.ToDictionaryAsync(row => row.GameAppId, row => row.IsEvicted);
+        Assert.True(games[10]);
+        Assert.Equal(skipsCacheScan, games[20]);
+        Assert.False(games[30]);
+        var service = await verify.CachedServiceDetections.SingleAsync();
+        Assert.True(service.IsEvicted);
+        Assert.Equal(0, service.CacheFilesFound);
+        Assert.Equal(0UL, service.TotalSizeBytes);
+        var summary = await verify.CachedDetectionSummaries.SingleAsync();
+        Assert.Equal(skipsCacheScan ? 512UL : 2560UL, summary.IdentifiedCacheBytes);
+        Assert.Empty(await verify.PrefillCachedDepots.ToListAsync());
+        Assert.Empty(await verify.PrefillCachedApps.ToListAsync());
+        Assert.Equal(1, harness.Notifications.Count(SignalREvents.PrefillCacheChanged));
+    }
+
+    [Theory]
+    [InlineData(OperationStatus.Cancelled)]
+    [InlineData(OperationStatus.Failed)]
+    public async Task AClearThatDidNotCompleteEvictsNothingAndKeepsThePrefillBadges(OperationStatus outcome)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        using var harness = new DatabaseReconciliation(database, database.Options);
+        var clearStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(ClearedDownload("before", "default", clearStartedAt.AddMinutes(-1), gameAppId: 10));
+            AddPrefillRows(seed);
+            await seed.SaveChangesAsync();
+        }
+
+        await harness.Scan.EvictClearedSourcesAsync(
+            ClearRepair(clearStartedAt, outcome, ClearSource("default", keyScheme: null, receiptPath: null)),
+            skipsCacheScan: true,
+            CancellationToken.None);
+
+        await using var verify = new AppDbContext(database.Options);
+        Assert.False((await verify.Downloads.SingleAsync()).IsEvicted);
+        Assert.Single(await verify.PrefillCachedDepots.ToListAsync());
+        Assert.Single(await verify.PrefillCachedApps.ToListAsync());
+        Assert.Equal(0, harness.Notifications.Count(SignalREvents.PrefillCacheChanged));
+    }
+
+    [Fact]
+    public async Task AFailureInsideTheClearEvictRollsBackTheEvictionAndThePrefillWipe()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var clearStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(ClearedDownload("before", "default", clearStartedAt.AddMinutes(-1), gameAppId: 10));
+            AddPrefillRows(seed);
+            await seed.SaveChangesAsync();
+            await seed.Database.ExecuteSqlRawAsync(
+                """
+                CREATE FUNCTION "PreventPrefillAppDelete"() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'blocked prefill app deletion';
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER "PreventPrefillAppDelete"
+                BEFORE DELETE ON "PrefillCachedApps"
+                FOR EACH ROW
+                EXECUTE FUNCTION "PreventPrefillAppDelete"();
+                """);
+        }
+
+        // A retrying strategy refuses a transaction opened outside it, so this also proves the
+        // evict and the wipe run inside the execution strategy.
+        string connectionString;
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            connectionString = context.Database.GetConnectionString()!;
+        }
+        var retrying = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connectionString, options => options.EnableRetryOnFailure(3, TimeSpan.Zero, null))
+            .Options;
+        using var harness = new DatabaseReconciliation(database, retrying);
+
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => harness.Scan.EvictClearedSourcesAsync(
+            ClearRepair(
+                clearStartedAt,
+                OperationStatus.Completed,
+                ClearSource("default", keyScheme: null, receiptPath: null)),
+            skipsCacheScan: true,
+            CancellationToken.None));
+
+        await using var verify = new AppDbContext(database.Options);
+        Assert.False((await verify.Downloads.SingleAsync()).IsEvicted);
+        Assert.Single(await verify.PrefillCachedDepots.ToListAsync());
+        Assert.Single(await verify.PrefillCachedApps.ToListAsync());
+        Assert.Equal(0, harness.Notifications.Count(SignalREvents.PrefillCacheChanged));
+    }
+
+    [Fact]
+    public async Task AServiceIsEvictedOnlyWhenEveryByteBackedServiceDownloadIsEvicted()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var ended = DateTime.UtcNow.AddMinutes(-1);
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.AddRange(
+                ClearedDownload("all-evicted", "default", ended, service: "WSUS", isEvicted: true),
+                ClearedDownload("one-cached-evicted", "default", ended, service: "xboxlive", isEvicted: true),
+                ClearedDownload("one-cached-live", "default", ended, service: "xboxlive"),
+                ClearedDownload("zero-byte-evicted", "default", ended, service: "riot", bytes: 0, isEvicted: true),
+                ClearedDownload("named-evicted", "default", ended, service: "blizzard", isEvicted: true),
+                ClearedDownload("named-live", "default", ended, service: "blizzard", gameName: "Diablo"));
+            seed.CachedServiceDetections.AddRange(
+                CachedService("wsus"),
+                CachedService("xboxlive"),
+                CachedService("riot"),
+                CachedService("blizzard"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            Assert.Equal(1, await CacheReconciliationService.EvictCachedServiceDetectionsAsync(
+                context,
+                NullLogger.Instance,
+                CancellationToken.None));
+
+            // The self-heal reads the same Download set, so it must not undo the evict.
+            Assert.Equal(0, await CacheReconciliationService.UnevictCachedServiceDetectionsAsync(
+                context,
+                NullLogger.Instance,
+                new GameCacheDetectionDataService(
+                    database.Factory,
+                    NullLogger<GameCacheDetectionDataService>.Instance),
+                CancellationToken.None));
+        }
+
+        await using var verify = new AppDbContext(database.Options);
+        var services = await verify.CachedServiceDetections.ToDictionaryAsync(row => row.ServiceName);
+        Assert.True(services["wsus"].IsEvicted);
+        Assert.Equal(0, services["wsus"].CacheFilesFound);
+        Assert.Equal(0UL, services["wsus"].TotalSizeBytes);
+        foreach (var kept in new[] { "xboxlive", "riot", "blizzard" })
+        {
+            Assert.False(services[kept].IsEvicted);
+            Assert.Equal(3, services[kept].CacheFilesFound);
+            Assert.Equal(4096UL, services[kept].TotalSizeBytes);
+        }
+    }
+
+    [Fact]
+    public async Task AFinalizedScanThatEvictedDownloadsEvictsTheirService()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        using var harness = new DatabaseReconciliation(database, database.Options);
+        var scanId = Guid.NewGuid();
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(ClearedDownload(
+                "evicted",
+                "default",
+                DateTime.UtcNow.AddMinutes(-1),
+                service: "wsus",
+                isEvicted: true));
+            seed.CachedServiceDetections.Add(CachedService("wsus"));
+            seed.EvictionScanCheckpoints.Add(new EvictionScanCheckpoint
+            {
+                OperationId = scanId,
+                Processed = 1,
+                Evicted = 1,
+                StartedAtUtc = DateTime.UtcNow.AddMinutes(-2)
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        await (Task)typeof(CacheReconciliationService)
+            .GetMethod("FinalizeEvictionScanAttemptAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(harness.Scan,
+            [
+                new OperationRepair
+                {
+                    Id = Guid.NewGuid(),
+                    Type = OperationType.EvictionScan,
+                    Name = "Eviction Scan",
+                    StartedAt = DateTime.UtcNow.AddMinutes(-3)
+                },
+                scanId,
+                false,
+                CancellationToken.None,
+                true
+            ])!;
+
+        await using var verify = new AppDbContext(database.Options);
+        var service = await verify.CachedServiceDetections.SingleAsync();
+        Assert.True(service.IsEvicted);
+        Assert.Equal(0, service.CacheFilesFound);
+        Assert.Equal(0UL, service.TotalSizeBytes);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("steam")]
+    public async Task ThePurgeRunnerKeepsTheEvictionPurgeArgumentsAndInputAndReopensBeforeReadingTheReport(
+        string? service)
+    {
+        using var ctx = new PhaseContext();
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        await File.WriteAllLinesAsync(Path.Combine(source.LogPath, "access.log"), ["GET /a HTTP/1.1"]);
+        ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access"] = 10 });
+        ctx.State.SetLogTotalLines(source.Name, 20);
+        var paths = new TempDirPathResolver(ctx.Root) { DockerSocketAvailable = true };
+        var rust = new CapturingPurgeRust(paths);
+        var reopenedWithReportUnread = false;
+        var positionAtReopen = 0L;
+        var nginx = new ReopenRecordingNginx(source.LogPath, paths, () =>
+        {
+            reopenedWithReportUnread = File.Exists(rust.OutputPath);
+            positionAtReopen = ctx.State.GetLogSourcePositions(source.Name)["access"];
+        });
+        // Urls and depots as the eviction collectors build them; a service purge takes no depots.
+        IReadOnlyList<string> urls = service is null ? ["/a", "/b"] : ["/a"];
+        IReadOnlyList<long> depotIds = service is null ? [7, 9] : [];
+
+        var report = await new LogPurgeRunner(
+                paths,
+                rust,
+                nginx,
+                ctx.State,
+                NullLogger.Instance)
+            .RunAsync(Guid.NewGuid(), source, new LogPurgeTargets(urls, depotIds, service), null, CancellationToken.None);
+
+        // The input the eviction purge wrote before the runner existed, byte for byte.
+        var evictionInput = JsonSerializer.Serialize(
+            new { urls, depot_ids = depotIds },
+            new JsonSerializerOptions { WriteIndented = false });
+        var expectedInput = service is null
+            ? evictionInput
+            : evictionInput[..^1] + $",\"service\":\"{service}\"}}";
+        Assert.Equal(System.Text.Encoding.UTF8.GetBytes(expectedInput), rust.Input);
+        var arguments = Regex.Match(
+            rust.Arguments,
+            "^\"(?<logs>[^\"]+)\" \"[^\"]+\" \"[^\"]+\" --progress-json \"[^\"]+\" --progress --stem-positions \"[^\"]+\"$");
+        Assert.True(arguments.Success, rust.Arguments);
+        Assert.Equal(source.LogPath, arguments.Groups["logs"].Value);
+        Assert.True(reopenedWithReportUnread);
+        Assert.Equal(10, positionAtReopen);
+        Assert.False(File.Exists(rust.OutputPath));
+        Assert.Equal(2, report.LinesRemoved);
+        Assert.Equal(9, ctx.State.GetLogSourcePositions(source.Name)["access"]);
+    }
+
+    private static Download ClearedDownload(
+        string identity,
+        string datasource,
+        DateTime endTimeUtc,
+        long? gameAppId = null,
+        string service = "steam",
+        string? gameName = null,
+        long bytes = 1024,
+        bool isActive = false,
+        bool isEvicted = false) => new()
+    {
+        Service = service,
+        ClientIp = identity,
+        Datasource = datasource,
+        GameAppId = gameAppId,
+        GameName = gameAppId is null ? gameName : $"Game {gameAppId}",
+        StartTimeUtc = endTimeUtc.AddMinutes(-1),
+        EndTimeUtc = endTimeUtc,
+        CacheHitBytes = bytes,
+        IsActive = isActive,
+        IsEvicted = isEvicted
+    };
+
+    private static CachedGameDetection CachedGame(long gameAppId, ulong totalSizeBytes) => new()
+    {
+        GameAppId = gameAppId,
+        GameName = $"Game {gameAppId}",
+        Service = "steam",
+        CacheFilesFound = 1,
+        TotalSizeBytes = totalSizeBytes,
+        LastDetectedUtc = DateTime.UtcNow,
+        CreatedAtUtc = DateTime.UtcNow
+    };
+
+    private static CachedServiceDetection CachedService(string name) => new()
+    {
+        ServiceName = name,
+        CacheFilesFound = 3,
+        TotalSizeBytes = 4096
+    };
+
+    private static void AddPrefillRows(AppDbContext context)
+    {
+        context.PrefillCachedDepots.Add(new PrefillCachedDepot
+        {
+            AppId = 730,
+            DepotId = 731,
+            ManifestId = 12345,
+            AppName = "Counter-Strike 2",
+            CachedAtUtc = DateTime.UtcNow,
+            TotalBytes = 1024
+        });
+        context.PrefillCachedApps.Add(new PrefillCachedApp
+        {
+            Platform = PrefillPlatform.Steam,
+            AppId = "730",
+            AppName = "Counter-Strike 2",
+            CachedAtUtc = DateTime.UtcNow
+        });
+    }
+
+    private static OperationRepair ClearRepair(
+        DateTime startedAt,
+        OperationStatus outcome,
+        params OperationRepairSource[] sources) => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = OperationType.CacheClearing,
+        Name = "Cache Clearing",
+        StartedAt = startedAt,
+        Outcome = outcome,
+        CacheClearing = new CacheClearingRepair { EntityKey = "all" },
+        Sources = [.. sources]
+    };
+
+    private static OperationRepairSource ClearSource(string datasource, string? keyScheme, string? receiptPath) => new()
+    {
+        Datasource = datasource,
+        CacheRoot = Path.Combine(Path.GetTempPath(), "lcm-cleared", datasource),
+        KeyScheme = keyScheme,
+        ReceiptPath = receiptPath,
+        NativeLaunchAuthorized = true,
+        ReconcileCache = true,
+        RefreshDetection = true,
+        InvalidateCorruption = true
+    };
+
     private static async Task<OperationInfo> WaitForTerminalAsync(
         UnifiedOperationTracker tracker,
         Guid operationId,
@@ -1267,6 +1663,176 @@ public sealed class CacheScanDetectionPhaseTests
             }
 
             return Task.FromResult(result);
+        }
+    }
+
+    /// <summary>
+    /// Stands in for <c>cache_purge_log_entries</c>: keeps the arguments and the input it was
+    /// launched with, publishes every checked file as unchanged, and writes a report.
+    /// </summary>
+    private sealed class CapturingPurgeRust(IPathResolver paths) : RustProcessHelper(
+        NullLogger<RustProcessHelper>.Instance,
+        new ProcessManager(NullLogger<ProcessManager>.Instance),
+        paths,
+        operationTracker: null!)
+    {
+        public string Arguments { get; private set; } = string.Empty;
+        public byte[] Input { get; private set; } = [];
+        public string OutputPath { get; private set; } = string.Empty;
+
+        public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo start,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            Assert.Equal("cache_purge_log_entries", processLabel);
+            Arguments = start.Arguments;
+            var quoted = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
+                .Select(match => match.Groups[1].Value)
+                .ToArray();
+            Input = await File.ReadAllBytesAsync(quoted[1], cancellationToken);
+            OutputPath = quoted[2];
+            var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var check = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                await File.ReadAllTextAsync(start.Environment["LANCACHE_LOG_CHECK"]!, cancellationToken),
+                web)!;
+            await File.WriteAllTextAsync(
+                start.Environment["LANCACHE_LOG_RESULT"]!,
+                JsonSerializer.Serialize(
+                    new NginxPublicationResult(
+                        true,
+                        check.Files
+                            .Select(file => new NginxPublicationRecord(
+                                file.TargetPath,
+                                file.OriginalIdentity,
+                                null,
+                                file.OriginalIdentity,
+                                Changed: false,
+                                Deleted: false))
+                            .ToArray()),
+                    web),
+                cancellationToken);
+            await File.WriteAllTextAsync(
+                OutputPath,
+                """
+                {"success":true,"lines_removed":2,"log_lines_removed_by_source":{"access":2},"log_lines_removed_before_position_by_source":{"access":1},"permission_errors":0,"error":null}
+                """,
+                cancellationToken);
+            return new ProcessExecutionResult { ExitCode = 0 };
+        }
+    }
+
+    /// <summary>
+    /// One docker nginx writer over the test log folder whose reopen always succeeds and runs the
+    /// test's callback, so the test can see what had happened by the time nginx reopened.
+    /// </summary>
+    private sealed class ReopenRecordingNginx(string logs, TempDirPathResolver paths, Action onReopen)
+        : NginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "writer"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            paths,
+            TimeProvider.System)
+    {
+        protected override bool CanProbeHostWriters => false;
+        protected override bool CanReplaceDockerLogs => true;
+
+        protected override Task<ProcessCommandResult> RunProcessAsync(
+            ProcessStartInfo start,
+            string label,
+            CancellationToken cancellationToken = default)
+        {
+            if (label == "docker nginx verified reopen")
+            {
+                onReopen();
+            }
+
+            return Task.FromResult(label switch
+            {
+                "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "writer\n" },
+                "docker nginx mount inspection" => new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" },
+                "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "4242|saved\n" },
+                "docker nginx writer ownership" or "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 0 },
+                _ => throw new InvalidOperationException($"Unexpected nginx command: {label} {start.Arguments}")
+            });
+        }
+    }
+
+    /// <summary>
+    /// A <see cref="CacheReconciliationService"/> carrying only the members the cache clear's evict
+    /// and the scan finalize read, over a real PostgreSQL schema so their bulk updates run as they
+    /// do in production. The scoped context takes its own options so a test can make it retrying.
+    /// </summary>
+    private sealed class DatabaseReconciliation : IDisposable
+    {
+        private readonly ServiceProvider _services;
+        private readonly GameCacheDetectionService _detection;
+
+        public DatabaseReconciliation(TestDatabase database, DbContextOptions<AppDbContext> scopedOptions)
+        {
+            Root = Path.Combine(Path.GetTempPath(), "lcm-clear-evict", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Root);
+            var paths = new TempDirPathResolver(Root);
+            var configuration = new ConfigurationBuilder().Build();
+            var datasources = new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
+            Notifications = (RecordingNotifications)DispatchProxy
+                .Create<ISignalRNotificationService, RecordingNotifications>();
+            var notifications = (ISignalRNotificationService)(object)Notifications;
+            _detection = new GameCacheDetectionService(
+                NullLogger<GameCacheDetectionService>.Instance,
+                paths,
+                operationStateService: null!,
+                database.Factory,
+                new GameCacheDetectionDataService(
+                    database.Factory,
+                    NullLogger<GameCacheDetectionDataService>.Instance),
+                evictedDetectionPreservationService: null!,
+                unknownGameResolutionService: null!,
+                rustProcessHelper: null!,
+                notifications,
+                datasources,
+                capabilityService: null!,
+                operationTracker: null!,
+                Idle());
+            var registrations = new ServiceCollection();
+            registrations.AddScoped(_ => new AppDbContext(scopedOptions));
+            registrations.AddSingleton(new CorruptionDetectionService(
+                NullLogger<CorruptionDetectionService>.Instance,
+                configuration,
+                paths,
+                rustProcessHelper: null!,
+                notifications,
+                datasources,
+                database.Factory,
+                operationStateService: null!,
+                operationTracker: null!,
+                capabilityService: null!,
+                Idle()));
+            registrations.AddSingleton(
+                (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService)));
+            _services = registrations.BuildServiceProvider();
+            Scan = (CacheReconciliationService)RuntimeHelpers.GetUninitializedObject(
+                typeof(CacheReconciliationService));
+            PhaseContext.SetField(Scan, "_serviceProvider", _services);
+            PhaseContext.SetField(Scan, "_logger", NullLogger<CacheReconciliationService>.Instance);
+            PhaseContext.SetField(Scan, "_notifications", notifications);
+            PhaseContext.SetField(Scan, "_gameCacheDetectionService", _detection);
+        }
+
+        public CacheReconciliationService Scan { get; }
+        public RecordingNotifications Notifications { get; }
+        public string Root { get; }
+
+        public void Dispose()
+        {
+            _detection.Dispose();
+            _services.Dispose();
+            Directory.Delete(Root, recursive: true);
         }
     }
 
