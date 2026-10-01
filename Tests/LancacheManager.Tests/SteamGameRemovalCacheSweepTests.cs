@@ -1032,7 +1032,8 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
 
         protected override Task<ProcessCommandResult> RunProcessAsync(
             ProcessStartInfo process,
-            string label)
+            string label,
+            CancellationToken cancellationToken = default)
         {
             var arguments = process.Arguments;
             var writer = arguments.Contains(" beta", StringComparison.Ordinal) ? "beta" : "alpha";

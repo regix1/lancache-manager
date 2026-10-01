@@ -1545,6 +1545,41 @@ public sealed class NginxLogRotationServiceTests
     }
 
     [Fact]
+    public async Task CompleteReopenCheckAsync_HungWriterSignalFailsAndFreesTheLogLockAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-hung-signal-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+            service.ReopenNeverReturns = true;
+            await using var check = CreateRequiredCheck("writer");
+            using var caller = new CancellationTokenSource();
+
+            LogRotationResult result;
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogRemoval,
+                LogFileLockKind.Rewrite,
+                caller.Token))
+            {
+                result = await service.CompleteReopenCheckAsync(check, physicalChange: true, caller.Token)
+                    .WaitAsync(TimeSpan.FromSeconds(45));
+            }
+
+            Assert.False(result.Success);
+            Assert.Equal(NginxReopenStatus.Failed, result.Status);
+            Assert.Equal(NginxReopenRequirement.Required, result.Requirement);
+            Assert.True(result.PartialPhysicalEffects);
+            Assert.Contains("writer", result.ErrorMessage, StringComparison.Ordinal);
+            Assert.Equal("docker nginx verified reopen", Assert.Single(service.Commands).Label);
+            await harness.Owner.WaitForLogStepAsync(active: false, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
     public async Task ReopenNginxLogsAsync_NoContainer_SignalsHostWithExpectedCommandAsync()
     {
         var logger = new CapturingLogger<NginxLogRotationService>();
@@ -1832,6 +1867,7 @@ public sealed class NginxLogRotationServiceTests
         public Func<CommandInvocation, ProcessCommandResult>? OnCommand { get; set; }
         public bool ProbeHostWriters { get; set; } = true;
         public bool ReplaceDockerLogs { get; set; } = true;
+        public bool ReopenNeverReturns { get; set; }
         protected override bool CanProbeHostWriters => ProbeHostWriters;
         protected override bool CanReplaceDockerLogs => ReplaceDockerLogs;
 
@@ -1843,7 +1879,8 @@ public sealed class NginxLogRotationServiceTests
 
         protected override Task<ProcessCommandResult> RunProcessAsync(
             ProcessStartInfo startInfo,
-            string label)
+            string label,
+            CancellationToken cancellationToken = default)
         {
             var command = new CommandInvocation(
                 label,
@@ -1854,6 +1891,10 @@ public sealed class NginxLogRotationServiceTests
                 startInfo.RedirectStandardError,
                 startInfo.UseShellExecute);
             Commands.Add(command);
+            if (ReopenNeverReturns && label == "docker nginx verified reopen")
+            {
+                return new TaskCompletionSource<ProcessCommandResult>().Task.WaitAsync(cancellationToken);
+            }
             return Task.FromResult(OnCommand?.Invoke(command) ?? ProcessResults.Dequeue());
         }
     }
@@ -1876,7 +1917,8 @@ public sealed class NginxLogRotationServiceTests
 
         protected override Task<ProcessCommandResult> RunProcessAsync(
             ProcessStartInfo startInfo,
-            string label)
+            string label,
+            CancellationToken cancellationToken = default)
         {
             var result = label switch
             {

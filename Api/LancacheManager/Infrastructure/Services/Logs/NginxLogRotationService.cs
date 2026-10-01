@@ -40,6 +40,9 @@ public class NginxLogRotationService
 {
     private static readonly TimeSpan _bareMetalWarningThrottle = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan _availabilityCacheTtl = TimeSpan.FromSeconds(30);
+    // One docker exec ... kill -USR1 normally returns within a second; 30 s lets a slow daemon
+    // finish and stops a hung one from holding the log lock and every job queued behind it.
+    private static readonly TimeSpan _writerSignalTimeout = TimeSpan.FromSeconds(30);
 
     private const string HostPidVisibleMarker = "nginx-pid-visible";
     private const int HostPidNotVisibleExitCode = 3;
@@ -629,7 +632,20 @@ public class NginxLogRotationService
 
         foreach (var writer in check.Writers)
         {
-            var signal = await SignalWriterAsync(writer, cancellationToken);
+            using var signalTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            signalTimeout.CancelAfter(_writerSignalTimeout);
+            ProcessCommandResult signal;
+            try
+            {
+                signal = await SignalWriterAsync(writer, signalTimeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return LogRotationResult.Failed(
+                    $"Failed to reopen nginx writer '{writer.Name}' within {_writerSignalTimeout.TotalSeconds:0} seconds",
+                    NginxReopenRequirement.Required,
+                    partialPhysicalEffects: physicalChange);
+            }
             if (signal.ExitCode != 0)
             {
                 return LogRotationResult.Failed(
@@ -1200,7 +1216,8 @@ public class NginxLogRotationService
             return await RunProcessAsync(
                 CreateDockerStartInfo(
                     $"exec {writer.Name} sh -c \"start=$(awk '{{print $22}}' /proc/{writer.ProcessId}/stat 2>/dev/null); test \\\"$start\\\" = '{writer.StartIdentity}' && kill -USR1 {writer.ProcessId}\""),
-                "docker nginx verified reopen");
+                "docker nginx verified reopen",
+                cancellationToken);
         }
 
         var process = new ProcessStartInfo
@@ -1215,7 +1232,7 @@ public class NginxLogRotationService
         process.ArgumentList.Add(
             $"start=$(awk '{{print $22}}' /proc/{writer.ProcessId}/stat 2>/dev/null); " +
             $"test \"$start\" = '{writer.StartIdentity}' && kill -USR1 {writer.ProcessId}");
-        return await RunProcessAsync(process, "host nginx verified reopen");
+        return await RunProcessAsync(process, "host nginx verified reopen", cancellationToken);
     }
 
     private static string GetSignalError(
@@ -1586,7 +1603,10 @@ public class NginxLogRotationService
     /// <summary>
     /// Test seam for commands that production runs through the shared process manager.
     /// </summary>
-    protected virtual Task<ProcessCommandResult> RunProcessAsync(ProcessStartInfo startInfo, string label) =>
-        _processManager.RunAsync(startInfo, label: label);
+    protected virtual Task<ProcessCommandResult> RunProcessAsync(
+        ProcessStartInfo startInfo,
+        string label,
+        CancellationToken cancellationToken = default) =>
+        _processManager.RunAsync(startInfo, cancellationToken, label: label);
 
 }

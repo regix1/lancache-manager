@@ -1239,7 +1239,8 @@ public sealed class CacheScanDetectionPhaseTests
 
         protected override Task<ProcessCommandResult> RunProcessAsync(
             ProcessStartInfo start,
-            string label)
+            string label,
+            CancellationToken cancellationToken = default)
         {
             ProcessCommandResult result;
             switch (label)
