@@ -392,6 +392,8 @@ public sealed class RemovalLogStepTests
             AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
             await seed.SaveChangesAsync();
         }
+        // Beta's step removes no line, so the lines its import has read stay read.
+        rust.State.SetLogSourcePositions("beta", new Dictionary<string, long> { ["access"] = 7 });
         var config = harness.CreateConfig(type, Metrics(type), async (operationId, cancellationToken, report) =>
         {
             if (type == OperationType.GameRemoval)
@@ -429,6 +431,8 @@ public sealed class RemovalLogStepTests
         Assert.True(beta.NativeCompletionAccepted);
         Assert.True(beta.LogRewriteStarted);
         Assert.True(beta.LogPositionsKept);
+        Assert.Equal(7, rust.State.GetLogPosition("beta"));
+        Assert.Equal(new Dictionary<string, long> { ["access"] = 7 }, rust.State.GetLogSourcePositions("beta"));
     }
 
     private static string Root() =>
