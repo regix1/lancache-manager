@@ -109,6 +109,14 @@ public abstract class PathResolverBase : IPathResolver
                         continue;
                     }
 
+                    // Pending repairs must survive any downtime, and a corruption removal's
+                    // evidence is read by its repair until that repair is done.
+                    if (fileName == "operation_repairs.json"
+                        || fileName.StartsWith("corruption_evidence_", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     var fileInfo = new FileInfo(file);
                     if (fileInfo.LastWriteTimeUtc < cutoffTime)
                     {

@@ -30,6 +30,7 @@ public partial class OperationStateService
     private readonly ConcurrentDictionary<Guid, Func<Task>> _pendingOutcomes = new();
     private readonly ConcurrentDictionary<Guid, Action<OperationRepair>> _unsavedChanges = new();
     private readonly ConcurrentDictionary<Guid, byte> _forceStoppedOwners = new();
+    private readonly ConcurrentDictionary<Guid, int> _repairFailures = new();
     private readonly TaskCompletionSource<bool> _recoveryOwnership =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TaskCompletionSource<bool> _workChanged =
@@ -95,7 +96,9 @@ public partial class OperationStateService
                         $"Operation repair {operationId} cannot start mutation from phase {current.Phase}.");
                 }
 
-                var pending = GetBlockingRepair();
+                // A log pass waits for no repair: the log file lock keeps it apart from a repair's
+                // log steps.
+                var pending = current.Type == OperationType.LogProcessing ? null : GetBlockingRepair();
                 if (pending is not null)
                 {
                     // An outcome that has not landed owes no repair yet, so it is waited for, never claimed.
@@ -435,11 +438,46 @@ public partial class OperationStateService
     public OperationRepair? GetBlockingRepair()
     {
         return _repairs.Values
-            .Where(repair => repair.Phase == OperationRepairPhase.Repairing
+            .Where(repair => repair.Phase == OperationRepairPhase.Repairing && !HasFailedOut(repair.Id)
                 || _pendingOutcomes.ContainsKey(repair.Id))
             .OrderBy(repair => repair.StartedAt)
             .Select(CopyRepair)
             .FirstOrDefault();
+    }
+
+    public async Task<bool> RetryRepairAsync(Guid operationId)
+    {
+        var stoppingToken = _applicationLifetime.ApplicationStopping;
+        await WaitForRecoveryOwnershipAsync(stoppingToken);
+        await _admissionGate.WaitAsync(stoppingToken);
+        try
+        {
+            // While the failed run still holds its task entry, a claim would get that ending task
+            // back and start nothing.
+            if (!_repairs.TryGetValue(operationId, out var repair)
+                || repair.Phase != OperationRepairPhase.Repairing
+                || !HasFailedOut(operationId)
+                || _repairTasks.ContainsKey(operationId))
+            {
+                return false;
+            }
+
+            _repairFailures.TryRemove(operationId, out _);
+            _operationTracker.BeginRepair(operationId);
+            _ = ClaimRepairTask(operationId, _startupRepairs.ContainsKey(operationId));
+            return true;
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
+    }
+
+    // The user-chosen limit: with one wait of _repairRetryDelay between attempts, a failing repair
+    // holds the queue for about two minutes before it fails out.
+    private bool HasFailedOut(Guid operationId)
+    {
+        return _repairFailures.TryGetValue(operationId, out var failures) && failures >= 3;
     }
 
     public bool OwnsRepair(Guid operationId)
@@ -460,14 +498,73 @@ public partial class OperationStateService
 
             try
             {
-                var loaded = _stateService.LoadOperationRepairs();
+                List<OperationRepair> loaded;
+                try
+                {
+                    loaded = _stateService.LoadOperationRepairs().Select(CopyRepair).ToList();
+                    foreach (var repair in loaded)
+                    {
+                        ValidateStoredRepair(repair);
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or JsonException)
+                {
+                    // Salvaging the readable rows would silently drop whichever pending repair sat
+                    // in a damaged one, so every datasource gets one full repair instead.
+                    var movedTo = _stateService.SetAsideOperationRepairs();
+                    _logger.LogError(
+                        ex,
+                        "Moved the unreadable operation repair file to {Path}; every datasource gets a full cache repair",
+                        movedTo);
+                    await using var scope = _scopes.CreateAsyncScope();
+                    var capabilityService = scope.ServiceProvider.GetRequiredService<DatasourceCapabilityService>();
+                    loaded = scope.ServiceProvider.GetRequiredService<DatasourceService>().GetDatasources()
+                        .Select(datasource =>
+                        {
+                            var capabilities = capabilityService.GetCapabilities(datasource);
+                            return new OperationRepair
+                            {
+                                Id = Guid.NewGuid(),
+                                Type = OperationType.CacheClearing,
+                                Name = "Full cache repair",
+                                StartedAt = UtcNow,
+                                Phase = OperationRepairPhase.Repairing,
+                                Outcome = OperationStatus.Cancelled,
+                                Sources =
+                                [
+                                    new OperationRepairSource
+                                    {
+                                        Datasource = datasource.Name,
+                                        LogRoot = datasource.LogPath,
+                                        CacheRoot = datasource.CachePath,
+                                        // A datasource that cannot map cache files is not scanned,
+                                        // but still gets its detection and corruption refresh.
+                                        KeyScheme = capabilities.CanMapLogicalObjects
+                                            ? DatasourceCapabilityService.GetSchemeWireValue(capabilities)
+                                            : null,
+                                        NativeLaunchAuthorized = true,
+                                        LogRewriteStarted = true,
+                                        ResetLogPositions = true,
+                                        RefreshDownloads = true,
+                                        ReconcileCache = true,
+                                        RefreshDetection = true,
+                                        InvalidateCorruption = true
+                                    }
+                                ],
+                                CacheClearing = new CacheClearingRepair
+                                {
+                                    EntityKey = datasource.Name,
+                                    FullRepair = true
+                                }
+                            };
+                        })
+                        .ToList();
+                }
+
                 var replacements = new List<OperationRepair>(loaded.Count);
                 var changed = false;
-                foreach (var stored in loaded)
+                foreach (var repair in loaded)
                 {
-                    var repair = CopyRepair(stored);
-                    ValidateStoredRepair(repair);
-
                     if (repair.Phase != OperationRepairPhase.Completed)
                     {
                         _startupRepairs.TryAdd(repair.Id, 0);
@@ -597,6 +694,12 @@ public partial class OperationStateService
 
     private Task ClaimRepairTask(Guid operationId, bool recovery)
     {
+        // A failed-out repair runs again only through RetryRepairAsync or a restart.
+        if (HasFailedOut(operationId))
+        {
+            return Task.CompletedTask;
+        }
+
         return _repairTasks.GetOrAdd(
             operationId,
             id => new Lazy<Task>(
@@ -610,12 +713,19 @@ public partial class OperationStateService
         CancellationToken stoppingToken)
     {
         var completed = false;
+        string? failure = null;
         try
         {
             if (recovery)
             {
                 await _stateService.WaitForSetupCompletedAsync(stoppingToken);
                 await RestoreOwnerAsync(CopyRepair(GetRequiredRepair(operationId)), stoppingToken);
+                // The restored card ends at once and shows the repair while it runs.
+                if (GetRequiredRepair(operationId).Phase != OperationRepairPhase.Completed)
+                {
+                    _operationTracker.BeginRepair(operationId);
+                }
+                CompleteRestoredRepair(operationId);
             }
 
             while (true)
@@ -627,10 +737,6 @@ public partial class OperationStateService
                 if (repair.Phase == OperationRepairPhase.Completed)
                 {
                     CleanupCompletedRepairReceipts(repair);
-                    if (recovery)
-                    {
-                        CompleteRestoredRepair(operationId);
-                    }
                     await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
                     completed = true;
                     return;
@@ -644,11 +750,13 @@ public partial class OperationStateService
 
                 try
                 {
-                    await WaitForNativeProcessesAsync(repair, stoppingToken);
                     await _repairGate.WaitAsync(stoppingToken);
                     try
                     {
                         repair = CopyRepair(GetRequiredRepair(operationId));
+                        // Waited for only inside the gate: every child a repair starts runs under
+                        // it, so this wait never sees another repair's own child.
+                        await WaitForNativeProcessesAsync(repair, stoppingToken);
                         await ApplyRepairAsync(repair, stoppingToken);
                         await SaveRepairCoreAsync(
                             GetRequiredRepair(operationId),
@@ -666,10 +774,6 @@ public partial class OperationStateService
                         _repairGate.Release();
                     }
 
-                    if (recovery)
-                    {
-                        CompleteRestoredRepair(operationId);
-                    }
                     await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
                     completed = true;
                     return;
@@ -681,6 +785,17 @@ public partial class OperationStateService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Required repair failed for operation {OperationId}", operationId);
+                    _repairFailures.AddOrUpdate(operationId, 1, (_, count) => count + 1);
+                    if (HasFailedOut(operationId))
+                    {
+                        // The record stays Repairing on disk, so Retry or the next start runs it.
+                        _logger.LogError(
+                            "Repair for operation {OperationId} failed out and waits for a retry",
+                            operationId);
+                        failure = ex.Message;
+                        return;
+                    }
+
                     var retryAt = UtcNow.Add(_repairRetryDelay);
                     try
                     {
@@ -703,10 +818,17 @@ public partial class OperationStateService
         }
         finally
         {
+            // The only place the entry leaves, so a retry can start a new run only after this one
+            // has ended; a run the stopping token ended leaves its card to the next start.
             _repairTasks.TryRemove(operationId, out _);
             if (completed)
             {
+                _repairFailures.TryRemove(operationId, out _);
                 _operationTracker.EndRepair(operationId, null);
+            }
+            else if (failure is not null)
+            {
+                _operationTracker.EndRepair(operationId, failure);
             }
         }
     }
@@ -719,8 +841,13 @@ public partial class OperationStateService
             await _admissionGate.WaitAsync(stoppingToken);
             try
             {
-                if (!_repairs.Values.Any(
-                        repair => repair.Id != operationId && repair.Phase == OperationRepairPhase.Running))
+                // A force-stopped job may still be finishing its own writes, so its repair waits for
+                // the job's FinishRepairAsync. A running log pass never holds a repair back: the log
+                // file lock keeps the repair's log steps apart from it.
+                if (!_forceStoppedOwners.ContainsKey(operationId)
+                    && !_repairs.Values.Any(repair => repair.Id != operationId
+                        && repair.Phase == OperationRepairPhase.Running
+                        && repair.Type != OperationType.LogProcessing))
                 {
                     return;
                 }
@@ -786,11 +913,15 @@ public partial class OperationStateService
             _repairStateGate.Release();
         }
 
-        var retainedScanIds = _repairs.Values
-            .Where(repair => repair.EvictionScanId.HasValue)
-            .Select(repair => repair.EvictionScanId!.Value)
-            .ToHashSet();
-        await PruneEvictionScanCheckpointsAsync(cutoff, retainedScanIds, stoppingToken);
+        // Until its setup finishes, the database cannot be reached.
+        if (!_configuration.GetValue<bool>("Runtime:DatabaseSetupPending"))
+        {
+            var retainedScanIds = _repairs.Values
+                .Where(repair => repair.EvictionScanId.HasValue)
+                .Select(repair => repair.EvictionScanId!.Value)
+                .ToHashSet();
+            await PruneEvictionScanCheckpointsAsync(cutoff, retainedScanIds, stoppingToken);
+        }
 
         foreach (var repair in _repairs.Values.Where(repair => repair.Phase == OperationRepairPhase.Repairing))
         {
@@ -1441,15 +1572,30 @@ public partial class OperationStateService
             : Task.CompletedTask;
     }
 
-    private Task WaitForNativeProcessesAsync(OperationRepair repair, CancellationToken stoppingToken)
+    private async Task WaitForNativeProcessesAsync(OperationRepair repair, CancellationToken stoppingToken)
     {
-        if (!_startupRepairs.ContainsKey(repair.Id)
-            || !repair.Sources.Any(source => source.NativeLaunchAuthorized))
+        if (!repair.Sources.Any(source => source.NativeLaunchAuthorized))
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        return _processManager.WaitForProcessesExitAsync(ProcessNames(repair), stoppingToken);
+        // rsync is not this app's binary, and on a pid: host install the name matches host
+        // processes, so only a startup repair, which cannot know what its job left, waits for it.
+        var processNames = ProcessNames(repair)
+            .Where(name => name != "rsync" || _startupRepairs.ContainsKey(repair.Id))
+            .ToList();
+        // A killed binary stuck in uninterruptible IO must not hold the queue forever.
+        using var bound = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        bound.CancelAfter(_repairRetryDelay);
+        try
+        {
+            await _processManager.WaitForProcessesExitAsync(processNames, bound.Token);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Native processes {string.Join(", ", processNames)} did not exit for operation repair {repair.Id}.");
+        }
     }
 
     internal static IReadOnlyCollection<string> ProcessNames(OperationRepair repair)
@@ -1464,27 +1610,29 @@ public partial class OperationStateService
             OperationType.GameDetection => ["cache_game_detect"],
             OperationType.LogProcessing => ["log_processor"],
             OperationType.LogRemoval => ["log_service_manager"],
-            OperationType.ServiceRemoval => ["cache_service_remove", "cache_eviction_scan"],
+            OperationType.ServiceRemoval =>
+                ["cache_service_remove", "cache_purge_log_entries", "cache_eviction_scan"],
             OperationType.GameRemoval => GameRemovalProcessNames(repair),
             _ => []
         };
     }
 
+    // A removal's log step runs cache_purge_log_entries after its cache step.
     private static IReadOnlyCollection<string> GameRemovalProcessNames(OperationRepair repair)
     {
         if (repair.Target?.SteamAppId.HasValue == true)
         {
-            return ["cache_steam_remove", "cache_eviction_scan"];
+            return ["cache_steam_remove", "cache_purge_log_entries", "cache_eviction_scan"];
         }
         if (!string.IsNullOrWhiteSpace(repair.Target?.EpicGame))
         {
-            return ["cache_epic_remove", "cache_eviction_scan"];
+            return ["cache_epic_remove", "cache_purge_log_entries", "cache_eviction_scan"];
         }
         return repair.Target?.Service?.ToLowerInvariant() switch
         {
-            "blizzard" => ["cache_blizzard_remove", "cache_eviction_scan"],
-            "riot" => ["cache_riot_remove", "cache_eviction_scan"],
-            "xbox" => ["cache_xbox_remove", "cache_eviction_scan"],
+            "blizzard" => ["cache_blizzard_remove", "cache_purge_log_entries", "cache_eviction_scan"],
+            "riot" => ["cache_riot_remove", "cache_purge_log_entries", "cache_eviction_scan"],
+            "xbox" => ["cache_xbox_remove", "cache_purge_log_entries", "cache_eviction_scan"],
             _ => throw new InvalidDataException(
                 $"Game removal repair {repair.Id} has no supported native target.")
         };
@@ -1545,9 +1693,8 @@ public partial class OperationStateService
     {
         await using var scope = _scopes.CreateAsyncScope();
         var services = scope.ServiceProvider;
-        var launchedSources = repair.Sources
-            .Where(source => source.NativeLaunchAuthorized)
-            .ToList();
+        // Steps act on this copy; it is never saved.
+        var applied = CopyRepair(repair);
 
         if (!IsDownloadsRefreshOnly(repair))
         {
@@ -1556,12 +1703,11 @@ public partial class OperationStateService
             var pathComparison = OperatingSystem.IsWindows()
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;
-            foreach (var source in launchedSources)
+            foreach (var source in applied.Sources.Where(source => source.NativeLaunchAuthorized).ToList())
             {
-                var current = datasourceService.GetDatasource(source.Datasource)
-                    ?? throw new InvalidDataException(
-                        $"Datasource {source.Datasource} is unavailable for operation repair {repair.Id}.");
-                if ((source.LogRoot is not null
+                var current = datasourceService.GetDatasource(source.Datasource);
+                if (current is null
+                    || (source.LogRoot is not null
                         && !string.Equals(source.LogRoot, current.LogPath, pathComparison))
                     || (source.CacheRoot is not null
                         && !string.Equals(source.CacheRoot, current.CachePath, pathComparison))
@@ -1571,95 +1717,163 @@ public partial class OperationStateService
                             capabilityService.GetKeySchemeWireValue(current),
                             StringComparison.Ordinal)))
                 {
-                    throw new InvalidDataException(
-                        $"Datasource {source.Datasource} changed after operation repair {repair.Id} was prepared.");
+                    // Repairing it now would touch another datasource's files or log, so it abstains
+                    // and nothing else waits for it.
+                    _logger.LogWarning(
+                        "Skipped datasource {Datasource} in operation repair {OperationId} because it was removed or changed after the repair was prepared",
+                        source.Datasource,
+                        repair.Id);
+                    applied.Sources.Remove(source);
                 }
             }
         }
 
-        var resetSources = launchedSources
-            .Where(source => source.ResetLogPositions)
+        var launchedSources = applied.Sources
+            .Where(source => source.NativeLaunchAuthorized)
             .ToList();
-        if (repair.Outcome != OperationStatus.Completed && resetSources.Count > 0)
+
+        // A log step that started and did not keep its positions is redone by the family resume, so
+        // its datasource imports from the start again. Only such a source takes the lock, so a clean
+        // repair never pauses the import.
+        static bool LogStepUnfinished(OperationRepairSource source) => source.ResetLogPositions
+            && source.NativeLaunchAuthorized
+            && source.LogRewriteStarted
+            && !source.LogPositionsKept;
+        if (launchedSources.Any(LogStepUnfinished))
         {
-            var logProcessor = services.GetRequiredService<RustLogProcessorService>();
-            foreach (var source in resetSources)
+            await using (await LockLogFilesAsync(repair.Id, repair.Type, LogFileLockKind.Rows, stoppingToken))
             {
-                logProcessor.ResetLogPosition(source.Datasource);
+                // Read again under the lock: an owner marks its source kept before it releases it.
+                var appliedNames = launchedSources
+                    .Select(source => source.Datasource)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var logProcessor = services.GetRequiredService<RustLogProcessorService>();
+                foreach (var source in GetRequiredRepair(repair.Id).Sources
+                    .Where(source => LogStepUnfinished(source) && appliedNames.Contains(source.Datasource)))
+                {
+                    logProcessor.ResetLogPosition(source.Datasource);
+                }
             }
         }
-        if (resetSources.Count > 0)
+        if (launchedSources.Any(source => source.ResetLogPositions))
         {
             await services.GetRequiredService<CacheManagementService>()
                 .InvalidateServiceCountsAsync();
         }
 
-        switch (repair.Type)
+        // A clean in-session removal changed only what its own steps recorded, so the repair
+        // refreshes that and skips the full scan; a startup repair cannot prove what happened and
+        // keeps it; a structural corruption removal cannot tell which downloads lost their last
+        // file, and a cache clear can tell only when no download touched its datasources while it ran.
+        var skipsCacheScan = (applied.Type is OperationType.GameRemoval
+                    or OperationType.ServiceRemoval
+                    or OperationType.CacheClearing
+                || applied.Type == OperationType.CorruptionRemoval
+                    && applied.Corruption?.DetectionMethod != CorruptionDetectionMethod.Structural)
+            && !_startupRepairs.ContainsKey(applied.Id)
+            && applied.Outcome == OperationStatus.Completed
+            && launchedSources.All(source => source.NativeCompletionAccepted
+                && (!source.ResetLogPositions || source.LogPositionsKept));
+        if (skipsCacheScan && applied.Type == OperationType.CacheClearing)
+        {
+            // A cache clear knows what it deleted only when nothing downloaded into its roots while it ran:
+            // a download that ended during the clear may have lost its files after the walk passed, and one
+            // that refilled a cleared directory makes older rows cached again. Zero-byte rows never change
+            // eviction state, so only byte-backed finished rows count; a running row counts at any size.
+            var clearedNames = launchedSources
+                .Select(source => source.Datasource.ToLowerInvariant())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var clearSawTraffic = await services.GetRequiredService<AppDbContext>().Downloads
+                .AnyAsync(download =>
+                    clearedNames.Contains(download.Datasource.ToLower())
+                    && (download.IsActive
+                        || (download.EndTimeUtc >= applied.StartedAt
+                            && (download.CacheHitBytes > 0 || download.CacheMissBytes > 0))),
+                    stoppingToken);
+            skipsCacheScan = !clearSawTraffic;
+        }
+
+        switch (applied.Type)
         {
             case OperationType.CacheClearing:
                 await services.GetRequiredService<CacheClearingService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
+                await services.GetRequiredService<CacheReconciliationService>()
+                    .EvictClearedSourcesAsync(applied, skipsCacheScan, stoppingToken);
                 break;
             case OperationType.LogProcessing:
                 await services.GetRequiredService<RustLogProcessorService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
                 break;
             case OperationType.LogRemoval:
                 await services.GetRequiredService<RustLogRemovalService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
                 break;
             case OperationType.GameRemoval:
             case OperationType.ServiceRemoval:
                 await services.GetRequiredService<CacheManagementService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
                 break;
             case OperationType.CorruptionRemoval:
                 await services.GetRequiredService<CorruptionDetectionService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
                 break;
             case OperationType.GameDetection:
                 await services.GetRequiredService<GameCacheDetectionService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
                 break;
             case OperationType.EvictionScan:
             case OperationType.EvictionRemoval:
                 await services.GetRequiredService<CacheReconciliationService>()
-                    .ResumeRepairAsync(repair, stoppingToken);
+                    .ResumeRepairAsync(applied, stoppingToken);
                 break;
             default:
-                throw new InvalidDataException($"Operation type {repair.Type} has no repair owner.");
+                throw new InvalidDataException($"Operation type {applied.Type} has no repair owner.");
         }
 
-        var cacheTailOwned = repair.Type is (OperationType.CacheClearing
-            or OperationType.GameRemoval
-            or OperationType.ServiceRemoval
-            or OperationType.CorruptionRemoval)
-            && launchedSources.Any(source => source.ReconcileCache);
-        if (cacheTailOwned)
+        // Only sources with a key scheme can be scanned (ReconcileRepairAsync drops the rest).
+        var scannedSources = applied.Type is (OperationType.CacheClearing
+                or OperationType.GameRemoval
+                or OperationType.ServiceRemoval
+                or OperationType.CorruptionRemoval)
+            && !skipsCacheScan
+            ? launchedSources.Where(source => source.ReconcileCache && source.KeyScheme is not null).ToList()
+            : [];
+        if (scannedSources.Count > 0)
         {
             await services.GetRequiredService<CacheReconciliationService>()
-                .ReconcileRepairAsync(repair, stoppingToken);
+                .ReconcileRepairAsync(applied, stoppingToken);
         }
+        var unscannedSources = launchedSources.Except(scannedSources).ToList();
 
-        var evictionTailOwned = repair.Type is OperationType.EvictionScan or OperationType.EvictionRemoval;
-        if (!cacheTailOwned && !evictionTailOwned
-            && launchedSources.Any(source => source.InvalidateCorruption))
+        var evictionTailOwned = applied.Type is OperationType.EvictionScan or OperationType.EvictionRemoval;
+        var projectionsChanged = false;
+        if (!evictionTailOwned && unscannedSources.Any(source => source.InvalidateCorruption))
         {
             await services.GetRequiredService<CorruptionDetectionService>()
-                .InvalidateRepairAsync(repair, stoppingToken);
+                .InvalidateRepairAsync(applied, stoppingToken);
+            projectionsChanged = true;
         }
 
-        var refreshDetection = repair.Type == OperationType.GameDetection
-            ? repair.DatabaseWriteStarted
-            : launchedSources.Any(source => source.RefreshDetection);
-        if (!cacheTailOwned && !evictionTailOwned && refreshDetection)
+        // Game detection owns only its own summary, which a completed run already refreshed; no
+        // detection clears the cache-file scan the Cache Files card shows.
+        var refreshDetection = applied.Type == OperationType.GameDetection
+            ? applied.DatabaseWriteStarted && applied.Outcome != OperationStatus.Completed
+            : unscannedSources.Any(source => source.RefreshDetection);
+        if (!evictionTailOwned && refreshDetection)
         {
             await services.GetRequiredService<GameCacheDetectionService>()
                 .RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
-            services.GetRequiredService<CacheManagementService>().InvalidateCachedScan();
+            if (applied.Type != OperationType.GameDetection)
+            {
+                services.GetRequiredService<CacheManagementService>().InvalidateCachedScan();
+            }
+            projectionsChanged = true;
         }
 
-        if (NeedsDownloadsRefresh(repair))
+        // The dashboard and download views refetch once after the repair changed what they show.
+        if (projectionsChanged || NeedsDownloadsRefresh(applied))
         {
             await services.GetRequiredService<ISignalRNotificationService>()
                 .NotifyAllAsync(SignalREvents.DownloadsRefresh);
@@ -1685,8 +1899,7 @@ public partial class OperationStateService
     {
         var refreshRequested = repair.Sources.Any(
                 source => source.NativeLaunchAuthorized && source.RefreshDownloads)
-            || (repair.Type == OperationType.EvictionRemoval
-                && repair.DatabaseWriteStarted
+            || (repair.Type is OperationType.EvictionRemoval or OperationType.CacheClearing
                 && repair.Sources.Any(source => source.RefreshDownloads));
         return refreshRequested
             && repair.Type != OperationType.EvictionScan;

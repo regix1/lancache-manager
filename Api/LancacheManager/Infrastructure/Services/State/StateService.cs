@@ -1000,6 +1000,21 @@ public class StateService : IStateService
         }
     }
 
+    /// <summary>
+    /// Moves an unreadable repair file aside with its original bytes and returns its new path.
+    /// The new name does not end in ".json", so the operation file cleanup never deletes it.
+    /// </summary>
+    public string SetAsideOperationRepairs()
+    {
+        lock (_repairLock)
+        {
+            var movedTo = $"{_operationRepairsFilePath}.unreadable-{DateTime.UtcNow:yyyyMMddTHHmmssZ}";
+            File.Move(_operationRepairsFilePath, movedTo);
+            _cachedOperationRepairs = [];
+            return movedTo;
+        }
+    }
+
     protected virtual void WriteOperationRepairs(string contents)
     {
         var directory = Path.GetDirectoryName(_operationRepairsFilePath);

@@ -409,6 +409,7 @@ public partial class GameCacheDetectionService : IDisposable
         string? progressFilePath = null;
         var aggregatedGames = new List<GameCacheInfo>();
         var aggregatedServices = new List<ServiceCacheInfo>();
+        var saveStarted = false;
 
         // Highest percent emitted so far this run. Every emission (Rust scan tick and the phase
         // milestones below) is raised to this floor so the bar never regresses, a backstop on top of
@@ -911,6 +912,7 @@ public partial class GameCacheDetectionService : IDisposable
                 operationId,
                 datasource: null,
                 cancellationToken);
+            saveStarted = true;
             await SaveGamesToDatabaseAsync(finalGames, incremental, cancellationToken);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
 
@@ -1003,8 +1005,11 @@ public partial class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
 
                 // Save any partial results accumulated before cancellation so the next startup
-                // can resume from where we left off rather than re-scanning from scratch.
-                var partialWriteAllowed = aggregatedGames.Count > 0 || aggregatedServices.Count > 0;
+                // can resume from where we left off rather than re-scanning from scratch. Only a
+                // run whose save phase began may write them: before it, the record has not started
+                // its work, and starting it here would wait behind another job's repair.
+                var partialWriteAllowed = saveStarted
+                    && (aggregatedGames.Count > 0 || aggregatedServices.Count > 0);
                 if (partialWriteAllowed)
                 {
                     try
@@ -1148,18 +1153,16 @@ public partial class GameCacheDetectionService : IDisposable
                 finalMetrics.TotalServicesDetected = servicesDetected ?? finalMetrics.TotalServicesDetected;
                 finalMetrics.Error = trackerError;
             }
-
-            await _operationStateService.SaveRepairAsync(
-                operationId,
-                repair => repair.GameDetection = finalMetrics,
-                CancellationToken.None);
         }
 
+        // One save carries the metrics and the outcome, so a failed save is retried in the
+        // background instead of throwing past the terminal below.
         await _operationStateService.FinishRepairAsync(
             operationId,
             finalSuccess,
             finalCancelled,
-            finalError);
+            finalError,
+            finalMetrics is null ? null : repair => repair.GameDetection = finalMetrics);
 
         _operationTracker.CompleteOperation(operationId, success: finalSuccess, error: finalError,
             cancelled: finalCancelled, onCompleting: completed =>

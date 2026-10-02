@@ -18,13 +18,16 @@ public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly OperationCancellationService _cancellationService;
+    private readonly OperationStateService _operationStateService;
 
     public OperationsController(
         IUnifiedOperationTracker operationTracker,
-        OperationCancellationService cancellationService)
+        OperationCancellationService cancellationService,
+        OperationStateService operationStateService)
     {
         _operationTracker = operationTracker;
         _cancellationService = cancellationService;
+        _operationStateService = operationStateService;
     }
 
     /// <summary>
@@ -202,6 +205,18 @@ public class OperationsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public IActionResult CloseRun(Guid id) =>
         _operationTracker.CloseRun(id) ? NoContent() : NotFound(ApiResponse.NotFound("Operation", id));
+
+    /// <summary>
+    /// Runs a repair again after it failed three times.
+    /// </summary>
+    /// <remarks>
+    /// Called by the Retry button of a red "Repair failed" card. Returns 404 when the operation
+    /// has no repair that failed out, including while the failed attempt is still finishing.
+    /// </remarks>
+    [HttpPost("{id}/retry-repair")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> RetryRepairAsync(Guid id) =>
+        await _operationStateService.RetryRepairAsync(id) ? NoContent() : NotFound(ApiResponse.NotFound("Operation", id));
 
     /// <summary>
     /// Force-kills a running operation when cancel alone does not unblock the UI.

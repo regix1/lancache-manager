@@ -829,6 +829,12 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
 
     internal async Task CompleteAnotherAsync(OperationType type)
     {
+        var operationId = await PrepareAnotherAsync(type);
+        await Owner.FinishRepairAsync(operationId, true, false, null);
+    }
+
+    internal async Task<Guid> PrepareAnotherAsync(OperationType type)
+    {
         var operationId = Guid.NewGuid();
         var metrics = new RemovalMetrics
         {
@@ -837,7 +843,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             EntityKind = type == OperationType.ServiceRemoval ? "service" : "steam"
         };
         await Owner.PrepareRepairAsync(BuildRepair(operationId, type, metrics), CancellationToken.None);
-        await Owner.FinishRepairAsync(operationId, true, false, null);
+        return operationId;
     }
 
     public async ValueTask DisposeAsync()

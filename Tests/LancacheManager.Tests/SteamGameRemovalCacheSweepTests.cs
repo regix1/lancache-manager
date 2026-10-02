@@ -191,7 +191,7 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             terminal.Status);
         Assert.Equal(9, metrics.FilesDeleted);
         Assert.Equal(200L, metrics.BytesFreed);
-        var repair = harness.ReadRepair(operationId);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
         Assert.Equal(OperationRepairPhase.Completed, repair.Phase);
         Assert.Equal(9, repair.Removal!.FilesDeleted);
         Assert.Equal(200L, repair.Removal.BytesFreed);
@@ -203,6 +203,141 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
         Assert.Equal(200L, complete.BytesFreed);
         Assert.Equal(cancelled, complete.Cancelled);
         await harness.CompleteAnotherAsync(OperationType.GameRemoval);
+    }
+
+    [Fact]
+    public async Task RemovalRunner_CancelEndsTheCardWhileItsRepairWaitsAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateAsync(Path.Combine(_root, "cancel-waits"));
+        var blocker = await harness.PrepareAnotherAsync(OperationType.GameRemoval);
+        await harness.Owner.StartWorkAsync(blocker, "alpha", CancellationToken.None);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            new RemovalMetrics { EntityKey = GameAppId.ToString(), EntityName = "Dota 2", EntityKind = "steam" },
+            async (operationId, cancellationToken, _) =>
+            {
+                await harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
+                started.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return (0, 0L);
+            });
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Another job is still running, so the repair this cancel owes has to wait; the card does not.
+        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+        var terminal = await harness.WaitForTerminalAsync(operationId).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.True(Assert.IsType<SignalRNotifications.GameRemovalComplete>(
+            await harness.WaitForCompleteMessageAsync()).Cancelled);
+        Assert.Equal(OperationRepairPhase.Repairing, harness.ReadRepair(operationId).Phase);
+        Assert.True(harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == operationId).Repairing);
+
+        await harness.Owner.FinishRepairAsync(blocker, true, false, null);
+        await harness.WaitForCompletedRepairAsync(operationId);
+        await harness.WaitForCompletedRepairAsync(blocker);
+        Assert.DoesNotContain(
+            harness.Tracker.GetRuns().Runs,
+            run => run.OperationId == operationId && run.Repairing);
+    }
+
+    [Fact]
+    public async Task RemovalRunner_ForceStopEndsTheCardAndTheRepairStillRunsAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateAsync(Path.Combine(_root, "force-stop"));
+        var blocker = await harness.PrepareAnotherAsync(OperationType.ServiceRemoval);
+        await harness.Owner.StartWorkAsync(blocker, "alpha", CancellationToken.None);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ownerRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            new RemovalMetrics { EntityKey = GameAppId.ToString(), EntityName = "Dota 2", EntityKind = "steam" },
+            async (operationId, cancellationToken, _) =>
+            {
+                await harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
+                started.TrySetResult();
+                // A job whose native step does not stop on cancel.
+                await ownerRelease.Task;
+                cancellationToken.ThrowIfCancellationRequested();
+                return (0, 0L);
+            });
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var cancellation = new OperationCancellationService(
+            harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var outcomeAtTerminal = new TaskCompletionSource<OperationRepair>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation =>
+        {
+            if (operation.Id == operationId)
+            {
+                outcomeAtTerminal.TrySetResult(harness.ReadRepair(operationId));
+            }
+        };
+
+        Assert.True(await cancellation.ForceKillAsync(operationId));
+        var terminal = await harness.WaitForTerminalAsync(operationId).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        var stored = await outcomeAtTerminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
+        Assert.Equal(OperationRepairPhase.Repairing, harness.ReadRepair(operationId).Phase);
+
+        // A conflicting job queues behind the repair the stopped job owes.
+        var queued = await harness.PrepareAnotherAsync(OperationType.GameRemoval);
+        var queuedStart = harness.Owner.StartWorkAsync(queued, "alpha", CancellationToken.None);
+        Assert.False(queuedStart.IsCompleted);
+
+        ownerRelease.TrySetResult();
+        await harness.Owner.FinishRepairAsync(blocker, true, false, null);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        await queuedStart.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task RemovalRunner_CancelBeforeWorkStartsSkipsTheRepairAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateAsync(Path.Combine(_root, "cancel-prepared"));
+        var blocker = await harness.PrepareAnotherAsync(OperationType.GameRemoval);
+        await harness.Owner.StartWorkAsync(blocker, "alpha", CancellationToken.None);
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            new RemovalMetrics { EntityKey = GameAppId.ToString(), EntityName = "Dota 2", EntityKind = "steam" },
+            async (_, cancellationToken, _) =>
+            {
+                // Still waiting for the cache lock, so no native work has started.
+                waiting.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return (0, 0L);
+            });
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await waiting.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        harness.Tracker.CancelOperation(operationId);
+        var terminal = await harness.WaitForTerminalAsync(operationId).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        var repair = harness.ReadRepair(operationId);
+        Assert.Equal(OperationRepairPhase.Completed, repair.Phase);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.False(harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == operationId).Repairing);
+        Assert.Equal(OperationRepairPhase.Running, harness.ReadRepair(blocker).Phase);
+        await harness.Owner.FinishRepairAsync(blocker, true, false, null);
     }
 
     [Theory]

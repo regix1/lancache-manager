@@ -426,8 +426,9 @@ public sealed class OperationRunPublishingTests
         var controller = new OperationsController(
             tracker,
             new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance),
-                OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance));
-        var failed = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+                OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance),
+            OperationConflictTestServices.Owner);
+        var failed =tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         tracker.CompleteOperation(failed, success: false, error: "Disk read failed");
 
         Assert.IsType<NoContentResult>(controller.CloseRun(failed));

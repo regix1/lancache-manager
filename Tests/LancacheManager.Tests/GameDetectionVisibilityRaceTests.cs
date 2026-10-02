@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
@@ -9,6 +11,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -327,6 +330,278 @@ public class GameDetectionVisibilityRaceTests
         Assert.True(ctx.Notifications.Completed(staleId.Value));
         Assert.Same(stale, ctx.Tracker.NoticeOf(staleId.Value));
         Assert.Same(visible, ctx.Tracker.NoticeOf(newId!.Value));
+    }
+
+    [Fact]
+    public async Task ADetectionCancelledBeforeItsSaveEndsAtOnceAndKeepsNothingAsync()
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        // Another job's repair is still running; the cancel handler must not wait for it.
+        var blocker = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.GameRemoval,
+            Name = "Game removal",
+            StartedAt = DateTime.UtcNow,
+            Sources = [new OperationRepairSource { Datasource = "default" }],
+            Target = new CacheRepairTarget { SteamAppId = 480 },
+            Removal = new RemovalRepair { EntityKey = "480", EntityName = "Game", EntityKind = "steam" }
+        };
+        run.BlockedRepair = blocker.Id;
+        await run.Repairs.Owner.PrepareRepairAsync(blocker, CancellationToken.None);
+        await run.Repairs.Owner.StartWorkAsync(blocker.Id, "default", CancellationToken.None);
+        await run.Repairs.Owner.FinishRepairAsync(blocker.Id, false, true, null);
+        run.CancelAtStage = "signalr.gameDetect.matching.progress";
+
+        var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
+        var terminal = await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        var stored = run.Repairs.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.Equal(OperationRepairPhase.Completed, stored.Phase);
+        Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
+        Assert.False(stored.DatabaseWriteStarted);
+        await using var context = run.CreateContext();
+        Assert.Equal(0, await context.CachedGameDetections.CountAsync());
+    }
+
+    [Fact]
+    public async Task ADetectionCancelledWhileSavingKeepsItsPartialResultsAsync()
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        run.CancelAtStage = "signalr.gameDetect.db.complete";
+        run.CancelOnFirstSave = true;
+
+        var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
+        var terminal = await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.True(run.Repairs.StateService.LoadOperationRepairs().Single(repair => repair.Id == id).DatabaseWriteStarted);
+        await using var context = run.CreateContext();
+        Assert.Equal(570, Assert.Single(await context.CachedGameDetections.ToListAsync()).GameAppId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFailedOutcomeSaveStillEndsTheDetectionAsync(bool cancelled)
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        var startedAt = DateTime.UtcNow;
+        var id = run.Repairs.Tracker.RegisterOperation(
+            OperationType.GameDetection,
+            "Game Detection",
+            new CancellationTokenSource(),
+            new GameDetectionMetrics { StartTime = startedAt, ScanType = DetectionScanType.Full },
+            ownerCompletes: true);
+        await run.Repairs.Owner.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = id,
+                Type = OperationType.GameDetection,
+                Name = "Game Detection",
+                StartedAt = startedAt,
+                GameDetection = new GameDetectionMetrics { StartTime = startedAt, ScanType = DetectionScanType.Full }
+            },
+            CancellationToken.None);
+        await run.Repairs.Owner.StartWorkAsync(id, null, CancellationToken.None);
+        var stageKey = cancelled ? "signalr.gameDetect.cancelled" : "signalr.gameDetect.complete.full";
+
+        run.State.FailNextRepairWrite = true;
+        var finalize = typeof(GameCacheDetectionService).GetMethod(
+            "FinalizeDetectionAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)finalize.Invoke(run.Detection, [id, !cancelled,
+            cancelled ? OperationStatus.Cancelled : OperationStatus.Completed, stageKey, cancelled, null, 3, 1])!;
+
+        Assert.Equal(
+            cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
+            run.Repairs.Tracker.GetOperation(id)!.Status);
+        var unsaved = run.State.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.Equal(OperationRepairPhase.Running, unsaved.Phase);
+        Assert.Null(unsaved.GameDetection!.CompletionStageKey);
+
+        run.RetryRelease.Release();
+        var landed = await run.WaitForCompletedRepairAsync(id);
+        Assert.Equal(cancelled ? OperationStatus.Cancelled : OperationStatus.Completed, landed.Outcome);
+        Assert.Equal(stageKey, landed.GameDetection!.CompletionStageKey);
+        Assert.Equal(3, landed.GameDetection.TotalGamesDetected);
+    }
+
+    // A real detection over a test database, its native scan replaced by a report of one game.
+    private sealed class DetectionRun : IAsyncDisposable
+    {
+        private readonly TestDatabase _database;
+        private readonly string _root;
+        private readonly TaskCompletionSource _blockerRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Guid? _cancelling;
+
+        private DetectionRun(string root, TestDatabase database)
+        {
+            _root = root;
+            _database = database;
+        }
+
+        public OperationRepairTests.RepairHarness Repairs { get; private set; } = null!;
+        public OperationRepairTests.FailingStateService State { get; private set; } = null!;
+        public GameCacheDetectionService Detection { get; private set; } = null!;
+        public SemaphoreSlim RetryRelease { get; } = new(0);
+        public Guid BlockedRepair { get; set; }
+        public string? CancelAtStage { get; set; }
+        public bool CancelOnFirstSave { get; set; }
+
+        public static async Task<DetectionRun> CreateAsync()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "lcm-detection-run", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var run = new DetectionRun(root, await TestDatabase.CreateAsync());
+            run.State = OperationRepairTests.CreateFailingStateService(Path.Combine(root, "state"));
+            typeof(StateService)
+                .GetField("_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(run.State, new AppState());
+            run.Repairs = await OperationRepairTests.RepairHarness.CreateAsync(
+                Path.Combine(root, "state"),
+                stateService: run.State,
+                waitUntil: (_, cancellationToken) => run.RetryRelease.WaitAsync(cancellationToken),
+                apply: (repair, cancellationToken) => repair.Id == run.BlockedRepair
+                    ? run._blockerRelease.Task.WaitAsync(cancellationToken)
+                    : Task.CompletedTask);
+
+            var paths = new TempDirPathResolver(root);
+            var configuration = new ConfigurationBuilder().Build();
+            var datasources = new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
+            var datasource = Assert.Single(datasources.GetDatasources());
+            Directory.CreateDirectory(datasource.LogPath);
+            Directory.CreateDirectory(datasource.CachePath);
+            File.WriteAllText(Path.Combine(datasource.LogPath, "access.log"), string.Empty);
+            var detector = paths.GetRustGameDetectorPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(detector)!);
+            File.WriteAllText(detector, string.Empty);
+            var notifications = (RecordingNotificationsProxy)DispatchProxy
+                .Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+            notifications.OnSend = (_, value) =>
+            {
+                if (value?.GetType().GetProperty("StageKey")?.GetValue(value) is string stage
+                    && stage == run.CancelAtStage
+                    && value.GetType().GetProperty("OperationId")?.GetValue(value) is Guid operationId)
+                {
+                    if (run.CancelOnFirstSave)
+                    {
+                        run._cancelling = operationId;
+                    }
+                    else
+                    {
+                        run.Repairs.Tracker.CancelOperation(operationId);
+                    }
+                }
+                return Task.CompletedTask;
+            };
+            var contexts = new SaveContexts(run, run._database.Factory);
+            run.Detection = new GameCacheDetectionService(
+                NullLogger<GameCacheDetectionService>.Instance,
+                paths,
+                run.Repairs.Owner,
+                contexts,
+                new GameCacheDetectionDataService(contexts, NullLogger<GameCacheDetectionDataService>.Instance),
+                evictedDetectionPreservationService: null!,
+                unknownGameResolutionService: null!,
+                new OneGameReport(paths, run.Repairs.Tracker, paths.GetOperationsDirectory()),
+                (ISignalRNotificationService)(object)notifications,
+                datasources,
+                new DatasourceCapabilityService(datasources),
+                run.Repairs.Tracker,
+                CacheScanGateHarness.Idle());
+            return run;
+        }
+
+        public AppDbContext CreateContext() => new(_database.Options);
+
+        public async Task<OperationInfo> WaitForTerminalAsync(Guid operationId)
+        {
+            while (Repairs.Tracker.GetOperation(operationId) is not { } operation || !operation.Status.IsTerminal())
+            {
+                await Task.Delay(25);
+            }
+            return Repairs.Tracker.GetOperation(operationId)!;
+        }
+
+        public async Task<OperationRepair> WaitForCompletedRepairAsync(Guid operationId)
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                var repair = State.LoadOperationRepairs().Single(item => item.Id == operationId);
+                if (repair.Phase == OperationRepairPhase.Completed)
+                {
+                    return repair;
+                }
+                await Task.Delay(25);
+            }
+            throw new TimeoutException($"Detection repair {operationId} did not complete.");
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _blockerRelease.TrySetResult();
+            RetryRelease.Release(100);
+            await Repairs.DisposeAsync();
+            Detection.Dispose();
+            await _database.DisposeAsync();
+            Directory.Delete(_root, recursive: true);
+        }
+
+        // Cancels the detection when its save phase first reaches the database.
+        private sealed class SaveContexts(DetectionRun run, TestDbContextFactory inner) : IDbContextFactory<AppDbContext>
+        {
+            public AppDbContext CreateDbContext() => inner.CreateDbContext();
+
+            public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+            {
+                if (run._cancelling is { } operationId)
+                {
+                    run._cancelling = null;
+                    run.Repairs.Tracker.CancelOperation(operationId);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                return inner.CreateDbContextAsync(cancellationToken);
+            }
+        }
+
+        private sealed class OneGameReport(IPathResolver paths, IUnifiedOperationTracker tracker, string reportDirectory)
+            : RustProcessHelper(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                paths,
+                tracker)
+        {
+            public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+                ProcessStartInfo process,
+                Guid? operationId,
+                CancellationToken cancellationToken,
+                Func<RustProgressEvent, Task>? onProgressEvent,
+                string processLabel = "rust")
+            {
+                // The report path the detection reads back for its one default datasource.
+                var output = Path.Combine(reportDirectory, $"game_detection_{operationId}_default.json");
+                var game = new GameCacheInfo
+                {
+                    GameAppId = 570,
+                    GameName = "Dota 2",
+                    CacheFilesFound = 1,
+                    TotalSizeBytes = 1024,
+                    Service = "steam"
+                };
+                var report = new Dictionary<string, object>
+                {
+                    ["total_games_detected"] = 1,
+                    ["total_services_detected"] = 0,
+                    ["indexed_cache_files"] = 1,
+                    ["games"] = new[] { game },
+                    ["services"] = Array.Empty<ServiceCacheInfo>()
+                };
+                await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report), cancellationToken);
+                return new ProcessExecutionResult { ExitCode = 0 };
+            }
+        }
     }
 
     /// <summary>

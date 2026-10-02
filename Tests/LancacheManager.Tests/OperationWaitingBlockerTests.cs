@@ -198,7 +198,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
     private static OperationsController CreateController(UnifiedOperationTracker tracker) => new(
         tracker,
         new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance),
-            OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance))
+            OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance),
+        OperationConflictTestServices.Owner)
         {
             ControllerContext = new ControllerContext
             {
@@ -449,7 +450,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
                 tracker,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 OperationConflictTestServices.Owner,
-                NullLogger<OperationCancellationService>.Instance));
+                NullLogger<OperationCancellationService>.Instance),
+            OperationConflictTestServices.Owner);
 
         // Both runs are parked, so the endpoint lists both; how each is drawn comes from its run row.
         var rows = Assert.IsType<List<WaitingOperationResponse>>(
