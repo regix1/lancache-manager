@@ -846,6 +846,10 @@ public sealed class OperationRepairTests : IDisposable
             var restored = Assert.IsType<OperationInfo>(harness.Tracker.GetOperation(unfinished.Id));
             Assert.Equal(OperationStatus.Failed, restored.Status);
             Assert.Equal("Operation interrupted by application restart", restored.Message);
+            // The restored card ends before its repair runs, and the record leaves the file only when
+            // that repair finishes, so the restart below waits for it.
+            await WaitForAsync(() => harness.StateService.LoadOperationRepairs()
+                .All(repair => repair.Id != unfinished.Id));
         }
 
         await using var repeated = await RepairHarness.CreateAsync(
@@ -1020,22 +1024,26 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Theory]
-    [InlineData(OperationType.CacheClearing, false)]
-    [InlineData(OperationType.CacheClearing, true)]
-    [InlineData(OperationType.LogRemoval, false)]
-    [InlineData(OperationType.LogRemoval, true)]
+    [InlineData(OperationType.CacheClearing, false, false)]
+    [InlineData(OperationType.CacheClearing, true, false)]
+    [InlineData(OperationType.LogRemoval, false, false)]
+    [InlineData(OperationType.LogRemoval, true, false)]
+    [InlineData(OperationType.CacheClearing, false, true)]
+    [InlineData(OperationType.LogRemoval, false, true)]
     public async Task RootDependentRepairAbstainsForChangedOrMissingDatasourceAsync(
         OperationType type,
-        bool datasourceMissing)
+        bool datasourceMissing,
+        bool mixedKeyEvidence)
     {
         var rowRoot = Path.Combine(
             _root,
-            $"root-binding-{type}-{datasourceMissing}-{Guid.NewGuid():N}");
+            $"root-binding-{type}-{datasourceMissing}-{mixedKeyEvidence}-{Guid.NewGuid():N}");
         var stateRoot = Path.Combine(rowRoot, "state");
         var capturedCacheRoot = Path.Combine(rowRoot, "captured-cache");
         var capturedLogRoot = Path.Combine(rowRoot, "captured-logs");
-        var configuredCacheRoot = Path.Combine(rowRoot, "configured-cache");
-        var configuredLogRoot = Path.Combine(rowRoot, "configured-logs");
+        // With mixed key evidence the roots are unchanged; only the log layout under them moved.
+        var configuredCacheRoot = mixedKeyEvidence ? capturedCacheRoot : Path.Combine(rowRoot, "configured-cache");
+        var configuredLogRoot = mixedKeyEvidence ? capturedLogRoot : Path.Combine(rowRoot, "configured-logs");
         Directory.CreateDirectory(capturedCacheRoot);
         Directory.CreateDirectory(capturedLogRoot);
         Directory.CreateDirectory(configuredCacheRoot);
@@ -1048,6 +1056,12 @@ public sealed class OperationRepairTests : IDisposable
             "foreign-sentinel");
         File.WriteAllText(capturedSentinel, "captured");
         File.WriteAllText(foreignSentinel, "foreign");
+        if (mixedKeyEvidence)
+        {
+            // access.log beside a per-service log: the key recipe the job launched with can no longer be proven.
+            File.WriteAllText(Path.Combine(configuredLogRoot, "access.log"), string.Empty);
+            File.WriteAllText(Path.Combine(configuredLogRoot, "steam-access.log"), string.Empty);
+        }
 
         var configuredName = datasourceMissing ? "beta" : "alpha";
         var settings = new Dictionary<string, string?>
@@ -1075,7 +1089,8 @@ public sealed class OperationRepairTests : IDisposable
         {
             Datasource = "alpha",
             CacheRoot = type == OperationType.CacheClearing ? capturedCacheRoot : null,
-            LogRoot = type == OperationType.LogRemoval ? capturedLogRoot : null
+            LogRoot = type == OperationType.LogRemoval ? capturedLogRoot : null,
+            KeyScheme = mixedKeyEvidence ? "monolithic" : null
         };
         var repair = new OperationRepair
         {
@@ -1125,8 +1140,8 @@ public sealed class OperationRepairTests : IDisposable
             error: "requested cancellation").WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForAsync(() => state.LoadOperationRepairs().Single().Phase == OperationRepairPhase.Completed);
 
-        // The changed or missing datasource abstains: nothing of it is touched, nothing fails and
-        // nothing waits for a retry.
+        // The changed, missing or mixed-evidence datasource abstains: nothing of it is touched, nothing fails
+        // and nothing waits for a retry.
         var stored = Assert.Single(state.LoadOperationRepairs());
         Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
         Assert.Null(stored.RetryAtUtc);

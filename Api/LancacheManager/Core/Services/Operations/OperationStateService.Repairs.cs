@@ -1826,11 +1826,12 @@ public partial class OperationStateService
                     || (source.KeyScheme is not null
                         && !string.Equals(
                             source.KeyScheme,
-                            capabilityService.GetKeySchemeWireValue(current),
+                            DatasourceCapabilityService.GetSchemeWireValue(capabilityService.GetCapabilities(current)),
                             StringComparison.Ordinal)))
                 {
-                    // Repairing it now would touch another datasource's files or log, so it abstains
-                    // and nothing else waits for it.
+                    // Repairing it now would touch another datasource's files or log, or rebuild keys with a
+                    // recipe its mixed or unknown log evidence no longer proves, so it abstains and nothing
+                    // else waits for it.
                     _logger.LogWarning(
                         "Skipped datasource {Datasource} in operation repair {OperationId} because it was removed or changed after the repair was prepared",
                         source.Datasource,
