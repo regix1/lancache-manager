@@ -490,7 +490,6 @@ public class RustLogProcessorService
             ClearResume(ds.Name);
             _stateService.SetLogSourcePositions(ds.Name, new Dictionary<string, long>());
             _stateService.SetLogPosition(ds.Name, 0);
-            _stateService.RemoveLogSeedPending(ds.Name);
         }
         // Also reset legacy position for backward compatibility
         _stateService.SetLogPosition(0);
@@ -506,7 +505,6 @@ public class RustLogProcessorService
         _stateService.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateService.SetLogPosition(datasourceName, 0);
         _stateService.SetLogTotalLines(datasourceName, 0);
-        _stateService.RemoveLogSeedPending(datasourceName);
         _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
     }
 

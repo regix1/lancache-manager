@@ -544,7 +544,8 @@ public sealed class LogsControllerRustFileOperationsTests
         Dictionary<string, long> Expected,
         long ExpectedTotal,
         int ReplacementLines = 0,
-        long StaleRecords = 0);
+        long StaleRecords = 0,
+        (string From, string To)[]? Renames = null);
 
     public static TheoryData<LogDeleteCase> LogDeleteCases => new()
     {
@@ -666,7 +667,17 @@ public sealed class LogsControllerRustFileOperationsTests
             false,
             new Dictionary<string, long> { ["access.log"] = 4 },
             6,
-            StaleRecords: 6)
+            StaleRecords: 6),
+        new LogDeleteCase(
+            "monolithic success, logrotate shifts the rotation during the delete",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long> { ["access.log"] = 7 },
+            0,
+            new[] { "access.log" },
+            false,
+            new Dictionary<string, long> { ["access.log"] = 4 },
+            4,
+            Renames: new[] { ("access.log.1", "access.log.2") })
     };
 
     [Theory]
@@ -732,6 +743,10 @@ public sealed class LogsControllerRustFileOperationsTests
             foreach (var file in deleteCase.Deleted)
             {
                 File.Delete(Path.Combine(fixture.AlphaLogPath, file));
+            }
+            foreach (var (from, to) in deleteCase.Renames ?? Array.Empty<(string From, string To)>())
+            {
+                File.Move(Path.Combine(fixture.AlphaLogPath, from), Path.Combine(fixture.AlphaLogPath, to));
             }
             if (deleteCase.ReplacementLines > 0)
             {
@@ -819,6 +834,31 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.True(File.Exists(logPath));
         Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(7, fixture.State.GetLogTotalLines("alpha"));
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_ARotationDuringTheCountDeletesNothingAsync()
+    {
+        using var fixture = new ControllerFixture();
+        var rotated = Path.Combine(fixture.AlphaLogPath, "access.log.1");
+        var current = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(rotated, string.Concat(Enumerable.Repeat("x\n", 4)));
+        await File.WriteAllTextAsync(current, string.Concat(Enumerable.Repeat("x\n", 3)));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 7 });
+        fixture.RustHelper.CountHandler = (_, _) =>
+        {
+            // logrotate runs during the count: the chosen file moves aside and nginx opens a new one.
+            File.Move(rotated, Path.Combine(fixture.AlphaLogPath, "access.log.2"));
+            File.Move(current, rotated);
+            File.WriteAllText(current, "x\n");
+            return Task.FromResult(new LogLineCountResult(0, 0, new Dictionary<string, long>()));
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Empty(fixture.RustHelper.DeleteRequests);
+        Assert.True(File.Exists(current));
+        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
     }
 
     [Fact]
@@ -1016,6 +1056,146 @@ public sealed class LogsControllerRustFileOperationsTests
 
         Assert.Empty(fixture.State.GetLogSourcePositions("beta"));
         Assert.DoesNotContain(fixture.BetaLogPath, fixture.RustHelper.CountRequests);
+    }
+
+    public sealed record SeedCase(string Name, string[] Steps, bool BetaSeeded);
+
+    public static TheoryData<SeedCase> SeedCases => new()
+    {
+        new SeedCase("a fresh install seeds a datasource with logs", ["logs", "start"], true),
+        new SeedCase("a stop during the seed count seeds the datasource at the next start", ["logs", "start-stopped", "start"], true),
+        new SeedCase("an empty log folder at the first start, then a LogEntries reset", ["start", "logs", "pass", "db-reset", "start"], false),
+        new SeedCase("a missing log folder at the first start, then a LogEntries reset", ["no-folder", "start", "logs", "pass", "db-reset", "start"], false),
+        new SeedCase("a failed count at the first start, then a LogEntries reset", ["logs", "start-count-fails", "pass", "db-reset", "start"], false),
+        new SeedCase("positions saved before the first start, then a LogEntries reset", ["logs", "partial", "start", "db-reset", "start"], false),
+        new SeedCase("a restart before any pass, then a reset to the beginning and a restart", ["logs", "start", "start", "reset", "start"], false),
+        new SeedCase("a restart before any pass, a pass, then a per-table LogEntries reset", ["logs", "start", "start", "pass", "db-reset-table", "start"], false),
+        new SeedCase("a stop during the seed count, then a LogEntries reset", ["logs", "start-stopped", "db-reset", "start"], false),
+    };
+
+    [Theory]
+    [MemberData(nameof(SeedCases))]
+    public async Task FreshInstallSeed_SettlesEachDatasourceOnceAsync(SeedCase seedCase)
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.AlphaLogPath, "access.log"),
+            string.Concat(Enumerable.Repeat("x\n", 3)));
+        Exception? betaCountFailure = null;
+        fixture.RustHelper.CountHandler = (path, _) =>
+        {
+            if (path == fixture.BetaLogPath && betaCountFailure is { } failure)
+            {
+                betaCountFailure = null;
+                throw failure;
+            }
+            var perStem = new Dictionary<string, long>();
+            foreach (var file in Directory.GetFiles(path))
+            {
+                if (LogSourceLayout.LogicalStem(Path.GetFileName(file)) is { } stem)
+                {
+                    perStem[stem] = perStem.GetValueOrDefault(stem) + File.ReadAllText(file).Count(c => c == '\n');
+                }
+            }
+            return Task.FromResult(new LogLineCountResult(perStem.Values.Sum(), perStem.Count, perStem));
+        };
+        Task StartMonitor() => (Task)typeof(LiveLogMonitorService)
+            .GetMethod("OnStartupAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(
+                new LiveLogMonitorService(
+                    NullLogger<LiveLogMonitorService>.Instance,
+                    new ConfigurationBuilder().Build(),
+                    fixture.Processor,
+                    fixture.State,
+                    fixture.Datasources,
+                    fixture.Checker,
+                    fixture.RustHelper,
+                    fixture.RepairOwner),
+                new object[] { CancellationToken.None })!;
+
+        var countsBeforeLastStart = 0;
+        foreach (var step in seedCase.Steps)
+        {
+            switch (step)
+            {
+                case "logs":
+                    Directory.CreateDirectory(fixture.BetaLogPath);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(fixture.BetaLogPath, "access.log"),
+                        string.Concat(Enumerable.Repeat("x\n", 5)));
+                    break;
+                case "no-folder":
+                    Directory.Delete(fixture.BetaLogPath, recursive: true);
+                    break;
+                case "start":
+                    countsBeforeLastStart = fixture.RustHelper.CountRequests.Count;
+                    await StartMonitor().WaitAsync(_wait);
+                    break;
+                case "start-count-fails":
+                    betaCountFailure = new InvalidOperationException("Injected count failure.");
+                    await StartMonitor().WaitAsync(_wait);
+                    break;
+                case "start-stopped":
+                    // The app stops while it counts beta's logs.
+                    betaCountFailure = new OperationCanceledException();
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(StartMonitor);
+                    break;
+                case "pass":
+                    fixture.State.RecordLogIngestPass(
+                        "beta",
+                        new Dictionary<string, long> { ["access.log"] = 5 },
+                        5,
+                        diagnostics: null);
+                    break;
+                case "partial":
+                    // A pass that saved part of its work before it ended.
+                    fixture.State.SetLogSourcePositions("beta", new Dictionary<string, long> { ["access.log"] = 2 });
+                    break;
+                case "reset":
+                    fixture.Processor.ResetLogPosition("beta");
+                    break;
+                case "db-reset":
+                    fixture.State.ClearLogProcessingPositions();
+                    break;
+                case "db-reset-table":
+                    // The per-table LogEntries reset's position writes.
+                    foreach (var name in new[] { "alpha", "beta" })
+                    {
+                        fixture.State.SetLogSourcePositions(name, new Dictionary<string, long>());
+                        fixture.State.SetLogPosition(name, 0);
+                        fixture.State.SetLogTotalLines(name, 0);
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(seedCase), step, "Unknown seed step");
+            }
+        }
+
+        var countedAtLastStart = fixture.RustHelper.CountRequests.Skip(countsBeforeLastStart).ToList();
+        if (seedCase.BetaSeeded)
+        {
+            Assert.Equal(
+                new Dictionary<string, long> { ["access.log"] = 5 },
+                fixture.State.GetLogSourcePositions("beta"));
+            Assert.Contains(fixture.BetaLogPath, countedAtLastStart);
+        }
+        else
+        {
+            Assert.Empty(fixture.State.GetLogSourcePositions("beta"));
+            Assert.DoesNotContain(fixture.BetaLogPath, countedAtLastStart);
+        }
+    }
+
+    [Fact]
+    public void FreshInstallSeed_TheListedMarkerSurvivesASave()
+    {
+        var listed = new AppState();
+        listed.LogProcessing.SeedPendingDatasources = new HashSet<string>();
+
+        Assert.NotNull(JsonSerializer.Deserialize<AppState>(JsonSerializer.Serialize(listed))!
+            .LogProcessing.SeedPendingDatasources);
+        Assert.Null(JsonSerializer.Deserialize<AppState>(JsonSerializer.Serialize(new AppState()))!
+            .LogProcessing.SeedPendingDatasources);
     }
 
     private static Task<LogFileLock> HoldStepAsync(ControllerFixture fixture) =>

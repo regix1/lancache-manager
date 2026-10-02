@@ -307,9 +307,11 @@ public class LogProcessingState
     /// </summary>
     public Dictionary<string, Dictionary<string, long>> DatasourceSourcePositions { get; set; } = new();
 
-    // Datasources the first start still has to seed to the end of their logs. Kept across restarts
-    // so a stop during seeding does not import the backlog of the ones left.
-    public HashSet<string> SeedPendingDatasources { get; set; } = new();
+    // Datasources the install's first start still has to seed to the end of their logs. Null until the
+    // first start lists them, so no later start lists them again. A datasource leaves the set when any of
+    // its positions is written or when a start reaches it without seeding it. Kept across restarts so a
+    // stop during seeding does not import the backlog of the ones left.
+    public HashSet<string>? SeedPendingDatasources { get; set; }
 
     /// <summary>
     /// Per-datasource ingestion diagnostics from the most recent run that examined

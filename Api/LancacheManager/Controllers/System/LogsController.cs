@@ -732,15 +732,20 @@ public class LogsController : ControllerBase
             {
                 filesBefore[path] = NginxWriterProbe.ReadIdentity(path);
             }
-            catch (FileNotFoundException)
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                // Removed by logrotate since the listing.
+                // Removed by logrotate since the listing, or a file this app cannot open. Neither is
+                // remembered, so neither counts as surviving: that can only lower a position, and the
+                // importer skips rows it already has.
             }
         }
         var counted = await _rustProcessHelper.CountLogLinesAsync(
             datasource.LogPath,
             cancellationToken,
             _rustLogProcessorService.ResumePath(datasourceName));
+        // Checked again after the count: a logrotate run during a long count moves the files the user
+        // chose, and the delete must not remove the new file nginx opened in their place.
+        _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
 
         LogFileDeletionResult? deletion = null;
         ExceptionDispatchInfo? deleteFailure = null;
@@ -767,21 +772,25 @@ public class LogsController : ControllerBase
             // that cannot be written followed by a restart, leaves the old position on a series that lost
             // its current file, so the next import skips that many lines, less its older files' lines, of
             // the new file.
-            var surviving = new List<string>();
-            foreach (var (path, identity) in filesBefore)
+            // A file survives wherever logrotate moved it: its lines are still in the series. Only a file
+            // that is gone, or replaced by a new file under its name, loses its read lines.
+            var identitiesNow = new HashSet<NginxFileIdentity>();
+            foreach (var path in NginxLogRotationService.GetAffectedLogPaths(datasource))
             {
                 try
                 {
-                    if (NginxWriterProbe.ReadIdentity(path) == identity)
-                    {
-                        surviving.Add(path);
-                    }
+                    identitiesNow.Add(NginxWriterProbe.ReadIdentity(path));
                 }
-                catch (FileNotFoundException)
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
-                    // Deleted, so none of its lines are left.
+                    // Removed between the listing and this read, or a file this app cannot open and so
+                    // never remembered above.
                 }
             }
+            var surviving = filesBefore
+                .Where(pair => identitiesNow.Contains(pair.Value))
+                .Select(pair => pair.Key)
+                .ToList();
             if (surviving.Count < filesBefore.Count)
             {
                 long LinesIn(string path) => counted.FileLineCounts.GetValueOrDefault(Path.GetFileName(path));

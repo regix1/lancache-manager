@@ -89,19 +89,18 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             return;
         }
 
-        // Check if logs have been processed before (to distinguish fresh install from manual reset)
-        var hasProcessedLogs = _stateService.HasProcessedLogs();
-        if (!hasProcessedLogs)
+        // The install's first start lists the datasources it seeds; no later start lists them again, so a
+        // restart never undoes a reset to the beginning made after the first start.
+        try
         {
-            try
-            {
-                _stateService.AddLogSeedPending(datasources.Select(ds => ds.Name));
-            }
-            catch (Exception ex)
-            {
-                // The set changed in memory; only a restart before the next save loses it.
-                _logger.LogWarning(ex, "Failed to save the datasources still to seed");
-            }
+            _stateService.StartLogSeed(_stateService.HasProcessedLogs()
+                ? Array.Empty<string>()
+                : datasources.Select(ds => ds.Name));
+        }
+        catch (Exception ex)
+        {
+            // The list changed in memory; only a restart before the next save loses it.
+            _logger.LogWarning(ex, "Failed to save the datasources still to seed");
         }
 
         // Initialize per-source watermarks for each datasource
@@ -111,69 +110,76 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             if (!Directory.Exists(ds.LogPath))
             {
                 _logger.LogWarning("Datasource '{Name}': Log directory does not exist at '{LogPath}', skipping monitoring for this datasource", ds.Name, ds.LogPath);
-                continue;
+            }
+            else
+            {
+                ds.RefreshLogSources();
+                foreach (var filePath in ds.LogFilePaths)
+                {
+                    var fileInfo = new FileInfo(filePath);
+                    _lastFileSizes[WatermarkKey(ds.Name, Path.GetFileName(filePath))] = fileInfo.Length;
+                    _logger.LogInformation("Datasource '{Name}': Initial {Stem} size: {Size:N0} bytes",
+                        ds.Name, Path.GetFileName(filePath), fileInfo.Length);
+                }
+
+                // Only a datasource still pending from the install's first start is set to the end of its
+                // logs. EOF-seed covers EVERY source stem (access.log AND per-service files), series-wide,
+                // at the last complete record of each stem.
+                var sourcePositions = _stateService.GetLogSourcePositions(ds.Name);
+                var legacyPosition = _stateService.GetLogPosition(ds.Name);
+                // Stem set, not current-file list: a source caught between rename and reopen
+                // (rotations only on disk) still needs its series seeded to EOF.
+                if (_stateService.IsLogSeedPending(ds.Name) && sourcePositions.Count == 0 && legacyPosition == 0 &&
+                    ds.LogSourceStems.Count > 0)
+                {
+                    try
+                    {
+                        // Held through the count and the writes, so a log delete or reset cannot land
+                        // between them and be overwritten with the old file's line counts.
+                        await using var logLock = await _operationStateService.LockLogFilesAsync(
+                            null,
+                            OperationType.LogProcessing,
+                            LogFileLockKind.Rows,
+                            stoppingToken);
+                        // Asked again under the lock: a "Process" pass for this datasource can hold the logs
+                        // first and save its own end positions, and a reset to the beginning settles the
+                        // datasource; a count taken after either would skip lines it kept.
+                        if (_stateService.IsLogSeedPending(ds.Name) &&
+                            _stateService.GetLogSourcePositions(ds.Name).Count == 0 &&
+                            _stateService.GetLogPosition(ds.Name) == 0)
+                        {
+                            var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
+                            _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
+                            _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);
+                            _logger.LogInformation(
+                                "Datasource '{Name}': Fresh install - initialized {SourceCount} source position(s) to end of file ({LineCount} lines total)",
+                                ds.Name, count.SourceLineCounts.Count, count.LinesProcessed);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // The app is stopping: the datasource stays pending, so the next start seeds it.
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Datasource '{Name}': Failed to seed fresh-install positions; sources start at 0 (dedup absorbs any overlap)",
+                            ds.Name);
+                    }
+                }
             }
 
-            ds.RefreshLogSources();
-            foreach (var filePath in ds.LogFilePaths)
+            // Reached and not seeded (no log folder, no logs yet, positions already saved, or a failed
+            // count): nothing on disk is skipped, so a later reset or import reads it from line 1.
+            try
             {
-                var fileInfo = new FileInfo(filePath);
-                _lastFileSizes[WatermarkKey(ds.Name, Path.GetFileName(filePath))] = fileInfo.Length;
-                _logger.LogInformation("Datasource '{Name}': Initial {Stem} size: {Size:N0} bytes",
-                    ds.Name, Path.GetFileName(filePath), fileInfo.Length);
+                _stateService.RemoveLogSeedPending(ds.Name);
             }
-
-            // Only datasources the first start has not seeded yet are set to the end of their logs. A
-            // user reset to the beginning takes a datasource out of that set, so its empty positions
-            // mean "read from the start". EOF-seed covers EVERY source stem (access.log AND
-            // per-service files), series-wide, at the last complete record of each stem.
-            var sourcePositions = _stateService.GetLogSourcePositions(ds.Name);
-            var legacyPosition = _stateService.GetLogPosition(ds.Name);
-            // Stem set, not current-file list: a source caught between rename and reopen
-            // (rotations only on disk) still needs its series seeded to EOF.
-            if (_stateService.IsLogSeedPending(ds.Name) && sourcePositions.Count == 0 && legacyPosition == 0 &&
-                ds.LogSourceStems.Count > 0)
+            catch (Exception ex)
             {
-                try
-                {
-                    // Held through the count and the writes, so a log delete or reset cannot land
-                    // between them and be overwritten with the old file's line counts.
-                    await using var logLock = await _operationStateService.LockLogFilesAsync(
-                        null,
-                        OperationType.LogProcessing,
-                        LogFileLockKind.Rows,
-                        stoppingToken);
-                    // Asked again under the lock: a "Process" pass for this datasource can hold the logs
-                    // first and save its own end positions, and a reset to the beginning can take it out
-                    // of the seed; a count taken now would skip lines either of them kept.
-                    if (!_stateService.IsLogSeedPending(ds.Name))
-                    {
-                        continue;
-                    }
-                    if (_stateService.GetLogSourcePositions(ds.Name).Count > 0 ||
-                        _stateService.GetLogPosition(ds.Name) > 0)
-                    {
-                        _stateService.RemoveLogSeedPending(ds.Name);
-                        continue;
-                    }
-                    var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
-                    _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
-                    _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);
-                    _stateService.RemoveLogSeedPending(ds.Name);
-                    _logger.LogInformation(
-                        "Datasource '{Name}': Fresh install - initialized {SourceCount} source position(s) to end of file ({LineCount} lines total)",
-                        ds.Name, count.SourceLineCounts.Count, count.LinesProcessed);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Datasource '{Name}': Failed to seed fresh-install positions; sources start at 0 (dedup absorbs any overlap)",
-                        ds.Name);
-                }
+                // Removed in memory; only a restart before the next save brings it back.
+                _logger.LogWarning(ex, "Failed to save the seed state of datasource '{Name}'", ds.Name);
             }
         }
 

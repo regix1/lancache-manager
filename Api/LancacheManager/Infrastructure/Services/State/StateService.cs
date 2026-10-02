@@ -433,6 +433,8 @@ public class StateService : IStateService
                 new Dictionary<string, long>(positions);
             state.LogProcessing.DatasourcePositions[datasourceName] = positions.Values.Sum();
             state.LogProcessing.LastUpdated = DateTime.UtcNow;
+            // A saved starting line settles the first-start seed: this datasource is never seeded later.
+            state.LogProcessing.SeedPendingDatasources?.Remove(datasourceName);
             if (datasourceName == "default")
             {
                 state.LogProcessing.Position = positions.Values.Sum();
@@ -444,18 +446,38 @@ public class StateService : IStateService
     {
         lock (_lock)
         {
-            return GetState().LogProcessing.SeedPendingDatasources.Contains(datasourceName);
+            return GetState().LogProcessing.SeedPendingDatasources?.Contains(datasourceName) == true;
         }
     }
 
-    public void AddLogSeedPending(IEnumerable<string> datasourceNames)
+    /// <summary>
+    /// Lists the datasources the install's first start seeds. Once a list is stored, even an empty one,
+    /// later calls change nothing.
+    /// </summary>
+    public void StartLogSeed(IEnumerable<string> datasourceNames)
     {
-        UpdateState(state => state.LogProcessing.SeedPendingDatasources.UnionWith(datasourceNames));
+        lock (_lock)
+        {
+            if (GetState().LogProcessing.SeedPendingDatasources != null)
+            {
+                return;
+            }
+            UpdateState(state => state.LogProcessing.SeedPendingDatasources = new HashSet<string>(datasourceNames));
+        }
     }
 
     public void RemoveLogSeedPending(string datasourceName)
     {
-        UpdateState(state => state.LogProcessing.SeedPendingDatasources.Remove(datasourceName));
+        lock (_lock)
+        {
+            // Every start releases every datasource it reaches; one that is not pending must not
+            // rewrite the state file.
+            if (!IsLogSeedPending(datasourceName))
+            {
+                return;
+            }
+            UpdateState(state => state.LogProcessing.SeedPendingDatasources?.Remove(datasourceName));
+        }
     }
 
     /// <summary>
@@ -569,6 +591,8 @@ public class StateService : IStateService
     {
         UpdateState(state =>
         {
+            // Deleted log series settle the first-start seed as any position write does.
+            state.LogProcessing.SeedPendingDatasources?.Remove(datasourceName);
             if (!state.LogProcessing.DatasourceSourcePositions.TryGetValue(datasourceName, out var positions))
             {
                 return;
@@ -599,6 +623,9 @@ public class StateService : IStateService
             state.LogProcessing.DatasourcePositions.Clear();
             state.LogProcessing.DatasourceTotalLines.Clear();
             state.LogProcessing.DatasourceSourcePositions.Clear();
+            // A reset reads every datasource from the start. Cleared, not set to null: null would make
+            // the next start list and seed them again.
+            state.LogProcessing.SeedPendingDatasources?.Clear();
             state.LogProcessing.LastUpdated = DateTime.UtcNow;
         });
     }
