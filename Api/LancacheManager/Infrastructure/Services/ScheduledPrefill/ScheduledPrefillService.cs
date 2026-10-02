@@ -958,6 +958,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
         finally
         {
+            // A platform that completed with some games failed ends amber, naming how many.
+            if (success && serviceRun.State.Warning is { } warning)
+            {
+                tracker.SetWarning(serviceRun.OperationId, warning);
+            }
             tracker.CompleteOperation(serviceRun.OperationId, success || skipped, error, cancelled, skipped);
         }
     }
@@ -1360,11 +1365,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // games it was asked for is not a completed run. Checked AFTER the daemon's own error so
                 // a reported reason, which names the actual cause, still wins over this count. [34]
                 var failedApps = relay.FailedApps;
-                if (failedApps > 0)
+                // The daemon reports TotalApps over the socket and can send 0 with an app_completed
+                // tick, which would read as "2 of 0 games". The failures themselves are the floor.
+                var attemptedApps = Math.Max(relay.TotalApps, failedApps);
+                if (failedApps > 0 && attemptedApps == failedApps)
                 {
-                    // The daemon reports TotalApps over the socket and can send 0 with an app_completed
-                    // tick, which would read as "2 of 0 games". The failures themselves are the floor.
-                    var attemptedApps = Math.Max(relay.TotalApps, failedApps);
                     await ReportProgressAsync(
                         notifications,
                         serviceRun,
@@ -1379,6 +1384,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                             ["total"] = attemptedApps
                         });
                     return ScheduledPrefillServiceRunResult.Failed;
+                }
+
+                // Some games failed while others downloaded: the platform completes, and its card names
+                // how many failed.
+                if (failedApps > 0)
+                {
+                    serviceRun.State.Warning = new RunWarning(
+                        "signalr.scheduledPrefill.failedApps",
+                        new Dictionary<string, object?> { ["failed"] = failedApps, ["total"] = attemptedApps });
                 }
 
                 var completion = BuildCompletionMessage(session.TotalBytesTransferred,
@@ -1516,10 +1530,24 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var terminal = await run.Completion.Task;
         serviceRun.State.CompletedAtUtc = terminal.CompletedAtUtc ?? terminal.Snapshot.UpdatedAt.UtcDateTime;
         var summary = terminal.Snapshot;
+        // Some games failed while others downloaded or were already cached: the run completes and its
+        // card names how many failed. Every game failed is a failed run.
         var outcome = summary.State == "cancelled" ? ScheduledPrefillServiceRunResult.Cancelled
-            : summary.State != "completed" || summary.FailedApps > 0 ? ScheduledPrefillServiceRunResult.Failed
+            : summary.State != "completed"
+                || summary.FailedApps > 0 && summary.CompletedApps + summary.CachedApps == 0
+                ? ScheduledPrefillServiceRunResult.Failed
             : summary.CompletedApps + summary.CachedApps == 0 ? ScheduledPrefillServiceRunResult.Skipped
             : ScheduledPrefillServiceRunResult.Ran;
+        if (outcome == ScheduledPrefillServiceRunResult.Ran && summary.FailedApps > 0)
+        {
+            serviceRun.State.Warning = new RunWarning(
+                "signalr.scheduledPrefill.failedApps",
+                new Dictionary<string, object?>
+                {
+                    ["failed"] = summary.FailedApps,
+                    ["total"] = Math.Max(summary.TotalApps, summary.FailedApps)
+                });
+        }
         var completion = BuildCompletionMessage(summary.BytesTransferred,
             summary.CachedApps > 0 && summary.CachedApps == summary.TotalApps);
         var stageKey = outcome switch

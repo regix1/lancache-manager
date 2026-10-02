@@ -54,6 +54,9 @@ public sealed class ScheduledPrefillServiceRunState
     public DateTime? CompletedAtUtc { get; set; }
     public bool Detached { get; set; }
 
+    /// <summary>What a platform run that still completed left undone (some games failed); set before it ends.</summary>
+    public RunWarning? Warning { get; set; }
+
     /// <summary>The stage the last progress event reported, e.g. "running" or "needs-login".</summary>
     public string Stage => Snapshot.Stage;
 

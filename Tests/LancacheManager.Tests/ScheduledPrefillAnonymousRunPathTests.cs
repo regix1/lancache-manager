@@ -6,6 +6,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -416,19 +417,82 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
-    /// A run that lost some games but downloaded others is still a failed run, and the count has to
-    /// say which it was rather than implying everything failed.
+    /// A run that lost some games but downloaded others completes, and its card names how many games
+    /// failed instead of failing the whole platform.
     /// </summary>
     [Fact]
-    public async Task RunServiceAsync_SomeAppsFailed_ReportsFailedNamingHowMany()
+    public async Task RunServiceAsync_SomeAppsFailed_CompletesWithAWarningNamingHowMany()
     {
         var (daemon, _) = CreateRunnablePersistentDaemon(
             PrefillPlatform.BattleNet, failedApps: 1, totalApps: 3, transferredBytes: 1024);
+        // RunSingleServiceAsync's body, keeping the platform run so its warning can be read.
+        using var daemonServices = BuildProviderWithDaemon(PrefillPlatform.BattleNet, daemon);
+        using var schedulerServices = new ServiceCollection().BuildServiceProvider();
+        var scheduledPrefillService = new ScheduledPrefillService(
+            NullLogger<ScheduledPrefillService>.Instance,
+            schedulerServices.GetRequiredService<IServiceScopeFactory>(),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
+        var serviceRun = MakeServiceRun(new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = PrefillPlatform.BattleNet,
+            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
+            ScheduleName = "Default",
+            Enabled = true,
+            NotificationMode = NotificationMode.Silent,
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.All,
+            TopCount = null,
+            SelectedAppIds = new List<string>(),
+            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
+            Force = false,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        });
+        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        var recorder = (RecordingNotificationsProxy)notifications;
 
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+        var result = await (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduledPrefillService,
+                new object?[] { serviceRun, daemonServices, notifications, ScheduledPrefillConfigFactory.CreateDefault() })!;
+        scheduledPrefillService.Dispose();
 
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        Assert.Equal("1 of 3 games failed to download", recorder.Messages[^1]);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
+        Assert.Equal("completed", recorder.Stages[^1]);
+        var warning = Assert.IsType<RunWarning>(serviceRun.State.Warning);
+        Assert.Equal("signalr.scheduledPrefill.failedApps", warning.StageKey);
+        Assert.Equal(1, warning.Context["failed"]);
+        Assert.Equal(3, warning.Context["total"]);
+    }
+
+    [Fact]
+    public async Task CompleteServiceRunAsync_RanWithAWarning_EndsAsAKeptAmberRow()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var serviceConfig = ScheduledPrefillConfigFactory.CreateDefault().GetSchedulesInRunOrder()[0];
+        var state = new ScheduledPrefillServiceRunState(
+            serviceConfig.ServiceId,
+            serviceConfig.ScheduleId,
+            serviceConfig.ScheduleName,
+            new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
+        var operationId = tracker.RegisterOperation(
+            OperationType.ScheduledPrefill, "Scheduled Prefill", new CancellationTokenSource(), state);
+        var serviceRun = new ScheduledPrefillServiceRun(
+            serviceConfig, operationId, operationId.ToString(), "run-1", state, CancellationToken.None);
+        state.Warning = new RunWarning(
+            "signalr.scheduledPrefill.failedApps",
+            new Dictionary<string, object?> { ["failed"] = 1, ["total"] = 3 });
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+
+        await (Task)typeof(ScheduledPrefillService)
+            .GetMethod("CompleteServiceRunAsync", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [serviceRun, tracker, notifications, ScheduledPrefillServiceRunResult.Ran, null])!;
+
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == operationId);
+        Assert.Equal("completed", row.Status);
+        Assert.Equal("signalr.scheduledPrefill.failedApps", Assert.Single(row.Warnings).StageKey);
+        Assert.True(row.Retained);
     }
 
     /// <summary>
