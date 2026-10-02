@@ -1761,6 +1761,51 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task AScanAttemptSavingItsCountsKeepsTheStoredDetectionWarningAsync()
+    {
+        using var ctx = new PhaseContext();
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow.AddMinutes(-3),
+            Sources = [new OperationRepairSource { Datasource = Assert.Single(ctx.Datasources.GetDatasources()).Name }],
+            EvictionScan = new EvictionScanRepair()
+        };
+        await ctx._operationStateService.PrepareRepairAsync(repair, CancellationToken.None);
+        // A prepared record cannot hold counts; the scan starts its work, which moves it to running.
+        await ctx._operationStateService.StartWorkAsync(repair.Id, datasource: null, CancellationToken.None);
+        // The repair's attempt copies the record before the scan saves its detection warning.
+        var attemptCopy = ctx._operationStateService.GetPendingRepairs().Single(pending => pending.Id == repair.Id);
+        await ctx._operationStateService.SaveRepairAsync(
+            repair.Id,
+            current => current.EvictionScan = new EvictionScanRepair { DetectionError = "Probe abstained" },
+            CancellationToken.None);
+        var scanId = Guid.NewGuid();
+        await using (var seed = ctx.CreateContext())
+        {
+            // Already finalized, so the attempt only saves the scan's counts.
+            seed.EvictionScanCheckpoints.Add(new EvictionScanCheckpoint
+            {
+                OperationId = scanId,
+                Processed = 3,
+                StartedAtUtc = DateTime.UtcNow.AddMinutes(-2),
+                FinalizedAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        await (Task)typeof(CacheReconciliationService)
+            .GetMethod("FinalizeEvictionScanAttemptAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, [attemptCopy, scanId, true, CancellationToken.None, true])!;
+
+        var stored = ctx._operationStateService.GetPendingRepairs().Single(pending => pending.Id == repair.Id);
+        Assert.Equal(3, stored.EvictionScan!.Processed);
+        Assert.Equal("Probe abstained", stored.EvictionScan.DetectionError);
+    }
+
+    [Fact]
     public async Task AFinishedNormalScanLeavesTheCorruptionResultsRemovable()
     {
         OperationRepair scanRepair;

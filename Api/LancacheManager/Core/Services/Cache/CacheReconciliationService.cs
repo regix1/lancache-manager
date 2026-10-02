@@ -554,6 +554,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 datasource: null,
                 cancellationToken: stoppingToken);
 
+            // Checked again after that wait, which lasts as long as a running repair: evidence that turned
+            // mixed or unknown meanwhile refuses the scan the same way, before its launch.
+            var repairWaitDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+            if (repairWaitDenial != null)
+            {
+                throw new ConflictException(repairWaitDenial);
+            }
+
             // Read after the repair waits above: key evidence can change while a repair runs, and the scan
             // must use the scheme the log files show at launch.
             // Write datasource configuration to temp file for the Rust binary
@@ -728,8 +736,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (ConflictException refusal)
         {
-            // Refused after the detection phase, before any work started: logged as the same refusal
-            // before the detection phase is.
+            // Refused after the detection phase or the repair wait, before the scan launched: logged as the
+            // same refusal before the detection phase is.
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", refusal.Message);
             operationError = refusal.Message;
         }
@@ -1185,7 +1193,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Processed = checkpoint.Processed,
                     Evicted = checkpoint.Evicted,
                     UnEvicted = checkpoint.UnEvicted,
-                    DetectionError = repair.EvictionScan?.DetectionError
+                    DetectionError = current.EvictionScan?.DetectionError
                 };
             },
             stoppingToken);
