@@ -123,7 +123,7 @@ pub fn service_for_prefix(prefix: &str) -> String {
 /// Derive the logical stem for a file name, stripping compression and rotation suffixes.
 /// Returns None when the name is not an access-log series member.
 /// `access.log`, `access.log.2.gz` -> `access.log`; `steam-access.log.1` -> `steam-access.log`.
-fn logical_stem(file_name: &str) -> Option<String> {
+pub(crate) fn logical_stem(file_name: &str) -> Option<String> {
     let (without_compression, is_compressed) = if let Some(name) = file_name
         .strip_suffix(".gz")
         .or_else(|| file_name.strip_suffix(".zst"))

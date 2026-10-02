@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
 use crate::cache_utils;
-use crate::log_layout::{discover_log_sources, SourceKind};
+use crate::log_layout::{discover_log_sources, kind_for_stem, logical_stem, SourceKind};
 use crate::log_reader::LogFileReader;
 use crate::models::LogEntry;
 use crate::parser::{parse_log_line, LogParser};
@@ -57,7 +57,7 @@ pub struct FileIdentity {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PublicationExpectation {
+pub struct PublicationExpectation {
     target_path: PathBuf,
     original_identity: FileIdentity,
 }
@@ -168,7 +168,7 @@ pub fn file_identity_of(_file: &File) -> Result<FileIdentity> {
     anyhow::bail!("file identity is unsupported on this platform")
 }
 
-fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectation>> {
+pub fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectation>> {
     let Some(check_path) = std::env::var_os(LOG_CHECK_ENV) else {
         return Ok(None);
     };
@@ -240,7 +240,13 @@ fn write_publication_result(records: Vec<PublicationRecord>, success: bool) -> R
 /// per-service series) before any rewrite ran. The host's check expects one record per file it
 /// bound: the records a rewrite already published stay, each deleted file is added as deleted,
 /// and every other checked file as unchanged, which holds only while its identity still matches.
-pub fn publish_deleted_files(deleted: &[FileIdentity], deletes_succeeded: bool) -> Result<()> {
+/// A checked file of `service` that is already gone counts as deleted once no file of its series
+/// is left beside it.
+pub fn publish_deleted_files(
+    deleted: &[FileIdentity],
+    deletes_succeeded: bool,
+    service: &str,
+) -> Result<()> {
     let (Some(check_path), Some(result_path)) = (
         std::env::var_os(LOG_CHECK_ENV),
         std::env::var_os(LOG_RESULT_ENV),
@@ -266,6 +272,7 @@ pub fn publish_deleted_files(deleted: &[FileIdentity], deletes_succeeded: bool) 
         success &= published.success;
         records = published.files;
     }
+    let removed_service = SourceKind::Service(service.to_string());
     for expected in check.files {
         if records
             .iter()
@@ -273,7 +280,28 @@ pub fn publish_deleted_files(deleted: &[FileIdentity], deletes_succeeded: bool) 
         {
             continue;
         }
-        let was_deleted = deleted.contains(&expected.original_identity);
+        // A file of the removed service that something outside the app deleted first: with no file of
+        // that series left beside it, its lines are gone too. A rotation that renamed or compressed it
+        // leaves a series member that still holds its lines, so that run keeps failing.
+        let was_deleted = deleted.contains(&expected.original_identity)
+            || (matches!(
+                std::fs::symlink_metadata(&expected.target_path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound
+            ) && expected
+                .target_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(logical_stem)
+                .is_some_and(|stem| kind_for_stem(&stem) == removed_service)
+                && !discover_log_sources(
+                    expected
+                        .target_path
+                        .parent()
+                        .context("log publication target has no parent directory")?,
+                )?
+                .sources
+                .iter()
+                .any(|source| source.kind == removed_service));
         if !was_deleted {
             success &= file_identity(&expected.target_path).ok().as_ref()
                 == Some(&expected.original_identity);
