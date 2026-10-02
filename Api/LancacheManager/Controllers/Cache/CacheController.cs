@@ -1073,6 +1073,18 @@ public class CacheController : ControllerBase
                         var context = CorruptionDetectionService.BuildRemovalContext(bulkState.Totals, "all");
                         context["failedCount"] = bulkState.FailedServices;
                         context["serviceCount"] = bulkState.ServiceCount;
+                        // A failed service keeps its own red card. When the last service succeeded, the
+                        // summary lands on its card, which ends amber instead of green.
+                        if (_operationTracker.GetOperation(lastOperationId)?.Status == OperationStatus.Completed)
+                        {
+                            _operationTracker.SetWarning(lastOperationId, new RunWarning(
+                                "common.notifications.warnings.servicesFailed",
+                                new Dictionary<string, object?>
+                                {
+                                    ["failedCount"] = bulkState.FailedServices,
+                                    ["serviceCount"] = bulkState.ServiceCount
+                                }));
+                        }
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
                                 StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural

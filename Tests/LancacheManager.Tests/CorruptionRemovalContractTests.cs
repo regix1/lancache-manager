@@ -795,6 +795,45 @@ public sealed class CorruptionRemovalContractTests
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
+    public async Task ProcessAggregate_AFailedFirstServiceTurnsTheSummaryCardAmber(CorruptionDetectionMethod method)
+    {
+        await using var fixture = new RemovalRun(method, transport: true, datasourceCount: 2);
+        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        Guid firstId = default;
+        Guid lastId = default;
+        for (var serviceIndex = 1; serviceIndex <= 2; serviceIndex++)
+        {
+            await fixture.Pipe!.ConnectAsync();
+            await fixture.Pipe.SendAsync(Live("service", 25, 3, 20));
+            var progress = await fixture.Messages.WaitProgressAsync("service");
+            lastId = progress.OperationId;
+            if (serviceIndex == 1) firstId = lastId;
+            await CompleteDatasourceAsync(fixture.Pipe, method, second: false);
+            await fixture.Pipe.ConnectAsync();
+            if (serviceIndex == 1)
+                fixture.Tracker.CompleteOperation(lastId, false, error: "external failure");
+            await CompleteDatasourceAsync(fixture.Pipe, method, second: true);
+        }
+
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(lastId, aggregate.OperationId);
+        Assert.False(aggregate.Success);
+        // The failed first service keeps its own red card; the summary's card, the second service's, is amber.
+        Assert.Equal("failed", Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == firstId).Status);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == lastId);
+        Assert.Equal("completed", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.servicesFailed", warning.StageKey);
+        Assert.Equal(1, warning.Context["failedCount"]);
+        Assert.Equal(2, warning.Context["serviceCount"]);
+        Assert.True(row.Retained);
+        fixture.Messages.Resume.TrySetResult();
+    }
+
+    [Theory]
+    [InlineData(CorruptionDetectionMethod.Structural)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
     public async Task RunningProcess_CancellationStopsTheChildAndCompletesOnce(CorruptionDetectionMethod method)
     {
         await using var fixture = new RemovalRun(method, transport: true);
