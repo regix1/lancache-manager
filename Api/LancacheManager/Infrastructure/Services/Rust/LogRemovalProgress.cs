@@ -17,6 +17,13 @@ public class LogRemovalProgress : RustProgressBase
     public long LinesRemoved { get; set; }
 
     /// <summary>
+    /// The child's own sentence; on a failed run it is the reason, such as the PUID/PGID hint for a log
+    /// file it could not modify.
+    /// </summary>
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    /// <summary>
     /// Removed-line counts per stem for the REWRITTEN (monolithic) sources. Deleted
     /// per-service series report nothing here; their stems are cleared outright.
     /// </summary>

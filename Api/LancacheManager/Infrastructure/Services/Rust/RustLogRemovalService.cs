@@ -541,7 +541,9 @@ public class RustLogRemovalService
                     throw new OperationCanceledException(cancellationToken);
                 }
 
-                if (!step.Reopen.Success)
+                // A failing child also fails its reopen check (it publishes an incomplete result or none), so
+                // the check's error decides the outcome only for a child that exited 0.
+                if (exitCode == 0 && !step.Reopen.Success)
                 {
                     completionMetrics = completionMetrics with
                     {
@@ -577,6 +579,15 @@ public class RustLogRemovalService
                 }
                 else
                 {
+                    if (!step.Reopen.Success)
+                    {
+                        _logger.LogWarning(
+                            "nginx reopen after the failed log removal for {Service} in datasource {Datasource} also failed: {Error}",
+                            service,
+                            datasourceName,
+                            step.Reopen.ErrorMessage);
+                    }
+
                     // Terminal LogRemovalComplete (error) is emitted via onTerminalEmit inside CompleteOperation.
                     completionMetrics = completionMetrics with
                     {
@@ -585,7 +596,11 @@ public class RustLogRemovalService
 
                     _logger.LogError("Log removal failed for {Service} in datasource {Datasource} with exit code {ExitCode}",
                         service, datasourceName, exitCode);
-                    completionError = $"Failed to remove {service} entries from {datasourceName} (exit code {exitCode})";
+                    // The child writes its reason into its progress file before it exits; a child killed
+                    // before that leaves none.
+                    completionError = step.Progress is { Status: "error" or "failed", Message: { Length: > 0 } reason }
+                        ? $"Failed to remove {service} entries from {datasourceName} (exit code {exitCode}): {reason}"
+                        : $"Failed to remove {service} entries from {datasourceName} (exit code {exitCode})";
                     return false;
                 }
             }, cancellationToken);
@@ -703,12 +718,13 @@ public class RustLogRemovalService
             LogFileLockKind.Rewrite,
             cancellationToken))
         {
-            // Prepared under the lock, so another step's rename cannot change the files it binds to.
+            // Prepared under the lock, so another step's rename cannot change the files it binds to. With no
+            // log file left the child finds nothing to remove and publishes nothing.
             var affectedPaths = NginxLogRotationService.GetAffectedLogPaths(datasource);
             await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
                 new[] { datasource },
                 affectedPaths,
-                expectsPublication: true,
+                expectsPublication: affectedPaths.Count > 0,
                 cancellationToken);
             _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
 
@@ -1089,18 +1105,5 @@ public class RustLogRemovalService
     private async Task<LogRemovalProgress?> ReadProgressFileAsync(string progressPath)
     {
         return await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(progressPath);
-    }
-
-    public async Task<LogRemovalProgress?> GetProgressAsync()
-    {
-        var datasourceName = CurrentDatasource;
-        if (datasourceName == null)
-        {
-            return null;
-        }
-
-        var operationsDir = _pathResolver.GetOperationsDirectory();
-        var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
-        return await ReadProgressFileAsync(progressPath);
     }
 }

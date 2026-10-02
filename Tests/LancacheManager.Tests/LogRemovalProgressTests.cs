@@ -338,11 +338,18 @@ public class LogRemovalProgressTests
         Assert.Equal((1, 3L), (repair.LogRemoval!.FilesProcessed, repair.LogRemoval.LinesProcessed));
     }
 
-    [Fact]
-    public async Task LogRemoval_AFailedChildNamesTheServiceAndDatasourceAsync()
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(137, false)]
+    public async Task LogRemoval_AFailedChildNamesTheServiceAndDatasourceAsync(int exitCode, bool wroteReason)
     {
+        // log_service_manager's reason for a log file it could not modify (log_service_manager.rs:1647-1655),
+        // behind the context its main adds (:1983).
+        const string reason = "Service removal failed: FAILED: 1 log file(s) could not be modified due to permission errors. This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID 1000:1000. Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.";
         await using var harness = await LogStepHarness.CreateAsync();
-        harness.Rust.ExitCode = 1;
+        // Exit 1 after a permission failure, or 137 for a child the kernel killed before it wrote anything.
+        harness.Rust.ExitCode = exitCode;
+        harness.Rust.FailureMessage = wroteReason ? reason : null;
         var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
 
@@ -351,7 +358,28 @@ public class LogRemovalProgressTests
         var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(OperationStatus.Failed, ended.Status);
         var repair = await harness.WaitForOutcomeAsync(ended.Id);
-        Assert.Equal("Failed to remove steam entries from default (exit code 1)", repair.Error);
+        Assert.Equal(
+            wroteReason
+                ? $"Failed to remove steam entries from default (exit code {exitCode}): {reason}"
+                : $"Failed to remove steam entries from default (exit code {exitCode})",
+            repair.Error);
+    }
+
+    [Fact]
+    public async Task LogRemoval_ADatasourceWithNoLogFileEndsCleanlyAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        File.Delete(Path.Combine(harness.LogPath, "access.log"));
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
     }
 
     /// <summary>
@@ -513,6 +541,12 @@ public class LogRemovalProgressTests
         /// <summary>The exit code each launch returns.</summary>
         public int ExitCode { get; set; }
 
+        /// <summary>
+        /// The reason a failing launch writes into its progress file before it exits, as log_service_manager
+        /// does; null for a child killed before it wrote anything.
+        /// </summary>
+        public string? FailureMessage { get; set; }
+
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
             Guid? operationId,
@@ -532,37 +566,48 @@ public class LogRemovalProgressTests
             }
 
             // The quoted arguments are the log directory, the service and the progress file.
-            var progressPath = start.Arguments.Split('"')[5];
-            await File.WriteAllTextAsync(
-                progressPath,
-                JsonSerializer.Serialize(new LogRemovalProgress
-                {
-                    PercentComplete = 100,
-                    Status = "completed",
-                    StageKey = "signalr.logRemoval.complete",
-                    FilesProcessed = 1,
-                    LinesProcessed = 3
-                }),
-                cancellationToken);
-            if (ExitCode != 0)
+            var arguments = start.Arguments.Split('"');
+            var progressPath = arguments[5];
+            // The real path resolver creates the operations directory each time it returns it; this one does not.
+            Directory.CreateDirectory(Path.GetDirectoryName(progressPath)!);
+            if (ExitCode == 0)
             {
-                // A child that exits nonzero still reports the log identities it left unchanged.
-                var check = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
-                    await File.ReadAllTextAsync(start.Environment["LANCACHE_LOG_CHECK"]!, cancellationToken),
-                    new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                // With no log file the child reports that and changes nothing (log_service_manager.rs:1137-1156).
+                var noLogFile = !Directory.EnumerateFiles(arguments[1]).Any();
+                await File.WriteAllTextAsync(
+                    progressPath,
+                    JsonSerializer.Serialize(noLogFile
+                        ? new LogRemovalProgress
+                        {
+                            PercentComplete = 100,
+                            Status = "completed",
+                            StageKey = "signalr.logRemoval.completeNoFiles",
+                            Message = "No log files found"
+                        }
+                        : new LogRemovalProgress
+                        {
+                            PercentComplete = 100,
+                            Status = "completed",
+                            StageKey = "signalr.logRemoval.complete",
+                            FilesProcessed = 1,
+                            LinesProcessed = 3
+                        }),
+                    cancellationToken);
+            }
+            else if (FailureMessage is not null)
+            {
+                // A log file it could not modify: the rewrite publishes no record for that file and reports
+                // failure (log_purge.rs:745-775, :806-811), then the child replaces its progress with the reason
+                // (log_service_manager.rs:1981-1985, :1801-1812) and exits 1 (progress_events.rs:304-312).
                 await File.WriteAllTextAsync(
                     start.Environment["LANCACHE_LOG_RESULT"]!,
                     JsonSerializer.Serialize(
-                        new NginxPublicationResult(
-                            check.Valid,
-                            check.Files.Select(file => new NginxPublicationRecord(
-                                file.TargetPath,
-                                file.OriginalIdentity,
-                                null,
-                                file.OriginalIdentity,
-                                Changed: false,
-                                Deleted: false)).ToList()),
+                        new NginxPublicationResult(false, []),
                         new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                    cancellationToken);
+                await File.WriteAllTextAsync(
+                    progressPath,
+                    JsonSerializer.Serialize(new LogRemovalProgress { Status = "error", Message = FailureMessage }),
                     cancellationToken);
             }
 
