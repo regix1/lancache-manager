@@ -439,7 +439,6 @@ public sealed class CacheScanDetectionPhaseTests
                 return operationId;
             }
 
-            var originalIdentity = NginxWriterProbe.ReadIdentity(target);
             var firstLogStart = purgeLog.Entries.Count;
             var purgeWarnings = () => purgeLog.Entries
                 .Skip(firstLogStart)
@@ -457,7 +456,8 @@ public sealed class CacheScanDetectionPhaseTests
             Assert.Contains("first reopen denied", firstError.Message, StringComparison.Ordinal);
             Assert.True(rust.Runs == 2, first.Message);
             Assert.True(rust.PublicationCount == 2, rust.Arguments);
-            Assert.NotEqual(originalIdentity, NginxWriterProbe.ReadIdentity(target));
+            // Each run's published identity differs from the file it replaced (asserted in the fake child);
+            // not compared with the first file here, because Linux can reuse its inode for the second one.
             Assert.DoesNotContain("/remove", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
             Assert.Contains("/keep", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
             Assert.Empty(ctx.State.GetLogSourcePositions(source.Name));
@@ -1370,13 +1370,26 @@ public sealed class CacheScanDetectionPhaseTests
         IReadOnlyList<string> urls = service is null ? ["/a", "/b"] : ["/a"];
         IReadOnlyList<long> depotIds = service is null ? [7, 9] : [];
 
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow.AddMinutes(-3),
+            Sources = [new OperationRepairSource { Datasource = source.Name }],
+            EvictionScan = new EvictionScanRepair()
+        };
+        await ctx._operationStateService.PrepareRepairAsync(repair, CancellationToken.None);
+        await ctx._operationStateService.StartWorkAsync(repair.Id, datasource: null, CancellationToken.None);
+
         var report = await new LogPurgeRunner(
                 paths,
                 rust,
                 nginx,
                 ctx.State,
+                ctx._operationStateService,
                 NullLogger.Instance)
-            .RunAsync(Guid.NewGuid(), source, new LogPurgeTargets(urls, depotIds, service), null, CancellationToken.None);
+            .RunAsync(repair.Id, source, new LogPurgeTargets(urls, depotIds, service), null, CancellationToken.None);
 
         // The input the eviction purge wrote before the runner existed, byte for byte.
         var evictionInput = JsonSerializer.Serialize(
@@ -1396,6 +1409,9 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.False(File.Exists(rust.OutputPath));
         Assert.Equal(2, report.LinesRemoved);
         Assert.Equal(9, ctx.State.GetLogSourcePositions(source.Name)["access"]);
+        // The step was marked started once its reopen check passed.
+        Assert.True(Assert.Single(ctx._operationStateService.GetPendingRepairs()
+            .Single(pending => pending.Id == repair.Id).Sources).LogRewriteStarted);
     }
 
     [Fact]
@@ -1489,6 +1505,32 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
         Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
         Assert.Empty(run.Rust.Runs);
+        Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access"]);
+        await using var verify = new AppDbContext(run.Database.Options);
+        Assert.True(await verify.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
+    public async Task AnEvictionLogStepRefusedBeforeItTouchesALogResetsNoPosition()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
+        await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove");
+        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access"] = 10 });
+        var logs = run.Datasources.GetDatasource("alpha")!.LogPath;
+        // logrotate renames access.log while the step looks for its writer, so the check cannot read the
+        // file it bound and refuses the step before any child starts.
+        run.Nginx.DuringWriterSearch = () =>
+        {
+            run.Nginx.DuringWriterSearch = null;
+            File.Move(Path.Combine(logs, "access.log"), Path.Combine(logs, "access.log.1"));
+        };
+
+        var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Failed, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        var repair = await run.WaitForCompletedRepairAsync(removalId);
+        Assert.Empty(run.Rust.Runs);
+        Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
         Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access"]);
         await using var verify = new AppDbContext(run.Database.Options);
         Assert.True(await verify.Downloads.AnyAsync(download => download.IsEvicted));
@@ -1755,6 +1797,47 @@ public sealed class CacheScanDetectionPhaseTests
 
         Assert.False(launched);
         Assert.DoesNotContain(ctx._operationStateService.GetPendingRepairs(), repair => repair.Id == scanId);
+        Assert.Contains(log.Entries, entry => entry.Level == LogLevel.Warning
+            && entry.Message.Contains("Skipping eviction scan", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Entries, entry => entry.Message.Contains("Error during eviction scan", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AScanWhoseKeyEvidenceTurnsMixedBeforeItsLaunchIsRefusedWithAWarningAsync()
+    {
+        using var ctx = new PhaseContext();
+        var log = new CapturingLogger<CacheReconciliationService>();
+        PhaseContext.SetField(ctx.Scan, "_logger", log);
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var launched = false;
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper((_, _) =>
+        {
+            launched = true;
+            return Task.CompletedTask;
+        }));
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        var state = Assert.IsType<OperationRepairTests.FailingStateService>(ctx.State);
+        var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
+            .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+        // A per-service log appears beside access.log once the scan records its checkpoint: after the check
+        // that follows the detection phase, before the scan reads the key schemes for its launch.
+        state.OnRepairWrite = contents =>
+        {
+            if (JsonSerializer.Deserialize<List<OperationRepair>>(contents)!.Any(repair => repair.EvictionScanId == scanId))
+            {
+                File.WriteAllText(Path.Combine(source.LogPath, "steam-access.log"), string.Empty);
+            }
+        };
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+
+        await WaitForTerminalAsync(tracker, scanId);
+
+        Assert.False(launched);
         Assert.Contains(log.Entries, entry => entry.Level == LogLevel.Warning
             && entry.Message.Contains("Skipping eviction scan", StringComparison.Ordinal));
         Assert.DoesNotContain(log.Entries, entry => entry.Message.Contains("Error during eviction scan", StringComparison.Ordinal));
@@ -2326,6 +2409,8 @@ public sealed class CacheScanDetectionPhaseTests
         }
 
         public int SignalCalls { get; private set; }
+        /// <summary>Runs while a reopen check looks for the log files' writer.</summary>
+        public Action? DuringWriterSearch { get; set; }
         /// <summary>Completes when the second reopen starts, which then waits for <see cref="ReleaseSecondReopen"/>.</summary>
         public TaskCompletionSource SecondReopenReached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseSecondReopen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2341,6 +2426,7 @@ public sealed class CacheScanDetectionPhaseTests
             switch (label)
             {
                 case "docker nginx writer list":
+                    DuringWriterSearch?.Invoke();
                     result = new ProcessCommandResult { ExitCode = 0, Output = "writer\n" };
                     break;
                 case "docker nginx mount inspection":
@@ -2540,6 +2626,7 @@ public sealed class CacheScanDetectionPhaseTests
             TestHostApplicationLifetime lifetime,
             StateService state,
             CapturingPurgeRust rust,
+            SaveNginxLogRotationService nginx,
             RecordingNotifications notifications)
         {
             Root = root;
@@ -2548,6 +2635,7 @@ public sealed class CacheScanDetectionPhaseTests
             _lifetime = lifetime;
             State = state;
             Rust = rust;
+            Nginx = nginx;
             Notifications = notifications;
         }
 
@@ -2555,6 +2643,7 @@ public sealed class CacheScanDetectionPhaseTests
         public TestDatabase Database { get; }
         public StateService State { get; }
         public CapturingPurgeRust Rust { get; }
+        public SaveNginxLogRotationService Nginx { get; }
         public RecordingNotifications Notifications { get; }
         public UnifiedOperationTracker Tracker => _services.GetRequiredService<UnifiedOperationTracker>();
         public OperationStateService Repairs => _services.GetRequiredService<OperationStateService>();
@@ -2717,7 +2806,7 @@ public sealed class CacheScanDetectionPhaseTests
                 tracker,
                 Idle());
             await operationState.StartAsync(CancellationToken.None);
-            return new RepairRun(root, database, services, lifetime, state, rust, notificationState);
+            return new RepairRun(root, database, services, lifetime, state, rust, nginx, notificationState);
         }
 
         public OperationRepair ReadRepair(Guid operationId) =>

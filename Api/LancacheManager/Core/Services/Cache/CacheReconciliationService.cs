@@ -554,24 +554,29 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 datasource: null,
                 cancellationToken: stoppingToken);
 
-            // Checked again after that wait, which lasts as long as a running repair: evidence that turned
-            // mixed or unknown meanwhile refuses the scan the same way, before its launch.
-            var repairWaitDenial = _capabilityService.CheckAllCanMapLogicalObjects();
-            if (repairWaitDenial != null)
-            {
-                throw new ConflictException(repairWaitDenial);
-            }
-
             // Read after the repair waits above: key evidence can change while a repair runs, and the scan
-            // must use the scheme the log files show at launch.
+            // must use the scheme the log files show at launch. Evidence that turned mixed or unknown
+            // refuses the scan here, before its launch, the same way the check after the detection phase does.
             // Write datasource configuration to temp file for the Rust binary
             datasourceConfigPath = Path.GetTempFileName();
-            var datasourceConfig = _datasourceService.GetDatasources().Select(ds => new
+            var datasourceConfig = _datasourceService.GetDatasources().Select(ds =>
             {
-                name = ds.Name,
-                cachePath = ds.CachePath,
-                isDefault = ds == _datasourceService.GetDefaultDatasource(),
-                keyScheme = _capabilityService.GetKeySchemeWireValue(ds)
+                string keyScheme;
+                try
+                {
+                    keyScheme = _capabilityService.GetKeySchemeWireValue(ds);
+                }
+                catch (InvalidOperationException denial)
+                {
+                    throw new ConflictException(denial.Message);
+                }
+                return new
+                {
+                    name = ds.Name,
+                    cachePath = ds.CachePath,
+                    isDefault = ds == _datasourceService.GetDefaultDatasource(),
+                    keyScheme
+                };
             }).ToArray();
             var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
             await File.WriteAllTextAsync(datasourceConfigPath, JsonSerializer.Serialize(datasourceConfig, jsonOptions), stoppingToken);
@@ -2392,6 +2397,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _rustProcessHelper,
             _nginxLogRotationService,
             _stateService,
+            repairOwner,
             _logger);
 
         foreach (var datasource in datasources)
@@ -2400,10 +2406,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 (options.ProgressSpanPercent * dsIndex / totalDatasources);
             var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
 
-            // A cancel seen here stores no started flag, so the repair neither resets the
-            // positions nor redoes the step. The flag is stored before the child can rewrite a log.
+            // A cancel seen here or in the purge's checks stores no started flag, so the repair neither
+            // resets the positions nor redoes the step.
             stoppingToken.ThrowIfCancellationRequested();
-            await repairOwner.MarkLogRewriteStartedAsync(operationId, datasource.Name);
             var report = await runner.RunAsync(
                 operationId,
                 datasource,

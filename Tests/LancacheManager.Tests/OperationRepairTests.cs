@@ -1141,7 +1141,7 @@ public sealed class OperationRepairTests : IDisposable
         await WaitForAsync(() => state.LoadOperationRepairs().Single().Phase == OperationRepairPhase.Completed);
 
         // The changed or missing datasource abstains, and a mixed-evidence one only leaves the cache scan; this
-        // cancelled job left no log step to finish, so nothing of it is touched, nothing fails and nothing waits.
+        // canceled job left no log step to finish, so nothing of it is touched, nothing fails and nothing waits.
         var stored = Assert.Single(state.LoadOperationRepairs());
         Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
         Assert.Null(stored.RetryAtUtc);
@@ -3548,6 +3548,8 @@ public sealed class OperationRepairTests : IDisposable
         public bool FailNextRepairWrite { get; set; }
         public int FailRepairStarts { get; set; }
         public List<int> RepairWriteSizes { get; } = [];
+        /// <summary>Runs with each repair file's contents before it is written.</summary>
+        public Action<string>? OnRepairWrite { get; set; }
 
         public FailingStateService(
             ILogger<StateService> logger,
@@ -3574,6 +3576,7 @@ public sealed class OperationRepairTests : IDisposable
                     throw new IOException("Injected repair-start write failure.");
                 }
             }
+            OnRepairWrite?.Invoke(contents);
             base.WriteOperationRepairs(contents);
             RepairWriteSizes.Add(contents.Length);
         }

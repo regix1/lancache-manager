@@ -435,6 +435,56 @@ public sealed class RemovalLogStepTests
         Assert.Equal(new Dictionary<string, long> { ["access"] = 7 }, rust.State.GetLogSourcePositions("beta"));
     }
 
+    [Fact]
+    public async Task ALogStepWithNoLogFileLeftStillRemovesTheHistoryAsync()
+    {
+        var root = Root();
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(root, OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = true;
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            await seed.SaveChangesAsync();
+        }
+        // Alpha's log folder is emptied while its cache step runs, as a log mount that went empty.
+        rust.OnRemoverRun = run =>
+        {
+            if (run == 1)
+            {
+                File.Delete(Path.Combine(root, "alpha-logs", "access.log"));
+            }
+            return Task.CompletedTask;
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+        Assert.DoesNotContain(rust.Launches, launch => launch.Purge);
+        var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
+        Assert.True(alpha.LogRewriteStarted);
+        Assert.True(alpha.LogPositionsKept);
+        await using var check = rust.Contexts.CreateDbContext();
+        Assert.False(await check.Downloads.AnyAsync(download => download.GameAppId == GameAppId));
+    }
+
     private static string Root() =>
         Path.Combine(Path.GetTempPath(), "lm-removal-log-step-" + Guid.NewGuid().ToString("N"));
 

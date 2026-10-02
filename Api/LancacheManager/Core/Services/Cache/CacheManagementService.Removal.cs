@@ -286,18 +286,19 @@ public partial class CacheManagementService
             depotIds,
             selection.Kind == RemovalKind.Service ? selection.Service : null);
 
-        // A cancel before this line leaves the log untouched; one after it is finished by the repair.
+        // A cancel before this line leaves the history; the purge marks the step started once its checks
+        // pass, and the repair finishes a step that started.
         cancellationToken.ThrowIfCancellationRequested();
         ulong linesRemoved = 0;
         // The purge binary publishes no identity result when it has nothing to match, so it is not started.
         if (targets.Urls.Count > 0 || targets.DepotIds.Count > 0)
         {
-            await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
             var report = await new LogPurgeRunner(
                     _pathResolver,
                     _rustProcessHelper,
                     _nginxLogRotationService,
                     _stateService,
+                    _operationStateService,
                     _logger)
                 .RunAsync(operationId, datasource, targets, onProgress, cancellationToken);
             linesRemoved = checked((ulong)report.LinesRemoved);

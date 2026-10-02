@@ -9,7 +9,9 @@ namespace LancacheManager.Core.Services;
 /// <summary>
 /// One `cache_purge_log_entries` run against one datasource's logs: the input and stem-position
 /// files, the nginx reopen check, the child, the reopen, and the saved positions brought back by
-/// the lines the child removed. The caller authorizes the run before it calls this.
+/// the lines the child removed. The caller authorizes the run before it calls this. The run marks the
+/// log step started only once its reopen check passed, so a refusal resets no position, and with no
+/// log file left it starts nothing.
 /// </summary>
 internal sealed class LogPurgeRunner
 {
@@ -17,6 +19,7 @@ internal sealed class LogPurgeRunner
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IStateService _stateService;
+    private readonly OperationStateService _operationStateService;
     private readonly ILogger _logger;
 
     public LogPurgeRunner(
@@ -24,12 +27,14 @@ internal sealed class LogPurgeRunner
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         IStateService stateService,
+        OperationStateService operationStateService,
         ILogger logger)
     {
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _stateService = stateService;
+        _operationStateService = operationStateService;
         _logger = logger;
     }
 
@@ -71,12 +76,22 @@ internal sealed class LogPurgeRunner
                 args += $" --stem-positions \"{stemPositionsPath}\"";
             }
 
+            // With no log file left there is nothing to purge, so no log step starts and no child runs.
+            var affectedLogPaths = NginxLogRotationService.GetAffectedLogPaths(datasource);
+            if (affectedLogPaths.Count == 0)
+            {
+                return new PurgeLogEntriesReport();
+            }
             await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
                 new[] { datasource },
-                NginxLogRotationService.GetAffectedLogPaths(datasource),
+                affectedLogPaths,
                 expectsPublication: true,
                 cancellationToken);
             _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+            // A refusal or a cancel up to here touched no log, so the repair resets no position for it;
+            // from here on the repair finishes the step.
+            cancellationToken.ThrowIfCancellationRequested();
+            await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
             var start = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
             NginxLogRotationService.AttachPublicationCheck(reopenCheck, start);
 
