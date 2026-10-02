@@ -341,8 +341,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
     try {
       await ApiService.deleteLogFile(datasourceName);
-      // Refresh data after deletion
-      await loadData(true);
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
       onError?.(
@@ -350,6 +348,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         errMsg.includes('read-only') ? t('management.logRemoval.errors.readOnly') : err
       );
     } finally {
+      // A delete that fails partway has still removed files, so the counts reload either way.
+      await loadData(true);
       setDeletingLogFile(null);
     }
   };

@@ -198,6 +198,26 @@ test('only the newest datasource count response controls rows and loading', asyn
   assert.equal(state.failed, 0);
 });
 
+test('a failed log file delete still reloads the counts', async () => {
+  const state = { loads: 0, errors: [] };
+  const executeDeleteLogFile = bindLifted(liftConstArrow(LOG_REMOVAL, 'executeDeleteLogFile'), {
+    authMode: 'authenticated',
+    onError: (message) => state.errors.push(message),
+    t: (key) => key,
+    setPendingLogFileDeletion: () => undefined,
+    setDeletingLogFile: () => undefined,
+    ApiService: { deleteLogFile: () => Promise.reject(new Error('unlink failed')) },
+    loadData: async () => {
+      state.loads += 1;
+    },
+    getErrorMessage: (error) => error.message
+  });
+
+  await executeDeleteLogFile('alpha');
+  assert.equal(state.loads, 1);
+  assert.deepEqual(state.errors, ['management.logRemoval.errors.deleteFailed']);
+});
+
 test('a deferred cache-size save merges three values into the current datasource', async () => {
   const initial = config([datasource('alpha'), datasource('beta')], 'initial');
   const harness = buildSaveHarness(initial);

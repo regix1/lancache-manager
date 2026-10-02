@@ -747,25 +747,32 @@ public partial class CacheManagementService
         var operationsDir = _pathResolver.GetOperationsDirectory();
         var progressFile = Path.Combine(operationsDir, "log_count_progress.json");
 
-        await Task.Run(() =>
+        try
         {
-            if (File.Exists(progressFile))
+            await Task.Run(() =>
             {
-                File.Delete(progressFile);
-            }
-
-            if (Directory.Exists(operationsDir))
-            {
-                foreach (var datasourceProgressFile in Directory.GetFiles(operationsDir, "log_count_progress_*.json"))
+                if (File.Exists(progressFile))
                 {
-                    File.Delete(datasourceProgressFile);
+                    File.Delete(progressFile);
                 }
-            }
-        });
 
-        // Single choke point: every writer that changes log contents lands here, so this one
-        // broadcast keeps the Log Removal panel counts live for all of them.
-        await _notifications.NotifyAllAsync(SignalREvents.ServiceCountsChanged);
+                if (Directory.Exists(operationsDir))
+                {
+                    foreach (var datasourceProgressFile in Directory.GetFiles(operationsDir, "log_count_progress_*.json"))
+                    {
+                        File.Delete(datasourceProgressFile);
+                    }
+                }
+            });
+        }
+        finally
+        {
+            // Single choke point: every writer that changes log contents lands here, so this one
+            // broadcast keeps the Log Removal panel counts live for all of them.
+            // Sent even when a counts file could not be deleted: the count program recounts a log
+            // newer than its saved counts.
+            await _notifications.NotifyAllAsync(SignalREvents.ServiceCountsChanged);
+        }
     }
 
     /// <summary>
