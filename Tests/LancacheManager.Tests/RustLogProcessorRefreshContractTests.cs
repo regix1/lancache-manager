@@ -177,7 +177,7 @@ public sealed class RustLogProcessorRefreshContractTests
         Assert.All(activeStatements, statement =>
             Assert.Contains("\\\"Datasource\\\" = $", statement, StringComparison.Ordinal));
         Assert.DoesNotContain("SET \\\"IsActive\\\" = false", source, StringComparison.Ordinal);
-        Assert.Equal(10, CountOccurrences(source, "\\\"IsEvicted\\\" = false"));
+        Assert.Equal(11, CountOccurrences(source, "\\\"IsEvicted\\\" = false"));
 
         var update = Assert.Single(activeStatements, line =>
             line.Contains("UPDATE \\\"Downloads\\\"", StringComparison.Ordinal));

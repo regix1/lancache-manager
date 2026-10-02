@@ -684,6 +684,12 @@ public class RustLogProcessorService
         var retained = repair.LogProcessing
             ?? throw new InvalidDataException(
                 $"Operation repair {repair.Id} has no log-processing metrics.");
+        // A live pass interrupted by a restart has nothing the user started; restoring its row
+        // would only end as a failed Log Processing card. Its repair runs without one.
+        if (repair.Notice is { Mode: NotificationMode.Hidden, Trigger: RunTrigger.Scheduled })
+        {
+            return Task.CompletedTask;
+        }
         var metrics = new LogProcessingTerminalMetrics(
             retained.EntriesProcessed,
             retained.LinesProcessed,
@@ -691,22 +697,16 @@ public class RustLogProcessorService
             retained.Message,
             retained.StageKey);
         var source = new CancellationTokenSource();
-        var liveIngest = repair.Notice is
-        {
-            Mode: NotificationMode.Hidden,
-            Trigger: RunTrigger.Scheduled
-        };
         var restored = _operationTracker.TryRestoreOperation(
             repair.Id,
             OperationType.LogProcessing,
             repair.Name,
             source,
             metrics,
-            onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => repair.Id),
+            onTerminalEmit: BuildTerminalEmit(() => repair.Id),
             startedAt: repair.StartedAt,
             notice: repair.Notice,
-            ownerCompletes: true,
-            liveIngest: liveIngest);
+            ownerCompletes: true);
         if (!restored)
         {
             source.Dispose();
@@ -1012,6 +1012,7 @@ public class RustLogProcessorService
         OperationStateService? repairOwner = null;
         var repairPrepared = sharedOperationId.HasValue;
         var repairFinished = false;
+        LogFileLock? logLock = null;
 
         try
         {
@@ -1086,28 +1087,7 @@ public class RustLogProcessorService
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
-
-            // Per-source positions file: the single source of stem offsets for this run.
-            // When no per-source checkpoint exists yet (pre-upgrade state), migrate the legacy
-            // aggregate position onto the access.log stem so monolithic behavior is
-            // unchanged; other stems default to 0 inside the processor.
-            var sourcePositions = _stateService.GetLogSourcePositions(datasourceName);
-            if (sourcePositions.Count == 0)
-            {
-                var legacyPosition = _stateService.GetLogPosition(datasourceName);
-                if (legacyPosition > 0)
-                {
-                    sourcePositions[LogSourceLayout.MonolithicStem] = legacyPosition;
-                }
-            }
-            var startPositions = new Dictionary<string, long>(sourcePositions);
             var positionsPath = Path.Combine(operationsDir, $"rust_positions_{datasourceName}.json");
-            var positionsJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                schema_version = 1,
-                sources = sourcePositions
-            });
-            await File.WriteAllTextAsync(positionsPath, positionsJson);
 
             // Determine if logFilePath is a directory or file path
             // If it's already a directory, use it directly; otherwise extract directory from file path
@@ -1152,8 +1132,6 @@ public class RustLogProcessorService
             _logger.LogInformation("Starting Rust log processor");
             _logger.LogInformation("Log directory: {LogDirectory}", logDirectory);
             _logger.LogInformation("Progress file: {ProgressPath}", progressPath);
-            _logger.LogInformation("Start positions (unlisted sources start at 0): {StartPositions}",
-                string.Join(", ", sourcePositions.Select(pair => $"{pair.Key}={pair.Value}")));
 
             // Live ingest sends no started event: it runs about once a second, and every browser
             // listener of the LogProcessing events would refresh on each pass.
@@ -1219,6 +1197,38 @@ public class RustLogProcessorService
                 ownerOperationId!.Value,
                 datasourceName,
                 processingToken);
+            // Held from the positions read until this pass's positions persist, so a step that
+            // rewrites the log or lowers positions waits for that persist and this pass starts
+            // from what such a step left. A batch child waits under the batch's card.
+            logLock = await repairOwner.LockLogFilesAsync(
+                ownerOperationId!.Value,
+                OperationType.LogProcessing,
+                LogFileLockKind.Ingest,
+                processingToken);
+
+            // Per-source positions file: the single source of stem offsets for this run.
+            // When no per-source checkpoint exists yet (pre-upgrade state), migrate the legacy
+            // aggregate position onto the access.log stem so monolithic behavior is
+            // unchanged; other stems default to 0 inside the processor.
+            var sourcePositions = _stateService.GetLogSourcePositions(datasourceName);
+            if (sourcePositions.Count == 0)
+            {
+                var legacyPosition = _stateService.GetLogPosition(datasourceName);
+                if (legacyPosition > 0)
+                {
+                    sourcePositions[LogSourceLayout.MonolithicStem] = legacyPosition;
+                }
+            }
+            var startPositions = new Dictionary<string, long>(sourcePositions);
+            var positionsJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                schema_version = 1,
+                sources = sourcePositions
+            });
+            await File.WriteAllTextAsync(positionsPath, positionsJson);
+            _logger.LogInformation("Start positions (unlisted sources start at 0): {StartPositions}",
+                string.Join(", ", sourcePositions.Select(pair => $"{pair.Key}={pair.Value}")));
+
             var exitCode = await _rustProcessHelper.RunTrackedProcessAsync(
                 startInfo,
                 _currentOperationId,
@@ -1404,6 +1414,7 @@ public class RustLogProcessorService
 
             if (wasCancelled)
             {
+                await logLock.DisposeAsync();
                 _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
                     exitCode, finalProgress?.PercentComplete ?? 0);
 
@@ -1439,6 +1450,7 @@ public class RustLogProcessorService
                 if (finalProgress?.Status == OperationStatus.Failed.ToWireString() ||
                     (hasTerminalCheckpoint && finalProgress!.TerminalStatus == "failed"))
                 {
+                    await logLock.DisposeAsync();
                     _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress!.StageKey);
 
                     // Snapshot failure metrics for the onTerminalEmit closure, then complete the op
@@ -1471,6 +1483,7 @@ public class RustLogProcessorService
                 // snapshot, so this is a failure, not a quiet success.
                 if (!hasTerminalCheckpoint)
                 {
+                    await logLock.DisposeAsync();
                     _logger.LogError(
                         "Rust processor exited with code 0 but left no valid terminal checkpoint (schema {Schema}, terminal '{Terminal}')",
                         finalProgress?.SchemaVersion ?? 0, finalProgress?.TerminalStatus ?? "<none>");
@@ -1510,6 +1523,7 @@ public class RustLogProcessorService
                         // value below the pass's start. Saving the map avoids replaying completed files.
                         _stateService.SetLogSourcePositions(datasourceName!, mergedPositions);
                     }
+                    await logLock.DisposeAsync();
 
                     var partialMessage =
                         $"Log processing finished with {finalProgress.FilesWithErrors.Count} file error(s); " +
@@ -1543,6 +1557,7 @@ public class RustLogProcessorService
                 if (finalProgress.TerminalStatus is not ("completed" or "completed_with_warnings"))
                 {
                     PersistIngestDiagnostics(datasourceName!, finalProgress, startPositions);
+                    await logLock.DisposeAsync();
                     var unexpectedMessage =
                         $"Log processing ended with unexpected status '{finalProgress.TerminalStatus}'";
                     _logger.LogError("{Message}", unexpectedMessage);
@@ -1577,6 +1592,9 @@ public class RustLogProcessorService
                         mergedPositions,
                         mergedPositions is null ? null : finalProgress.TotalLines,
                         diagnostics);
+                    // The post-passes and the repair below touch no log file or position, so a
+                    // waiting step runs beside them.
+                    await logLock.DisposeAsync();
 
                     // A live pass sends no final progress, for the same load reason as its started event.
                     if (!liveIngest)
@@ -1777,6 +1795,7 @@ public class RustLogProcessorService
             }
             else
             {
+                await logLock.DisposeAsync();
                 // Non-zero exit code but not cancelled - this is an actual error
                 _logger.LogError("Rust processor failed with exit code {ExitCode}", exitCode);
 
@@ -1806,6 +1825,11 @@ public class RustLogProcessorService
         }
         catch (OperationCanceledException)
         {
+            // Null when the cancel came before the grant, for example while waiting at the lock.
+            if (logLock is not null)
+            {
+                await logLock.DisposeAsync();
+            }
             _logger.LogInformation("Log processing was cancelled for datasource '{DatasourceName}'", datasourceName);
 
             // This run's own id. It is null only when the cancellation arrived before the operation
@@ -1850,6 +1874,10 @@ public class RustLogProcessorService
         }
         catch (Exception ex)
         {
+            if (logLock is not null)
+            {
+                await logLock.DisposeAsync();
+            }
             _logger.LogError(ex, "Error starting Rust log processor");
 
             // Snapshot error metrics for the onTerminalEmit closure, then complete the op
@@ -1880,6 +1908,11 @@ public class RustLogProcessorService
         }
         finally
         {
+            if (logLock is not null)
+            {
+                await logLock.DisposeAsync();
+            }
+
             if (riotMappingRun is not null)
             {
                 await riotMappingRun.DisposeAsync();

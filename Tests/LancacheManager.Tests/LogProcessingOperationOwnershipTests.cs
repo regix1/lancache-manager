@@ -124,7 +124,7 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
-    public async Task RestoredLivePassKeepsItsLiveBehaviorAndOmitsTheCompletionEmitterAsync()
+    public async Task RestoredLivePassHasNoCardAsync()
     {
         using var fixture = new ProcessorFixture();
         var repair = RestoredRepair(
@@ -132,11 +132,9 @@ public sealed class LogProcessingOperationOwnershipTests
 
         await fixture.Processor.RestoreRepairAsync(repair, CancellationToken.None);
 
-        var operation = Assert.IsType<OperationInfo>(fixture.Tracker.GetOperation(repair.Id));
-        Assert.True(operation.LiveIngest);
-        fixture.Tracker.CompleteOperation(repair.Id, false, error: "restored failure");
+        Assert.Null(fixture.Tracker.GetOperation(repair.Id));
+        Assert.Empty(fixture.Tracker.GetRuns().Runs);
         Assert.Empty(fixture.Messages.Completions);
-        Assert.True(Assert.Single(fixture.Tracker.GetRuns().Runs).LiveIngest);
     }
 
     [Fact]
@@ -402,9 +400,11 @@ public sealed class LogProcessingOperationOwnershipTests
             Assert.False(run.IsCompleted);
             Assert.Equal(2, fixture.Messages.RefreshAttempts);
             Assert.Equal(new string?[] { "rust-insert-early", null }, fixture.Messages.RefreshSources);
-            var retained = Assert.Single(fixture.RepairOwner.GetPendingRepairs());
+            // A log pass that owes only the refresh stores its outcome as completed and refreshes inline.
+            Assert.Empty(fixture.RepairOwner.GetPendingRepairs());
+            var retained = Assert.Single(fixture.State.LoadOperationRepairs());
             Assert.Equal(operationId, retained.Id);
-            Assert.Equal(OperationRepairPhase.Repairing, retained.Phase);
+            Assert.Equal(OperationRepairPhase.Completed, retained.Phase);
             Assert.Equal(7, retained.LogProcessing!.EntriesProcessed);
             Assert.Equal(11, retained.LogProcessing.LinesProcessed);
             var source = Assert.Single(retained.Sources);
@@ -433,6 +433,155 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.Empty(fixture.State.LoadOperationRepairs());
         Assert.Empty(fixture.RepairOwner.GetPendingRepairs());
         Assert.False(fixture.RepairOwner.OwnsRepair(operationId));
+    }
+
+    [Fact]
+    public async Task StepArrivingDuringTheFirstDatasourceRunsBetweenTheBatchChildrenAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        fixture.State.SetLogSourcePositions("beta", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 7
+        });
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        var alpha = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(alpha, "alpha", 5);
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        var step = LockStepAsync(fixture);
+        Assert.False(step.IsCompleted);
+
+        // The datasource the batch is on runs to its end and persists before the step gets the logs.
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(10, 20, "completed", sourcePosition: 25),
+            exitCode: 0);
+        await using (await step.WaitAsync(TimeSpan.FromSeconds(10)))
+        {
+            Assert.Equal(
+                25,
+                fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+            fixture.State.SetLogSourcePositions("beta", new Dictionary<string, long>
+            {
+                [LogSourceLayout.MonolithicStem] = 3
+            });
+        }
+
+        var beta = await fixture.Pipe.ConnectAsync();
+        fixture.AssertConnection(beta, "beta", 3);
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(4, 6, "completed", sourcePosition: 9),
+            exitCode: 0);
+
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.Equal(operationId, complete.OperationId);
+        Assert.True(complete.Success);
+        Assert.Equal(OperationStatus.Completed, complete.Status);
+        Assert.Equal(14, complete.EntriesProcessed);
+        Assert.Equal(26, complete.LinesProcessed);
+        Assert.Equal(
+            9,
+            fixture.State.GetLogSourcePositions("beta")[LogSourceLayout.MonolithicStem]);
+    }
+
+    [Fact]
+    public async Task PassThatWaitedForAStepStartsFromThePositionsTheStepLeftAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 25
+        });
+        var step = await LockStepAsync(fixture);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(
+            fixture.LogFilePath,
+            liveIngest: true));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 10
+        });
+        await step.DisposeAsync();
+
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 10);
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(0, 0, "completed", sourcePosition: 10),
+            exitCode: 0);
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+    }
+
+    [Fact]
+    public async Task PassGivesTheLogsBackAfterItsPositionsPersistAndBeforeItsRepairFinishesAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.Messages.HoldRepairRefresh = true;
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        var step = LockStepAsync(fixture);
+        Assert.False(step.IsCompleted);
+
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(7, 11, "completed", sourcePosition: 25),
+            exitCode: 0);
+        await using (await step.WaitAsync(TimeSpan.FromSeconds(10)))
+        {
+            Assert.Equal(
+                25,
+                fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+            await fixture.Messages.RepairRefreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(run.IsCompleted);
+        }
+
+        fixture.Messages.ReleaseRepairRefresh.TrySetResult();
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+    }
+
+    [Fact]
+    public async Task FailedPassGivesTheLogsBackBeforeItsRepairFinishesAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.Messages.HoldRepairRefresh = true;
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        var step = LockStepAsync(fixture);
+        Assert.False(step.IsCompleted);
+
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(7, 11, "failed", sourcePosition: 25),
+            exitCode: 1);
+        await using (await step.WaitAsync(TimeSpan.FromSeconds(10)))
+        {
+            await fixture.Messages.RepairRefreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(run.IsCompleted);
+            Assert.Equal(
+                5,
+                fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+        }
+
+        fixture.Messages.ReleaseRepairRefresh.TrySetResult();
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
     }
 
     [Fact]
@@ -842,6 +991,13 @@ public sealed class LogProcessingOperationOwnershipTests
             }
         };
     }
+
+    private static Task<LogFileLock> LockStepAsync(ProcessorFixture fixture) =>
+        fixture.RepairOwner.LockLogFilesAsync(
+            null,
+            OperationType.GameRemoval,
+            LogFileLockKind.Rows,
+            CancellationToken.None);
 
     private static OperationRepairSource ProcessingSource(string datasource, string logRoot)
     {

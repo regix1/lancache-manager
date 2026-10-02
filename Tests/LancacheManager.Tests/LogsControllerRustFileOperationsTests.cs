@@ -18,6 +18,8 @@ namespace LancacheManager.Tests;
 
 public sealed class LogsControllerRustFileOperationsTests
 {
+    private static readonly TimeSpan _wait = TimeSpan.FromSeconds(5);
+
     [Fact]
     public async Task ResetToBeginning_IsStateOnlyAndDoesNotLaunchRustAsync()
     {
@@ -240,74 +242,135 @@ public sealed class LogsControllerRustFileOperationsTests
             "alpha",
             new UpdateLogPositionRequest { Position = 1 });
 
-        Assert.IsType<ConflictObjectResult>(result);
+        var refusal = Assert.IsType<ErrorResponse>(Assert.IsType<ConflictObjectResult>(result).Value);
+        Assert.Equal("errors.logs.processingActive", refusal.StageKey);
         Assert.Empty(fixture.RustHelper.CountRequests);
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ResetToEnd_DownloadHistoryUpgradeReturnsTypedConflictAsync(bool resetAll)
+    [InlineData(OperationType.DownloadHistoryUpgrade, false)]
+    [InlineData(OperationType.DownloadHistoryUpgrade, true)]
+    [InlineData(OperationType.CacheSizeScan, false)]
+    [InlineData(OperationType.CacheSizeScan, true)]
+    public async Task ResetToEnd_RunsBesideAJobThatIsNotLogProcessingAsync(OperationType activeType, bool resetAll)
     {
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 17);
         fixture.State.SetLogPosition("beta", 19);
-        var blockerId = fixture.Tracker.RegisterOperation(
-            OperationType.DownloadHistoryUpgrade,
-            "Upgrading download history",
-            new CancellationTokenSource());
+        fixture.RustHelper.CountHandler = (_, _) => Task.FromResult(
+            new LogLineCountResult(3, 1, new Dictionary<string, long>()));
+        fixture.Tracker.RegisterOperation(activeType, "Other job", new CancellationTokenSource());
 
         var result = resetAll
             ? await fixture.Controller.ResetLogPositionAsync(request: null)
             : await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", request: null);
 
-        var response = Assert.IsType<OperationConflictResponse>(
-            Assert.IsType<ConflictObjectResult>(result).Value);
-        Assert.Equal("OPERATION_CONFLICT", response.Code);
-        Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", response.StageKey);
-        Assert.Null(response.Error);
-        Assert.Equal(blockerId, response.ActiveOperationId);
-        Assert.Equal(nameof(OperationType.DownloadHistoryUpgrade), response.ActiveOperationType);
-        Assert.Equal("bulk", response.ActiveOperationScope);
-        Assert.NotNull(response.Context);
-        Assert.Equal(nameof(OperationType.DownloadHistoryUpgrade), response.Context["activeType"]);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(3, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(resetAll ? 3 : 19, fixture.State.GetLogPosition("beta"));
+    }
+
+    [Fact]
+    public async Task ResetToEnd_WaitsForAStepThenHoldsTheLogsWhileItCountsAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 7);
+        fixture.RustHelper.CountHandler = async (_, _) =>
+        {
+            // Counting outside the lock would let a step lower positions that this write then undoes.
+            await fixture.RepairOwner.WaitForLogStepAsync(active: true, CancellationToken.None).WaitAsync(_wait);
+            return new LogLineCountResult(9, 1, new Dictionary<string, long> { ["access.log"] = 9 });
+        };
+        var step = await HoldStepAsync(fixture);
+
+        var reset = fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = 1 });
+        Assert.False(reset.IsCompleted);
         Assert.Empty(fixture.RustHelper.CountRequests);
-        Assert.Equal(17, fixture.State.GetLogPosition("alpha"));
-        Assert.Equal(19, fixture.State.GetLogPosition("beta"));
+
+        await step.DisposeAsync();
+        Assert.IsType<OkObjectResult>(await reset.WaitAsync(_wait));
+        Assert.Equal(9, fixture.State.GetLogPosition("alpha"));
+        Assert.False(fixture.Processor.IsProcessing);
+        await fixture.RepairOwner.WaitForLogStepAsync(active: false, CancellationToken.None).WaitAsync(_wait);
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ResetToEnd_CacheSizeScanPreservesLegacyConflictAsync(bool resetAll)
+    [InlineData(0L)]
+    [InlineData(1L)]
+    public async Task Reset_WaitsForAStepBeforeRefusingForThePassBehindItAsync(long position)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 7);
+        var step = await HoldStepAsync(fixture);
+        // A live pass that started during the step has set IsProcessing and waits at the lock.
+        SetRunFlag(fixture.Processor, true);
+        var pass = fixture.RepairOwner.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None);
+
+        var reset = fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = position });
+        Assert.False(reset.IsCompleted);
+
+        await step.DisposeAsync();
+        await using var passLock = await pass.WaitAsync(_wait);
+        var result = await reset.WaitAsync(_wait);
+
+        var refusal = Assert.IsType<ErrorResponse>(Assert.IsType<ConflictObjectResult>(result).Value);
+        Assert.Equal("errors.logs.processingActive", refusal.StageKey);
+        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
+        Assert.Empty(fixture.RustHelper.CountRequests);
+        SetRunFlag(fixture.Processor, false);
+    }
+
+    [Fact]
+    public async Task ResetToEnd_CancelledWhileWaitingForTheLogsLeavesProcessingFreeAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 7);
+        using var cancellation = new CancellationTokenSource();
+        // A step that holds the logs still waits for the running speed tracker child to exit.
+        Assert.True(fixture.RepairOwner.TryBeginSpeedTrackerRun());
+
+        var reset = fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = 1 },
+            cancellation.Token);
+        await fixture.RepairOwner.WaitForLogStepAsync(active: true, CancellationToken.None).WaitAsync(_wait);
+        Assert.True(fixture.Processor.IsProcessing);
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reset.WaitAsync(_wait));
+
+        Assert.False(fixture.Processor.IsProcessing);
+        Assert.Empty(fixture.Tracker.GetActiveOperations());
+        Assert.Empty(fixture.RustHelper.CountRequests);
+        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
+        await fixture.RepairOwner.WaitForLogStepAsync(active: false, CancellationToken.None).WaitAsync(_wait);
+        fixture.RepairOwner.EndSpeedTrackerRun();
+    }
+
+    [Fact]
+    public async Task ResetToBeginning_WaitsForAStepHoldingTheLogsAsync()
     {
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 17);
-        fixture.State.SetLogPosition("beta", 19);
-        var blockerId = fixture.Tracker.RegisterOperation(
-            OperationType.CacheSizeScan,
-            "Cache file scan",
-            new CancellationTokenSource());
+        var step = await HoldStepAsync(fixture);
 
-        var result = resetAll
-            ? await fixture.Controller.ResetLogPositionAsync(request: null)
-            : await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", request: null);
-
-        var response = Assert.IsType<OperationConflictResponse>(
-            Assert.IsType<ConflictObjectResult>(result).Value);
-        Assert.Equal("OPERATION_CONFLICT", response.Code);
-        Assert.Equal("errors.conflict.heavyOperationActive", response.StageKey);
-        Assert.Equal(
-            "Cannot start LogProcessing: a CacheSizeScan data operation is in progress.",
-            response.Error);
-        Assert.Equal(blockerId, response.ActiveOperationId);
-        Assert.Equal(nameof(OperationType.CacheSizeScan), response.ActiveOperationType);
-        Assert.Equal("bulk", response.ActiveOperationScope);
-        Assert.NotNull(response.Context);
-        Assert.Equal(nameof(OperationType.CacheSizeScan), response.Context["activeType"]);
-        Assert.Empty(fixture.RustHelper.CountRequests);
+        var reset = fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = 0 });
+        Assert.False(reset.IsCompleted);
         Assert.Equal(17, fixture.State.GetLogPosition("alpha"));
-        Assert.Equal(19, fixture.State.GetLogPosition("beta"));
+
+        await step.DisposeAsync();
+        Assert.IsType<OkObjectResult>(await reset.WaitAsync(_wait));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
     }
 
     [Fact]
@@ -352,6 +415,34 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
+    public async Task DeleteLogFile_WaitsForAStepThenHoldsTheLogsWhileDeletingAsync()
+    {
+        using var fixture = new ControllerFixture();
+        var logPath = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(logPath, "sixsix");
+        fixture.State.SetLogPosition("alpha", 9);
+        fixture.RustHelper.DeleteHandler = async (path, _) =>
+        {
+            await fixture.RepairOwner.WaitForLogStepAsync(active: true, CancellationToken.None).WaitAsync(_wait);
+            var bytes = new FileInfo(path).Length;
+            File.Delete(path);
+            return new LogFileDeletionResult(bytes);
+        };
+        var step = await HoldStepAsync(fixture);
+
+        var delete = fixture.Controller.DeleteLogFileAsync("alpha");
+        Assert.False(delete.IsCompleted);
+        Assert.Empty(fixture.RustHelper.DeleteRequests);
+        Assert.Equal(9, fixture.State.GetLogPosition("alpha"));
+
+        await step.DisposeAsync();
+        Assert.IsType<OkObjectResult>(await delete.WaitAsync(_wait));
+        Assert.False(File.Exists(logPath));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        await fixture.RepairOwner.WaitForLogStepAsync(active: false, CancellationToken.None).WaitAsync(_wait);
+    }
+
+    [Fact]
     public async Task DeleteLogFile_RustFailureLeavesFileAndStateUntouchedAsync()
     {
         using var fixture = new ControllerFixture();
@@ -380,6 +471,13 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.IsType<NotFoundObjectResult>(result);
         Assert.Empty(fixture.RustHelper.DeleteRequests);
     }
+
+    private static Task<LogFileLock> HoldStepAsync(ControllerFixture fixture) =>
+        fixture.RepairOwner.LockLogFilesAsync(
+            null,
+            OperationType.GameRemoval,
+            LogFileLockKind.Rewrite,
+            CancellationToken.None);
 
     private static void SetRunFlag(RustLogProcessorService processor, bool value)
     {
@@ -481,7 +579,8 @@ public sealed class LogsControllerRustFileOperationsTests
                 State,
                 nginxRotation,
                 Checker,
-                operationQueue: null!);
+                operationQueue: null!,
+                _repairOwner);
         }
 
         public string AlphaLogPath { get; }
@@ -494,6 +593,7 @@ public sealed class LogsControllerRustFileOperationsTests
         public UnifiedOperationTracker Tracker { get; }
         public OperationConflictChecker Checker { get; }
         public LogsController Controller { get; }
+        public OperationStateService RepairOwner => _repairOwner;
 
         public string ResumePath(string datasourceName) =>
             Path.Combine(OperationsPath, $"rust_resume_{datasourceName}.json");

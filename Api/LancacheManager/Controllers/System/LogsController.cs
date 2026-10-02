@@ -30,6 +30,7 @@ public class LogsController : ControllerBase
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
+    private readonly OperationStateService _operationStateService;
 
     public LogsController(
         RustLogProcessorService rustLogProcessorService,
@@ -41,7 +42,8 @@ public class LogsController : ControllerBase
         StateService stateRepository,
         NginxLogRotationService nginxLogRotationService,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationQueue operationQueue,
+        OperationStateService operationStateService)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
@@ -53,6 +55,7 @@ public class LogsController : ControllerBase
         _nginxLogRotationService = nginxLogRotationService;
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
+        _operationStateService = operationStateService;
     }
 
     /// <summary>
@@ -436,28 +439,42 @@ public class LogsController : ControllerBase
     {
         var isSingleDatasource = datasourceName != null;
 
+        // A pass waiting at the log lock during a step already holds IsProcessing, so wait for
+        // the step first; the refusal below then answers only for a pass that is really reading.
+        await _operationStateService.WaitForLogStepAsync(active: false, cancellationToken);
+
         // A reset while a processor is running would be silently undone when that run's
         // terminal checkpoint persists its snapshotted positions; make the user stop (or
         // wait out) processing first instead of returning a success that does not stick.
         if (_rustLogProcessorService.IsProcessing)
         {
-            return Conflict(ApiResponse.Error(
-                "Log processing is currently running. Stop it or let it finish, then reset the position."));
+            var refusal = ApiResponse.Error(
+                "Log processing is currently running. Stop it or let it finish, then reset the position.");
+            refusal.StageKey = "errors.logs.processingActive";
+            return Conflict(refusal);
         }
 
         // Position == 0 -> reset to beginning. This remains state-only and deliberately does not
         // launch the Rust line counter.
         if (requestedPosition == 0)
         {
-            if (isSingleDatasource)
+            // Lowering stored positions must not interleave with an import or another job's step.
+            await using (await _operationStateService.LockLogFilesAsync(
+                null,
+                OperationType.LogProcessing,
+                LogFileLockKind.Rows,
+                cancellationToken))
             {
-                _rustLogProcessorService.ResetLogPosition(datasourceName!);
-                _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
-            }
-            else
-            {
-                _rustLogProcessorService.ResetLogPosition();
-                _logger.LogInformation("Log position reset to beginning for all datasources");
+                if (isSingleDatasource)
+                {
+                    _rustLogProcessorService.ResetLogPosition(datasourceName!);
+                    _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
+                }
+                else
+                {
+                    _rustLogProcessorService.ResetLogPosition();
+                    _logger.LogInformation("Log position reset to beginning for all datasources");
+                }
             }
 
             return Ok(new LogPositionResponse
@@ -475,18 +492,33 @@ public class LogsController : ControllerBase
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            // Only another log processing run conflicts here, and this request is not queued.
+            var busy = ApiResponse.Error(
+                "Log processing is currently running. Stop it or let it finish, then reset the position.");
+            busy.StageKey = "errors.logs.processingActive";
+            return Conflict(busy);
         }
 
         var reservation = await _rustLogProcessorService.TryReserveProcessingGateAsync();
         if (reservation is null)
         {
-            return Conflict(ApiResponse.Error(
-                "Log processing is currently running. Stop it or let it finish, then reset the position."));
+            var reserved = ApiResponse.Error(
+                "Log processing is currently running. Stop it or let it finish, then reset the position.");
+            reserved.StageKey = "errors.logs.processingActive";
+            return Conflict(reserved);
         }
 
         try
         {
+            // Inside the try, so a request abandoned while it waits still frees the reservation.
+            // The reservation keeps the live import out; the lock keeps another job's position
+            // reduction from landing between this count and its write.
+            await using var logLock = await _operationStateService.LockLogFilesAsync(
+                null,
+                OperationType.LogProcessing,
+                LogFileLockKind.Rows,
+                cancellationToken);
+
             IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
                 ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
                 : _datasourceService.GetDatasources();
@@ -664,6 +696,13 @@ public class LogsController : ControllerBase
         var affectedPaths = hasPerServiceSources
             ? NginxLogRotationService.GetAffectedLogPaths(datasource)
             : new[] { accessLogPath };
+        // Held through the positions reset, so no import reads the file this deletes and no other
+        // step rewrites it; the reopen check is prepared after this, against the file as it is now.
+        await using var logLock = await _operationStateService.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Rewrite,
+            cancellationToken);
         await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
             new[] { datasource },
             affectedPaths,

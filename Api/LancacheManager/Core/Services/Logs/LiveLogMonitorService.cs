@@ -15,7 +15,6 @@ namespace LancacheManager.Core.Services;
 public class LiveLogMonitorService : ScheduledBackgroundService
 {
     private readonly RustLogProcessorService _rustLogProcessorService;
-    private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly StateService _stateService;
     private readonly DatasourceService _datasourceService;
     private readonly IOperationConflictChecker _conflictChecker;
@@ -98,7 +97,6 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         ILogger<LiveLogMonitorService> logger,
         IConfiguration configuration,
         RustLogProcessorService rustLogProcessorService,
-        RustLogRemovalService rustLogRemovalService,
         StateService stateService,
         DatasourceService datasourceService,
         IOperationConflictChecker conflictChecker,
@@ -106,7 +104,6 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         : base(logger, configuration)
     {
         _rustLogProcessorService = rustLogProcessorService;
-        _rustLogRemovalService = rustLogRemovalService;
         _stateService = stateService;
         _datasourceService = datasourceService;
         _conflictChecker = conflictChecker;
@@ -346,33 +343,15 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                     return;
                 }
 
-                // Check if log removal is in progress
-                if (_rustLogRemovalService.IsProcessing)
-                {
-                    _logger.LogDebug("Log removal is in progress for {Service}, skipping live update for '{Name}'", _rustLogRemovalService.CurrentService, datasource.Name);
-                    return;
-                }
-
-                // Heavy data ops normally run one at a time (OperationConflictChecker section 1a).
-                // Corruption detection is read-only with respect to access.log and the Downloads
-                // projection, so a bounded automatic batch may run beside it to keep the Recent
-                // downloads list live. The byte cap prevents an accumulated/full-log import from
-                // bypassing the heavy-operation policy; manual processing never enters this path.
+                // Only another log processing run conflicts; other jobs' log steps take turns with a pass at the log file lock.
                 var conflict = await _conflictChecker.CheckAsync(
                     OperationType.LogProcessing, ConflictScope.Bulk(), CancellationToken.None);
-                if (conflict != null && !CanBypassConflictForIncrementalIngestion(conflict, sizeIncrease))
+                if (conflict != null)
                 {
                     _logger.LogDebug(
                         "Active {ActiveType} operation holds the heavy-op slot, skipping live update for '{Name}'",
                         conflict.ActiveOperationType, datasource.Name);
                     return;
-                }
-
-                if (conflict != null)
-                {
-                    _logger.LogDebug(
-                        "Allowing {PendingBytes} byte incremental live ingestion for '{Name}' during {ActiveType}",
-                        sizeIncrease, datasource.Name, conflict.ActiveOperationType);
                 }
 
                 // Start processing
