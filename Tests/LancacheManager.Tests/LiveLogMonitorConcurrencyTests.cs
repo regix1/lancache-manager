@@ -1,5 +1,4 @@
 using LancacheManager.Core.Services;
-using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
 
@@ -69,81 +68,4 @@ public class LiveLogMonitorConcurrencyTests
         Assert.True(stamp < processingEnd);
         Assert.True(processingEnd < blockEnd);
     }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(LiveLogMonitorService.MaxConcurrentCorruptionIngestionBytes)]
-    public void IncrementalBatch_BypassesCorruptionDetection_AtOrBelowLimit(long pendingBytes)
-    {
-        var conflict = ConflictFor(OperationType.CorruptionDetection);
-
-        Assert.True(
-            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, pendingBytes));
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(LiveLogMonitorService.MaxConcurrentCorruptionIngestionBytes + 1)]
-    public void IncrementalBatch_DoesNotBypassCorruptionDetection_OutsideLimit(long pendingBytes)
-    {
-        var conflict = ConflictFor(OperationType.CorruptionDetection);
-
-        Assert.False(
-            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, pendingBytes));
-    }
-
-    /// Two things disqualify an operation from running beside a live ingest, and each of these
-    /// fails one. Log removal and a database reset rewrite what ingestion reads and writes. The
-    /// eviction scan never touches access.log but flags Download rows IsEvicted while it runs, and
-    /// those are the rows ingestion is inserting and updating.
-    [Theory]
-    [InlineData(OperationType.LogRemoval)]
-    [InlineData(OperationType.DatabaseReset)]
-    [InlineData(OperationType.EvictionScan)]
-    public void IncrementalBatch_DoesNotBypassOperationsThatWriteWhatIngestionWrites(
-        OperationType activeType)
-    {
-        var conflict = ConflictFor(activeType);
-
-        Assert.False(
-            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
-    }
-
-    /// Neither of these writes what ingestion writes. The cache size scan only reads the cache
-    /// tree, the log and Downloads, putting its totals in the snapshots. Game detection does write
-    /// Downloads, but only to clear IsEvicted on rows whose probe found files, and ingestion never
-    /// writes that column. Blocking a small ingest through one of them froze the dashboard at zero
-    /// for the length of a scan while downloads were running.
-    [Theory]
-    [InlineData(OperationType.GameDetection)]
-    [InlineData(OperationType.CacheSizeScan)]
-    public void IncrementalBatch_BypassesOperationsThatDoNotWriteWhatIngestionWrites(
-        OperationType activeType)
-    {
-        var conflict = ConflictFor(activeType);
-
-        Assert.True(
-            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
-    }
-
-    [Fact]
-    public void IncrementalBatch_DoesNotBypassRepairingSafeOperationType()
-    {
-        var conflict = ConflictFor(OperationType.CorruptionDetection, repairPending: true);
-
-        Assert.False(
-            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
-    }
-
-    private static OperationConflictResponse ConflictFor(
-        OperationType activeType,
-        bool repairPending = false) => new()
-    {
-        ActiveOperationType = activeType.ToString(),
-        StageKey = "errors.conflict.heavyOperationActive",
-        Context = repairPending
-            ? new Dictionary<string, object?> { ["repairPending"] = true }
-            : null
-    };
 }

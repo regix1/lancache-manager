@@ -157,6 +157,39 @@ public sealed class LogFileLockTests : IDisposable
     }
 
     [Fact]
+    public async Task StepCancelledWhileWaitingStopsNamingTheHolderAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+        var tracker = harness.Tracker;
+        var resetId = tracker.RegisterOperation(
+            OperationType.DatabaseReset,
+            "Database Reset",
+            new CancellationTokenSource());
+        var removalId = tracker.RegisterOperation(
+            OperationType.LogRemoval,
+            "Log Removal",
+            new CancellationTokenSource());
+        using var cancel = new CancellationTokenSource();
+
+        await using var reset = await owner.LockLogFilesAsync(
+            resetId,
+            OperationType.DatabaseReset,
+            LogFileLockKind.Rows,
+            CancellationToken.None);
+        var removal = owner.LockLogFilesAsync(
+            removalId,
+            OperationType.LogRemoval,
+            LogFileLockKind.Rewrite,
+            cancel.Token);
+        Assert.Equal("Database Reset", tracker.GetOperation(removalId)!.BlockedByName);
+
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => removal.WaitAsync(_wait));
+        Assert.Null(tracker.GetOperation(removalId)!.BlockedByName);
+    }
+
+    [Fact]
     public async Task StepCancelledWhileTheSpeedTrackerRunsGivesTheLogsBackAsync()
     {
         await using var harness = await CreateHarnessAsync();

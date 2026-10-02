@@ -33,13 +33,8 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     private readonly HashSet<string> _missingSourcesWarned = new();
     private static readonly TimeSpan _missingSourcesWarnInterval = TimeSpan.FromMinutes(5);
 
-    // Static pause mechanism for log file operations (corruption removal, etc.)
-    private static readonly SemaphoreSlim _pauseLock = new SemaphoreSlim(1, 1);
-    private static bool _isPaused = false;
-
     // Configuration - optimized for real-time updates with minimal latency
     private readonly long _minFileSizeIncrease = 10_000; // 10 KB minimum increase to trigger processing (very responsive)
-    internal const long MaxConcurrentCorruptionIngestionBytes = 4 * 1024 * 1024;
     private readonly Dictionary<string, DateTime> _lastProcessTime = new();
     private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
 
@@ -60,38 +55,6 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     protected override TimeSpan Interval => TimeSpan.FromSeconds(1);
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
     public override bool DefaultRunOnStartup => true;
-
-    /// <summary>
-    /// Temporarily pause the log monitor to allow other operations (like corruption removal) to modify log files
-    /// </summary>
-    public static async Task PauseAsync()
-    {
-        await _pauseLock.WaitAsync();
-        try
-        {
-            _isPaused = true;
-        }
-        finally
-        {
-            _pauseLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Resume the log monitor after log file modifications are complete
-    /// </summary>
-    public static async Task ResumeAsync()
-    {
-        await _pauseLock.WaitAsync();
-        try
-        {
-            _isPaused = false;
-        }
-        finally
-        {
-            _pauseLock.Release();
-        }
-    }
 
     public LiveLogMonitorService(
         ILogger<LiveLogMonitorService> logger,
@@ -185,23 +148,6 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        // Skip monitoring if paused (e.g., during corruption removal)
-        bool shouldSkip = false;
-        await _pauseLock.WaitAsync(stoppingToken);
-        try
-        {
-            shouldSkip = _isPaused;
-        }
-        finally
-        {
-            _pauseLock.Release();
-        }
-
-        if (shouldSkip)
-        {
-            return;
-        }
-
         // Monitor each datasource for access.log changes
         var datasources = _datasourceService.GetDatasources();
         foreach (var ds in datasources)
@@ -437,41 +383,4 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             : DateTime.MinValue;
         return (now - lastProcessTime).TotalSeconds;
     }
-
-    /// <summary>
-    /// The heavy operations a live ingest may run beside. Two things disqualify one, and both have
-    /// to be clear: writing access.log, which ingestion reads and keeps a position in, and writing
-    /// the Downloads projection, which ingestion inserts and updates. Log processing and log removal
-    /// fail the first by definition, and the entity removals purge the removed game's log lines as
-    /// one of their steps. The eviction scan passes the first and fails the second - it flags rows
-    /// IsEvicted while running - so it stays excluded even though it never touches the log.
-    ///
-    /// Game detection writes the Downloads projection too, clearing IsEvicted on the rows whose
-    /// probe found files back on disk, and it still belongs here. That write is one-directional,
-    /// only ever clearing the flag and never setting it, and ingestion writes no IsEvicted at all,
-    /// so the two updates touch disjoint columns of the same row. Corruption detection writes its
-    /// own tables and the cache size scan the snapshots; the corruption removal that acts on a
-    /// scan's evidence does rewrite Download rows, but it runs under its own operation type and is
-    /// not on this list. Holding statistics still while one of these runs bought nothing and left
-    /// the dashboard reading zero through a long scan while traffic was flowing.
-    /// </summary>
-    private static readonly HashSet<string> _ingestionSafeActiveOperations =
-    [
-        nameof(OperationType.CorruptionDetection),
-        nameof(OperationType.GameDetection),
-        nameof(OperationType.CacheSizeScan),
-    ];
-
-    internal static bool CanBypassConflictForIncrementalIngestion(
-        OperationConflictResponse conflict,
-        long pendingBytes) =>
-        pendingBytes > 0 &&
-        // The cap is what keeps this an INCREMENTAL allowance: a full backlog import still waits
-        // for the slot rather than running a whole-log pass beside another heavy operation.
-        pendingBytes <= MaxConcurrentCorruptionIngestionBytes &&
-        (conflict.Context is null
-            || !conflict.Context.TryGetValue("repairPending", out var repairPending)
-            || repairPending is not true) &&
-        conflict.ActiveOperationType is { } activeType &&
-        _ingestionSafeActiveOperations.Contains(activeType);
 }

@@ -112,12 +112,14 @@ public partial class OperationStateService
                     _admissionGate.Release();
                 }
             }
+
+            // Cleared on a cancelled wait too, so a job that gave up stops naming the holder.
+            if (waited && operationId.HasValue)
+            {
+                _operationTracker.SetBlockedByName(operationId.Value, null);
+            }
         }
 
-        if (waited && operationId.HasValue)
-        {
-            _operationTracker.SetBlockedByName(operationId.Value, null);
-        }
         if (!step)
         {
             return request;
