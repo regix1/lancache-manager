@@ -92,7 +92,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     /// Pure decision function for ONE active op. Returns the 409 body if the new op must be
     /// blocked, or <c>null</c> to let the caller continue checking other active ops.
     /// </summary>
-    internal static OperationConflictResponse? Evaluate(OperationType newType, ConflictScope newScope, OperationInfo activeOp)
+    private static OperationConflictResponse? Evaluate(OperationType newType, ConflictScope newScope, OperationInfo activeOp)
     {
         // Every job that touches the log files takes turns with a log pass on the log file lock, so
         // a new log pass starts at once and waits there; only another log pass can conflict with it.

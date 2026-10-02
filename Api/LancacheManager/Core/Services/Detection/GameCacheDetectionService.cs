@@ -465,6 +465,14 @@ public partial class GameCacheDetectionService : IDisposable
                 throw new InvalidOperationException(executionDenial);
             }
 
+            // Started before the first write: the mapping pre-check deletes the cached detections
+            // and the walk un-evicts downloads. A repair that blocks this run finishes first; a repair
+            // that starts later waits for this run.
+            await _operationStateService.StartWorkAsync(
+                operationId,
+                datasource: null,
+                cancellationToken);
+
             // Smart pre-check: If incremental scan and we have 3+ unknown games, try applying mappings first
             if (incremental)
             {
@@ -908,10 +916,6 @@ public partial class GameCacheDetectionService : IDisposable
 
             // Save all games (Steam + Epic) to database - Epic games now use actual cache file sizes
             // from the Rust processor, so they can be persisted alongside Steam games.
-            await _operationStateService.StartWorkAsync(
-                operationId,
-                datasource: null,
-                cancellationToken);
             saveStarted = true;
             await SaveGamesToDatabaseAsync(finalGames, incremental, cancellationToken);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
@@ -1006,27 +1010,9 @@ public partial class GameCacheDetectionService : IDisposable
 
                 // Save any partial results accumulated before cancellation so the next startup
                 // can resume from where we left off rather than re-scanning from scratch. Only a
-                // run whose save phase began may write them: before it, the record has not started
-                // its work, and starting it here would wait behind another job's repair.
+                // run whose save phase began may write them.
                 var partialWriteAllowed = saveStarted
                     && (aggregatedGames.Count > 0 || aggregatedServices.Count > 0);
-                if (partialWriteAllowed)
-                {
-                    try
-                    {
-                        await _operationStateService.StartWorkAsync(
-                            operationId,
-                            datasource: null,
-                            CancellationToken.None);
-                    }
-                    catch (Exception saveEx)
-                    {
-                        _logger.LogWarning(
-                            saveEx,
-                            "[GameDetection] Failed to record partial result persistence");
-                        partialWriteAllowed = false;
-                    }
-                }
 
                 if (partialWriteAllowed && aggregatedGames.Count > 0)
                 {

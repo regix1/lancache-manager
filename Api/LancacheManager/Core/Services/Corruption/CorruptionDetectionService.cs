@@ -77,8 +77,8 @@ public class CorruptionDetectionService
         _operationTracker = operationTracker;
     }
 
-    /// <summary>Starts the single actionable corruption scan.</summary>
-    public async Task<Guid> StartDetectionAsync(
+    /// <summary>Starts the single actionable corruption scan, or returns null when a cache repair started after the caller's conflict check.</summary>
+    public async Task<Guid?> StartDetectionAsync(
         int threshold = 3,
         int lookbackDays = DefaultLookbackDays,
         CorruptionDetectionMethod detectionMethod = CorruptionDetectionMethod.RepeatedMiss,
@@ -163,11 +163,12 @@ public class CorruptionDetectionService
                 cancellationToken);
             if (registered is null)
             {
+                // A repair claimed after the caller's conflict check; a null start parks the request
+                // behind it, as the size scan does.
                 cts.Dispose();
-                throw new ConflictException("A cache repair is running. Start the scan when it finishes.")
-                {
-                    StageKey = "errors.conflict.globalOperationActive"
-                };
+                _logger.LogInformation(
+                    "[CorruptionDetection] Scan start deferred: a cache repair started after the conflict check");
+                return null;
             }
             operationId = registered.Value;
             _operationTracker.UpdateProgress(operationId, 0, startingStageKey);

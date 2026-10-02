@@ -327,8 +327,8 @@ public sealed partial class OperationTerminalContractTests
         {
             var pipe = new TerminalPipe(_pipeName);
             _connections.Add(pipe);
-            var id = await Detection.StartDetectionAsync(detectionMethod: method,
-                scanMode: method == CorruptionDetectionMethod.Structural ? StructuralScanMode.Full : null);
+            var id = (await Detection.StartDetectionAsync(detectionMethod: method,
+                scanMode: method == CorruptionDetectionMethod.Structural ? StructuralScanMode.Full : null))!.Value;
             AssertFullCardWithoutNotice(id);
             await pipe.ConnectAsync(id);
             return pipe;

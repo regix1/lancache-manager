@@ -668,10 +668,20 @@ public class CacheController : ControllerBase
         }
 
         var operationId = await StartDetectionAsync();
+        if (operationId == null)
+        {
+            // A Retry claimed a repair between the conflict check and the start; park the request
+            // behind it like any other conflict.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CorruptionDetection,
+                ConflictScope.Bulk(),
+                CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
+                StartDetectionAsync, cancellationToken));
+        }
+
         return Accepted(new CorruptionDetectionStartResponse
         {
-            OperationId = operationId
-                ?? throw new InvalidOperationException("Corruption detection did not return an operation ID"),
+            OperationId = operationId.Value,
             Message = "Corruption detection started",
             Status = OperationStatus.Running,
             DetectionMethod = method.ToWireString(),

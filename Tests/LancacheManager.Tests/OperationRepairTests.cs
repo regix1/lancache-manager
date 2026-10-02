@@ -467,8 +467,7 @@ public sealed class OperationRepairTests : IDisposable
             CacheScanGateHarness.Idle(),
             nginxLogRotationService: null!,
             stateService: null!);
-        var refusal = await Assert.ThrowsAsync<ConflictException>(() => detection.StartDetectionAsync());
-        Assert.Equal("errors.conflict.globalOperationActive", refusal.StageKey);
+        Assert.Null(await detection.StartDetectionAsync());
         Assert.Empty(harness.Repairs.Tracker.GetActiveOperations(OperationType.CorruptionDetection));
 
         harness.ScanRelease.TrySetResult();
@@ -477,7 +476,88 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
-    public async Task ARetryBesideAJobThatHasNotStartedItsWritesIsRefusedAsync()
+    public async Task AQueuedCorruptionScanPromotedBesideARetryWaitsForTheRepairAsync()
+    {
+        var root = Path.Combine(_root, "queued-scan-promoted-beside-retry");
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var path = RepairFilePath(Path.Combine(root, "state"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "not-json");
+        harness.FailScans = 3;
+
+        await harness.Owner.StartAsync(CancellationToken.None);
+        var fullRepair = Assert.Single(harness.Owner.GetPendingRepairs());
+        await WaitForAsync(() => harness.Repairs.Tracker.GetRuns().Runs
+            .SingleOrDefault(run => run.OperationId == fullRepair.Id)?.RepairError is not null);
+        Assert.Null(harness.Owner.GetBlockingRepair());
+
+        var blocker = harness.Repairs.Tracker.RegisterOperation(
+            OperationType.DatabaseReset,
+            "Database Reset",
+            new CancellationTokenSource());
+        var detection = new CorruptionDetectionService(
+            NullLogger<CorruptionDetectionService>.Instance,
+            harness.Configuration,
+            harness.Paths,
+            new RustProcessHelper(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                harness.Paths,
+                operationTracker: null!),
+            harness.Notifications,
+            harness.Datasources,
+            harness.CorruptionContexts,
+            harness.Owner,
+            harness.Repairs.Tracker,
+            harness.Capabilities,
+            CacheScanGateHarness.Idle(),
+            nginxLogRotationService: null!,
+            stateService: null!);
+        var queue = new OperationQueueService(
+            harness.Repairs.Tracker,
+            new OperationConflictChecker(
+                harness.Repairs.Tracker,
+                harness.Owner,
+                NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var startLock = (SemaphoreSlim)typeof(CorruptionDetectionService)
+            .GetField("_startLock", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(detection)!;
+        await startLock.WaitAsync();
+
+        var queued = await queue.EnqueueAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Bulk(),
+            "Corruption Detection",
+            async () => await detection.StartDetectionAsync(),
+            CancellationToken.None);
+        Assert.True(queued.Queued);
+
+        // The blocker ends, so promotion passes the conflict check and takes the waiter; its start
+        // is held at the scan's own start lock.
+        harness.HoldScans = true;
+        harness.Repairs.Tracker.CompleteOperation(blocker, success: true);
+        var waiters = (ICollection)typeof(OperationQueueService)
+            .GetField("_waiters", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(queue)!;
+        await WaitForAsync(() => waiters.Count == 0);
+
+        // A Retry lands between the promotion's conflict check and the scan's registration.
+        Assert.True(await harness.Owner.RetryRepairAsync(fullRepair.Id));
+        startLock.Release();
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        Assert.Equal(OperationStatus.Waiting, harness.Repairs.Tracker.GetOperation(queued.OperationId)!.Status);
+        Assert.Empty(harness.Repairs.Tracker.GetActiveOperations(OperationType.CorruptionDetection));
+
+        harness.ScanRelease.TrySetResult();
+        await harness.WaitForCompletedAsync(fullRepair.Id);
+        Assert.Equal(4, harness.Scans);
+        await WaitForAsync(() => harness.Repairs.Tracker.GetOperation(queued.OperationId)!.Status.IsTerminal());
+        Assert.Equal(OperationStatus.Completed, harness.Repairs.Tracker.GetOperation(queued.OperationId)!.Status);
+    }
+
+    [Fact]
+    public async Task ARetryBesideAJobThatHasNotStartedItsWritesRunsFirstAsync()
     {
         var root = Path.Combine(_root, "full-repair-retry-beside-prepared-job");
         await using var harness = await DispatchHarness.CreateAsync(root, start: false);
@@ -493,7 +573,7 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Null(harness.Owner.GetBlockingRepair());
 
         // A failed-out repair no longer holds the queue, so the detection started; it prepared its
-        // record and waits for any blocking repair at its save.
+        // record and waits for any blocking repair before its first write.
         var detection = new OperationRepair
         {
             Id = harness.Repairs.Tracker.RegisterOperation(
@@ -506,16 +586,13 @@ public sealed class OperationRepairTests : IDisposable
             GameDetection = new GameDetectionMetrics { StartTime = DateTime.UtcNow }
         };
         await harness.Owner.PrepareRepairAsync(detection, CancellationToken.None);
-        var refusal = await Assert.ThrowsAsync<ConflictException>(
-            () => harness.Owner.RetryRepairAsync(fullRepair.Id));
-        Assert.Equal("errors.conflict.repairRetryBusy", refusal.StageKey);
-        await Task.Delay(TimeSpan.FromSeconds(1));
-        Assert.Equal(3, harness.Scans);
-
-        harness.Repairs.Tracker.CompleteOperation(detection.Id, success: true);
         Assert.True(await harness.Owner.RetryRepairAsync(fullRepair.Id));
-        await harness.WaitForCompletedAsync(fullRepair.Id);
+        await harness.Owner.StartWorkAsync(detection.Id, datasource: null, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(4, harness.Scans);
+        Assert.Equal(
+            OperationRepairPhase.Running,
+            harness.Owner.GetPendingRepairs().Single(repair => repair.Id == detection.Id).Phase);
     }
 
     [Fact]

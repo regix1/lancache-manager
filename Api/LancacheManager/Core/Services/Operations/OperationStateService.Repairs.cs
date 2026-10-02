@@ -5,7 +5,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -545,24 +544,6 @@ public partial class OperationStateService
                 || _operationTracker.GetOperation(operationId) is null or { Closed: true })
             {
                 return false;
-            }
-
-            // A job that has prepared its repair record but not started its writes waits for this
-            // repair at its save, so this repair cannot wait for it. A Retry beside such a job that the
-            // repair's own job could not run beside (a game detection walk un-evicting rows that an
-            // eviction removal's repair purges from the log) is refused until that job ends. A log pass
-            // is left out: the log file lock orders it.
-            if (_repairs.Values.Any(other => other.Id != operationId
-                    && other.Type != OperationType.LogProcessing
-                    && other.Phase == OperationRepairPhase.Prepared
-                    && _operationTracker.GetOperation(other.Id) is { } job
-                    && !job.Status.IsTerminal()
-                    && OperationConflictChecker.Evaluate(repair.Type, ConflictScope.Bulk(), job) is not null))
-            {
-                throw new ConflictException("A job this repair cannot run beside is in progress. Retry when it finishes.")
-                {
-                    StageKey = "errors.conflict.repairRetryBusy"
-                };
             }
 
             _repairFailures.TryRemove(operationId, out _);

@@ -351,9 +351,15 @@ public class GameDetectionVisibilityRaceTests
         await run.Repairs.Owner.PrepareRepairAsync(blocker, CancellationToken.None);
         await run.Repairs.Owner.StartWorkAsync(blocker.Id, "default", CancellationToken.None);
         await run.Repairs.Owner.FinishRepairAsync(blocker.Id, false, true, null);
-        run.CancelAtStage = "signalr.gameDetect.matching.progress";
 
         var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
+
+        // The run waits for the repair before its first write, so it has not walked the cache.
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        Assert.False(run.Repairs.Tracker.GetOperation(id)!.Status.IsTerminal());
+        Assert.False(File.Exists(Path.Combine(run.OperationsDirectory, $"game_detection_{id}_default.json")));
+
+        run.Repairs.Tracker.CancelOperation(id);
         var terminal = await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(OperationStatus.Cancelled, terminal.Status);
@@ -447,6 +453,7 @@ public class GameDetectionVisibilityRaceTests
         public GameCacheDetectionService Detection { get; private set; } = null!;
         public SemaphoreSlim RetryRelease { get; } = new(0);
         public Guid BlockedRepair { get; set; }
+        public string OperationsDirectory { get; private set; } = null!;
         public string? CancelAtStage { get; set; }
         public bool CancelOnFirstSave { get; set; }
 
@@ -468,6 +475,7 @@ public class GameDetectionVisibilityRaceTests
                     : Task.CompletedTask);
 
             var paths = new TempDirPathResolver(root);
+            run.OperationsDirectory = paths.GetOperationsDirectory();
             var configuration = new ConfigurationBuilder().Build();
             var datasources = new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
             var datasource = Assert.Single(datasources.GetDatasources());
