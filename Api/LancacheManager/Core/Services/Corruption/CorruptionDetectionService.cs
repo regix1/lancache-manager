@@ -146,17 +146,30 @@ public class CorruptionDetectionService
                 context: null,
                 authoritativeContext: startingContext);
             Guid operationId = Guid.Empty;
-            operationId = _operationTracker.RegisterOperation(
-                OperationType.CorruptionDetection,
-                DetectionOperationName(detectionMethod, scanMode),
-                cts,
-                metadata,
-                onTerminalCleanup: () =>
+            // The repair check and the registration share the gate a Retry claims its repair under,
+            // so a scan and a retried repair never both start.
+            var registered = await _operationStateService.RegisterUnlessRepairBlocksAsync(
+                () => _operationTracker.RegisterOperation(
+                    OperationType.CorruptionDetection,
+                    DetectionOperationName(detectionMethod, scanMode),
+                    cts,
+                    metadata,
+                    onTerminalCleanup: () =>
+                    {
+                        metadata.ClearProgress();
+                        _operationStateService.RemoveState(operationId.ToString());
+                    },
+                    onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata)),
+                cancellationToken);
+            if (registered is null)
+            {
+                cts.Dispose();
+                throw new ConflictException("A cache repair is running. Start the scan when it finishes.")
                 {
-                    metadata.ClearProgress();
-                    _operationStateService.RemoveState(operationId.ToString());
-                },
-                onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata));
+                    StageKey = "errors.conflict.globalOperationActive"
+                };
+            }
+            operationId = registered.Value;
             _operationTracker.UpdateProgress(operationId, 0, startingStageKey);
 
             var operationStateKey = operationId.ToString();

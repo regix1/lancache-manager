@@ -8063,7 +8063,8 @@
       "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations.",
       "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes.",
       "downloadHistoryUpgradeActive": "The one-time download history upgrade is running. Try again when it finishes.",
-      "evictionResetBusy": "Eviction data is being updated. Try again when it finishes."
+      "evictionResetBusy": "Eviction data is being updated. Try again when it finishes.",
+      "repairRetryBusy": "Another job this repair cannot run beside is in progress. Retry when it finishes."
     },
     "corruption": {
       "scanIdRequired": "A corruption scan ID is required",

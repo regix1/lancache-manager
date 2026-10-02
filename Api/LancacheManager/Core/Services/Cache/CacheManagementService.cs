@@ -1741,59 +1741,70 @@ public partial class CacheManagementService
         // CTS ownership: handed to the tracker, which disposes it in CompleteOperation.
         var cts = new CancellationTokenSource();
         Guid operationId = default;
-        operationId = _operationTracker.RegisterOperation(
-            OperationType.CacheSizeScan,
-            "Cache File Scan",
-            cts,
-            onTerminalCleanup: () =>
-            {
-                lock (_scanCacheLock)
+        // The repair check and the registration share the gate a Retry claims its repair under,
+        // so a scan and a retried repair never both start.
+        var registered = await _operationStateService.RegisterUnlessRepairBlocksAsync(
+            () => _operationTracker.RegisterOperation(
+                OperationType.CacheSizeScan,
+                "Cache File Scan",
+                cts,
+                onTerminalCleanup: () =>
                 {
-                    if (_cacheSizeScanId == operationId)
+                    lock (_scanCacheLock)
                     {
-                        _cacheSizeScanId = Guid.Empty;
-                        _currentCacheSizeScanProgressContext = null;
+                        if (_cacheSizeScanId == operationId)
+                        {
+                            _cacheSizeScanId = Guid.Empty;
+                            _currentCacheSizeScanProgressContext = null;
+                        }
                     }
-                }
-            },
-            onTerminalEmit: info =>
-            {
-                if (info.Cancelled)
+                },
+                onTerminalEmit: info =>
                 {
+                    if (info.Cancelled)
+                    {
+                        return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
+                            Success: false,
+                            OperationId: operationId,
+                            StageKey: "signalr.cacheSizeScan.cancelled",
+                            TotalFiles: 0,
+                            TotalBytes: 0,
+                            Cancelled: true));
+                    }
+
+                    if (info.Success)
+                    {
+                        return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
+                            Success: true,
+                            OperationId: operationId,
+                            StageKey: "signalr.cacheSizeScan.complete",
+                            TotalFiles: terminalFiles,
+                            TotalBytes: terminalBytes,
+                            FormattedSize: terminalFormattedSize,
+                            Context: new Dictionary<string, object?>
+                            {
+                                ["totalFiles"] = terminalFiles,
+                                ["totalSize"] = terminalFormattedSize ?? FormatBytes(terminalBytes)
+                            }));
+                    }
+
                     return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
                         Success: false,
                         OperationId: operationId,
-                        StageKey: "signalr.cacheSizeScan.cancelled",
+                        StageKey: "signalr.cacheSizeScan.complete",
                         TotalFiles: 0,
                         TotalBytes: 0,
-                        Cancelled: true));
-                }
-
-                if (info.Success)
-                {
-                    return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
-                        Success: true,
-                        OperationId: operationId,
-                        StageKey: "signalr.cacheSizeScan.complete",
-                        TotalFiles: terminalFiles,
-                        TotalBytes: terminalBytes,
-                        FormattedSize: terminalFormattedSize,
-                        Context: new Dictionary<string, object?>
-                        {
-                            ["totalFiles"] = terminalFiles,
-                            ["totalSize"] = terminalFormattedSize ?? FormatBytes(terminalBytes)
-                        }));
-                }
-
-                return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
-                    Success: false,
-                    OperationId: operationId,
-                    StageKey: "signalr.cacheSizeScan.complete",
-                    TotalFiles: 0,
-                    TotalBytes: 0,
-                    Error: info.Error));
-            },
-            notice: notice);
+                        Error: info.Error));
+                },
+                notice: notice),
+            callerToken);
+        if (registered is null)
+        {
+            cts.Dispose();
+            _logger.LogInformation("Cache size scan skipped: a cache repair started after the conflict check");
+            return null;
+        }
+        operationId = registered.Value;
 
         _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheSizeScan.starting", _ =>
         {
