@@ -415,6 +415,7 @@ test('new datasource strings exist with matching placeholders in both locales', 
     ['management', 'gameDetection', 'removalScope', 'allSources'],
     ['management', 'gameDetection', 'removalScope', 'filtered'],
     ['management', 'datasources', 'noActiveDatasources'],
+    ['management', 'logRemoval', 'modal', 'deleteAccessLogQuestion'],
     ['signalr', 'cacheClear', 'forDatasource'],
     ['signalr', 'logProcessing', 'progressSource']
   ];

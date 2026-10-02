@@ -803,9 +803,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         loading={!!deletingLogFile}
       >
         <p className="text-themed-secondary">
-          {t('management.logRemoval.modal.deleteQuestion', {
-            datasource: pendingLogFileDeletion
-          })}
+          {t(
+            pendingLogFileDeletion &&
+              datasourceInfoByName.get(pendingLogFileDeletion)?.layout === 'monolithic'
+              ? 'management.logRemoval.modal.deleteAccessLogQuestion'
+              : 'management.logRemoval.modal.deleteQuestion',
+            { datasource: pendingLogFileDeletion }
+          )}
         </p>
 
         <Alert color="red" icon={null}>
