@@ -218,6 +218,31 @@ test('a failed log file delete still reloads the counts', async () => {
   assert.deepEqual(state.errors, ['management.logRemoval.errors.deleteFailed']);
 });
 
+test('the positions panel reloads when the log files change', () => {
+  const subscribed = [];
+  const unsubscribed = [];
+  let refreshes = 0;
+  const cleanup = bindLifted(liftHookCallback(DATASOURCES, 'useEffect', 'LogProcessingComplete'), {
+    mockMode: false,
+    signalR: {
+      on: (name, handler) => subscribed.push({ name, handler }),
+      off: (name, handler) => unsubscribed.push({ name, handler })
+    },
+    refreshPositions: async () => {
+      refreshes += 1;
+    }
+  })();
+
+  assert.deepEqual(
+    subscribed.map(({ name }) => name),
+    ['LogProcessingComplete', 'ServiceCountsChanged']
+  );
+  subscribed.find(({ name }) => name === 'ServiceCountsChanged').handler();
+  assert.equal(refreshes, 1);
+  cleanup();
+  assert.deepEqual(unsubscribed, subscribed);
+});
+
 test('a deferred cache-size save merges three values into the current datasource', async () => {
   const initial = config([datasource('alpha'), datasource('beta')], 'initial');
   const harness = buildSaveHarness(initial);

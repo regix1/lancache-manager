@@ -254,11 +254,18 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     const handleProcessingComplete = (_result: LogProcessingCompleteEvent) => {
       void refreshPositions();
     };
+    // A log delete, removal or purge moves the positions too, and each of them sends
+    // ServiceCountsChanged.
+    const handleLogsChanged = () => {
+      void refreshPositions();
+    };
 
     signalR.on('LogProcessingComplete', handleProcessingComplete);
+    signalR.on('ServiceCountsChanged', handleLogsChanged);
 
     return () => {
       signalR.off('LogProcessingComplete', handleProcessingComplete);
+      signalR.off('ServiceCountsChanged', handleLogsChanged);
     };
   }, [mockMode, signalR, refreshPositions]);
 
