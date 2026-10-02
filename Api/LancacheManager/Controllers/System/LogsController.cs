@@ -655,7 +655,7 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// Deletes the entire access.log file for a datasource.
+    /// Deletes a datasource's current log files.
     /// </summary>
     /// <remarks>
     /// Deletes the datasource's access.log, or every per-service log series with its rotations,
@@ -706,9 +706,8 @@ public class LogsController : ControllerBase
             LogFileLockKind.Rewrite,
             cancellationToken);
         // Listed after the lock: a logrotate run during the wait renames and removes files.
-        var affectedPaths = hasPerServiceSources
-            ? NginxLogRotationService.GetAffectedLogPaths(datasource)
-            : new[] { accessLogPath };
+        var logFiles = NginxLogRotationService.GetAffectedLogPaths(datasource);
+        var affectedPaths = hasPerServiceSources ? logFiles : new[] { accessLogPath };
         await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
             new[] { datasource },
             affectedPaths,
@@ -722,6 +721,26 @@ public class LogsController : ControllerBase
             // The importer reads a datasource that has only a legacy total as that many lines of access.log.
             positions[LogSourceLayout.MonolithicStem] = legacyPosition;
         }
+
+        // Counted before anything is deleted, so a count that fails leaves every file and position as
+        // it was. Each file is remembered by identity: after the delete, a file that is gone, or a
+        // current file nginx re-created on a reopen, holds none of the lines read before.
+        var filesBefore = new Dictionary<string, NginxFileIdentity>();
+        foreach (var path in logFiles)
+        {
+            try
+            {
+                filesBefore[path] = NginxWriterProbe.ReadIdentity(path);
+            }
+            catch (FileNotFoundException)
+            {
+                // Removed by logrotate since the listing.
+            }
+        }
+        var counted = await _rustProcessHelper.CountLogLinesAsync(
+            datasource.LogPath,
+            cancellationToken,
+            _rustLogProcessorService.ResumePath(datasourceName));
 
         LogFileDeletionResult? deletion = null;
         ExceptionDispatchInfo? deleteFailure = null;
@@ -740,36 +759,71 @@ public class LogsController : ControllerBase
         {
             // A position counts the lines of a series, oldest file first, that were imported or skipped
             // on purpose (the fresh-install seed, "Reset position to end"); skipped lines have no rows.
-            // The delete removes each series newest file first, so a series whose current file is still
-            // there lost nothing and keeps its position, and a series that lost it keeps the read lines
-            // still in its older files. Counted before the reopen, which lets nginx create a new current
-            // file. Written after the delete: a kill before the first unlink leaves every position right;
-            // a kill between the first unlink and this write leaves the old position on a series that
-            // lost its current file, so the next import skips that many lines, less its older files'
-            // lines, of the new file.
-            var emptiedStems = positions.Keys
-                .Where(stem => !System.IO.File.Exists(Path.Combine(datasource.LogPath, stem)))
-                .ToList();
-            if (emptiedStems.Count > 0)
+            // A series whose current file is still the same file lost nothing to this delete and keeps
+            // its position. Any other series keeps the read lines still in its surviving files, less the
+            // read lines the importer's resume record shows logrotate removed since the last import.
+            // Written after the delete: a kill (power loss, an out-of-memory kill, or a container stop
+            // that outlasts its grace period) between the first unlink and this write, or a state file
+            // that cannot be written followed by a restart, leaves the old position on a series that lost
+            // its current file, so the next import skips that many lines, less its older files' lines, of
+            // the new file.
+            var surviving = new List<string>();
+            foreach (var (path, identity) in filesBefore)
             {
-                var remaining = await _rustProcessHelper.CountLogLinesAsync(
-                    datasource.LogPath,
-                    CancellationToken.None);
-                foreach (var stem in emptiedStems)
+                try
                 {
-                    positions[stem] = Math.Min(positions[stem], remaining.SourceLineCounts.GetValueOrDefault(stem));
+                    if (NginxWriterProbe.ReadIdentity(path) == identity)
+                    {
+                        surviving.Add(path);
+                    }
+                }
+                catch (FileNotFoundException)
+                {
+                    // Deleted, so none of its lines are left.
+                }
+            }
+            if (surviving.Count < filesBefore.Count)
+            {
+                long LinesIn(string path) => counted.FileLineCounts.GetValueOrDefault(Path.GetFileName(path));
+                foreach (var stem in positions.Keys.ToList())
+                {
+                    if (surviving.Contains(Path.GetFullPath(Path.Combine(datasource.LogPath, stem))))
+                    {
+                        continue;
+                    }
+                    var read = positions[stem];
+                    if (counted.StaleReadRecords.TryGetValue(stem, out var stale) && stale.Position == read)
+                    {
+                        read -= stale.Records;
+                    }
+                    positions[stem] = Math.Min(
+                        read,
+                        surviving
+                            .Where(path => LogSourceLayout.LogicalStem(Path.GetFileName(path)) == stem)
+                            .Sum(LinesIn));
                 }
                 _stateRepository.SetLogSourcePositions(datasourceName, positions);
-                _stateRepository.SetLogTotalLines(datasourceName, remaining.LinesProcessed);
+                _stateRepository.SetLogTotalLines(datasourceName, surviving.Sum(LinesIn));
             }
         }
         finally
         {
             if (deleteFailure != null)
             {
-                await _nginxLogRotationService.InvalidateReopenCheckAsync(
-                    reopenCheck,
-                    CancellationToken.None);
+                try
+                {
+                    await _nginxLogRotationService.InvalidateReopenCheckAsync(
+                        reopenCheck,
+                        CancellationToken.None);
+                }
+                catch (Exception markerError)
+                {
+                    // The reopen and the count refresh below must still run: files may already be gone.
+                    _logger.LogError(
+                        markerError,
+                        "Failed to mark the reopen check invalid after a failed log delete for datasource '{Datasource}'",
+                        datasourceName);
+                }
             }
             // Files may already be gone, so an aborted request or a failed position write must still
             // reopen nginx.

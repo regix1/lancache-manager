@@ -943,18 +943,24 @@ public partial class RustProcessHelper
     /// </summary>
     public virtual async Task<LogLineCountResult> CountLogLinesAsync(
         string logsPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? resumePath = null)
     {
         var progress = await RunLogFileOperationAsync(
             "count-lines",
             logsPath,
+            resumePath is null ? [] : ["--resume", resumePath],
             cancellationToken);
 
         return new LogLineCountResult(
             progress.LinesProcessed,
             progress.FilesProcessed,
             progress.SourceLineCounts ?? new Dictionary<string, long>(),
-            progress.FilesWithErrors ?? 0);
+            progress.FilesWithErrors ?? 0)
+        {
+            FileLineCounts = progress.FileLineCounts ?? new Dictionary<string, long>(),
+            StaleReadRecords = progress.StaleReadRecords ?? new Dictionary<string, StaleReadRecords>()
+        };
     }
 
     /// <summary>
@@ -968,6 +974,7 @@ public partial class RustProcessHelper
         var progress = await RunLogFileOperationAsync(
             "delete-file",
             filePath,
+            [],
             cancellationToken);
 
         return new LogFileDeletionResult(progress.BytesDeleted);
@@ -1062,6 +1069,7 @@ public partial class RustProcessHelper
     private async Task<LogManagerFileProgress> RunLogFileOperationAsync(
         string command,
         string path,
+        IReadOnlyList<string> options,
         CancellationToken cancellationToken)
     {
         var progressFile = Path.GetTempFileName();
@@ -1078,6 +1086,10 @@ public partial class RustProcessHelper
             startInfo.ArgumentList.Add(path);
             startInfo.ArgumentList.Add(progressFile);
             startInfo.ArgumentList.Add("--progress");
+            foreach (var option in options)
+            {
+                startInfo.ArgumentList.Add(option);
+            }
 
             var result = await ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
@@ -1144,6 +1156,14 @@ public partial class RustProcessHelper
         /// <summary>Complete-record counts per logical source stem (count-lines only).</summary>
         [System.Text.Json.Serialization.JsonPropertyName("source_line_counts")]
         public Dictionary<string, long>? SourceLineCounts { get; init; }
+
+        /// <summary>Complete-record counts per file name (count-lines only).</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("file_line_counts")]
+        public Dictionary<string, long>? FileLineCounts { get; init; }
+
+        /// <summary>Read records of removed files per stem with a resume record (count-lines --resume only).</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("stale_read_records")]
+        public Dictionary<string, StaleReadRecords>? StaleReadRecords { get; init; }
 
         /// <summary>
         /// Count of source files whose count stopped at an unreadable member (count-lines only).

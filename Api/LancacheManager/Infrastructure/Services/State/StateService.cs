@@ -440,6 +440,24 @@ public class StateService : IStateService
         });
     }
 
+    public bool IsLogSeedPending(string datasourceName)
+    {
+        lock (_lock)
+        {
+            return GetState().LogProcessing.SeedPendingDatasources.Contains(datasourceName);
+        }
+    }
+
+    public void AddLogSeedPending(IEnumerable<string> datasourceNames)
+    {
+        UpdateState(state => state.LogProcessing.SeedPendingDatasources.UnionWith(datasourceNames));
+    }
+
+    public void RemoveLogSeedPending(string datasourceName)
+    {
+        UpdateState(state => state.LogProcessing.SeedPendingDatasources.Remove(datasourceName));
+    }
+
     /// <summary>
     /// Subtracts purge-removed line counts (per source stem) from a datasource's saved log
     /// positions and total-line count. A log purge rewrites the access log in place, so every

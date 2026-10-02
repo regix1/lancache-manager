@@ -91,6 +91,18 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
         // Check if logs have been processed before (to distinguish fresh install from manual reset)
         var hasProcessedLogs = _stateService.HasProcessedLogs();
+        if (!hasProcessedLogs)
+        {
+            try
+            {
+                _stateService.AddLogSeedPending(datasources.Select(ds => ds.Name));
+            }
+            catch (Exception ex)
+            {
+                // The set changed in memory; only a restart before the next save loses it.
+                _logger.LogWarning(ex, "Failed to save the datasources still to seed");
+            }
+        }
 
         // Initialize per-source watermarks for each datasource
         foreach (var ds in datasources)
@@ -111,15 +123,15 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                     ds.Name, Path.GetFileName(filePath), fileInfo.Length);
             }
 
-            // Only auto-initialize to end of file on fresh install (never processed logs before).
-            // If positions are 0 but logs have been processed, the user intentionally reset to
-            // beginning. EOF-seed covers EVERY source stem (access.log AND per-service files),
-            // series-wide, at the last complete record of each stem.
+            // Only datasources the first start has not seeded yet are set to the end of their logs. A
+            // user reset to the beginning takes a datasource out of that set, so its empty positions
+            // mean "read from the start". EOF-seed covers EVERY source stem (access.log AND
+            // per-service files), series-wide, at the last complete record of each stem.
             var sourcePositions = _stateService.GetLogSourcePositions(ds.Name);
             var legacyPosition = _stateService.GetLogPosition(ds.Name);
             // Stem set, not current-file list: a source caught between rename and reopen
             // (rotations only on disk) still needs its series seeded to EOF.
-            if (!hasProcessedLogs && sourcePositions.Count == 0 && legacyPosition == 0 &&
+            if (_stateService.IsLogSeedPending(ds.Name) && sourcePositions.Count == 0 && legacyPosition == 0 &&
                 ds.LogSourceStems.Count > 0)
             {
                 try
@@ -132,16 +144,22 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                         LogFileLockKind.Rows,
                         stoppingToken);
                     // Asked again under the lock: a "Process" pass for this datasource can hold the logs
-                    // first and save its own end positions, and a count taken now would skip every line
-                    // written after that pass ended.
+                    // first and save its own end positions, and a reset to the beginning can take it out
+                    // of the seed; a count taken now would skip lines either of them kept.
+                    if (!_stateService.IsLogSeedPending(ds.Name))
+                    {
+                        continue;
+                    }
                     if (_stateService.GetLogSourcePositions(ds.Name).Count > 0 ||
                         _stateService.GetLogPosition(ds.Name) > 0)
                     {
+                        _stateService.RemoveLogSeedPending(ds.Name);
                         continue;
                     }
                     var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
                     _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
                     _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);
+                    _stateService.RemoveLogSeedPending(ds.Name);
                     _logger.LogInformation(
                         "Datasource '{Name}': Fresh install - initialized {SourceCount} source position(s) to end of file ({LineCount} lines total)",
                         ds.Name, count.SourceLineCounts.Count, count.LinesProcessed);

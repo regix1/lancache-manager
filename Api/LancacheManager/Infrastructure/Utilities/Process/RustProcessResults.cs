@@ -106,7 +106,20 @@ public sealed record LogLineCountResult(
     long LinesProcessed,
     long FilesProcessed,
     Dictionary<string, long> SourceLineCounts,
-    long FilesWithErrors = 0);
+    long FilesWithErrors = 0)
+{
+    /// <summary>Complete-record counts per file name.</summary>
+    public Dictionary<string, long> FileLineCounts { get; init; } = new();
+
+    /// <summary>Per stem with an importer resume record: its saved position and the read records in
+    /// it whose files logrotate removed since. Empty unless the count was given the resume record.</summary>
+    public Dictionary<string, StaleReadRecords> StaleReadRecords { get; init; } = new();
+}
+
+/// <summary>Read records a saved position still counts although logrotate removed their files.</summary>
+public sealed record StaleReadRecords(
+    [property: JsonPropertyName("position")] long Position,
+    [property: JsonPropertyName("records")] long Records);
 
 /// <summary>Pre-delete byte count produced by log_service_manager delete-file.</summary>
 public sealed record LogFileDeletionResult(long BytesDeleted);
