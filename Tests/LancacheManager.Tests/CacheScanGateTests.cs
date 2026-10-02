@@ -5,11 +5,13 @@ using LancacheManager.Configuration;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -718,6 +720,135 @@ public sealed class CacheScanGateTests
         var skipped = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("Eviction Scan", skipped.Name);
         Assert.Equal(OperationStatus.Skipped, skipped.Status);
+    }
+
+    /// <summary>
+    /// An eviction scan or removal reads the evicted flags while it runs, so a reset in that window
+    /// leaves rows and log lines that disagree. The refusal carries only the stage key, which the
+    /// browser translates.
+    /// </summary>
+    [Theory]
+    [InlineData(OperationType.EvictionScan)]
+    [InlineData(OperationType.EvictionRemoval)]
+    public async Task ResetEvictionsIsRefusedWhileEvictionWorkRunsAsync(OperationType type)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(new Download
+            {
+                Service = "steam", ClientIp = "127.0.0.1", Datasource = "Default", IsEvicted = true,
+                StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        tracker.RegisterOperation(type, "Eviction", new CancellationTokenSource());
+        await using var requestContext = new AppDbContext(database.Options);
+        var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+        SetField(controller, "_context", requestContext);
+        SetField(controller, "_notifications", DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>());
+        SetField(controller, "_operationTracker", tracker);
+        SetField(controller, "_operationStateService", OperationConflictTestServices.Owner);
+
+        var result = await controller.ResetEvictionsAsync(CancellationToken.None);
+
+        var conflict = Assert.IsType<OperationConflictResponse>(Assert.IsType<ConflictObjectResult>(result.Result).Value);
+        Assert.Equal("errors.conflict.evictionResetBusy", conflict.StageKey);
+        Assert.Null(conflict.Error);
+        await using var check = new AppDbContext(database.Options);
+        Assert.True((await check.Downloads.SingleAsync()).IsEvicted);
+    }
+
+    [Fact]
+    public async Task ResetEvictionsClearsTheFlagsWhenNothingRunsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(new Download
+            {
+                Service = "steam", ClientIp = "127.0.0.1", Datasource = "Default", IsEvicted = true,
+                StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+        await using var requestContext = new AppDbContext(database.Options);
+        var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+        SetField(controller, "_context", requestContext);
+        SetField(controller, "_notifications", DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>());
+        SetField(controller, "_operationTracker", new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance));
+        SetField(controller, "_operationStateService", OperationConflictTestServices.Owner);
+
+        var result = await controller.ResetEvictionsAsync(CancellationToken.None);
+
+        var reset = Assert.IsType<EvictionResetResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(1, reset.Reset);
+    }
+
+    /// <summary>
+    /// A pending repair rewrites the evicted flags itself, so a reset is refused until the repair
+    /// ends and accepted straight after.
+    /// </summary>
+    [Fact]
+    public async Task ResetEvictionsIsRefusedWhileARepairIsPendingAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-eviction-reset-repair-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+                root,
+                apply: async (_, cancellationToken) =>
+                {
+                    entered.TrySetResult();
+                    await release.Task.WaitAsync(cancellationToken);
+                });
+            await using var database = await TestDatabase.CreateAsync();
+            await using (var seed = new AppDbContext(database.Options))
+            {
+                seed.Downloads.Add(new Download
+                {
+                    Service = "steam", ClientIp = "127.0.0.1", Datasource = "Default", IsEvicted = true,
+                    StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+                });
+                await seed.SaveChangesAsync();
+            }
+            await using var requestContext = new AppDbContext(database.Options);
+            var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+            SetField(controller, "_context", requestContext);
+            SetField(controller, "_notifications", DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>());
+            SetField(controller, "_operationTracker", harness.Tracker);
+            SetField(controller, "_operationStateService", harness.Owner);
+            var repair = OperationConflictTestServices.NewCacheClearRepair(Guid.NewGuid());
+            await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+            await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+            await harness.Owner.FinishRepairAsync(repair.Id, success: false, cancelled: false, error: "interrupted");
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var refused = Assert.IsType<ConflictObjectResult>((await controller.ResetEvictionsAsync(CancellationToken.None)).Result);
+            Assert.Equal("errors.conflict.evictionResetBusy", Assert.IsType<OperationConflictResponse>(refused.Value).StageKey);
+
+            // The repair's end is announced off its own stack, so the second reset waits for it.
+            var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            harness.Tracker.BlockerCleared += () =>
+            {
+                if (harness.Owner.GetBlockingRepair() is null) ended.TrySetResult();
+            };
+            release.TrySetResult();
+            await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var accepted = Assert.IsType<OkObjectResult>((await controller.ResetEvictionsAsync(CancellationToken.None)).Result);
+            Assert.Equal(1, Assert.IsType<EvictionResetResponse>(accepted.Value).Reset);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     /// <summary>

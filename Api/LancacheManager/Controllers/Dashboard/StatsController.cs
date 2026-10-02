@@ -37,6 +37,7 @@ public class StatsController : ControllerBase
     private readonly IEventsService _eventsService;
     private readonly CacheScanGate _cacheScanGate;
     private readonly Func<DownloadSpeedSnapshot> _readActivity;
+    private readonly OperationStateService _operationStateService;
 
     public StatsController(
         AppDbContext context,
@@ -52,7 +53,8 @@ public class StatsController : ControllerBase
         IClientHostnameService clientHostnameService,
         IEventsService eventsService,
         CacheScanGate cacheScanGate,
-        RustSpeedTrackerService speedTracker)
+        RustSpeedTrackerService speedTracker,
+        OperationStateService operationStateService)
     {
         _cacheScanGate = cacheScanGate;
         _clientHostnameService = clientHostnameService;
@@ -68,6 +70,7 @@ public class StatsController : ControllerBase
         _operationQueue = operationQueue;
         _eventsService = eventsService;
         _readActivity = speedTracker.GetCurrentSnapshot;
+        _operationStateService = operationStateService;
     }
 
     /// <summary>
@@ -522,6 +525,16 @@ public class StatsController : ControllerBase
     [ProducesResponseType(typeof(EvictionResetResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<EvictionResetResponse>> ResetEvictionsAsync(CancellationToken ct)
     {
+        // Clearing the flags while an eviction step reads them, or before a repair rewrites them,
+        // leaves rows and log lines that disagree.
+        await _operationStateService.WaitForRecoveryOwnershipAsync(ct);
+        if (_operationStateService.GetBlockingRepair() is not null
+            || _operationTracker.GetActiveOperations(null).Any(operation =>
+                operation.Type is OperationType.EvictionScan or OperationType.EvictionRemoval))
+        {
+            return Conflict(new OperationConflictResponse { StageKey = "errors.conflict.evictionResetBusy" });
+        }
+
         var resetCount = await _context.Downloads
             .Where(d => d.IsEvicted)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, false), ct);

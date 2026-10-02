@@ -375,7 +375,8 @@ public sealed class CacheScanDetectionPhaseTests
             clientHostnameService: null!,
             eventsService: null!,
             gate,
-            speedTracker)
+            speedTracker,
+            operationState)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
