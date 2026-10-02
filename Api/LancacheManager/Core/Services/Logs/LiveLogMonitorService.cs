@@ -19,6 +19,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     private readonly DatasourceService _datasourceService;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly OperationStateService _operationStateService;
     // Per-source watermarks keyed "<datasource>::<stem>": on-disk size of each stem's
     // CURRENT file at the last successful processing pass (rotations never grow).
     private readonly Dictionary<string, long> _lastFileSizes = new();
@@ -63,7 +64,8 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         StateService stateService,
         DatasourceService datasourceService,
         IOperationConflictChecker conflictChecker,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        OperationStateService operationStateService)
         : base(logger, configuration)
     {
         _rustLogProcessorService = rustLogProcessorService;
@@ -71,6 +73,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         _datasourceService = datasourceService;
         _conflictChecker = conflictChecker;
         _rustProcessHelper = rustProcessHelper;
+        _operationStateService = operationStateService;
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
@@ -121,6 +124,13 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             {
                 try
                 {
+                    // Held through the count and the writes, so a log delete or reset cannot land
+                    // between them and be overwritten with the old file's line counts.
+                    await using var logLock = await _operationStateService.LockLogFilesAsync(
+                        null,
+                        OperationType.LogProcessing,
+                        LogFileLockKind.Rows,
+                        stoppingToken);
                     var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
                     _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
                     _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);

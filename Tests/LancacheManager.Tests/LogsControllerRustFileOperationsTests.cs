@@ -514,7 +514,7 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
-    public async Task DeleteLogFile_RustFailureLeavesFileAsync()
+    public async Task DeleteLogFile_RustFailureLeavesFileAndStateUntouchedAsync()
     {
         using var fixture = new ControllerFixture();
         var logPath = Path.Combine(fixture.AlphaLogPath, "access.log");
@@ -527,10 +527,34 @@ public sealed class LogsControllerRustFileOperationsTests
         await Assert.ThrowsAsync<RustProcessException>(() =>
             fixture.Controller.DeleteLogFileAsync("alpha"));
 
-        // The surviving file is read again from the start; lines whose rows exist are skipped.
         Assert.True(File.Exists(logPath));
-        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
-        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
+        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(8, fixture.State.GetLogTotalLines("alpha"));
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_PartialDeleteKeepsThePositionsOfSurvivingSourcesAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "steam-access.log"), "steam");
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "epicgames-access.log"), "epic");
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            ["steam-access.log"] = 5,
+            ["epicgames-access.log"] = 4
+        });
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            File.Delete(Path.Combine(path, "epicgames-access.log"));
+            throw new IOException("Injected unlink failure.");
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Equal(
+            new Dictionary<string, long> { ["steam-access.log"] = 5 },
+            fixture.State.GetLogSourcePositions("alpha"));
+        Assert.Equal(5, fixture.State.GetLogPosition("alpha"));
     }
 
     [Fact]
@@ -542,6 +566,52 @@ public sealed class LogsControllerRustFileOperationsTests
 
         Assert.IsType<NotFoundObjectResult>(result);
         Assert.Empty(fixture.RustHelper.DeleteRequests);
+    }
+
+    [Fact]
+    public async Task FreshInstallSeed_ALogDeleteDuringTheCountIsNotUndoneAsync()
+    {
+        using var fixture = new ControllerFixture();
+        var logPath = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(logPath, "keep");
+        var countStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCount = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.RustHelper.CountHandler = async (_, _) =>
+        {
+            countStarted.SetResult();
+            await releaseCount.Task;
+            return new LogLineCountResult(8, 1, new Dictionary<string, long> { ["access.log"] = 8 });
+        };
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            var bytes = new FileInfo(path).Length;
+            File.Delete(path);
+            return Task.FromResult(new LogFileDeletionResult(bytes));
+        };
+        var monitor = new LiveLogMonitorService(
+            NullLogger<LiveLogMonitorService>.Instance,
+            new ConfigurationBuilder().Build(),
+            fixture.Processor,
+            fixture.State,
+            fixture.Datasources,
+            fixture.Checker,
+            fixture.RustHelper,
+            fixture.RepairOwner);
+        var seed = (Task)typeof(LiveLogMonitorService)
+            .GetMethod("OnStartupAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(monitor, new object[] { CancellationToken.None })!;
+        await countStarted.Task.WaitAsync(_wait);
+
+        var delete = fixture.Controller.DeleteLogFileAsync("alpha");
+        await Task.WhenAny(delete, Task.Delay(TimeSpan.FromSeconds(1)));
+        Assert.False(delete.IsCompleted);
+
+        releaseCount.SetResult();
+        await seed.WaitAsync(_wait);
+        Assert.IsType<OkObjectResult>(await delete.WaitAsync(_wait));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
+        Assert.False(File.Exists(logPath));
     }
 
     private static Task<LogFileLock> HoldStepAsync(ControllerFixture fixture) =>

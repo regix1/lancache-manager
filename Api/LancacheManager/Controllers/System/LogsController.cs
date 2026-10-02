@@ -711,9 +711,11 @@ public class LogsController : ControllerBase
 
         LogFileDeletionResult deletion;
         _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+        var savedSourcePositions = _stateRepository.GetLogSourcePositions(datasourceName);
+        var savedPosition = _stateRepository.GetLogPosition(datasourceName);
+        var savedTotalLines = _stateRepository.GetLogTotalLines(datasourceName);
         // Reset before the delete, under the lock, so a delete that fails partway or a reopen that
-        // fails cannot leave the old line count for the next import. A file that survives a failed
-        // delete is read again from the start, which is safe because lines whose rows exist are skipped.
+        // fails cannot leave the old line count of a removed file for the next import.
         _stateRepository.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateRepository.SetLogPosition(datasourceName, 0);
         _stateRepository.SetLogTotalLines(datasourceName, 0);
@@ -724,6 +726,28 @@ public class LogsController : ControllerBase
         }
         catch (Exception error)
         {
+            // Checked before the reopen below, which lets nginx create a removed file again. A source
+            // the failed delete left whole keeps its position: lines skipped on purpose (the
+            // fresh-install seed, "Reset position to end") have no rows, so reading it from the start
+            // would import them. A source that lost a file stays at 0.
+            var removedStems = affectedPaths
+                .Where(path => !System.IO.File.Exists(path))
+                .Select(path => LogSourceLayout.LogicalStem(Path.GetFileName(path)))
+                .ToHashSet();
+            if (removedStems.Count == 0)
+            {
+                _stateRepository.SetLogSourcePositions(datasourceName, savedSourcePositions);
+                _stateRepository.SetLogPosition(datasourceName, savedPosition);
+                _stateRepository.SetLogTotalLines(datasourceName, savedTotalLines);
+            }
+            else
+            {
+                _stateRepository.SetLogSourcePositions(
+                    datasourceName,
+                    savedSourcePositions
+                        .Where(pair => !removedStems.Contains(pair.Key))
+                        .ToDictionary(pair => pair.Key, pair => pair.Value));
+            }
             await _nginxLogRotationService.InvalidateReopenCheckAsync(
                 reopenCheck,
                 CancellationToken.None);
