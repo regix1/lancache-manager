@@ -77,7 +77,14 @@ public sealed partial class OperationTerminalContractTests
         Assert.Equal(1, run.Observer.Entries[first.Id].Cleanups);
         var terminal = Assert.Single(run.Messages.Terminals(first.Id));
         Assert.Equal(cancelled ? "cancelled" : "failed", terminal.GetProperty("status").GetString());
+        // The worker saves the status after its last progress report, which can come after the
+        // completion this test waited for.
         var saved = run.State.GetCacheClearOperations().Single(item => item.Id == first.Id);
+        for (var attempt = 0; !saved.Status.IsTerminal() && attempt < 200; attempt++)
+        {
+            await Task.Delay(50);
+            saved = run.State.GetCacheClearOperations().Single(item => item.Id == first.Id);
+        }
         Assert.Equal(cancelled ? OperationStatus.Cancelled : OperationStatus.Failed, saved.Status);
         Assert.Equal(run.Tracker.GetOperation(first.Id)!.CompletedAt, saved.EndTime);
         run.AssertHealthy();
