@@ -1719,6 +1719,43 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task AScanWhoseKeyEvidenceTurnsMixedDuringItsDetectionOwesNoRepairAsync()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var launched = false;
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper((_, _) =>
+        {
+            launched = true;
+            return Task.CompletedTask;
+        }));
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        ctx.Notifications.OnSent = (eventName, value) =>
+        {
+            // A per-service log appears beside access.log while the detection runs; the scan reports its
+            // scanning stage right after the detection ends, before it starts any work.
+            if (eventName == SignalREvents.EvictionScanProgress
+                && value is EvictionScanProgress { StageKey: "signalr.evictionScan.scanning" })
+            {
+                File.WriteAllText(Path.Combine(source.LogPath, "steam-access.log"), string.Empty);
+            }
+        };
+        var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
+            .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+
+        await WaitForTerminalAsync(tracker, scanId);
+
+        Assert.False(launched);
+        Assert.DoesNotContain(ctx._operationStateService.GetPendingRepairs(), repair => repair.Id == scanId);
+    }
+
+    [Fact]
     public async Task AFinishedNormalScanLeavesTheCorruptionResultsRemovable()
     {
         OperationRepair scanRepair;

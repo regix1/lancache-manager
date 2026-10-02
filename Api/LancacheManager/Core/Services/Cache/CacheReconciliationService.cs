@@ -524,6 +524,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 "signalr.evictionScan.scanning",
                 new EvictionScanResult());
 
+            // Checked again after the detection phase, which can run for minutes: evidence that turned mixed
+            // or unknown meanwhile refuses the scan here, before it starts any work, so it owes no repair.
+            var detectionPhaseDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+            if (detectionPhaseDenial != null)
+            {
+                throw new InvalidOperationException(detectionPhaseDenial);
+            }
+
             _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary");
 
             // Create progress file for monitoring
@@ -545,10 +553,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 operationId,
                 datasource: null,
                 cancellationToken: stoppingToken);
-            foreach (var source in repairSources)
-            {
-                await repairOwner.StartWorkAsync(operationId, source.Datasource, stoppingToken);
-            }
 
             // Read after the repair waits above: key evidence can change while a repair runs, and the scan
             // must use the scheme the log files show at launch.
@@ -563,6 +567,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }).ToArray();
             var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
             await File.WriteAllTextAsync(datasourceConfigPath, JsonSerializer.Serialize(datasourceConfig, jsonOptions), stoppingToken);
+
+            // Each source is marked launched only after its scheme is read above: a scan refused or cancelled
+            // before this point launched nothing, so its repair checks no source's scheme and only finalizes
+            // the scan's empty checkpoint.
+            foreach (var source in repairSources)
+            {
+                await repairOwner.StartWorkAsync(operationId, source.Datasource, stoppingToken);
+            }
 
             // Hybrid transport (mirrors CacheClearingService): the stdout progress event from
             // cache_eviction_scan.rs is a zero-latency wake-up that triggers exactly one read of
