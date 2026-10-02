@@ -377,7 +377,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
         // Skip scan if there are no downloads in the database. A Run Now reports itself skipped so the
-        // click is answered; an automatic run stays quiet. [59]
+        // click is answered; an automatic run stays quiet.
         if (!await context.Downloads.AnyAsync(stoppingToken))
         {
             _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
@@ -688,7 +688,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // visible to GET /api/cache/removals/active, and emits its own
                 // EvictionRemovalStarted/Progress/Complete events with its own operationId. The
                 // removal gets a fresh notice with the scan's mode and trigger, so it is drawn the
-                // way the scan is; the scan's own notice stays attached to the scan. [66]
+                // way the scan is; the scan's own notice stays attached to the scan.
                 if (isRemoveMode
                     && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
                 {

@@ -190,7 +190,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     }
 
     // After a reload the recovered removal names its service, so a same-named game on another
-    // service is not shown busy. [98]
+    // service is not shown busy.
     [Fact]
     public void ActiveRemovals_RecoverTheRemovedGamesService()
     {
@@ -291,7 +291,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             });
 
         var operationId = await TrackedRemovalOperationRunner.StartAsync(tracked, notifications, config);
-        // A removal belongs to no schedule: it carries no notice and is always a full card. [89]
+        // A removal belongs to no schedule: it carries no notice and is always a full card.
         Assert.Null(tracker.GetOperation(operationId)!.Notice);
         Assert.Equal(RunVisibility.Card, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == operationId).Visibility);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));

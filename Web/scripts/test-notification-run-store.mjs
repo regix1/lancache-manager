@@ -80,7 +80,7 @@ const {
 
 // ── Rows as the server sends them (`operationRunRow`, shared with the other store tests) ──
 
-/** The server keeps these endings until someone closes them. [47] */
+/** The server keeps these endings until someone closes them. */
 const kept = (operationId, fields) => row(operationId, { retained: true, ...fields });
 
 /**

@@ -327,7 +327,7 @@ public sealed partial class OperationTerminalContractTests
             return pipe;
         }
 
-        // A cache clear and a corruption detection belong to no schedule: no notice, always a full card. [89]
+        // A cache clear and a corruption detection belong to no schedule: no notice, always a full card.
         private void AssertFullCardWithoutNotice(Guid id)
         {
             Assert.Null(Tracker.GetOperation(id)!.Notice);

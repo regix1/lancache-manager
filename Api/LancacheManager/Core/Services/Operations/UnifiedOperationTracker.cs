@@ -689,7 +689,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // flags live in, a notice trigger raised without this lock, a handoff floor, the link
             // removed when the successor is reaped) changes how the ended run is drawn or whether it
             // is kept; every later KeepsUntilClosed call gives this answer, except that a repair that
-            // fails out after completion keeps the row until it is closed. [55]
+            // fails out after completion keeps the row until it is closed.
             operation.CompletedVisibility = ReadVisibility(operation);
             try { onCompleting?.Invoke(operation); }
             catch (Exception ex) { publicationError = ex; }
@@ -725,7 +725,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         _ = DrainRunsAsync();
         // Live log ingest keeps one failure card. This failure's row is already queued, so closing
-        // the older ones after it lets the browser replace the older card in the same update. [55]
+        // the older ones after it lets the browser replace the older card in the same update.
         if (keep && operation.LiveIngest)
         {
             foreach (var other in _operations.Values)

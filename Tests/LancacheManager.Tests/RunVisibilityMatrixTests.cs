@@ -7,7 +7,7 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// How a run is drawn comes only from the notice it was admitted with: every notification mode for
 /// every trigger, and a run admitted with no notice at all. The registrations that deliberately carry
-/// no notice, and that no other test runs, are pinned by reading their source. [89]
+/// no notice, and that no other test runs, are pinned by reading their source.
 /// </summary>
 public sealed class RunVisibilityMatrixTests
 {

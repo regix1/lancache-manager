@@ -188,7 +188,7 @@ public sealed class OperationRunPublishingTests
     }
 
     // Only red and amber endings stay until closed; a cancelled card leaves on its own like a
-    // success. [124]
+    // success.
     [Fact]
     public void SkippedCardsAreKeptAndCancelledRunsAreNot()
     {
@@ -379,7 +379,7 @@ public sealed class OperationRunPublishingTests
         Assert.Equal(RunVisibility.Card, Run(tracker, interactive).Visibility);
     }
 
-    // The prefill sign-in has a card of its own, drawn only by the browser that started it. [64]
+    // The prefill sign-in has a card of its own, drawn only by the browser that started it.
     [Fact]
     public void APrefillSignInRowNamesItsPlatformAndOwnerAndItsFailureIsKept()
     {
@@ -849,7 +849,7 @@ public sealed class OperationRunPublishingTests
     }
 
     // A row and its revision describe one state only when the row is stamped under its operation's
-    // lock, so every send in the tracker sits inside a lock on the operation it sends. [91]
+    // lock, so every send in the tracker sits inside a lock on the operation it sends.
     [Fact]
     public void EveryPublishInTheTrackerRunsUnderALockOnTheSameOperation()
     {

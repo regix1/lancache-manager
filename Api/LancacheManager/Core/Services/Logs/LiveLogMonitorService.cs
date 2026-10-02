@@ -48,7 +48,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     // first and never waits on this at all, so the change only affects quiet starts and trickles.
     // It cannot go to 3s: that is below nginx's own 5s flush, so a wakeup would find a buffer that
     // has not been written yet and spend a Rust run on nothing, repeatedly. 7s keeps a 2s margin
-    // over that floor. [53]
+    // over that floor.
     internal const int MaxSecondsBeforeTrickleFlush = 7;
 
     protected override string ServiceName => "LiveLogMonitor";

@@ -36,7 +36,7 @@ public sealed class CacheSizeQueueTests
     }
 
     // The Storage page's scan button is a person's run of the cache file scan schedule, so it
-    // carries that schedule's mode with a manual trigger. [86]
+    // carries that schedule's mode with a manual trigger.
     [Theory]
     [InlineData(NotificationMode.All)]
     [InlineData(NotificationMode.Manual)]

@@ -3645,7 +3645,7 @@ class ApiService {
    * Starts one scheduled-prefill platform immediately. Neither outcome below is a failure, so both
    * come back as a flag rather than being thrown: 409 means that platform is already running. The run
    * starts on its own task, so it never waits behind another platform's run and there is no third
-   * outcome to report. [49]
+   * outcome to report.
    */
   static async runScheduledPrefillService(
     platform: ScheduledPrefillServiceId,

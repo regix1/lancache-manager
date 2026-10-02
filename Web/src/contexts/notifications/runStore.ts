@@ -426,7 +426,7 @@ function foldedUnderParent(state: RunStoreState, entry: RunEntry): boolean {
 /**
  * A schedule's kept endings share one card per kind: its service key, plus the prefill schedule id.
  * Live log ingest shares one card the same way. A mapping sign-in belongs to no schedule, so its
- * failure never replaces, or is replaced by, the schedule's failure card. [55]
+ * failure never replaces, or is replaced by, the schedule's failure card.
  */
 function scheduleIdentity(run: OperationRun): string | undefined {
   if (run.liveIngest) return 'liveLogIngest';
@@ -626,7 +626,7 @@ export function applyRun(
     // One kept ending of each kind per schedule, replaced in this same apply so two failure cards
     // (or two skips or warnings) of one schedule are never on screen together. An ending
     // never replaces one of another kind; the server keeps the same set. The removed ending
-    // resolved its waiters when it ended. [72] A failed-out repair keeps its own card and Retry
+    // resolved its waiters when it ended. A failed-out repair keeps its own card and Retry
     // whichever run of the schedule failed later.
     const identity = row.retained && !repairFailed ? scheduleIdentity(row) : undefined;
     for (const other of identity ? [...next.entries.values()] : []) {
@@ -1133,7 +1133,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
                       ? // A skip's row message is the reason the server kept, which the live card prints as is.
                         translateStageKeyMessage(run.message, undefined, GENERIC_SKIPPED_I18N_KEY)
                       : isTerminalNotificationStatus(run.status)
-                        ? // An ended run no event described says how it ended, never "in progress". [56]
+                        ? // An ended run no event described says how it ended, never "in progress".
                           translateRecoveryStage(
                             run.message,
                             undefined,

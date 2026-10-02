@@ -143,7 +143,7 @@ public class CacheController : ControllerBase
             // even when no conflict is visible yet: the gate closes the check/start race, starts
             // immediately when eligible, and parks/deduplicates otherwise. The singleton service
             // owns the promoted worker, so it outlives this HTTP request. The button is a person's
-            // run of the cache file scan schedule, so it draws in that schedule's mode. [86]
+            // run of the cache file scan schedule, so it draws in that schedule's mode.
             var notice = new RunNotice(_cacheSizeScan.EffectiveNotificationMode, RunTrigger.Manual);
             Task<Guid?> StartCacheSizeScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(notice: notice);
 
@@ -2442,7 +2442,7 @@ public class CacheController : ControllerBase
                     EntityKind = metrics?.EntityKind ?? (epicAppId != null ? "epic" : gameAppId.HasValue ? "steam" : null),
                     GameName = metrics?.EntityName ?? op.Name,
                     // The service a named or Epic game belongs to, so a reload marks only this
-                    // game busy and not a same-named game on another service. [98]
+                    // game busy and not a same-named game on another service.
                     Service = metrics?.Service,
                     OperationId = op.Id,
                     Status = op.Status,

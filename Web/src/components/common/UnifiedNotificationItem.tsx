@@ -353,7 +353,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
 
   if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
     const canForceStop = willForceStop(notification);
-    // A waiting row says what it waits for; its message is already a sentence. [106]
+    // A waiting row says what it waits for; its message is already a sentence.
     const isWaiting = notification.status === 'waiting' && !notification.details?.cancelRequested;
 
     return (

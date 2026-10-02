@@ -266,9 +266,9 @@ const UniversalNotificationBar: React.FC = () => {
               platformDisplayModeKey(serviceKey, platform, notification.details?.scheduleId)
             ] ?? modes[platformDisplayModeKey(serviceKey, platform)])
           : modes[serviceKey];
-    // A schedule's own style wins, then the one global default. [63]
+    // A schedule's own style wins, then the one global default.
     // A run card (it carries details.operationId) waits until the styles are known, so a reload
-    // never draws it full and then moves it to the compact line. [62] A card the browser owns
+    // never draws it full and then moves it to the compact line. A card the browser owns
     // (a toast, a catalog announcement, the Steam session error) never waits: its 5 s dismissal
     // starts when it is added, so holding it back could spend that time hidden, and until the
     // first settings read settles the default is still full.

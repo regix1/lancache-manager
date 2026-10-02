@@ -438,7 +438,7 @@ test('silent mapping refreshes stay inside the compact strip under the Compact d
   const compact = notice('detection');
   let state = modules.createRunStoreState();
   let notifications = [full, compact];
-  // The mapping schedules have no style of their own, so the global default places them. [63]
+  // The mapping schedules have no style of their own, so the global default places them.
   const bar = makeBar(
     notifications,
     { gameDetection: 'condensed', scheduledPrefill: 'full' },
@@ -597,7 +597,7 @@ test('one global default decides every notification a schedule does not style', 
       { gameDetection: 'condensed' },
       () => 'condensed'
     ],
-    // Popups that are not runs follow the same two rules. [63]
+    // Popups that are not runs follow the same two rules.
     [
       "an error that names a schedule follows that schedule's Compact style",
       card('keyed', keyedPopup),
@@ -694,7 +694,7 @@ test('after a reload a run card waits for the styles while a popup the browser o
     );
 
   // Before the first settings read settles the hook reports no styles and its initial full
-  // default, so a popup's 5 s runs while it is on screen as a full card. [63]
+  // default, so a popup's 5 s runs while it is on screen as a full card.
   const loading = makeBar([run, ...browserCards], {}, keys, { ready: false });
   const first = loading.render();
   assert.equal(drawn(first, 'detect'), false, 'no run card before the styles are known');
@@ -1349,7 +1349,7 @@ test('the compact panel floats under the line and its hit area never covers a ca
 
 test('an invisible gap under the line keeps its target off the first card and, on touch, off the tabs', () => {
   // The first full card's buttons sit 1rem under the strip. The mouse target reaches 1.375rem
-  // down and the touch target 2.25rem, so the gap is the difference. [119]
+  // down and the touch target 2.25rem, so the gap is the difference.
   assert.match(ruleBody(stripCss, '.condensed-strip'), /margin-bottom:\s*0\.375rem/);
   const coarse = stripCss.slice(stripCss.indexOf('@media (pointer: coarse)'));
   assert.match(ruleBody(coarse, '.condensed-strip'), /margin-bottom:\s*1\.25rem/);
@@ -1364,7 +1364,7 @@ test('an invisible gap under the line keeps its target off the first card and, o
 test('the gap under a line that is all the bar holds is empty page space, not bar', () => {
   // The bar paints its background and bottom border around everything inside it, so a margin on
   // the line's own box would paint as a band under the line. When nothing follows the line, the
-  // gap moves outside the bar's box, where nothing draws. [119]
+  // gap moves outside the bar's box, where nothing draws.
   const onlyChild = 'div:has(> .condensed-strip:last-child)';
   assert.match(ruleBody(stripCss, '.condensed-strip:last-child'), /margin-bottom:\s*0;/);
   assert.match(ruleBody(stripCss, onlyChild), /margin-bottom:\s*0\.375rem/);

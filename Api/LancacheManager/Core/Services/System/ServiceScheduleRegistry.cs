@@ -317,7 +317,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // two branches below because both return, and their endings are outcomes too. A phase run
         // under a parent, the prefill run-level container, a waiting record that handed its work on
         // and a mapping sign-in are not outcomes of a schedule; runs of no schedule keep one card
-        // each. [51] [57] [70] [72]
+        // each.
         if (IsScheduleOutcome(operation, scheduleId))
         {
             lock (_keptEndingsLock)
@@ -362,7 +362,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     // A kept ending replaces the older kept endings of its own kind only, so the
                     // schedule never collects a card per run and an ending never closes one of
                     // another kind. A pass never closes an ending newer than its own, so the result
-                    // is the same whatever order the handlers run in. [57] [72]
+                    // is the same whatever order the handlers run in.
                     if (wasKept)
                     {
                         // A failed-out repair's card holds its Retry until the user closes it.
@@ -390,7 +390,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
                     // A streak is only ever read from a listed ending, so everything below the break
                     // just under the oldest listed ending (this one included) can go; the break stays
-                    // so a failure after it still stops counting there. [68]
+                    // so a failure after it still stops counting there.
                     var floor = scheduleRuns
                         .Select(run => run.CompletedRevision)
                         .OfType<long>()
@@ -1258,7 +1258,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         var loop = FindScheduleLoop(serviceKey);
         // A scheduled prefill with no schedule enabled has nothing to run, so the click is refused
-        // instead of starting a run that ends at once. [69]
+        // instead of starting a run that ends at once.
         if (loop is IScheduleEnabledGate gate && !gate.HasAnyServiceEnabled())
         {
             throw new ConflictException("Enable a prefill schedule to run it")
@@ -1310,7 +1310,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // one, so several operations of the same type are active at once during a run. This card
         // reports the RUN, so the per-platform operations are filtered out here: a bare
         // FirstOrDefault would otherwise hand the card whichever operation the tracker happened to
-        // enumerate first, and its id is what the card's Cancel targets. [28]
+        // enumerate first, and its id is what the card's Cancel targets.
         var active = _tracker?
             .GetActiveOperations(operationType)
             .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState);

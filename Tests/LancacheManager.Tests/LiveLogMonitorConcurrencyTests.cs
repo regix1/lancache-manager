@@ -31,7 +31,7 @@ public class LiveLogMonitorConcurrencyTests
         // The wait a small download pays before its row exists. Dropping it below nginx's own flush
         // does not make a download appear sooner, because the line is not in the file yet; it just
         // spends a Rust run on a buffer that has not been written. The margin is what keeps a wakeup
-        // from landing on the boundary itself. [53]
+        // from landing on the boundary itself.
         Assert.True(
             LiveLogMonitorService.MaxSecondsBeforeTrickleFlush > NginxAccessLogFlushSeconds,
             $"the trickle flush ({LiveLogMonitorService.MaxSecondsBeforeTrickleFlush}s) must clear "

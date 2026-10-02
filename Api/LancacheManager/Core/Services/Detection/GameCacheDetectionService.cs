@@ -1566,7 +1566,7 @@ public partial class GameCacheDetectionService : IDisposable
                 if (parentOperationId == null && state.CreatedAt <= recentCutoff) continue;
                 // A child phase is hidden, as it is live. A state saved by this version carries the
                 // run's mode and trigger; one saved by the previous version carries display flags
-                // instead, translated to the notice that draws the same way. [83]
+                // instead, translated to the notice that draws the same way.
                 RunNotice notice;
                 if (parentOperationId != null)
                     notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual);
