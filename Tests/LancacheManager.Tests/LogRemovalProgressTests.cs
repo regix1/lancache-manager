@@ -1,11 +1,15 @@
 using LancacheManager.Infrastructure.Services;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using LancacheManager.Security;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -89,6 +93,10 @@ public class LogRemovalProgressTests
             typeof(CacheManagementService)
                 .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(cacheManager, paths);
+            // The removal sends its started event while it holds the cache lock.
+            typeof(CacheManagementService)
+                .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cacheManager, new SemaphoreSlim(1, 1));
             RustLogRemovalService? removal = null;
             services = new ServiceCollection()
                 .AddSingleton(datasourceService)
@@ -108,14 +116,14 @@ public class LogRemovalProgressTests
                 tracker);
             await repairOwner.StartAsync(CancellationToken.None);
             removal = new RustLogRemovalService(NullLogger<RustLogRemovalService>.Instance,
-                paths, notifications, null!,
+                paths, notifications, cacheManager,
                 new RustProcessHelper(NullLogger<RustProcessHelper>.Instance,
                     new ProcessManager(NullLogger<ProcessManager>.Instance), paths, tracker),
                 null!, null!, datasourceService,
                 tracker, null!, repairOwner);
             var sourceField = typeof(RustLogRemovalService).GetField("_cancellationTokenSource", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var start = typeof(RustLogRemovalService).GetMethod("StartRemovalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var firstTask = (Task<bool>)start.Invoke(removal, ["steam"])!;
+            var start = typeof(RustLogRemovalService).GetMethod("StartRemovalForDatasourceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var firstTask = (Task<bool>)start.Invoke(removal, ["steam", "default"])!;
             var first = await messages.Started.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
             var firstRegisteredSource = tracker.GetOperation(first)!.CancellationTokenSource!;
             using var firstCleanupSource = new DisposeTrackingCancellationTokenSource();
@@ -125,13 +133,16 @@ public class LogRemovalProgressTests
             tracker.CompleteOperation(first, false, cancelled: true);
             Assert.Throws<ObjectDisposedException>(() => _ = firstRegisteredSource.Token);
             Assert.Equal(0, firstCleanupSource.DisposeCalls);
-            var nextTask = (Task<bool>)start.Invoke(removal, ["epicgames"])!;
-            var next = await messages.Started.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            // The next removal registers at once but waits for the cache lock the first one still holds.
+            var nextTask = (Task<bool>)start.Invoke(removal, ["epicgames", "default"])!;
+            var next = removal.CurrentOperationId!.Value;
+            Assert.NotEqual(first, next);
             var nextRegisteredSource = tracker.GetOperation(next)!.CancellationTokenSource!;
             using var nextCleanupSource = new DisposeTrackingCancellationTokenSource();
             sourceField.SetValue(removal, nextCleanupSource);
             messages.Release[first].TrySetResult();
             Assert.False(await firstTask.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(next, await messages.Started.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)));
 
             Assert.Equal(next, removal.CurrentOperationId);
             Assert.True(removal.IsProcessing);
@@ -159,6 +170,357 @@ public class LogRemovalProgressTests
             }
             services?.Dispose();
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LogStep_HoldsTheLogLockAndMarksItsSourceAroundTheChildAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.True(harness.Rust.LockHeldAtLaunch);
+        Assert.True(harness.Rust.SourceAtLaunch!.LogRewriteStarted);
+        Assert.False(harness.Rust.SourceAtLaunch.LogPositionsKept);
+        var source = Assert.Single(harness.ReadRepair(harness.Removal.CurrentOperationId!.Value).Sources);
+        Assert.True(source.LogPositionsKept);
+        await harness.Owner.WaitForLogStepAsync(active: false, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task LogStep_CancelWhileWaitingForTheLogLockIsRecordedAsACancelAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+        var holderId = harness.Tracker.RegisterOperation(
+            OperationType.DatabaseReset,
+            "Database Reset",
+            new CancellationTokenSource());
+        Guid operationId;
+        await using (await harness.Owner.LockLogFilesAsync(
+            holderId,
+            OperationType.DatabaseReset,
+            LogFileLockKind.Rows,
+            CancellationToken.None))
+        {
+            var run = harness.RunRemovalAsync();
+            operationId = harness.Removal.CurrentOperationId!.Value;
+            for (var attempt = 0; harness.Tracker.GetOperation(operationId)?.BlockedByName != "Database Reset"; attempt++)
+            {
+                Assert.True(attempt < 400, "The removal never waited for the log lock.");
+                await Task.Delay(25);
+            }
+
+            Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+            Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+
+        Assert.Equal(OperationStatus.Cancelled, (await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10))).Status);
+        Assert.Empty(harness.Rust.Launches);
+        var repair = await harness.WaitForOutcomeAsync(operationId);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Null(repair.Error);
+        Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
+    }
+
+    [Fact]
+    public async Task Repair_RunsAnUnfinishedLogStepAgainWithoutTheCacheLockAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        var repairId = Guid.NewGuid();
+        await harness.Owner.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = repairId,
+                Type = OperationType.LogRemoval,
+                Name = "Log Removal",
+                StartedAt = DateTime.UtcNow,
+                LogRemoval = new LogRemovalRepair { Service = "steam", Datasource = "default" },
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        LogRoot = harness.LogPath,
+                        ResetLogPositions = true,
+                        RefreshDownloads = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repairId, "default", CancellationToken.None);
+        // A force stop inside the rewrite leaves the source started with its positions not kept.
+        await harness.Owner.MarkLogRewriteStartedAsync(repairId, "default");
+        var repair = Assert.Single(harness.Owner.GetPendingRepairs(), pending => pending.Id == repairId);
+
+        var cacheHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCache = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cacheHolder = harness.Cache.ExecuteWithLockAsync(async () =>
+        {
+            cacheHeld.TrySetResult();
+            await releaseCache.Task;
+            return true;
+        });
+        await cacheHeld.Task;
+        try
+        {
+            await harness.Removal.ResumeRepairAsync(repair, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            releaseCache.TrySetResult();
+            await cacheHolder;
+        }
+
+        var launch = Assert.Single(harness.Rust.Launches);
+        Assert.StartsWith($"remove \"{harness.LogPath}\" \"steam\" ", launch, StringComparison.Ordinal);
+        Assert.True(Assert.Single(harness.ReadRepair(repairId).Sources).LogPositionsKept);
+    }
+
+    [Fact]
+    public async Task LogRemoval_FailedOutcomeSaveStillEndsTheRunAndLandsLaterAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        harness.State.FailOutcomeSave = true;
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        Assert.Equal(1, harness.State.FailedWrites);
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.Equal((1, 3L), (repair.LogRemoval!.FilesProcessed, repair.LogRemoval.LinesProcessed));
+    }
+
+    /// <summary>
+    /// A per-datasource log removal against a real repair owner, log lock and nginx reopen check,
+    /// with a recording child in place of log_service_manager.
+    /// </summary>
+    private sealed class LogStepHarness : IAsyncDisposable
+    {
+        private readonly string _root;
+        private readonly OperationRepairTests.RepairHarness _repairs;
+
+        private LogStepHarness(
+            string root,
+            string logPath,
+            OperationRepairTests.RepairHarness repairs,
+            OutcomeFailingStateService state,
+            StepRustProcessHelper rust,
+            CacheManagementService cache,
+            RustLogRemovalService removal)
+        {
+            _root = root;
+            LogPath = logPath;
+            _repairs = repairs;
+            State = state;
+            Rust = rust;
+            Cache = cache;
+            Removal = removal;
+        }
+
+        public string LogPath { get; }
+        public OperationStateService Owner => _repairs.Owner;
+        public UnifiedOperationTracker Tracker => _repairs.Tracker;
+        public OutcomeFailingStateService State { get; }
+        public StepRustProcessHelper Rust { get; }
+        public CacheManagementService Cache { get; }
+        public RustLogRemovalService Removal { get; }
+
+        public static async Task<LogStepHarness> CreateAsync()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "log-removal-step-" + Guid.NewGuid().ToString("N"));
+            var logs = Path.Combine(root, "logs");
+            Directory.CreateDirectory(logs);
+            Directory.CreateDirectory(Path.Combine(root, "cache"));
+            await File.WriteAllTextAsync(Path.Combine(logs, "access.log"), "line\n");
+
+            var statePaths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+            ((PathResolverProxy)(object)statePaths).Root = Path.Combine(root, "state");
+            var encryption = new SecureStateEncryptionService(
+                DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, "state", "dp-keys"))),
+                new ApiKeyService(
+                    NullLogger<ApiKeyService>.Instance,
+                    new ConfigurationBuilder().Build(),
+                    statePaths),
+                NullLogger<SecureStateEncryptionService>.Instance);
+            var state = new OutcomeFailingStateService(
+                statePaths,
+                encryption,
+                new SteamAuthStorageService(
+                    NullLogger<SteamAuthStorageService>.Instance,
+                    statePaths,
+                    encryption));
+            // Outcome retries run at once instead of a minute later.
+            var repairs = await OperationRepairTests.RepairHarness.CreateAsync(
+                Path.Combine(root, "repair"),
+                stateService: state,
+                waitUntil: (_, _) => Task.CompletedTask);
+
+            var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+            ((PathResolverProxy)(object)paths).Root = root;
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "default",
+                ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "cache"),
+                ["LanCache:DataSources:0:LogPath"] = logs,
+                ["LanCache:DataSources:0:Enabled"] = "true"
+            }).Build();
+            var datasources = new DatasourceService(
+                configuration,
+                paths,
+                NullLogger<DatasourceService>.Instance);
+            var rust = new StepRustProcessHelper(paths, repairs.Tracker, repairs.Owner);
+            var cache = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+                typeof(CacheManagementService));
+            typeof(CacheManagementService)
+                .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cache, new SemaphoreSlim(1, 1));
+            var removal = new RustLogRemovalService(
+                NullLogger<RustLogRemovalService>.Instance,
+                paths,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                cache,
+                rust,
+                new NginxLogRotationService(
+                    NullLogger<NginxLogRotationService>.Instance,
+                    configuration,
+                    new ProcessManager(NullLogger<ProcessManager>.Instance),
+                    paths),
+                null!,
+                datasources,
+                repairs.Tracker,
+                state,
+                repairs.Owner);
+            return new LogStepHarness(
+                root,
+                datasources.GetDatasource("default")!.LogPath,
+                repairs,
+                state,
+                rust,
+                cache,
+                removal);
+        }
+
+        public Task<bool> RunRemovalAsync() => (Task<bool>)typeof(RustLogRemovalService)
+            .GetMethod("StartRemovalForDatasourceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(Removal, ["steam", "default"])!;
+
+        public OperationRepair ReadRepair(Guid operationId) =>
+            State.LoadOperationRepairs().Single(repair => repair.Id == operationId);
+
+        public async Task<OperationRepair> WaitForOutcomeAsync(Guid operationId)
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                var repair = ReadRepair(operationId);
+                if (repair.Outcome.HasValue)
+                {
+                    return repair;
+                }
+                await Task.Delay(25);
+            }
+            throw new TimeoutException($"Log removal repair {operationId} never stored its outcome.");
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _repairs.DisposeAsync();
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Fails the first repair write after the source was accepted, which is the run's outcome save.
+    /// </summary>
+    private sealed class OutcomeFailingStateService(
+        IPathResolver pathResolver,
+        SecureStateEncryptionService encryption,
+        SteamAuthStorageService steamAuthStorage)
+        : StateService(NullLogger<StateService>.Instance, pathResolver, encryption, steamAuthStorage)
+    {
+        private int _acceptedWrites;
+
+        public bool FailOutcomeSave { get; set; }
+        public int FailedWrites { get; private set; }
+
+        protected override void WriteOperationRepairs(string contents)
+        {
+            var accepted = JsonSerializer.Deserialize<List<OperationRepair>>(contents)!
+                .Any(repair => repair.Sources.Any(source => source.NativeCompletionAccepted));
+            if (FailOutcomeSave && accepted && ++_acceptedWrites == 2)
+            {
+                FailedWrites++;
+                throw new IOException("Injected outcome save failure.");
+            }
+            base.WriteOperationRepairs(contents);
+        }
+    }
+
+    /// <summary>
+    /// Stands in for log_service_manager: records what the step holds at launch and writes a
+    /// finished progress file.
+    /// </summary>
+    private sealed class StepRustProcessHelper(
+        IPathResolver paths,
+        IUnifiedOperationTracker tracker,
+        OperationStateService owner)
+        : RustProcessHelper(
+            NullLogger<RustProcessHelper>.Instance,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            paths,
+            tracker)
+    {
+        public ConcurrentQueue<string> Launches { get; } = new();
+        public bool LockHeldAtLaunch { get; private set; }
+        public OperationRepairSource? SourceAtLaunch { get; private set; }
+
+        public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo start,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            Launches.Enqueue(start.Arguments);
+            using (var probe = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
+            {
+                try
+                {
+                    await owner.WaitForLogStepAsync(active: true, probe.Token);
+                    LockHeldAtLaunch = true;
+                }
+                catch (OperationCanceledException) when (probe.IsCancellationRequested)
+                {
+                    // No step held the logs at launch; the test asserts on the flag.
+                }
+            }
+            SourceAtLaunch = owner.GetPendingRepairs()
+                .Single(repair => repair.Id == operationId)
+                .Sources
+                .Single();
+
+            // The quoted arguments are the log directory, the service and the progress file.
+            var progressPath = start.Arguments.Split('"')[5];
+            await File.WriteAllTextAsync(
+                progressPath,
+                JsonSerializer.Serialize(new LogRemovalProgress
+                {
+                    PercentComplete = 100,
+                    Status = "completed",
+                    StageKey = "signalr.logRemoval.complete",
+                    FilesProcessed = 1,
+                    LinesProcessed = 3
+                }),
+                cancellationToken);
+            return new ProcessExecutionResult { ExitCode = 0 };
         }
     }
 

@@ -49,7 +49,6 @@ public sealed class RunVisibilityMatrixTests
             ("Controllers/Cache/CacheController.cs", "private async Task<bool> RunCorruptionRemovalCoreAsync("),
             ("Infrastructure/Services/System/DatabaseService.cs", "private Guid StartResetAsync(List<string> tableNames, bool fullReset)"),
             ("Controllers/System/DataMigrationController.cs", "> StartImportAsync("),
-            ("Infrastructure/Services/Rust/RustLogRemovalService.cs", "private async Task<bool> StartRemovalAsync(string service)"),
             ("Infrastructure/Services/Rust/RustLogRemovalService.cs", "private async Task<bool> StartRemovalForDatasourceAsync(string service, string datasourceName)"),
             ("Core/Services/Cache/CacheReconciliationService.cs", "public async Task RemoveEvictedRecordsForEntityAsync("),
         };

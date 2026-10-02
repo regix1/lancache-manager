@@ -1,9 +1,13 @@
 using System.Text.Json;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -122,6 +126,90 @@ public class DatabaseResetProgressContractTests
 
         await using var cleared = database.Factory.CreateDbContext();
         Assert.Empty(await cleared.UserSessions.ToListAsync());
+    }
+
+    /// <summary>
+    /// A reset that clears sessions and download rows logs every platform out once and before it
+    /// takes the log lock, and empties the sessions table under that lock. Each logout fails into
+    /// its own warning (the services are left out, as above), which is where the lock is read.
+    /// </summary>
+    [Fact]
+    public async Task SessionLogoutsRunOnceBeforeTheLogLockAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.UserSessions.Add(new UserSession
+            {
+                Id = Guid.NewGuid(),
+                SessionTokenHash = "hash",
+                SessionType = SessionType.Admin,
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddDays(1),
+                LastSeenAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
+        var trackerState = (RecordingTrackerProxy)(object)tracker;
+        var owner = new OperationStateService(
+            NullLogger<OperationStateService>.Instance,
+            new ConfigurationBuilder().Build(),
+            stateService: null!,
+            scopes: null!,
+            applicationLifetime: null!,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            tracker);
+        await using var services = new ServiceCollection().AddSingleton(owner).BuildServiceProvider();
+        var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)paths).Root = Path.Combine(
+            Path.GetTempPath(),
+            "lcm-reset-log-lock-" + Guid.NewGuid().ToString("N"));
+        var logoutsWithoutLock = new List<bool>();
+        var deletesUnderLock = new List<bool>();
+        var logger = new CapturingLogger<DatabaseService>
+        {
+            // The reset releases its lock only after this thread moves on, so a bounded wait tells
+            // whether the reset already held the lock when it wrote the entry.
+            OnLogged = entry =>
+            {
+                if (entry.Message.Contains("auth during session reset", StringComparison.Ordinal))
+                {
+                    logoutsWithoutLock.Add(owner.WaitForLogStepAsync(active: false, CancellationToken.None)
+                        .Wait(TimeSpan.FromSeconds(5)));
+                }
+                else if (entry.Message.Contains("Clearing UserSessions table", StringComparison.Ordinal))
+                {
+                    deletesUnderLock.Add(owner.WaitForLogStepAsync(active: true, CancellationToken.None)
+                        .Wait(TimeSpan.FromSeconds(5)));
+                }
+            }
+        };
+        var service = new DatabaseService(
+            context: null!,
+            DispatchProxy.Create<ISignalRNotificationService, NoopSignalRProxy>(),
+            logger,
+            paths,
+            database.Factory,
+            steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            services,
+            cacheManagementService: null!,
+            stateRepository: null!,
+            datasourceService: null!,
+            tracker);
+
+        _ = service.StartResetAsync(["UserSessions", "Downloads"]);
+        var terminal = await trackerState.Terminal.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(terminal.Success, terminal.Error);
+        // Steam, Xbox and Epic, once each.
+        Assert.Equal([true, true, true], logoutsWithoutLock);
+        Assert.Equal([true], deletesUnderLock);
+        await owner.WaitForLogStepAsync(active: false, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]

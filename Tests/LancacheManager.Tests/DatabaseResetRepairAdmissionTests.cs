@@ -10,6 +10,7 @@ using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -180,6 +181,10 @@ public sealed class DatabaseResetRepairAdmissionTests
                 CacheScanGateHarness.Idle(),
                 harness.Owner);
             await using var serviceContext = database.Factory.CreateDbContext();
+            // The full wipe clears Downloads and LogEntries, so it takes the log lock from the owner.
+            await using var resetServices = new ServiceCollection()
+                .AddSingleton(harness.Owner)
+                .BuildServiceProvider();
             var databaseService = new DatabaseService(
                 serviceContext,
                 notifications,
@@ -189,7 +194,7 @@ public sealed class DatabaseResetRepairAdmissionTests
                 steamKit2Service: null!,
                 xboxCatalogMappingService: null!,
                 epicMappingService: null!,
-                serviceProvider: null!,
+                serviceProvider: resetServices,
                 cacheManager,
                 state,
                 datasources,

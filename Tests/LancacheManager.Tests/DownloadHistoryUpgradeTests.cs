@@ -1114,16 +1114,33 @@ public class DownloadHistoryUpgradeTests
     {
         await using var harness = await UpgradeHarness.CreateAsync();
         await SeedIslandAsync(harness, rows: 2, logsPerRow: 1);
+        var planEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePlan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var held = 0;
+        var afterBatchEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseAfterBatch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stage = 0;
+        // Pauses inside CreatePlan, then inside the first fold batch, then at the plan check after it.
         harness.Recorder.OnExecuting = command =>
         {
-            if (command.CommandText.Contains("WITH members AS", StringComparison.Ordinal)
-                && Interlocked.Exchange(ref held, 1) == 0)
+            if (command.CommandText.Contains("CREATE TABLE \"DownloadSessionMergePlan\"", StringComparison.Ordinal)
+                && Interlocked.CompareExchange(ref stage, 1, 0) == 0)
+            {
+                planEntered.TrySetResult();
+                releasePlan.Task.GetAwaiter().GetResult();
+            }
+            else if (command.CommandText.Contains("WITH members AS", StringComparison.Ordinal)
+                && Interlocked.CompareExchange(ref stage, 2, 1) == 1)
             {
                 entered.TrySetResult();
                 release.Task.GetAwaiter().GetResult();
+            }
+            else if (command.CommandText.Contains(DownloadHistoryUpgradeSql.PlanIsEmpty, StringComparison.Ordinal)
+                && Interlocked.CompareExchange(ref stage, 3, 2) == 2)
+            {
+                afterBatchEntered.TrySetResult();
+                releaseAfterBatch.Task.GetAwaiter().GetResult();
             }
         };
 
@@ -1140,45 +1157,63 @@ public class DownloadHistoryUpgradeTests
             harness.Recorder.Commands,
             command => command.Contains("WITH members AS", StringComparison.Ordinal));
 
-        harness.Tracker.CompleteOperation(blockerId, success: true);
-        var run = await WaitForNewRunAsync(harness.Service, previous: null);
-        await entered.Task;
+        try
+        {
+            harness.Tracker.CompleteOperation(blockerId, success: true);
+            var run = await WaitForNewRunAsync(harness.Service, previous: null);
 
-        var liveConflict = await harness.Checker.CheckAsync(
-            OperationType.LogProcessing,
-            ConflictScope.Bulk(),
-            CancellationToken.None);
-        Assert.NotNull(liveConflict);
-        Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", liveConflict!.StageKey);
-        Assert.False(LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(liveConflict, 1));
+            // Planning holds no log lock, so the live import keeps running while the plan is built.
+            await planEntered.Task;
+            await harness.OperationState.WaitForLogStepAsync(active: false, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            releasePlan.TrySetResult();
 
-        var importConflict = await harness.Checker.CheckAsync(
-            OperationType.DataImport,
-            ConflictScope.Bulk(),
-            CancellationToken.None);
-        Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", importConflict!.StageKey);
+            // A fold batch holds the log lock, so the live import waits for that batch.
+            await entered.Task;
+            await harness.OperationState.WaitForLogStepAsync(active: true, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(10));
 
-        var removalStarted = new TaskCompletionSource<Guid>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var queuedRemoval = await harness.Queue.EnqueueAsync(
-            OperationType.GameRemoval,
-            ConflictScope.NamedGame("blizzard", "Diablo IV"),
-            "Remove Diablo IV",
-            () =>
-            {
-                var id = harness.Tracker.RegisterOperation(
-                    OperationType.GameRemoval,
-                    "Remove Diablo IV",
-                    new CancellationTokenSource());
-                removalStarted.TrySetResult(id);
-                return Task.FromResult<Guid?>(id);
-            },
-            CancellationToken.None);
-        Assert.True(queuedRemoval.Queued);
+            var importConflict = await harness.Checker.CheckAsync(
+                OperationType.DataImport,
+                ConflictScope.Bulk(),
+                CancellationToken.None);
+            Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", importConflict!.StageKey);
 
-        release.TrySetResult();
-        await run;
-        Assert.NotEqual(Guid.Empty, await removalStarted.Task);
+            var removalStarted = new TaskCompletionSource<Guid>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var queuedRemoval = await harness.Queue.EnqueueAsync(
+                OperationType.GameRemoval,
+                ConflictScope.NamedGame("blizzard", "Diablo IV"),
+                "Remove Diablo IV",
+                () =>
+                {
+                    var id = harness.Tracker.RegisterOperation(
+                        OperationType.GameRemoval,
+                        "Remove Diablo IV",
+                        new CancellationTokenSource());
+                    removalStarted.TrySetResult(id);
+                    return Task.FromResult<Guid?>(id);
+                },
+                CancellationToken.None);
+            Assert.True(queuedRemoval.Queued);
+
+            // The batch released the lock, so the import catches up before the next batch.
+            release.TrySetResult();
+            await afterBatchEntered.Task;
+            await harness.OperationState.WaitForLogStepAsync(active: false, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            releaseAfterBatch.TrySetResult();
+
+            await run;
+            Assert.NotEqual(Guid.Empty, await removalStarted.Task);
+        }
+        finally
+        {
+            // A failed assertion must not leave the upgrade blocked inside a command.
+            releasePlan.TrySetResult();
+            release.TrySetResult();
+            releaseAfterBatch.TrySetResult();
+        }
     }
 
     [Fact]
@@ -2881,6 +2916,7 @@ public class DownloadHistoryUpgradeTests
             UnifiedOperationTracker tracker,
             OperationConflictChecker checker,
             OperationQueueService queue,
+            OperationStateService operationState,
             DownloadHistoryUpgradeService service)
         {
             Database = database;
@@ -2891,6 +2927,7 @@ public class DownloadHistoryUpgradeTests
             Tracker = tracker;
             Checker = checker;
             Queue = queue;
+            OperationState = operationState;
             Service = service;
         }
 
@@ -2911,6 +2948,8 @@ public class DownloadHistoryUpgradeTests
         public OperationConflictChecker Checker { get; }
 
         public OperationQueueService Queue { get; }
+
+        public OperationStateService OperationState { get; }
 
         public DownloadHistoryUpgradeService Service { get; }
 
@@ -2972,11 +3011,21 @@ public class DownloadHistoryUpgradeTests
                 tracker,
                 checker,
                 NullLogger<OperationQueueService>.Instance);
+            // Each harness owns its log lock, so a parallel test's lock never shows up in this one.
+            var operationState = new OperationStateService(
+                NullLogger<OperationStateService>.Instance,
+                new ConfigurationBuilder().Build(),
+                stateService: null!,
+                scopes: null!,
+                applicationLifetime: null!,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                tracker);
             var service = new DownloadHistoryUpgradeService(
                 contexts,
                 notifications,
                 tracker,
                 queue,
+                operationState,
                 startupCleanup.Task,
                 NullLogger<DownloadHistoryUpgradeService>.Instance);
             return new UpgradeHarness(
@@ -2988,6 +3037,7 @@ public class DownloadHistoryUpgradeTests
                 tracker,
                 checker,
                 queue,
+                operationState,
                 service)
             {
                 StartupCleanup = startupCleanup
@@ -3006,6 +3056,7 @@ public class DownloadHistoryUpgradeTests
             (ISignalRNotificationService)(object)NotificationRecorder,
             Tracker,
             Queue,
+            OperationState,
             startupCleanup ?? StartupCleanup.Task,
             logger ?? NullLogger<DownloadHistoryUpgradeService>.Instance);
 

@@ -26,6 +26,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationQueue _operationQueue;
+    private readonly OperationStateService _operationStateService;
     private readonly Task _startupCleanupFinished;
     private readonly ILogger<DownloadHistoryUpgradeService> _logger;
     private CancellationToken _stoppingToken;
@@ -42,6 +43,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         IOperationQueue operationQueue,
+        OperationStateService operationStateService,
         DownloadCleanupService downloadCleanup,
         ILogger<DownloadHistoryUpgradeService> logger)
         : this(
@@ -49,6 +51,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
             notifications,
             operationTracker,
             operationQueue,
+            operationStateService,
             downloadCleanup.StartupCleanupFinished,
             logger)
     {
@@ -59,6 +62,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         IOperationQueue operationQueue,
+        OperationStateService operationStateService,
         Task startupCleanupFinished,
         ILogger<DownloadHistoryUpgradeService> logger)
     {
@@ -66,6 +70,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         _notifications = notifications;
         _operationTracker = operationTracker;
         _operationQueue = operationQueue;
+        _operationStateService = operationStateService;
         _startupCleanupFinished = startupCleanupFinished;
         _logger = logger;
     }
@@ -278,36 +283,46 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
                     .SingleAsync(ct))
                 {
                     long batchSkipped = 0;
-                    await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+                    // One batch at a time pauses the log import, so the dashboard catches up between
+                    // batches. The lock wraps the retried transaction and is taken before its table
+                    // locks, which an import that writes rows would otherwise deadlock with.
+                    await using (await _operationStateService.LockLogFilesAsync(
+                        operationId,
+                        OperationType.DownloadHistoryUpgrade,
+                        LogFileLockKind.Rows,
+                        ct))
                     {
-                        batchSkipped = 0;
-                        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+                        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+                        {
+                            batchSkipped = 0;
+                            await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-                        // The global slot excludes queued writers. Manual tagging, stale-row cleanup,
-                        // scheduled resolvers, PICS apply, orphan removal, eviction reset, and a live
-                        // pass admitted immediately before registration still need the ordered locks.
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
-                            ct);
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
-                            ct);
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"EventDownloads\" IN SHARE ROW EXCLUSIVE MODE",
-                            ct);
-                        await context.Database.ExecuteSqlRawAsync(
-                            DownloadHistoryUpgradeSql.PrepareBatch,
-                            new[] { new NpgsqlParameter("batchSize", batchSize) },
-                            ct);
-                        batchSkipped = await context.Database
-                            .SqlQueryRaw<long>(DownloadHistoryUpgradeSql.SkippedInBatch)
-                            .SingleAsync(ct);
-                        await context.Database.ExecuteSqlRawAsync(
-                            DownloadHistoryUpgradeSql.FoldBatch,
-                            ct);
-                        mergeCommitAttempted = true;
-                        await transaction.CommitAsync(ct);
-                    });
+                            // The global slot excludes queued writers. Manual tagging, stale-row cleanup,
+                            // scheduled resolvers, PICS apply, orphan removal, eviction reset, and a live
+                            // pass admitted immediately before registration still need the ordered locks.
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                                ct);
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                                ct);
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"EventDownloads\" IN SHARE ROW EXCLUSIVE MODE",
+                                ct);
+                            await context.Database.ExecuteSqlRawAsync(
+                                DownloadHistoryUpgradeSql.PrepareBatch,
+                                new[] { new NpgsqlParameter("batchSize", batchSize) },
+                                ct);
+                            batchSkipped = await context.Database
+                                .SqlQueryRaw<long>(DownloadHistoryUpgradeSql.SkippedInBatch)
+                                .SingleAsync(ct);
+                            await context.Database.ExecuteSqlRawAsync(
+                                DownloadHistoryUpgradeSql.FoldBatch,
+                                ct);
+                            mergeCommitAttempted = true;
+                            await transaction.CommitAsync(ct);
+                        });
+                    }
 
                     skipped += batchSkipped;
                     batches++;

@@ -20,7 +20,6 @@ public class RustLogRemovalService
     private readonly CacheManagementService _cacheManagementService;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
-    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IStateService _stateService;
     private readonly OperationStateService _operationStateService;
@@ -37,14 +36,6 @@ public class RustLogRemovalService
     public string? CurrentService { get; private set; }
     public Guid? CurrentOperationId { get; private set; }
     public string? CurrentDatasource { get; private set; }
-
-    /// <summary>
-    /// Starts service removal in the background and returns the operation id as soon as it is registered.
-    /// </summary>
-    public Task<Guid?> StartRemovalInBackgroundAsync(string service)
-    {
-        return StartRemovalInBackgroundAsync(() => StartRemovalAsync(service));
-    }
 
     /// <summary>
     /// Starts per-datasource service removal in the background and returns the operation id as soon as it is registered.
@@ -130,7 +121,6 @@ public class RustLogRemovalService
         _cacheManagementService = cacheManagementService;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
-        _dbContextFactory = dbContextFactory;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
         _stateService = stateService;
@@ -183,7 +173,7 @@ public class RustLogRemovalService
         return Task.CompletedTask;
     }
 
-    public Task ResumeRepairAsync(
+    public async Task ResumeRepairAsync(
         OperationRepair repair,
         CancellationToken cancellationToken)
     {
@@ -193,7 +183,28 @@ public class RustLogRemovalService
             throw new InvalidDataException(
                 $"Operation repair {repair.Id} has no log-removal contract.");
         }
-        return Task.CompletedTask;
+
+        // A log step that started and never kept its positions runs again here, after the repair
+        // reset those positions. It takes no cache lock: a removal job can hold that lock while its
+        // StartWorkAsync waits for this repair.
+        foreach (var source in repair.Sources.Where(source => source.LogRewriteStarted && !source.LogPositionsKept))
+        {
+            var datasource = _datasourceService.GetDatasource(source.Datasource)
+                ?? throw new InvalidDataException(
+                    $"Datasource {source.Datasource} is unavailable for operation repair {repair.Id}.");
+            var step = await RunLogRemovalStepAsync(
+                repair.Id,
+                repair.LogRemoval.Service,
+                datasource,
+                onProgress: null,
+                cancellationToken);
+            // A failed attempt throws so the repair retries it instead of completing with the step unfinished.
+            step.Result.EnsureSuccess("log_service_manager", source.Datasource, cancellationToken);
+            if (!step.Reopen.Success)
+            {
+                throw new IOException(step.Reopen.ErrorMessage!);
+            }
+        }
     }
 
     private OperationRepair BuildRepair(
@@ -230,8 +241,13 @@ public class RustLogRemovalService
         bool cancelled,
         string? error)
     {
-        await _operationStateService.SaveRepairAsync(
+        // The metrics ride in the outcome save, so one failed write takes the outcome's background
+        // retry instead of throwing before the run reaches its terminal.
+        await _operationStateService.FinishRepairAsync(
             operationId,
+            success,
+            cancelled,
+            error,
             repair => repair.LogRemoval = new LogRemovalRepair
             {
                 Service = metrics.Service,
@@ -241,13 +257,7 @@ public class RustLogRemovalService
                 LinesRemoved = metrics.LinesRemoved,
                 DatabaseRecordsDeleted = metrics.DatabaseRecordsDeleted,
                 StageKey = metrics.StageKey
-            },
-            CancellationToken.None);
-        await _operationStateService.FinishRepairAsync(
-            operationId,
-            success,
-            cancelled,
-            error);
+            });
     }
 
     private async Task SaveSourceAsync(
@@ -331,650 +341,6 @@ public class RustLogRemovalService
                         ["linesRemoved"] = metrics.LinesRemoved
                     }));
         };
-    }
-
-    private async Task<bool> StartRemovalAsync(string service)
-    {
-        // Sanitize user-provided service name to prevent process argument injection
-        service = RustProcessHelper.SanitizeProcessArgument(service);
-
-        await _startLock.WaitAsync();
-        try
-        {
-            if (IsProcessing)
-            {
-                _logger.LogWarning("Log removal is already running for service: {CurrentService}", CurrentService);
-                return false;
-            }
-
-            IsProcessing = true;
-            CurrentService = service;
-        }
-        finally
-        {
-            _startLock.Release();
-        }
-
-        Guid? operationId = null;
-        var progressEmitGate = new ProgressEmitGate();
-        var cancellationTokenSource = new CancellationTokenSource();
-        var cancellationToken = cancellationTokenSource.Token;
-        var completionMetrics = new LogRemovalCompletionMetrics(
-            Guid.Empty, service, $"Removed {service} entries",
-            $"Log removal for {service} failed",
-            $"Service removal for {service} was cancelled");
-        var publishedMetrics = completionMetrics;
-        LogRemovalCurrentProgress? currentProgress = null;
-        Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
-        var repairPrepared = false;
-
-        try
-        {
-            _cancellationTokenSource = cancellationTokenSource;
-
-            // Register with unified operation tracker for centralized cancellation.
-            // Service-scoped metadata so OperationConflictChecker.DeriveScope yields
-            // ConflictScope.Service(service): EntityKind="service" + lowercased EntityKey
-            // match ConflictScope.Service(service) (Ordinal compare requires identical casing).
-            // onTerminalEmit emits the terminal LogRemovalComplete event EXACTLY ONCE from inside
-            // CompleteOperation (CompletedFlag-gated), so no terminal NotifyAll/SendOperationComplete
-            // is issued directly from the success / cancel / error paths below.
-            operationId = _operationTracker.RegisterOperation(
-                OperationType.LogRemoval,
-                "Log Removal",
-                _cancellationTokenSource,
-                new RemovalMetrics
-                {
-                    EntityKind = "service",
-                    EntityKey = service.ToLowerInvariant(),
-                    EntityName = service
-                },
-                onTerminalCleanup: () =>
-                {
-                    if (_currentTrackerOperationId != operationId) return;
-                    IsProcessing = false;
-                    Volatile.Write(ref _currentProgress, null);
-                    CurrentService = null;
-                    CurrentDatasource = null;
-                    _currentTrackerOperationId = null;
-                    _cancellationTokenSource = null;
-                },
-                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress),
-                ownerCompletes: true
-            );
-            _currentTrackerOperationId = operationId;
-            NotifyOperationRegistered();
-            var initialProgress = CaptureLogRemovalProgress(
-                "signalr.logRemoval.starting.default",
-                0,
-                new Dictionary<string, object?> { ["service"] = service },
-                0,
-                0,
-                0,
-                datasource: null);
-            _operationTracker.UpdateProgress(
-                operationId.Value,
-                initialProgress.Snapshot.PercentComplete,
-                initialProgress.Snapshot.StageKey, onProgress: _ =>
-                {
-                    publishProgress(initialProgress);
-                    if (_currentTrackerOperationId == operationId)
-                        Volatile.Write(ref _currentProgress, initialProgress);
-                });
-
-            // Seed the completion payload (incl. operation id) so the onTerminalEmit closure always
-            // has the service name and sensible default messages even on early/leaked terminal paths.
-            completionMetrics = new LogRemovalCompletionMetrics(
-                OperationId: operationId.Value,
-                Service: service,
-                SuccessMessage: $"Removed {service} entries",
-                FailureMessage: $"Log removal for {service} failed",
-                CancelMessage: $"Service removal for {service} was cancelled");
-
-            _datasourceService.RefreshPermissions();
-            var datasources = _datasourceService.GetDatasources();
-
-            if (datasources.Count == 0)
-            {
-                _logger.LogWarning("No datasources configured for log removal");
-
-                // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                completionMetrics = completionMetrics with
-                {
-                    FailureMessage = "No datasources configured for log removal"
-                };
-
-                if (operationId.HasValue)
-                {
-                    _operationTracker.CompleteOperation(operationId.Value, success: false, error: "No datasources configured for log removal",
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                }
-
-                return false;
-            }
-
-            await _operationStateService.PrepareRepairAsync(
-                BuildRepair(operationId.Value, service, datasources),
-                cancellationToken);
-            repairPrepared = true;
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
-            var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
-
-            // Delete old progress file
-            if (File.Exists(progressPath))
-            {
-                File.Delete(progressPath);
-            }
-
-            _logger.LogInformation("Starting Rust log removal for service: {Service} across {DatasourceCount} datasource(s)",
-                service, datasources.Count);
-            _logger.LogInformation("Rust executable: {Executable}", rustExecutablePath);
-
-            // Send started event
-            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
-            {
-                OperationId = operationId,
-                StageKey = "signalr.logRemoval.starting.default",
-                Context = new Dictionary<string, object?> { ["service"] = service }
-            });
-
-            await ReportProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
-                "signalr.logRemoval.starting.multi",
-                0,
-                new Dictionary<string, object?> { ["service"] = service, ["datasourceCount"] = datasources.Count },
-                0,
-                0,
-                0,
-                service,
-                datasource: null);
-
-            // Process each datasource sequentially
-            var totalFilesProcessed = 0;
-            long totalLinesProcessed = 0;
-            long totalLinesRemoved = 0;
-            var datasourcesProcessed = 0;
-            var datasourcesSkipped = 0;
-            var allSuccess = true;
-            string? lastStageKey = null;
-            var processedDatasourceNames = new List<string>();
-            var physicalDatasources = datasources
-                .Where(datasource => Directory.Exists(datasource.LogPath) && datasource.LogsWritable)
-                .ToList();
-            await using var reopenChecks = await _nginxLogRotationService.PrepareReopenChecksAsync(
-                physicalDatasources,
-                expectsPublication: true,
-                cancellationToken);
-
-            foreach (ResolvedDatasource datasource in datasources)
-            {
-                // Check for cancellation between datasources
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var logDir = datasource.LogPath;
-
-                // Skip datasources where the log directory doesn't exist
-                if (!Directory.Exists(logDir))
-                {
-                    _logger.LogWarning("Skipping datasource '{DatasourceName}': log directory does not exist at {LogDir}",
-                        datasource.Name, logDir);
-                    datasourcesSkipped++;
-                    continue;
-                }
-
-                // Skip datasources where logs are read-only
-                if (!datasource.LogsWritable)
-                {
-                    _logger.LogWarning("Skipping datasource '{DatasourceName}': log directory is read-only at {LogDir}",
-                        datasource.Name, logDir);
-                    datasourcesSkipped++;
-                    continue;
-                }
-
-                _logger.LogInformation("Processing datasource '{DatasourceName}': Log directory={LogDir}",
-                    datasource.Name, logDir);
-                if (_currentTrackerOperationId == operationId) CurrentDatasource = datasource.Name;
-                await using var reopenCheck = reopenChecks.Take(datasource.Name) ??
-                    await _nginxLogRotationService.PrepareReopenCheckAsync(
-                        new[] { datasource },
-                        NginxLogRotationService.GetAffectedLogPaths(datasource),
-                        expectsPublication: true,
-                        cancellationToken);
-                _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
-                var physicalChange = false;
-                var childStarted = false;
-
-                // Use a datasource-specific progress file so concurrent monitoring doesn't clash
-                var dsProgressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasource.Name}.json");
-                if (File.Exists(dsProgressPath))
-                {
-                    File.Delete(dsProgressPath);
-                }
-
-                // Wrap Rust process execution in shared lock to prevent concurrent access to log files
-                // This prevents "Failed to persist temp file" errors when other processes are reading logs
-                bool dsSuccess;
-                try
-                {
-                    dsSuccess = await _cacheManagementService.ExecuteWithLockAsync(async () =>
-                    {
-                    // Start Rust process for this datasource
-                    var arguments = $"remove \"{logDir}\" \"{service}\" \"{dsProgressPath}\" --progress";
-                    var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
-                    if (stemPositionsPath != null)
-                    {
-                        arguments += $" --stem-positions \"{stemPositionsPath}\"";
-                    }
-                    _logger.LogInformation("Rust arguments for datasource '{DatasourceName}': {Arguments}",
-                        datasource.Name, arguments);
-
-                    var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                        rustExecutablePath,
-                        arguments,
-                        Path.GetDirectoryName(rustExecutablePath));
-                    NginxLogRotationService.AttachPublicationCheck(reopenCheck, startInfo);
-
-                    await ReportProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
-                        "signalr.logRemoval.processingDatasource",
-                        (double)datasourcesProcessed / datasources.Count * MultiDatasourceFileCeiling,
-                        new Dictionary<string, object?>
-                        {
-                            ["service"] = service,
-                            ["datasourceName"] = datasource.Name
-                        },
-                        totalFilesProcessed,
-                        totalLinesProcessed,
-                        totalLinesRemoved,
-                        service,
-                        datasource.Name);
-
-                    // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
-                    // zero-latency wake-up; log_service_manager.rs's progress-file DTO is unchanged, so
-                    // the callback still re-reads it for the real data on every tick.
-                    ProcessExecutionResult result;
-                    try
-                    {
-                        await _operationStateService.StartWorkAsync(
-                            operationId!.Value,
-                            datasource.Name,
-                            cancellationToken);
-                        childStarted = true;
-                        result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
-                            startInfo,
-                            operationId,
-                            cancellationToken,
-                            async _ =>
-                            {
-                                var progress = await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(dsProgressPath);
-                                if (progress == null)
-                                {
-                                    return;
-                                }
-
-                                // Scale this datasource's inner 0-100% into its band so the outer card moves
-                                // smoothly across datasources instead of jumping at each boundary. The bands
-                                // fill [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
-                                await SendProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
-                                    progress,
-                                    service,
-                                    datasource.Name,
-                                    totalFilesProcessed,
-                                    totalLinesProcessed,
-                                    totalLinesRemoved,
-                                    datasourcesProcessed,
-                                    datasources.Count,
-                                    MultiDatasourceFileCeiling);
-                            },
-                            processLabel: "log_removal");
-                    }
-                    finally
-                    {
-                        if (stemPositionsPath != null)
-                        {
-                            await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
-                        }
-                    }
-
-                    var exitCode = result.ExitCode;
-                    _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource '{DatasourceName}'",
-                        exitCode, datasource.Name);
-
-                    if (WasCancelled(operationId, cancellationToken))
-                    {
-                        return false;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(result.Output))
-                    {
-                        _logger.LogInformation("[Rust log removal] {Output}", result.Output);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(result.Error))
-                    {
-                        _logger.LogInformation("[Rust log removal stderr] {Error}", result.Error);
-                    }
-
-                    // Accumulate progress from this datasource
-                    var dsProgress = await ReadProgressFileAsync(dsProgressPath);
-                    if (dsProgress != null)
-                    {
-                        totalFilesProcessed += dsProgress.FilesProcessed;
-                        totalLinesProcessed += dsProgress.LinesProcessed;
-                        totalLinesRemoved += dsProgress.LinesRemoved;
-                        if (!string.IsNullOrEmpty(dsProgress.StageKey))
-                        {
-                            lastStageKey = dsProgress.StageKey;
-                        }
-                        physicalChange = dsProgress.LinesRemoved > 0;
-                    }
-
-                    // Monolithic sources are REWRITTEN in place (not deleted), so their saved
-                    // positions must come back by the removed already-read lines - including
-                    // on a failed exit, where completed files already lost their lines.
-                    if (dsProgress?.LinesRemovedByStem is { Count: > 0 } dsRemovedMap)
-                    {
-                        _stateService.ReduceLogPositionsAfterPurge(
-                            datasource.Name,
-                            dsProgress.LinesRemovedBeforePositionByStem ?? dsRemovedMap,
-                            dsRemovedMap);
-                    }
-
-                    if (exitCode != 0)
-                    {
-                        physicalChange = true;
-                        _logger.LogError("Log removal failed for {Service} in datasource '{DatasourceName}' with exit code {ExitCode}",
-                            service, datasource.Name, exitCode);
-                        return false;
-                    }
-
-                    _logger.LogInformation("Log removal completed for datasource '{DatasourceName}': Removed {LinesRemoved} lines",
-                        datasource.Name, dsProgress?.LinesRemoved ?? 0);
-                    return true;
-                    }, cancellationToken);
-                }
-                catch (Exception error)
-                {
-                    if (childStarted)
-                    {
-                        var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                            reopenCheck,
-                            physicalChange: true,
-                            CancellationToken.None);
-                        if (!failedReopen.Success)
-                        {
-                            throw new AggregateException(
-                                error,
-                                new IOException(failedReopen.ErrorMessage!));
-                        }
-                    }
-                    throw;
-                }
-
-                var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                    reopenCheck,
-                    physicalChange,
-                    cancellationToken);
-                if (!reopenResult.Success)
-                {
-                    _logger.LogError(
-                        "Log removal changed datasource '{DatasourceName}' but nginx reopen failed: {Error}",
-                        datasource.Name,
-                        reopenResult.ErrorMessage);
-                    dsSuccess = false;
-                }
-
-                if (!dsSuccess)
-                {
-                    allSuccess = false;
-                    if (WasCancelled(operationId, cancellationToken))
-                    {
-                        await CompleteCancelledAsync(
-                            operationId,
-                            completionMetrics,
-                            repairPrepared);
-                        return false;
-                    }
-
-                    _logger.LogWarning("Log removal failed for datasource '{DatasourceName}', continuing with remaining datasources",
-                        datasource.Name);
-                }
-                else
-                {
-                    // Bare-metal removal deletes the service's whole source file series; the
-                    // deleted stems' checkpoints must not survive the files.
-                    _stateService.ClearLogSourcePositions(
-                        datasource.Name,
-                        LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
-                    processedDatasourceNames.Add(datasource.Name);
-                    completionMetrics = completionMetrics with
-                    {
-                        FilesProcessed = totalFilesProcessed,
-                        LinesProcessed = totalLinesProcessed,
-                        LinesRemoved = totalLinesRemoved,
-                        StageKey = lastStageKey
-                    };
-                    await SaveSourceAsync(
-                        operationId!.Value,
-                        datasource.Name,
-                        completionMetrics);
-                }
-
-                datasourcesProcessed++;
-            }
-
-            if (WasCancelled(operationId, cancellationToken))
-            {
-                await CompleteCancelledAsync(
-                    operationId,
-                    completionMetrics,
-                    repairPrepared);
-                return false;
-            }
-
-            _logger.LogInformation(
-                "Log removal across all datasources complete: {Processed} processed, {Skipped} skipped, totalLinesRemoved={TotalLinesRemoved}",
-                datasourcesProcessed, datasourcesSkipped, totalLinesRemoved);
-
-            if (allSuccess && datasourcesProcessed > 0)
-            {
-                // Clean up database records for this service
-                await _operationStateService.StartWorkAsync(
-                    operationId!.Value,
-                    datasource: null,
-                    cancellationToken);
-                var dbCleanupResult = await CleanupDbRecordsAsync(operationId!.Value, publishProgress, progressEmitGate,
-                    service,
-                    processedDatasourceNames,
-                    totalFilesProcessed,
-                    totalLinesProcessed,
-                    totalLinesRemoved);
-                if (!dbCleanupResult.Success)
-                {
-                    throw new InvalidOperationException(dbCleanupResult.Message);
-                }
-
-                // Build completion message + capture final metrics for the onTerminalEmit closure.
-                var logMessage = $"Successfully removed {service} entries from {datasourcesProcessed} datasource(s)";
-                var message = dbCleanupResult.Success
-                    ? $"{logMessage}. Database: {dbCleanupResult.Message}"
-                    : $"{logMessage}. Database cleanup: {dbCleanupResult.Message}";
-
-                completionMetrics = completionMetrics with
-                {
-                    SuccessMessage = message,
-                    FilesProcessed = totalFilesProcessed,
-                    LinesProcessed = totalLinesProcessed,
-                    LinesRemoved = totalLinesRemoved,
-                    DatabaseRecordsDeleted = dbCleanupResult.TotalDeleted,
-                    StageKey = lastStageKey
-                };
-
-                _logger.LogInformation(
-                    "Log removal completed successfully for {Service}: {DatasourcesProcessed} datasource(s), Removed {LinesRemoved} of {LinesProcessed} lines, {DbRecords} database records",
-                    service, datasourcesProcessed, totalLinesRemoved, totalLinesProcessed, dbCleanupResult.TotalDeleted);
-
-                // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                if (operationId.HasValue)
-                {
-                    await FinishRepairAsync(
-                        operationId.Value,
-                        completionMetrics,
-                        success: true,
-                        cancelled: false,
-                        error: null);
-                    _operationTracker.CompleteOperation(operationId.Value, success: true,
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                }
-
-                return true;
-            }
-            else if (datasourcesProcessed == 0 && datasourcesSkipped > 0)
-            {
-                // All datasources were skipped (read-only or non-existent)
-                var skipMessage = $"All {datasourcesSkipped} datasource(s) were skipped (read-only or missing log directories)";
-                _logger.LogWarning(skipMessage);
-
-                // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                completionMetrics = completionMetrics with { FailureMessage = skipMessage };
-
-                if (operationId.HasValue)
-                {
-                    await FinishRepairAsync(
-                        operationId.Value,
-                        completionMetrics,
-                        success: false,
-                        cancelled: false,
-                        error: skipMessage);
-                    _operationTracker.CompleteOperation(operationId.Value, success: false, error: skipMessage,
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                }
-
-                return false;
-            }
-            else
-            {
-                // Some datasources failed
-                var failMessage = $"Log removal for {service} completed with errors across datasources";
-
-                // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                completionMetrics = completionMetrics with
-                {
-                    FailureMessage = failMessage,
-                    FilesProcessed = totalFilesProcessed,
-                    LinesProcessed = totalLinesProcessed,
-                    LinesRemoved = totalLinesRemoved
-                };
-
-                _logger.LogError("Log removal failed for {Service}: some datasources had errors", service);
-
-                if (operationId.HasValue)
-                {
-                    await FinishRepairAsync(
-                        operationId.Value,
-                        completionMetrics,
-                        success: false,
-                        cancelled: false,
-                        error: failMessage);
-                    _operationTracker.CompleteOperation(operationId.Value, success: false, error: failMessage,
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                }
-
-                return false;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Handle cancellation gracefully
-            _logger.LogInformation("Service removal for {Service} was cancelled", service);
-
-            // If a universal force-kill already completed this op, suppress the duplicate
-            // CompleteOperation so only ONE terminal event is emitted. The terminal
-            // LogRemovalComplete (cancelled) is emitted via onTerminalEmit inside CompleteOperation.
-            if (!IsOperationAlreadyTerminal(operationId))
-            {
-                // Mark operation as cancelled in unified tracker
-                if (operationId.HasValue)
-                {
-                    if (repairPrepared)
-                    {
-                        await FinishRepairAsync(
-                            operationId.Value,
-                            completionMetrics,
-                            success: false,
-                            cancelled: true,
-                            error: null);
-                    }
-                    _operationTracker.CompleteOperation(operationId.Value, success: false, cancelled: true,
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-                }
-            }
-
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during log removal for {Service}", service);
-
-            // Terminal LogRemovalComplete (error) is emitted via onTerminalEmit inside CompleteOperation.
-            completionMetrics = completionMetrics with
-            {
-                FailureMessage = $"Error during log removal: {ex.Message}"
-            };
-
-            // Mark operation as failed in unified tracker
-            if (operationId.HasValue)
-            {
-                if (repairPrepared)
-                {
-                    await FinishRepairAsync(
-                        operationId.Value,
-                        completionMetrics,
-                        success: false,
-                        cancelled: false,
-                        error: ex.Message);
-                }
-                _operationTracker.CompleteOperation(operationId.Value, success: false, error: ex.Message,
-                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
-            }
-
-            return false;
-        }
-        finally
-        {
-            // GUARANTEE terminality: if the worker is torn down (host shutdown, an exception thrown
-            // before any explicit CompleteOperation, a mid-await teardown inside ExecuteWithLockAsync)
-            // the tracker entry would otherwise stay Running forever and 409-block every future
-            // LogRemoval. CompleteOperation is idempotent via the Interlocked CompletedFlag, so this is
-            // a no-op when a happy/cancel/error path already completed it (in which case
-            // onTerminalCleanup has already nulled _currentTrackerOperationId and this guard is skipped).
-            var leakedOperationId = operationId;
-            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal(operationId))
-            {
-                if (repairPrepared)
-                {
-                    await FinishRepairAsync(
-                        leakedOperationId.Value,
-                        completionMetrics,
-                        success: false,
-                        cancelled: false,
-                        error: "Log removal ended without reaching a terminal state");
-                }
-                _operationTracker.CompleteOperation(
-                    leakedOperationId.Value,
-                    success: false,
-                    error: "Log removal ended without reaching a terminal state");
-            }
-
-            if (_currentTrackerOperationId == operationId)
-            {
-            IsProcessing = false;
-            Volatile.Write(ref _currentProgress, null);
-            CurrentService = null;
-            CurrentDatasource = null;
-            _currentTrackerOperationId = null;
-            _cancellationTokenSource = null;
-            }
-        }
     }
 
     /// <summary>
@@ -1114,16 +480,6 @@ public class RustLogRemovalService
                 cancellationToken);
             repairPrepared = true;
 
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
-            var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
-
-            // Delete old progress file
-            if (File.Exists(progressPath))
-            {
-                File.Delete(progressPath);
-            }
-
             _logger.LogInformation("Starting Rust log removal for service: {Service} in datasource: {Datasource}", service, datasourceName);
             _logger.LogInformation("Log directory: {LogDir}", logDir);
 
@@ -1132,26 +488,6 @@ public class RustLogRemovalService
                 var selectedDatasource = _datasourceService.GetDatasource(datasourceName)
                     ?? throw new InvalidOperationException(
                         $"Datasource '{datasourceName}' is no longer configured");
-                var affectedPaths = NginxLogRotationService.GetAffectedLogPaths(selectedDatasource);
-                await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
-                    new[] { selectedDatasource },
-                    affectedPaths,
-                    expectsPublication: true,
-                    cancellationToken);
-                _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
-                var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\" --progress";
-                var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasourceName);
-                if (stemPositionsPath != null)
-                {
-                    arguments += $" --stem-positions \"{stemPositionsPath}\"";
-                }
-                _logger.LogInformation("Rust arguments: {Arguments}", arguments);
-
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustExecutablePath,
-                    arguments,
-                    Path.GetDirectoryName(rustExecutablePath));
-                NginxLogRotationService.AttachPublicationCheck(reopenCheck, startInfo);
 
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
                 {
@@ -1174,126 +510,53 @@ public class RustLogRemovalService
                     service,
                     datasourceName);
 
-                // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
-                // zero-latency wake-up; the progress-file DTO is unchanged, so the callback still
-                // re-reads it for the real data on every tick.
-                ProcessExecutionResult result;
-                try
-                {
-                    await _operationStateService.StartWorkAsync(
-                        operationId!.Value,
+                // StartWorkAsync can wait for another operation's repair, and that repair may need
+                // the log lock, so the step takes the lock only after this returns.
+                await _operationStateService.StartWorkAsync(
+                    operationId!.Value,
+                    datasourceName,
+                    cancellationToken);
+                var step = await RunLogRemovalStepAsync(
+                    operationId!.Value,
+                    service,
+                    selectedDatasource,
+                    progress => SendProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
+                        progress,
+                        service,
                         datasourceName,
-                        cancellationToken);
-                    result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
-                        startInfo,
-                        operationId,
-                        cancellationToken,
-                        async _ =>
-                        {
-                        var progress = await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(progressPath);
-                        if (progress == null)
-                            {
-                                return;
-                            }
-
-                            await SendProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
-                            progress,
-                                service,
-                                datasourceName,
-                                completedFiles: 0,
-                                completedLines: 0,
-                                completedRemoved: 0);
-                        },
-                        processLabel: "log_removal");
-                }
-                catch (Exception error)
-                {
-                    var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                        reopenCheck,
-                        physicalChange: true,
-                        CancellationToken.None);
-                    if (!failedReopen.Success)
-                    {
-                        throw new AggregateException(
-                            error,
-                            new IOException(failedReopen.ErrorMessage!));
-                    }
-                    throw;
-                }
-                finally
-                {
-                    if (stemPositionsPath != null)
-                    {
-                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
-                    }
-                }
-
-                var exitCode = result.ExitCode;
-                _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
+                        completedFiles: 0,
+                        completedLines: 0,
+                        completedRemoved: 0),
+                    cancellationToken);
+                var exitCode = step.Result.ExitCode;
 
                 if (WasCancelled(operationId, cancellationToken))
                 {
-                    var cancelledReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                        reopenCheck,
-                        physicalChange: true,
-                        CancellationToken.None);
-                    if (!cancelledReopen.Success)
+                    if (!step.Reopen.Success)
                     {
                         _logger.LogError(
                             "Cancelled log removal also failed nginx reopen: {Error}",
-                            cancelledReopen.ErrorMessage);
+                            step.Reopen.ErrorMessage);
                     }
                     throw new OperationCanceledException(cancellationToken);
                 }
 
-                if (!string.IsNullOrWhiteSpace(result.Output))
-                {
-                    _logger.LogInformation("[Rust log removal] {Output}", result.Output);
-                }
-
-                if (!string.IsNullOrWhiteSpace(result.Error))
-                {
-                    _logger.LogInformation("[Rust log removal stderr] {Error}", result.Error);
-                }
-
-                // Monolithic sources are REWRITTEN in place (not deleted), so their saved
-                // positions must come back by the removed already-read lines - including on
-                // a failed exit, where completed files already lost their lines.
-                var removalProgress = await ReadProgressFileAsync(progressPath);
-                if (removalProgress?.LinesRemovedByStem is { Count: > 0 } removedMap)
-                {
-                    _stateService.ReduceLogPositionsAfterPurge(
-                        datasourceName,
-                        removalProgress.LinesRemovedBeforePositionByStem ?? removedMap,
-                        removedMap);
-                }
-
-                var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                    reopenCheck,
-                    physicalChange: removalProgress?.LinesRemoved > 0 || exitCode != 0,
-                    cancellationToken);
-                if (!reopenResult.Success)
+                if (!step.Reopen.Success)
                 {
                     completionMetrics = completionMetrics with
                     {
-                        FailureMessage = reopenResult.ErrorMessage!
+                        FailureMessage = step.Reopen.ErrorMessage!
                     };
-                    completionError = reopenResult.ErrorMessage;
+                    completionError = step.Reopen.ErrorMessage;
                     return false;
                 }
 
                 if (exitCode == 0)
                 {
-                    // Bare-metal removal deletes the service's whole source file series; the
-                    // deleted stems' checkpoints must not survive the files.
-                    _stateService.ClearLogSourcePositions(
-                        datasourceName,
-                        LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
-
                     // Note: Database cleanup is not datasource-specific, so we skip it for per-datasource removal
                     // The user would need to remove from all datasources to clean up DB records
 
-                    var finalProgress = await ReadProgressFileAsync(progressPath);
+                    var finalProgress = step.Progress;
 
                     // Capture final metrics for the onTerminalEmit closure; terminal
                     // LogRemovalComplete is emitted inside CompleteOperation.
@@ -1423,13 +686,149 @@ public class RustLogRemovalService
     }
 
     /// <summary>
-    /// Upper bound (percent) of the file-processing phase when removing across MULTIPLE datasources.
-    /// The datasource bands fill [0, MultiDatasourceFileCeiling]; the remaining
-    /// [MultiDatasourceFileCeiling, 100] is reserved for the post-loop database cleanup phase (which
-    /// emits 95% — see <see cref="CleanupDbRecordsAsync"/>) and final completion, so progress
-    /// never steps backward from a full 100% band into the 95% cleanup tick.
+    /// Rewrites one datasource's logs for a service while holding the log file lock. The
+    /// datasource's log positions are kept only when the child exits 0 and nginx reopens; any other
+    /// end leaves the source started and not kept, so the repair runs this step again. The removal
+    /// job runs it inside the cache lock and the repair runs it without.
     /// </summary>
-    private const double MultiDatasourceFileCeiling = 95.0;
+    private async Task<(ProcessExecutionResult Result, LogRemovalProgress? Progress, LogRotationResult Reopen)> RunLogRemovalStepAsync(
+        Guid operationId,
+        string service,
+        ResolvedDatasource datasource,
+        Func<LogRemovalProgress, Task>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        await using (await _operationStateService.LockLogFilesAsync(
+            operationId,
+            OperationType.LogRemoval,
+            LogFileLockKind.Rewrite,
+            cancellationToken))
+        {
+            // Prepared under the lock, so another step's rename cannot change the files it binds to.
+            var affectedPaths = NginxLogRotationService.GetAffectedLogPaths(datasource);
+            await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
+                new[] { datasource },
+                affectedPaths,
+                expectsPublication: true,
+                cancellationToken);
+            _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+
+            // A cancel up to here has not touched the logs, so the repair has nothing to finish.
+            cancellationToken.ThrowIfCancellationRequested();
+            await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
+
+            var progressPath = Path.Combine(
+                _pathResolver.GetOperationsDirectory(),
+                $"log_remove_progress_{datasource.Name}.json");
+            // A file left by an earlier run would otherwise be read as this run's result.
+            if (File.Exists(progressPath))
+            {
+                File.Delete(progressPath);
+            }
+            var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
+            var arguments = $"remove \"{datasource.LogPath}\" \"{service}\" \"{progressPath}\" --progress";
+            var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
+            if (stemPositionsPath != null)
+            {
+                arguments += $" --stem-positions \"{stemPositionsPath}\"";
+            }
+            _logger.LogInformation("Rust arguments: {Arguments}", arguments);
+
+            var start = _rustProcessHelper.CreateProcessStartInfo(
+                rustExecutablePath,
+                arguments,
+                Path.GetDirectoryName(rustExecutablePath));
+            NginxLogRotationService.AttachPublicationCheck(reopenCheck, start);
+
+            // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
+            // zero-latency wake-up; the progress-file DTO is unchanged, so the callback still
+            // re-reads it for the real data on every tick.
+            ProcessExecutionResult result;
+            try
+            {
+                result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
+                    start,
+                    operationId,
+                    cancellationToken,
+                    onProgress is null
+                        ? null
+                        : async (RustProgressEvent _) =>
+                        {
+                            var tick = await ReadProgressFileAsync(progressPath);
+                            if (tick == null)
+                            {
+                                return;
+                            }
+
+                            await onProgress(tick);
+                        },
+                    processLabel: "log_removal");
+            }
+            catch (Exception error)
+            {
+                var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                    reopenCheck,
+                    physicalChange: true,
+                    CancellationToken.None);
+                if (!failedReopen.Success)
+                {
+                    throw new AggregateException(
+                        error,
+                        new IOException(failedReopen.ErrorMessage!));
+                }
+                throw;
+            }
+            finally
+            {
+                if (stemPositionsPath != null)
+                {
+                    await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+                }
+            }
+
+            _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", result.ExitCode, datasource.Name);
+
+            if (!string.IsNullOrWhiteSpace(result.Output))
+            {
+                _logger.LogInformation("[Rust log removal] {Output}", result.Output);
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.Error))
+            {
+                _logger.LogInformation("[Rust log removal stderr] {Error}", result.Error);
+            }
+
+            var removalProgress = await ReadProgressFileAsync(progressPath);
+            // A cancel that lands after the child exited must still move nginx onto the rewritten files.
+            var reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                reopenCheck,
+                physicalChange: removalProgress?.LinesRemoved > 0 || result.ExitCode != 0,
+                CancellationToken.None);
+
+            // Monolithic sources are REWRITTEN in place (not deleted), so their saved
+            // positions must come back by the removed already-read lines - including on
+            // a failed exit, where completed files already lost their lines.
+            if (removalProgress?.LinesRemovedByStem is { Count: > 0 } removedMap)
+            {
+                _stateService.ReduceLogPositionsAfterPurge(
+                    datasource.Name,
+                    removalProgress.LinesRemovedBeforePositionByStem ?? removedMap,
+                    removedMap);
+            }
+
+            if (result.ExitCode == 0 && reopen.Success)
+            {
+                // Bare-metal removal deletes the service's whole source file series; the
+                // deleted stems' checkpoints must not survive the files.
+                _stateService.ClearLogSourcePositions(
+                    datasource.Name,
+                    LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
+                await _operationStateService.MarkLogPositionsKeptAsync(operationId, datasource.Name);
+            }
+
+            return (result, removalProgress, reopen);
+        }
+    }
 
     /// <summary>
     /// Forwards a per-datasource Rust progress tick to the UI. The Rust log_manager reports
@@ -1681,68 +1080,6 @@ public class RustLogRemovalService
         var operationsDir = _pathResolver.GetOperationsDirectory();
         var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
         return await ReadProgressFileAsync(progressPath);
-    }
-
-    /// <summary>
-    /// Cleans up database records for a removed service.
-    /// Deletes LogEntries and Downloads for the specified service.
-    /// </summary>
-    private async Task<DatabaseCleanupResult> CleanupDbRecordsAsync(
-        Guid operationId,
-        Action<LogRemovalCurrentProgress> publishProgress,
-        ProgressEmitGate progressEmitGate,
-        string service,
-        IReadOnlyList<string> processedDatasourceNames,
-        int filesProcessed,
-        long linesProcessed,
-        long linesRemoved)
-    {
-        var result = new DatabaseCleanupResult();
-
-        try
-        {
-            _logger.LogInformation("Starting database cleanup for service: {Service}", service);
-
-            await ReportProgressAsync(operationId, publishProgress, progressEmitGate,
-                "signalr.logRemoval.cleaningDatabase",
-                95.0,
-                new Dictionary<string, object?> { ["service"] = service },
-                filesProcessed,
-                linesProcessed,
-                linesRemoved,
-                service,
-                datasource: null);
-
-            // Use a new DbContext from factory for this operation
-            await using var context = await _dbContextFactory.CreateDbContextAsync();
-
-            // Service names in the database are stored in lowercase
-            var serviceLower = service.ToLowerInvariant();
-            var datasourceNames = processedDatasourceNames
-                .Select(name => name.ToLowerInvariant())
-                .ToList();
-
-            var deleted = await DeleteServiceHistoryAsync(context, serviceLower, datasourceNames);
-            result.LogEntriesDeleted = deleted.LogEntriesDeleted;
-            _logger.LogInformation("Deleted {Count} LogEntries for service {Service}", result.LogEntriesDeleted, service);
-
-            result.DownloadsDeleted = deleted.DownloadsDeleted;
-            _logger.LogInformation("Deleted {Count} Downloads for service {Service}", result.DownloadsDeleted, service);
-
-            result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted;
-            result.Success = true;
-            result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries";
-
-            _logger.LogInformation("Database cleanup completed for service {Service}: {Message}", service, result.Message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during database cleanup for service {Service}", service);
-            result.Success = false;
-            result.Message = $"Error: {ex.Message}";
-        }
-
-        return result;
     }
 
     /// <summary>

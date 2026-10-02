@@ -21,12 +21,3 @@ internal sealed record LogRemovalCurrentProgress(
     long LinesProcessed,
     long LinesRemoved,
     string? Datasource);
-
-internal sealed class DatabaseCleanupResult
-{
-    public bool Success { get; set; }
-    public string Message { get; set; } = string.Empty;
-    public int TotalDeleted { get; set; }
-    public int LogEntriesDeleted { get; set; }
-    public int DownloadsDeleted { get; set; }
-}

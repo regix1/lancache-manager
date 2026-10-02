@@ -393,6 +393,78 @@ public class DatabaseService
             // loop so the completion report can name them instead of claiming a clean sweep.
             var failedPersistentLogins = new List<string>();
 
+            if (tablesToClear.Contains("UserSessions"))
+            {
+                // SECURITY: Clear Steam, Xbox and Epic auth FIRST, before clearing user sessions
+                // This ensures every platform is fully logged out before frontend receives the event.
+                // Each clear is best-effort so a failure on one cannot leave the sessions table intact.
+                // They run once, outside the retried transaction and before the log lock, so a retry
+                // never logs out twice and a slow logout never pauses the log import.
+                _logger.LogInformation("Clearing platform authentication data first...");
+                try
+                {
+                    await _steamKit2Service.ClearAllSteamAuthAsync();
+                }
+                catch (Exception steamEx)
+                {
+                    _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
+                }
+
+                try
+                {
+                    await _xboxCatalogMappingService.LogoutAsync();
+                }
+                catch (Exception xboxEx)
+                {
+                    _logger.LogWarning(xboxEx, "Error clearing Xbox auth during session reset");
+                }
+
+                try
+                {
+                    await _epicMappingService.LogoutAsync();
+                }
+                catch (Exception epicEx)
+                {
+                    _logger.LogWarning(epicEx, "Error clearing Epic auth during session reset");
+                }
+
+                // The prefill daemons keep their own persistent logins in named Docker volumes,
+                // outside the database, so clearing sessions has to reach them explicitly.
+                try
+                {
+                    var persistentLoginResults = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(
+                        _serviceProvider, cancellationToken);
+                    failedPersistentLogins.AddRange(persistentLoginResults
+                        .Where(result => !result.Success)
+                        .Select(result => result.Service.ToString()));
+                    if (failedPersistentLogins.Count > 0)
+                    {
+                        _logger.LogWarning("Prefill persistent login survived for: {Services}",
+                            string.Join(", ", failedPersistentLogins));
+                    }
+                }
+                catch (Exception prefillEx)
+                {
+                    // The sweep threw before any daemon reported an outcome, so nothing is
+                    // known to be logged out. An empty list here would let the completion
+                    // message call the reset clean.
+                    failedPersistentLogins.AddRange(Enum.GetNames<PrefillPlatform>());
+                    _logger.LogWarning(prefillEx, "Error clearing prefill persistent logins during session reset");
+                }
+            }
+
+            // Deleting Downloads or LogEntries rows must not run beside a log import, and an import
+            // must not save positions the clear below drops. The lock is taken before the transaction:
+            // its table locks are held to commit, so waiting for an import that writes rows inside the
+            // transaction would deadlock.
+            await using var logLock = tablesToClear.Contains("Downloads") || tablesToClear.Contains("LogEntries")
+                ? await _serviceProvider.GetRequiredService<OperationStateService>().LockLogFilesAsync(
+                    operationId,
+                    OperationType.DatabaseReset,
+                    LogFileLockKind.Rows,
+                    cancellationToken)
+                : null;
+
             // Temporarily disable foreign key triggers for bulk deletion (PostgreSQL)
             // This prevents FK constraint errors during table deletions
             _logger.LogInformation("Disabling foreign key triggers for bulk deletion");
@@ -403,12 +475,10 @@ public class DatabaseService
             await deleteStrategy.ExecuteAsync(async () =>
             {
                 // The connection is configured with EnableRetryOnFailure, so a transient failure
-                // re-runs this whole lambda. All three accumulators live outside it and would
-                // otherwise carry the abandoned attempt's values into the next one: a doubled row
-                // total, the same platform named twice in the completion message, and a progress
-                // bar that resumes from where the failed attempt stopped instead of restarting.
+                // re-runs this whole lambda. Both accumulators live outside it and would otherwise
+                // carry the abandoned attempt's values into the next one: a doubled row total, and a
+                // progress bar that resumes from where the failed attempt stopped instead of restarting.
                 deletedRows = 0;
-                failedPersistentLogins.Clear();
                 currentProgress = 0;
 
                 using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -625,63 +695,8 @@ public class DatabaseService
 
                         case "UserSessions":
                             // CRITICAL: UserSessions is always processed FIRST (priority 0)
-                            // This ensures all users are logged out immediately before any other tables are cleared
-
-                            // SECURITY: Clear Steam, Xbox and Epic auth FIRST, before clearing user sessions
-                            // This ensures every platform is fully logged out before frontend receives the event.
-                            // Each clear is best-effort so a failure on one cannot leave the sessions table intact.
-                            _logger.LogInformation("Clearing platform authentication data first...");
-                            try
-                            {
-                                await _steamKit2Service.ClearAllSteamAuthAsync();
-                            }
-                            catch (Exception steamEx)
-                            {
-                                _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
-                            }
-
-                            try
-                            {
-                                await _xboxCatalogMappingService.LogoutAsync();
-                            }
-                            catch (Exception xboxEx)
-                            {
-                                _logger.LogWarning(xboxEx, "Error clearing Xbox auth during session reset");
-                            }
-
-                            try
-                            {
-                                await _epicMappingService.LogoutAsync();
-                            }
-                            catch (Exception epicEx)
-                            {
-                                _logger.LogWarning(epicEx, "Error clearing Epic auth during session reset");
-                            }
-
-                            // The prefill daemons keep their own persistent logins in named Docker volumes,
-                            // outside the database, so clearing sessions has to reach them explicitly.
-                            try
-                            {
-                                var persistentLoginResults = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(
-                                    _serviceProvider, cancellationToken);
-                                failedPersistentLogins.AddRange(persistentLoginResults
-                                    .Where(result => !result.Success)
-                                    .Select(result => result.Service.ToString()));
-                                if (failedPersistentLogins.Count > 0)
-                                {
-                                    _logger.LogWarning("Prefill persistent login survived for: {Services}",
-                                        string.Join(", ", failedPersistentLogins));
-                                }
-                            }
-                            catch (Exception prefillEx)
-                            {
-                                // The sweep threw before any daemon reported an outcome, so nothing is
-                                // known to be logged out. An empty list here would let the completion
-                                // message call the reset clean.
-                                failedPersistentLogins.AddRange(Enum.GetNames<PrefillPlatform>());
-                                _logger.LogWarning(prefillEx, "Error clearing prefill persistent logins during session reset");
-                            }
-
+                            // This ensures all users are logged out immediately before any other tables are cleared.
+                            // The platform logouts already ran before the transaction.
                             _logger.LogInformation($"[PRIORITY] Clearing UserSessions table to invalidate all active sessions");
                             var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
@@ -1125,6 +1140,13 @@ public class DatabaseService
             if (tablesToClear.Contains("LogEntries"))
             {
                 _stateRepository.ClearLogProcessingPositions();
+            }
+
+            // The rows and positions are settled, so the import may resume before the completion
+            // report; the using declaration still releases the lock on every early exit.
+            if (logLock is not null)
+            {
+                await logLock.DisposeAsync();
             }
 
             // Broadcast preference reset event AFTER all database operations complete

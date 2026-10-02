@@ -418,7 +418,20 @@ public sealed class DatasourceRemovalTests
             null!,
             null!,
             null!,
-            null!,
+            new ServiceCollection()
+                .AddSingleton(services => new OperationStateService(
+                    NullLogger<OperationStateService>.Instance,
+                    new ConfigurationBuilder().Build(),
+                    new StateService(
+                        NullLogger<StateService>.Instance,
+                        new RemovalPathResolver(resetRoot),
+                        null!,
+                        null!),
+                    services.GetRequiredService<IServiceScopeFactory>(),
+                    new RemovalLifetime(),
+                    new ProcessManager(NullLogger<ProcessManager>.Instance),
+                    tracker))
+                .BuildServiceProvider(),
             null!,
             null!,
             null!,
