@@ -421,6 +421,30 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
+    public async Task GameDetection_BlocksEvictionRemovalInBothDirectionsAsync()
+    {
+        using (var activeRemoval = new TrackerHarness())
+        {
+            RegisterCacheMutatingRemoval(activeRemoval.Tracker, OperationType.EvictionRemoval);
+            var detectionResponse = await activeRemoval.Checker.CheckAsync(
+                OperationType.GameDetection,
+                ConflictScope.Bulk(),
+                CancellationToken.None);
+            Assert.NotNull(detectionResponse);
+            Assert.Equal("errors.conflict.overlappingEntity", detectionResponse!.StageKey);
+        }
+
+        using var activeDetection = new TrackerHarness();
+        RegisterBulkOperation(activeDetection.Tracker, OperationType.GameDetection, "Game Detection");
+        var removalResponse = await activeDetection.Checker.CheckAsync(
+            OperationType.EvictionRemoval,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+        Assert.NotNull(removalResponse);
+        Assert.Equal("errors.conflict.overlappingEntity", removalResponse!.StageKey);
+    }
+
+    [Fact]
     public async Task Blocks_GameDetection_When_LogProcessing_IsActiveAsync()
     {
         using var tracker = new TrackerHarness();

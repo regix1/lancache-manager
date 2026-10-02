@@ -300,6 +300,18 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
         }
 
+        // Detection un-evicts rows whose files came back, and an eviction removal's log step purges
+        // the log lines of the rows it read as evicted, so a row un-evicted in between is kept while
+        // its log lines are gone.
+        if ((newType == OperationType.GameDetection && activeOp.Type == OperationType.EvictionRemoval) ||
+            (newType == OperationType.EvictionRemoval && activeOp.Type == OperationType.GameDetection))
+        {
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.overlappingEntity",
+                englishError: $"Cannot start {newType}: an active {activeOp.Type} is changing which downloads are evicted.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+        }
+
         // Other GameDetection/CorruptionDetection pairings remain compatible.
         if (newType == OperationType.GameDetection || newType == OperationType.CorruptionDetection)
         {

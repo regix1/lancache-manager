@@ -51,6 +51,10 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private long _edgeRevision;
     private long _queuedRevision;
     private DateTime _agingUtc;
+    // Set while a log step holds the logs and the child is stopped; guarded by _snapshotLock. The
+    // stopped child cannot report a download that is still running, so aging waits for the next
+    // child rather than letting the rows expire and the scan gate read the cache as quiet.
+    private bool _childStoppedForStep;
     private string _visibilityMark = string.Empty;
     private bool _previousHadActivity = false;
     // Tracks the same edge as _previousHadActivity but over the unfiltered set, so the end of the
@@ -112,6 +116,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
     // The tracker's activity floor. A clock step back smaller than this keeps aging monotonic,
     // and a row last seen further ahead of the aging time than this predates a larger step.
+    // Mirrors MAX_WINDOW_SECONDS in rust-processor/src/speed_tracker.rs; change both together.
     private static readonly TimeSpan _clockStepTolerance = TimeSpan.FromSeconds(15);
 
     protected override string ServiceName => "RustSpeedTrackerService";
@@ -627,7 +632,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
     private bool AgeLocked(DateTime nowUtc, Dictionary<string, string> currentSources)
     {
-        if (nowUtc > _agingUtc)
+        if (nowUtc > _agingUtc && !_childStoppedForStep)
         {
             _agingUtc = nowUtc;
         }
@@ -1164,6 +1169,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             _currentRunId = runId;
             _nativeRevision = 0;
             _runSources[runId] = new Dictionary<string, string>(sources, StringComparer.OrdinalIgnoreCase);
+            // Cleared before the new child reports, so its first rows meet a clock that has caught up.
+            _childStoppedForStep = false;
         }
 
         return Task.CompletedTask;
@@ -1428,6 +1435,13 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         var run = RunTrackerAsync(rustExecutablePath, sources, runId, childStop.Token);
                         stoppedForStep = await Task.WhenAny(run, stepStarted) == stepStarted &&
                             stepStarted.IsCompletedSuccessfully;
+                        if (stoppedForStep)
+                        {
+                            lock (_snapshotLock)
+                            {
+                                _childStoppedForStep = true;
+                            }
+                        }
                         await childStop.CancelAsync();
                         try
                         {

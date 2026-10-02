@@ -159,6 +159,26 @@ public sealed class CacheScanGateTests
     }
 
     [Fact]
+    public void ADownloadActiveWhenAStepStoppedTheTrackerKeepsTheGateShut()
+    {
+        var snapshot = new DownloadSpeedSnapshot();
+        MakeBusy(snapshot);
+        var clock = new CacheStatusClock(snapshot.TimestampUtc);
+        var tracker = TrackerWith(snapshot, [], clock);
+        var gate = GateOver(tracker);
+
+        // A child stopped for a log step cannot report a download that is still running, so the
+        // download it last reported must outlive its own window until the next child can.
+        SetField(tracker, "_childStoppedForStep", true);
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.NotNull(gate.CheckDownloadInProgress());
+
+        SetField(tracker, "_childStoppedForStep", false);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Null(gate.CheckDownloadInProgress());
+    }
+
+    [Fact]
     public void ScanIsRefusedWhileTheTrackerHasNotReportedYet()
     {
         var tracker = TrackerWith(new DownloadSpeedSnapshot(), []);

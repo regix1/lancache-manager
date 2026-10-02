@@ -124,7 +124,8 @@ public sealed class LogFileLockTests : IDisposable
         await removal.DisposeAsync();
         await scanContext.RunNextAsync();
         Assert.False(scan.IsCompleted);
-        Assert.Equal("Game Removal", BlockedBy(scanId));
+        // The removal has let go and the import has not taken its turn yet, so nothing is named.
+        Assert.Null(BlockedBy(scanId));
         await batchContext.RunNextAsync();
         var batchLock = await batch.WaitAsync(_wait);
         Assert.Null(BlockedBy(batchId));
@@ -137,6 +138,49 @@ public sealed class LogFileLockTests : IDisposable
         await scanContext.RunNextAsync();
         await using var scanLock = await scan.WaitAsync(_wait);
         Assert.Null(BlockedBy(scanId));
+    }
+
+    [Fact]
+    public async Task WaitingLineDropsANameWhenTheNextHolderHasNoneAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+        var tracker = harness.Tracker;
+        var removalId = tracker.RegisterOperation(
+            OperationType.GameRemoval,
+            "Game Removal",
+            new CancellationTokenSource());
+        var scanId = tracker.RegisterOperation(
+            OperationType.EvictionScan,
+            "Eviction Scan",
+            new CancellationTokenSource());
+        var scanContext = new PumpedContext();
+        var unnamedContext = new PumpedContext();
+
+        var removal = await owner.LockLogFilesAsync(
+            removalId,
+            OperationType.GameRemoval,
+            LogFileLockKind.Rewrite,
+            CancellationToken.None);
+        var scan = scanContext.Run(() => owner.LockLogFilesAsync(
+            scanId,
+            OperationType.EvictionScan,
+            LogFileLockKind.Rows,
+            CancellationToken.None));
+        var unnamed = unnamedContext.Run(() => LockAsync(owner, LogFileLockKind.Rows));
+        Assert.Equal("Game Removal", tracker.GetOperation(scanId)!.BlockedByName);
+
+        // A step with no operation of its own takes the logs before the scan looks again.
+        await removal.DisposeAsync();
+        await unnamedContext.RunNextAsync();
+        var unnamedLock = await unnamed.WaitAsync(_wait);
+        await scanContext.RunNextAsync();
+        Assert.False(scan.IsCompleted);
+        Assert.Null(tracker.GetOperation(scanId)!.BlockedByName);
+
+        await unnamedLock.DisposeAsync();
+        await scanContext.RunNextAsync();
+        await using var scanLock = await scan.WaitAsync(_wait);
     }
 
     [Fact]
