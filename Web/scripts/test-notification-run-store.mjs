@@ -59,6 +59,7 @@ const {
   applyDetail,
   applyRun,
   applySnapshot,
+  buildCompleteHandler,
   buildProgressHandler,
   buildStartedHandler,
   changeSession,
@@ -1248,6 +1249,39 @@ test('a live service or log removal carries its service, so its page button stay
     percentComplete: 30
   });
   assert.equal(serviceOf('LR'), 'epic');
+});
+
+test('a failed log removal card shows the reason the server gave', () => {
+  const browser = new Browser();
+  const dispatchDetail = (operationId, build, source) => {
+    browser.state = applyDetail(browser.state, operationId, build, source, { requestSeq: 0 });
+  };
+  const logRemoval = notificationEntries.find((entry) => entry.type === 'log_removal');
+  const reason = 'Could not prove that the selected logs have no active writer';
+  browser.push(row('LR', { operationType: 'logRemoval', name: 'Log Removal' }));
+  buildCompleteHandler(
+    logRemoval,
+    logRemoval.complete,
+    dispatchDetail
+  )({
+    operationId: 'LR',
+    success: false,
+    status: 'failed',
+    message: reason,
+    cancelled: false,
+    service: 'steam',
+    context: { service: 'steam' }
+  });
+  browser.push(
+    row('LR', {
+      operationType: 'logRemoval',
+      name: 'Log Removal',
+      status: 'failed',
+      error: reason,
+      retained: true
+    })
+  );
+  assert.equal(browser.card('LR').message, reason);
 });
 
 // ── Reload, reconnect, tab return (criteria 12, 13) ─────────────────────────

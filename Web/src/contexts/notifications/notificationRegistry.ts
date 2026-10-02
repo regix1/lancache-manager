@@ -476,7 +476,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessDetails: (event: LogRemovalCompleteEvent, existing) => ({
         ...existing?.details,
         linesProcessed: event.linesProcessed
-      })
+      }),
+      // The server sends a failure's reason in message; the event has no error field.
+      getFailureMessage: (event: LogRemovalCompleteEvent) => event.message
     }
   }),
 
