@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
@@ -91,6 +92,9 @@ public class LogRemovalProgressTests
             typeof(CacheManagementService)
                 .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(cacheManager, paths);
+            typeof(CacheManagementService)
+                .GetField("_notifications", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cacheManager, notifications);
             // The removal sends its started event while it holds the cache lock.
             typeof(CacheManagementService)
                 .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -185,6 +189,19 @@ public class LogRemovalProgressTests
         Assert.True(source.LogPositionsKept);
         await harness.Owner.WaitForLogStepAsync(active: false, CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task LogStep_SendsServiceCountsChangedAfterTheRewriteAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var sent = Assert.Single(
+            harness.CountsNotifications.Invocations,
+            call => call.Method == nameof(ISignalRNotificationService.NotifyAllAsync));
+        Assert.Equal(SignalREvents.ServiceCountsChanged, sent.Args[0]);
     }
 
     [Fact]
@@ -337,6 +354,7 @@ public class LogRemovalProgressTests
             OperationRepairTests.FailingStateService state,
             StepRustProcessHelper rust,
             CacheManagementService cache,
+            RecordingNotificationProxy countsNotifications,
             RustLogRemovalService removal)
         {
             _root = root;
@@ -345,6 +363,7 @@ public class LogRemovalProgressTests
             State = state;
             Rust = rust;
             Cache = cache;
+            CountsNotifications = countsNotifications;
             Removal = removal;
         }
 
@@ -354,6 +373,7 @@ public class LogRemovalProgressTests
         public OperationRepairTests.FailingStateService State { get; }
         public StepRustProcessHelper Rust { get; }
         public CacheManagementService Cache { get; }
+        public RecordingNotificationProxy CountsNotifications { get; }
         public RustLogRemovalService Removal { get; }
 
         public static async Task<LogStepHarness> CreateAsync()
@@ -390,6 +410,14 @@ public class LogRemovalProgressTests
             typeof(CacheManagementService)
                 .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(cache, new SemaphoreSlim(1, 1));
+            // The step refreshes the service counts, which reads the paths and sends one notification.
+            typeof(CacheManagementService)
+                .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cache, paths);
+            var countsNotifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+            typeof(CacheManagementService)
+                .GetField("_notifications", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cache, countsNotifications);
             var removal = new RustLogRemovalService(
                 NullLogger<RustLogRemovalService>.Instance,
                 paths,
@@ -413,6 +441,7 @@ public class LogRemovalProgressTests
                 state,
                 rust,
                 cache,
+                (RecordingNotificationProxy)(object)countsNotifications,
                 removal);
         }
 

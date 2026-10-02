@@ -59,6 +59,7 @@ public partial class CacheManagementService
     private readonly object _configuredCacheSizeLock = new();
     private readonly SemaphoreSlim _configuredCacheSizeRefreshLock = new(1, 1);
     private long _configuredCacheSizeGeneration;
+    private long _serviceCountsGeneration;
     private bool _hasLoggedConfiguredCacheSize = false;
 
     // Cache the Rust binary scan result to avoid re-scanning on every page visit
@@ -743,6 +744,7 @@ public partial class CacheManagementService
     /// </summary>
     public async Task InvalidateServiceCountsAsync()
     {
+        Interlocked.Increment(ref _serviceCountsGeneration);
         // Delete the Rust cache files (global + per-datasource) to force rescan
         var operationsDir = _pathResolver.GetOperationsDirectory();
         var progressFile = Path.Combine(operationsDir, "log_count_progress.json");
@@ -863,12 +865,18 @@ public partial class CacheManagementService
                 rustBinaryPath,
                 $"count \"{logDir}\" \"{progressFile}\"");
 
+            var generation = Interlocked.Read(ref _serviceCountsGeneration);
             var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
 
             result.EnsureSuccess("log_manager", datasourceName, cancellationToken);
 
             // Read results from progress file
             var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgress>(progressFile);
+            if (generation != Interlocked.Read(ref _serviceCountsGeneration))
+            {
+                // A log change during this count makes these counts old; dropping the file makes the next call count again.
+                File.Delete(progressFile);
+            }
 
             if (progressData?.ServiceCounts != null)
             {

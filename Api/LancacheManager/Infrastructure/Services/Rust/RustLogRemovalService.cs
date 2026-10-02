@@ -834,6 +834,20 @@ public class RustLogRemovalService
                 await _operationStateService.MarkLogPositionsKeptAsync(operationId, datasource.Name);
             }
 
+            try
+            {
+                // The positions and the log files changed; the count program recounts a log newer than
+                // its saved counts, so a failure here must not fail the removal.
+                await _cacheManagementService.InvalidateServiceCountsAsync();
+            }
+            catch (Exception countsError)
+            {
+                _logger.LogError(
+                    countsError,
+                    "Failed to refresh the service counts after the log removal of operation {OperationId}",
+                    operationId);
+            }
+
             return (result, removalProgress, reopen);
         }
     }
