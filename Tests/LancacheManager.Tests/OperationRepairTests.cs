@@ -391,6 +391,71 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Equal(4, harness.Scans);
     }
 
+    [Theory]
+    [InlineData(OperationType.CorruptionDetection)]
+    [InlineData(OperationType.CacheSizeScan)]
+    public async Task ARetriedRepairWaitsForARunningCacheScanAsync(OperationType scanType)
+    {
+        var root = Path.Combine(_root, $"full-repair-retry-beside-{scanType}");
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var path = RepairFilePath(Path.Combine(root, "state"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "not-json");
+        harness.FailScans = 3;
+
+        await harness.Owner.StartAsync(CancellationToken.None);
+        var fullRepair = Assert.Single(harness.Owner.GetPendingRepairs());
+        await WaitForAsync(() => harness.Repairs.Tracker.GetRuns().Runs
+            .SingleOrDefault(run => run.OperationId == fullRepair.Id)?.RepairError is not null);
+
+        var failed = harness.Repairs.Tracker.GetRuns().Runs.Single(run => run.OperationId == fullRepair.Id);
+        Assert.False(failed.Repairing);
+        Assert.True(failed.FullRepair);
+        Assert.Equal("Injected cache scan failure.", failed.RepairError);
+        Assert.Null(harness.Owner.GetBlockingRepair());
+
+        // A failed-out repair no longer holds the queue, so the scan started.
+        var scan = harness.Repairs.Tracker.RegisterOperation(
+            scanType,
+            scanType.ToString(),
+            new CancellationTokenSource());
+        Assert.True(await harness.Owner.RetryRepairAsync(fullRepair.Id));
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.Equal(3, harness.Scans);
+
+        harness.Repairs.Tracker.CompleteOperation(scan, success: true);
+        await harness.WaitForCompletedAsync(fullRepair.Id);
+        Assert.Equal(4, harness.Scans);
+    }
+
+    [Fact]
+    public async Task ARetryDuringACacheClearStartDoesNotHoldTheClearAsync()
+    {
+        var root = Path.Combine(_root, "retry-during-clear-start");
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var path = RepairFilePath(Path.Combine(root, "state"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "not-json");
+        harness.FailScans = 3;
+
+        await harness.Owner.StartAsync(CancellationToken.None);
+        var fullRepair = Assert.Single(harness.Owner.GetPendingRepairs());
+        await WaitForAsync(() => harness.Repairs.Tracker.GetRuns().Runs
+            .SingleOrDefault(run => run.OperationId == fullRepair.Id)?.RepairError is not null);
+        Assert.Null(harness.Owner.GetBlockingRepair());
+
+        var clear = NewCacheClearingRepair(Path.Combine(root, "alpha-cache"));
+        clear.Id = harness.Repairs.Tracker.RegisterOperation(
+            OperationType.CacheClearing,
+            "Cache clear",
+            new CancellationTokenSource());
+        clear.Sources[0].ReceiptPath = Path.Combine(clear.Sources[0].CacheRoot!, $".lancache-repair-{clear.Id:N}.json");
+        Assert.True(await harness.Owner.RetryRepairAsync(fullRepair.Id));
+        await harness.Owner.PrepareRepairAsync(clear, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(clear.Id, "alpha", CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(4, harness.Scans);
+    }
+
     [Fact]
     public async Task OlderFileWithOnlyCompletedRowsStartsWithoutAFullRepairAsync()
     {

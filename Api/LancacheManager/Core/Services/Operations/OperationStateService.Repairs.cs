@@ -917,18 +917,20 @@ public partial class OperationStateService
             try
             {
                 // A retried repair skips job admission, and a failed-out repair let queued jobs start,
-                // so it waits here for a running global job (a history upgrade or database reset) the
-                // way a new job waits for one. A cache clear is ordered by its own repair record
-                // instead: while it runs, the check below holds this wait, and before it starts work it
-                // waits for this repair, so also waiting for its row would leave the two waiting on
-                // each other.
-                var globalRunning = _operationTracker.GetActiveOperations(null)
-                    .Any(operation => OperationConflictChecker.IsGlobal(operation.Type)
+                // so it waits here, the way a new job would, for a running job that has no repair record
+                // to order it: a history upgrade, a database reset, or a corruption or cache size scan
+                // (a scan that read the cache before this repair's deletes would save stale results).
+                // A cache clear is ordered by its own repair record instead: while it runs, the check
+                // below holds this wait, and before it starts work it waits for this repair, so also
+                // waiting for its row would leave the two waiting on each other.
+                var jobRunning = _operationTracker.GetActiveOperations(null)
+                    .Any(operation => (OperationConflictChecker.IsGlobal(operation.Type)
+                            || operation.Type is OperationType.CorruptionDetection or OperationType.CacheSizeScan)
                         && !_repairs.ContainsKey(operation.Id));
                 // A force-stopped job may still be finishing its own writes, so its repair waits for
                 // the job's FinishRepairAsync. A running log pass never holds a repair back: the log
                 // file lock keeps the repair's log steps apart from it.
-                if (!globalRunning
+                if (!jobRunning
                     && !_forceStoppedOwners.ContainsKey(operationId)
                     && !_repairs.Values.Any(repair => repair.Id != operationId
                         && repair.Phase == OperationRepairPhase.Running
@@ -936,8 +938,8 @@ public partial class OperationStateService
                 {
                     return;
                 }
-                // A global job that ends signals no repair work, so the wait looks again each second.
-                workChanged = globalRunning
+                // A job that ends signals no repair work, so the wait looks again each second.
+                workChanged = jobRunning
                     ? Task.WhenAny(_workChanged.Task, Task.Delay(TimeSpan.FromSeconds(1), stoppingToken))
                     : _workChanged.Task;
             }
