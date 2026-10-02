@@ -1281,8 +1281,8 @@ export interface OperationRun {
    * END of the handoff chain, the operation now doing the work.
    */
   nextOperationId?: string | null;
-  /** The raw detection error of an eviction scan that finished with a warning. */
-  warning?: string | null;
+  /** What the run left undone, each a locale key and the values its text names; empty when nothing. */
+  warnings?: { stageKey: string; context: Record<string, string | number> }[] | null;
   /** A kept ending: the server keeps it until someone closes it. */
   retained?: boolean;
   /** The final row after someone closed a kept ending; the card leaves on every screen. */

@@ -412,6 +412,16 @@
         "fullRepair": "正在更新后或修复文件无法读取后检查所有缓存数据…"
       },
       "repairFailed": "修复失败：{{reason}}",
+      "warnings": {
+        "cacheFilesKept": "无法删除的缓存文件：{{fileCount}} 个，例如 {{path}}。这些文件仍在磁盘上；其余缓存已清除。",
+        "logFilesSkipped": "以下日志文件出错，已跳过：{{fileNames}}。其他文件中的 {{entriesSaved}} 条记录已保存。",
+        "cacheFoldersUnchecked": "以下缓存文件夹未检查，其中的内容未标记为已驱逐：{{folders}}。这些文件夹不存在、没有缓存文件或无法完整读取；其余缓存已检查。",
+        "logFoldersMissing": "下载记录已移除，但由于日志文件夹不存在，这些数据源中的日志行仍然保留：{{datasources}}。从头重新读取这些日志可能会让它们再次出现。",
+        "logLinesKept": "下载记录已移除，但由于无法修改日志文件（权限被拒绝），这些数据源中的部分日志行仍然保留：{{datasources}}。从头重新读取这些日志可能会让它们再次出现。",
+        "datasourcesNotRepaired": "修复已完成，但跳过了以下数据源，因为它们已被移除或文件夹已更改：{{datasources}}。",
+        "cacheScansSkipped": "修复已完成，但由于日志布局已更改，未重新检查以下数据源的缓存：{{datasources}}。当每个日志文件夹只包含一种布局时，下一次驱逐扫描会检查它们。",
+        "servicesFailed": "{{serviceCount}} 个服务中有 {{failedCount}} 个失败，并保留各自的红色卡片；其他服务已完成。"
+      },
       "retryRepairFailed": "无法重试修复",
       "cancelling": "取消中...",
       "operationWaiting": "正在等待其他进程完成...",

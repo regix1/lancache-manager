@@ -412,6 +412,16 @@
         "fullRepair": "Checking all cache data after an update or an unreadable repair file…"
       },
       "repairFailed": "Repair failed: {{reason}}",
+      "warnings": {
+        "cacheFilesKept": "Cache files that could not be deleted: {{fileCount}}, for example {{path}}. They are still on disk; everything else was cleared.",
+        "logFilesSkipped": "Log files with errors were skipped: {{fileNames}}. {{entriesSaved}} entries from the other files were saved.",
+        "cacheFoldersUnchecked": "Cache folders not checked, so nothing in them was marked evicted: {{folders}}. Each was missing, held no cache files or could not be fully read; the rest of the cache was checked.",
+        "logFoldersMissing": "The downloads were removed, but their log lines stay in these datasources because the log folder is missing: {{datasources}}. Reading those logs again from the start can bring them back.",
+        "logLinesKept": "The downloads were removed, but some of their log lines stay in these datasources because a log file could not be changed (permission denied): {{datasources}}. Reading those logs again from the start can bring them back.",
+        "datasourcesNotRepaired": "The repair finished but skipped these datasources because they were removed or their folders changed: {{datasources}}.",
+        "cacheScansSkipped": "The repair finished but did not recheck the cache of these datasources because their log layout changed: {{datasources}}. The next eviction scan checks them once each log folder holds one layout.",
+        "servicesFailed": "{{failedCount}} of {{serviceCount}} services failed and keep their own red cards; the other services finished."
+      },
       "retryRepairFailed": "Could not retry the repair",
       "cancelling": "Cancelling...",
       "operationWaiting": "Waiting for another process to complete...",

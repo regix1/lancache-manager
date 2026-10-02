@@ -31,6 +31,8 @@ const TEMPLATES = {
   'common.notifications.operationWaitingOnNamed': '{{name}} is waiting for {{blocker}}',
   'common.notifications.cancelling': 'Cancelling...',
   'common.notifications.repairFailed': 'Repair failed: {{reason}}',
+  'common.notifications.warnings.datasourcesNotRepaired':
+    'The repair finished but skipped these datasources because they were removed or their folders changed: {{datasources}}.',
   'prefill.auth.waitingForSignIn': 'Waiting for {{service}} sign-in',
   'prefill.persistent.services.steam': 'Steam',
   'signalr.gameDetect.error.fatal': 'Game detection failed: {{errorDetail}}',
@@ -51,6 +53,11 @@ export default {
       options[name] === undefined ? token : String(options[name])),
   exists: (key) => key in templates || key.startsWith('signalr.')
 };`);
+
+// What the server sends for an eviction scan whose game detection failed with "boom".
+const DETECTION_WARNING = [
+  { stageKey: 'signalr.gameDetect.error.fatal', context: { errorDetail: 'boom' } }
+];
 
 // The store keeps the repairing cards hidden in this tab in sessionStorage, and decides once, when
 // it loads, whether that storage works; a test that hides one installs a fresh storage first.
@@ -346,7 +353,7 @@ test('with Keep Notifications Visible off, only red and amber cards stay, and no
     browser.push(row('S', { operationType: 'gameRemoval' }));
     browser.push(kept('S', { operationType: 'gameRemoval', status: 'skipped' }));
     browser.push(row('WARN'));
-    browser.push(kept('WARN', { status: 'completed', warning: 'boom' }));
+    browser.push(kept('WARN', { status: 'completed', warnings: DETECTION_WARNING }));
 
     mock.timers.tick(10 * 60 * 1000);
     browser.fade();
@@ -443,7 +450,11 @@ test('a run that succeeded with a warning is an amber card in every mode, first 
         try {
           const browser = new Browser({ keepSuccessVisible });
           if (seenStart) browser.push(row('R', { visibility }));
-          const ending = kept('R', { visibility, status: 'completed', warning: 'boom' });
+          const ending = kept('R', {
+            visibility,
+            status: 'completed',
+            warnings: DETECTION_WARNING
+          });
           if (seenStart) browser.push(ending);
           else browser.snapshot([ending]);
           mock.timers.tick(10 * 60 * 1000);
@@ -681,7 +692,10 @@ test('live log ingest keeps no record of a pass, and a live pass is never drawn 
 
 test('a kept skip or warning of a schedule leaves its failure card in place', () => {
   const schedule = { operationType: 'gameDetection' };
-  for (const later of [{ status: 'skipped' }, { status: 'completed', warning: 'boom' }]) {
+  for (const later of [
+    { status: 'skipped' },
+    { status: 'completed', warnings: DETECTION_WARNING }
+  ]) {
     const browser = new Browser();
     browser.push(kept('F', { ...schedule, status: 'failed' }));
     browser.push(kept('L', { ...schedule, ...later }));
@@ -747,7 +761,7 @@ test('a schedule keeps one kept ending of each kind, and an ending never closes 
   const schedule = { operationType: 'gameDetection' };
   const endings = {
     skip: { status: 'skipped' },
-    warning: { status: 'completed', warning: 'boom' },
+    warning: { status: 'completed', warnings: DETECTION_WARNING },
     failure: { status: 'failed' }
   };
   for (const steps of [
@@ -1314,7 +1328,12 @@ test('a log removal that found another log deleted outside the app is an amber c
     operationType: 'logRemoval',
     name: 'Log Removal',
     status: 'completed',
-    warning: 'blizzard-access.log'
+    warnings: [
+      {
+        stageKey: 'signalr.logRemoval.otherLogsGone',
+        context: { fileNames: 'blizzard-access.log' }
+      }
+    ]
   });
   live.push(ending);
   assert.equal(live.card('LR').details.notificationType, 'warning');
@@ -1325,6 +1344,58 @@ test('a log removal that found another log deleted outside the app is an amber c
   reloaded.snapshot([ending]);
   assert.equal(reloaded.card('LR').details.notificationType, 'warning');
   assert.equal(reloaded.card('LR').detailMessage, text);
+});
+
+test('a canceled run whose repair skipped a datasource is an amber card naming it, live and after a reload', () => {
+  const text =
+    'The repair finished but skipped these datasources because they were removed or their folders changed: alpha.';
+  const live = new Browser();
+  live.push(row('CL', { operationType: 'cacheClearing', name: 'Cache Clear' }));
+  // The ending is built after the live row so its revision is the newer one.
+  const ending = kept('CL', {
+    operationType: 'cacheClearing',
+    name: 'Cache Clear',
+    status: 'cancelled',
+    warnings: [
+      {
+        stageKey: 'common.notifications.warnings.datasourcesNotRepaired',
+        context: { datasources: 'alpha' }
+      }
+    ]
+  });
+  live.push(ending);
+  assert.equal(live.card('CL').details.notificationType, 'warning');
+  assert.equal(live.card('CL').detailMessage, text);
+
+  const reloaded = new Browser();
+  reloaded.snapshot([ending]);
+  assert.equal(reloaded.card('CL').details.notificationType, 'warning');
+  assert.equal(reloaded.card('CL').detailMessage, text);
+});
+
+test('a failed run with a warning stays red and still shows the warning', () => {
+  const browser = new Browser();
+  browser.snapshot([
+    kept('FL', {
+      operationType: 'cacheClearing',
+      name: 'Cache Clear',
+      status: 'failed',
+      error: 'Disk full',
+      warnings: [
+        {
+          stageKey: 'common.notifications.warnings.datasourcesNotRepaired',
+          context: { datasources: 'alpha' }
+        }
+      ]
+    })
+  ]);
+  const card = browser.card('FL');
+  assert.equal(card.status, 'failed');
+  assert.equal(card.details.notificationType, undefined);
+  assert.equal(
+    card.detailMessage,
+    'The repair finished but skipped these datasources because they were removed or their folders changed: alpha.'
+  );
 });
 
 // ── Reload, reconnect, tab return (criteria 12, 13) ─────────────────────────

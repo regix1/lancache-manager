@@ -43,7 +43,6 @@ import {
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { waitingCardMessage } from './handlers';
-import { detectionErrorDetail } from './detailMessageFormatters';
 
 /** The text, detail line and percent that per-type events or detail recovery supplied for a run. */
 export interface RunDetail {
@@ -196,7 +195,15 @@ export function readOperationRun(value: unknown): OperationRun | null {
     isIsoDate(value.startedAt) &&
     isOptionalText(value.error) &&
     isOptionalText(value.blockedByName) &&
-    isOptionalText(value.warning) &&
+    (value.warnings === undefined ||
+      value.warnings === null ||
+      (Array.isArray(value.warnings) &&
+        value.warnings.every(
+          (warning) =>
+            isPlainRecord(warning) &&
+            isNonEmptyString(warning.stageKey) &&
+            isPlainRecord(warning.context)
+        ))) &&
     isOptionalId(value.previousOperationId) &&
     isOptionalId(value.parentOperationId) &&
     isOptionalId(value.nextOperationId) &&
@@ -1079,18 +1086,14 @@ function drawRun(entry: RunEntry): UnifiedNotification {
         ? 'cancelling'
         : run.status;
   const kept = run.retained === true && !live;
-  const warning =
-    run.status === 'completed' && run.warning && !repairing && !repairFailed
-      ? run.warning
+  // What an ended run left undone, worded by the locale key the server chose for each. A completed
+  // or canceled run with one is an amber card; a failed one stays red and shows the same lines.
+  const warningLine =
+    !live && !repairing && !repairFailed && run.warnings && run.warnings.length > 0
+      ? run.warnings.map((warning) => i18n.t(warning.stageKey, warning.context)).join(' ')
       : undefined;
-  // A log removal's warning names logs of other series deleted outside the app; every other warning
-  // is the eviction scan's failed game detection.
-  const line = warning
-    ? (detail.detailMessage ??
-      (cardType(run) === 'log_removal'
-        ? i18n.t('signalr.logRemoval.otherLogsGone', { fileNames: warning })
-        : detectionErrorDetail({ context: { detectionError: warning } })))
-    : detail.detailMessage;
+  const amber = warningLine !== undefined && run.status !== 'failed';
+  const line = warningLine ?? detail.detailMessage;
   const failures = run.consecutiveFailures ?? 0;
   const lines = [
     kept && failures > 1
@@ -1179,7 +1182,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
       connectionRecovering: entry.connectionRecovering,
       ...(repairFailed ? { repairFailed: true } : {}),
       ...(kept ? { closeOperationIds: [run.operationId] } : {}),
-      ...(warning ? { notificationType: 'warning' as const } : {})
+      ...(amber ? { notificationType: 'warning' as const } : {})
     }
   };
 }
