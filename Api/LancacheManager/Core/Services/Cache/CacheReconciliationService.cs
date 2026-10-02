@@ -668,6 +668,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                     scanResult.Processed, scanResult.Evicted, scanResult.UnEvicted);
 
+                // A cache folder that was missing, empty or partly unreadable was not checked, so a
+                // wrong mount no longer passes as a clean scan.
+                if (scanResult.UncheckedFolders.Count > 0)
+                {
+                    var folders = string.Join(", ", scanResult.UncheckedFolders);
+                    _logger.LogWarning("[EvictionScan] Cache folders not checked: {Folders}", folders);
+                    _operationTracker.SetWarning(operationId, new RunWarning(
+                        "common.notifications.warnings.cacheFoldersUnchecked",
+                        new Dictionary<string, object?> { ["folders"] = folders }));
+                }
+
                 await ReportScanProgressAsync(
                     operationId,
                     86.0,
@@ -2057,6 +2068,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             .ToList();
         if (redoSources is null)
         {
+            // A datasource whose log folder is missing keeps the lines of the rows this step deletes, and
+            // reading its logs again from the start can bring them back, so the removal's card names it.
+            var logFoldersMissing = _datasourceService.GetDatasources()
+                .Where(datasource => !string.IsNullOrWhiteSpace(datasource.LogPath)
+                    && !Directory.Exists(datasource.LogPath))
+                .Select(datasource => datasource.Name)
+                .ToList();
+            if (logFoldersMissing.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.logFoldersMissing",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", logFoldersMissing) }));
+            }
+
             // Every start comes before the lock: a start waits for another operation's repair,
             // and that repair may need the lock for its own position reset.
             foreach (var datasource in datasources)
@@ -2369,6 +2394,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         EvictedLogPurgeRunOptions options)
     {
         var purged = new List<string>();
+        var logLinesKept = new List<string>();
         if (reportProgress)
         {
             await ReportRemovalProgressAsync(
@@ -2428,6 +2454,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 stoppingToken);
             totalLinesRemoved += report.LinesRemoved;
             purged.Add(datasource.Name);
+            if (report.PermissionErrors > 0)
+            {
+                logLinesKept.Add(datasource.Name);
+            }
             _logger.LogInformation(
                 "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
                 options.SuccessDescription,
@@ -2436,6 +2466,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 report.PermissionErrors);
 
             dsIndex++;
+        }
+
+        // Lines a permission error kept stay in the log, and reading it again from the start can bring
+        // their rows back; the removal's card names the datasources. A repair's redo has no card of its own.
+        if (reportProgress && logLinesKept.Count > 0)
+        {
+            _operationTracker.SetWarning(operationId, new RunWarning(
+                "common.notifications.warnings.logLinesKept",
+                new Dictionary<string, object?> { ["datasources"] = string.Join(", ", logLinesKept) }));
         }
 
         _logger.LogInformation(

@@ -34,6 +34,8 @@ internal class EvictionScanResult
     public int UnEvicted { get; set; }
     public int FilesOnDisk { get; set; }
     public string? Error { get; set; }
+    /// <summary>Cache folders the scan did not check (missing, empty, or partly unreadable); none of their downloads was marked evicted.</summary>
+    public List<string> UncheckedFolders { get; set; } = new();
 }
 
 internal sealed class CacheRepairDocument

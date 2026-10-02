@@ -378,6 +378,12 @@ public class CacheClearingService : ScheduledBackgroundService
             var totalBytesDeleted = 0L;
             var totalFilesDeleted = 0L;
             var totalDirsProcessed = 0;
+            // A datasource whose clear failed fails the run only after every other datasource had its turn.
+            var failedDatasources = new List<string>();
+            RustProcessException? firstFailure = null;
+            // Files a datasource's clear could not delete stay on disk; the run completes and names them.
+            var undeletedFiles = 0UL;
+            string? firstUndeleted = null;
             var dirsProcessedBefore = 0;
 
             // Get operation for CancellationToken access
@@ -518,11 +524,27 @@ public class CacheClearingService : ScheduledBackgroundService
                     },
                     "cache_cleaner");
 
-                result.EnsureSuccess("cache_cleaner", dsName, cancellationToken);
+                try
+                {
+                    result.EnsureSuccess("cache_cleaner", dsName, cancellationToken);
+                }
+                catch (RustProcessException failure)
+                {
+                    _logger.LogError(failure, "Cache clear failed for datasource {Datasource}", dsName);
+                    failedDatasources.Add(dsName);
+                    firstFailure ??= failure;
+                    await _rustProcessHelper.DeleteTempFileAsync(progressFile);
+                    continue;
+                }
 
                 _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Rust cache cleaner output: {result.Output}");
 
                 var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
+                if (finalProgress?.UndeletedFiles > 0)
+                {
+                    undeletedFiles += finalProgress.UndeletedFiles;
+                    firstUndeleted ??= finalProgress.FirstUndeleted;
+                }
                 if (finalProgress != null)
                 {
                     totalBytesDeleted += (long)finalProgress.BytesDeleted;
@@ -545,7 +567,9 @@ public class CacheClearingService : ScheduledBackgroundService
                     {
                         var source = repair.Sources.Single(item =>
                             item.Datasource.Equals(dsName, StringComparison.OrdinalIgnoreCase));
-                        source.NativeCompletionAccepted = true;
+                        // Files the clear could not delete are still cached, so the repair's full scan
+                        // decides this datasource's downloads instead of evicting them all.
+                        source.NativeCompletionAccepted = !(finalProgress?.UndeletedFiles > 0);
                         repair.CacheClearing = new CacheClearingRepair
                         {
                             EntityKey = datasourceName ?? "all",
@@ -566,6 +590,13 @@ public class CacheClearingService : ScheduledBackgroundService
                 await _rustProcessHelper.DeleteTempFileAsync(progressFile);
                 _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
                 clearedDatasourceNames.Add(dsName);
+            }
+
+            if (firstFailure is not null)
+            {
+                throw new InvalidOperationException(
+                    $"{string.Join(", ", failedDatasources)} could not be cleared: {firstFailure.Message}",
+                    firstFailure);
             }
 
             var datasourceNames = string.Join(", ", validCachePaths.Select(p => p.Name));
@@ -621,6 +652,13 @@ public class CacheClearingService : ScheduledBackgroundService
                 success: true,
                 cancelled: false,
                 error: null);
+
+            if (undeletedFiles > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFilesKept",
+                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
+            }
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true,
@@ -962,6 +1000,8 @@ public class CacheClearingService : ScheduledBackgroundService
         public ulong FilesDeleted { get; set; }
         public List<string> ActiveDirectories { get; set; } = new();
         public int ActiveCount { get; set; }
+        public ulong UndeletedFiles { get; set; }
+        public string? FirstUndeleted { get; set; }
     }
 
     /// <summary>

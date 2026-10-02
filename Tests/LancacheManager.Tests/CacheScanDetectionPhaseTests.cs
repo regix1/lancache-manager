@@ -156,6 +156,40 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task AnEvictionRemovalWhoseLogFolderIsMissingNamesItOnItsCardAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        // The key recipe is configured, so the missing folder does not turn the evidence unknown first.
+        source.SchemeOverride = DatasourceSchemeOverride.Monolithic;
+        Directory.Delete(source.LogPath, recursive: true);
+
+        await ctx.WaitForRepairAsync(
+            ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None),
+            TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => ctx._operationStateService.GetBlockingRepair() is null);
+
+        var removal = Assert.Single(tracker.GetRuns().Runs,
+            run => run.OperationType == OperationType.EvictionRemoval.ToWireString());
+        var warning = Assert.Single(removal.Warnings);
+        Assert.Equal("common.notifications.warnings.logFoldersMissing", warning.StageKey);
+        Assert.Equal(source.Name, warning.Context["datasources"]);
+        Assert.True(removal.Retained);
+        Assert.False(await context.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
     public async Task SaveRemoveRetriesReopenBeforeDeletingEvictedRowsAsync()
     {
         using var ctx = new PhaseContext();
@@ -1737,6 +1771,86 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.False(evicted["after"]);
     }
 
+    [Fact]
+    public async Task AClearWhoseMiddleDatasourceFailsStillClearsTheRestThenFailsAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true), ("beta", [], true), ("gamma", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var beta = run.Datasources.GetDatasource("beta")!.CachePath;
+        var gamma = run.Datasources.GetDatasource("gamma")!.CachePath;
+        // cache_clear for a root it cannot list: main writes the failed progress, prints the error and exits 1.
+        run.Rust.Clears[beta] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "failed",
+                stageKey = "signalr.cacheClear.error.fatal",
+                context = new { errorDetail = "failed to enumerate cache root: Input/output error (os error 5)" },
+                directoriesProcessed = 0,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            1,
+            "Error: failed to enumerate cache root: Input/output error (os error 5)");
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.Equal([alpha, beta, gamma], run.Rust.ClearedPaths);
+        Assert.Contains("after clearing alpha, gamma", terminal.Message, StringComparison.Ordinal);
+        Assert.Contains("beta could not be cleared", terminal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AClearThatCouldNotDeleteSomeFilesCompletesWithAWarningAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var kept = Path.Combine(alpha, "aa", "0123456789abcdef0123456789abcdef");
+        // cache_clear when one file could not be deleted: it clears the rest, exits 0 and names the file
+        // in its final progress.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 1,
+                firstUndeleted = kept
+            }),
+            0,
+            string.Empty);
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFilesKept", warning.StageKey);
+        Assert.Equal(1UL, warning.Context["fileCount"]);
+        Assert.Equal(kept, warning.Context["path"]);
+        Assert.True(row.Retained);
+        var repair = await run.WaitForCompletedRepairAsync(clearId);
+        Assert.False(Assert.Single(repair.Sources).NativeCompletionAccepted);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -2478,6 +2592,13 @@ public sealed class CacheScanDetectionPhaseTests
         public List<(string Logs, string Input)> Runs { get; } = [];
         /// <summary>Runs once the child has rewritten the log, with its run number from 1 and its operation.</summary>
         public Func<int, Guid, Task>? OnRun { get; set; }
+        /// <summary>The cache paths each cache_cleaner run was given, in order.</summary>
+        public List<string> ClearedPaths { get; } = [];
+        /// <summary>
+        /// What a cache_cleaner run for a listed cache path writes, as cache_clear does: its progress file,
+        /// its exit code and its stderr. A path not listed ends at once as done.
+        /// </summary>
+        public Dictionary<string, (string Progress, int ExitCode, string Error)> Clears { get; } = [];
 
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
@@ -2488,7 +2609,16 @@ public sealed class CacheScanDetectionPhaseTests
         {
             if (processLabel == "cache_cleaner")
             {
-                return new ProcessExecutionResult { ExitCode = 0 };
+                var clearArguments = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
+                    .Select(match => match.Groups[1].Value)
+                    .ToArray();
+                ClearedPaths.Add(clearArguments[0]);
+                if (!Clears.TryGetValue(clearArguments[0], out var clear))
+                {
+                    return new ProcessExecutionResult { ExitCode = 0 };
+                }
+                await File.WriteAllTextAsync(clearArguments[1], clear.Progress, cancellationToken);
+                return new ProcessExecutionResult { ExitCode = clear.ExitCode, Error = clear.Error };
             }
 
             Assert.Equal("cache_purge_log_entries", processLabel);
