@@ -529,7 +529,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var detectionPhaseDenial = _capabilityService.CheckAllCanMapLogicalObjects();
             if (detectionPhaseDenial != null)
             {
-                throw new InvalidOperationException(detectionPhaseDenial);
+                throw new ConflictException(detectionPhaseDenial);
             }
 
             _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary");
@@ -725,6 +725,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogInformation("[EvictionScan] Operation {OperationId} was cancelled", operationId);
             operationCancelled = true;
             // No error text: the run stopped on request, and Success:false already carries that.
+        }
+        catch (ConflictException refusal)
+        {
+            // Refused after the detection phase, before any work started: logged as the same refusal
+            // before the detection phase is.
+            _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", refusal.Message);
+            operationError = refusal.Message;
         }
         catch (Exception ex)
         {

@@ -1722,6 +1722,8 @@ public sealed class CacheScanDetectionPhaseTests
     public async Task AScanWhoseKeyEvidenceTurnsMixedDuringItsDetectionOwesNoRepairAsync()
     {
         using var ctx = new PhaseContext();
+        var log = new CapturingLogger<CacheReconciliationService>();
+        PhaseContext.SetField(ctx.Scan, "_logger", log);
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
@@ -1753,6 +1755,9 @@ public sealed class CacheScanDetectionPhaseTests
 
         Assert.False(launched);
         Assert.DoesNotContain(ctx._operationStateService.GetPendingRepairs(), repair => repair.Id == scanId);
+        Assert.Contains(log.Entries, entry => entry.Level == LogLevel.Warning
+            && entry.Message.Contains("Skipping eviction scan", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Entries, entry => entry.Message.Contains("Error during eviction scan", StringComparison.Ordinal));
     }
 
     [Fact]
