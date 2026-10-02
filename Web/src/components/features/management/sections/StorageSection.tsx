@@ -281,11 +281,23 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     };
   }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning, scheduleEvictedItemsRefresh]);
 
-  // The cache repair those jobs owe can change the evicted items after their Complete events.
-  useRepairEnd(['cache_clearing', 'cache_repair', 'eviction_scan', 'game_detection'], () => {
-    if (isAnyEvictedRemovalRunning) return;
-    scheduleEvictedItemsRefresh(() => void fetchEvictedItems());
-  });
+  // The cache repair those jobs owe can change the evicted items after their Complete events, and
+  // the repair of a cancelled removal marks the files it already deleted as evicted.
+  useRepairEnd(
+    [
+      'cache_clearing',
+      'cache_repair',
+      'eviction_scan',
+      'game_detection',
+      'game_removal',
+      'service_removal',
+      'corruption_removal'
+    ],
+    () => {
+      if (isAnyEvictedRemovalRunning) return;
+      scheduleEvictedItemsRefresh(() => void fetchEvictedItems());
+    }
+  );
 
   // Track the eviction target so we know which item to filter on eviction_removal completion
   const removalTargetRef = useRef<CacheRemovalTarget | null>(null);

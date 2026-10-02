@@ -65,6 +65,7 @@ const {
   createRecoveryRunner,
   createRunStoreState,
   deriveNotifications,
+  deriveRepairingRuns,
   deriveRuns,
   hideRun,
   locateRun,
@@ -2586,6 +2587,77 @@ test('a later failed run of the same schedule leaves an older red repair card an
   control.push(row('F'));
   control.push(kept('F', failed));
   assert.deepEqual(control.drawn(), ['F:eviction_scan:failed']);
+});
+
+test('every run whose repair still runs is listed, folded and Hidden ones included', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const bulk = bulkRemovalCard({ currentOperationId: 'I1', itemOperationIds: ['I1'] });
+  const browser = new Browser({ localCards: [bulk] });
+  const item = { operationType: 'gameRemoval', name: 'Game Removal' };
+  browser.push(row('I1', item));
+  browser.push(repairingRow('I1', item));
+  browser.push(row('H', { visibility: 'hidden' }));
+  browser.push(repairingRow('H', { visibility: 'hidden' }));
+  browser.push(row('C'));
+  browser.push(repairingRow('C'));
+  // A live row can carry the flag before its job ends; the job's own row decides then.
+  browser.push(row('L', { repairing: true }));
+  browser.push(row('E'));
+  browser.push(repairingRow('E'));
+  browser.push(row('E', { status: 'cancelled', repairing: false, repairError: null }));
+
+  assert.deepEqual(
+    browser
+      .cards()
+      .filter((card) => card.status === 'repairing')
+      .map((card) => card.id),
+    ['C'],
+    'only the card run draws its repair'
+  );
+  assert.deepEqual(
+    deriveRepairingRuns(browser.state).map((run) => `${run.id}:${run.type}:${run.status}`),
+    ['I1:game_removal:repairing', 'H:eviction_scan:repairing', 'C:eviction_scan:repairing']
+  );
+});
+
+test('a failed-out repair under a failed batch card does not keep that card', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser({
+    localCards: [bulkRemovalCard({ itemOperationIds: ['I1', 'I2'] }, { status: 'failed' })]
+  });
+  const item = { operationType: 'gameRemoval', name: 'Game Removal' };
+  const failed = { ...item, status: 'failed', error: 'Boom' };
+  browser.push(row('I1', item));
+  browser.push(row('I2', item));
+  browser.push(failedOutRow('I1', failed));
+  browser.push(kept('I2', failed));
+  let settled = settleBulkCards(browser.state, browser.localCards);
+  browser.state = settled.next;
+  assert.deepEqual(settled.release, []);
+  assert.deepEqual(browser.drawn(), ['I1:game_removal:failed', 'bulk:bulk_removal:failed']);
+  assert.deepEqual(browser.card('bulk').details.closeOperationIds, ['I2']);
+
+  // The other item is closed elsewhere: the batch card can close nothing more, so it leaves.
+  browser.push({ ...kept('I2', failed), closed: true });
+  settled = settleBulkCards(browser.state, browser.localCards);
+  assert.deepEqual(settled.release, ['bulk']);
+  assert.equal(browser.card('I1').details.repairFailed, true, 'the red repair card stays');
+});
+
+test('hiding a live card whose row already says repairing hides it like any live card', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser();
+  browser.push(row('B'));
+  browser.push(row('B', { repairing: true }));
+  assert.deepEqual(browser.drawn(), ['B:eviction_scan:running']);
+  browser.state = hideRun(browser.state, 'B');
+  assert.deepEqual(browser.drawn(), []);
+  assert.equal(globalThis.sessionStorage.getItem(HIDDEN_REPAIRS_KEY), null);
+
+  // The job's ending row draws the card again, teal.
+  browser.push(repairingRow('B'));
+  assert.deepEqual(browser.drawn(), ['B:eviction_scan:repairing']);
+  assert.equal(browser.card('B').stripOnly, undefined);
 });
 
 test('a running job held at its log step names what holds it, then shows its own progress', () => {

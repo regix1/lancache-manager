@@ -970,9 +970,12 @@ export function setRunCancel(
  */
 export function hideRun(state: RunStoreState, cardId: string): RunStoreState {
   const entry = [...state.entries.values()].find((candidate) => candidate.cardId === cardId);
+  if (!entry) return state;
+  // A live row can carry the repair flag before its job ends; that card hides like any live card.
+  const repairingEnded = !isLive(entry) && entry.run.repairing === true;
   // A row may have ended the run after the card was drawn; its ending must stay on screen.
-  if (!entry || !(isLive(entry) || entry.run.repairing === true)) return state;
-  if (entry.run.repairing === true)
+  if (!(isLive(entry) || repairingEnded)) return state;
+  if (repairingEnded)
     sessionStore.setJSON(HIDDEN_REPAIRING_RUNS_KEY, [
       ...hiddenRepairingRuns(),
       entry.run.operationId
@@ -995,8 +998,12 @@ export function settleBulkCards(
 ): { next: RunStoreState; release: string[] } {
   const holding = new Set<string>();
   for (const entry of state.entries.values()) {
-    // A kept run that is fading out was already closed; it holds nothing.
-    const owner = entry.run.retained && !entry.leaving ? bulkOwner(entry, localCards) : undefined;
+    // A kept run that is fading out was already closed; it holds nothing. A failed-out repair is
+    // always its own card, which the batch card cannot close, so it holds nothing either.
+    const owner =
+      entry.run.retained && !entry.leaving && typeof entry.run.repairError !== 'string'
+        ? bulkOwner(entry, localCards)
+        : undefined;
     if (owner) holding.add(owner.id);
   }
   const added = [...holding].filter((id) => !state.keptBatches.has(id));
@@ -1203,7 +1210,8 @@ export function deriveNotifications(
         ? entry.visibility === 'card'
         : entry.visibility !== 'hidden';
     // A repairing card hidden here is still drawn, as its compact strip segment only.
-    if (drawn && (!entry.hiddenHere || entry.run.repairing)) cards.push(drawRun(entry));
+    if (drawn && (!entry.hiddenHere || (!isLive(entry) && entry.run.repairing)))
+      cards.push(drawRun(entry));
   }
   for (const card of localCards) {
     const waiting = isTerminalNotificationStatus(card.status)
@@ -1235,5 +1243,16 @@ export function deriveRuns(state: RunStoreState): UnifiedNotification[] {
     .filter(
       (entry) => !isTerminalNotificationStatus(entry.run.status) && !foldedUnderParent(state, entry)
     )
+    .map(drawRun);
+}
+
+/**
+ * Every run whose job ended while its cache repair still runs, as a card object: what a page whose
+ * data the repair changes waits on before it reloads. Runs folded under a parent or a bulk card and
+ * Hidden ones are included: the repair changes that data whether or not the run draws a card.
+ */
+export function deriveRepairingRuns(state: RunStoreState): UnifiedNotification[] {
+  return [...state.entries.values()]
+    .filter((entry) => !isLive(entry) && entry.run.repairing === true)
     .map(drawRun);
 }

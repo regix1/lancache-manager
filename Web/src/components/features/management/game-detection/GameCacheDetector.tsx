@@ -492,11 +492,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, [on, off, scheduleCachedDetectionSync]);
 
-  // The cache repair those jobs owe can change the cached results after their Complete events.
+  // The cache repair those jobs owe can change the cached results after their Complete events, and
+  // the repair of a cancelled service removal marks the files it already deleted as evicted.
   useRepairEnd(
     [
       'game_detection',
       'game_removal',
+      'service_removal',
       'eviction_removal',
       'cache_clearing',
       'cache_repair',

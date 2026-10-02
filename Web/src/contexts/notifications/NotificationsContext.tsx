@@ -30,6 +30,7 @@ import {
   changeSession,
   createRunStoreState,
   deriveNotifications,
+  deriveRepairingRuns,
   deriveRuns,
   endStatus,
   hideRun,
@@ -656,6 +657,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [version]
   );
+  const repairingRuns = useMemo(
+    () => deriveRepairingRuns(storeRef.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version]
+  );
 
   // Compute if any removal operation is running (these all share a backend lock)
   const isAnyRemovalRunning = useMemo(
@@ -670,6 +676,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const value: NotificationsContextType = {
     notifications,
     runs,
+    repairingRuns,
     addNotification,
     updateNotification,
     removeNotification,

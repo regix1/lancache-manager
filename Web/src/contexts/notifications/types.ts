@@ -269,6 +269,11 @@ export interface NotificationsContextType {
    */
   runs: UnifiedNotification[];
   /**
+   * Every run whose job ended while its cache repair still runs, folded and Hidden ones included:
+   * what a page whose data the repair changes waits on before it reloads.
+   */
+  repairingRuns: UnifiedNotification[];
+  /**
    * Adds a card the browser owns itself.
    * @param notification - The card data (id and startedAt are generated automatically)
    * @returns The generated notification ID
