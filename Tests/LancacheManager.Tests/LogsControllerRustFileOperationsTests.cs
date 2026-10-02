@@ -898,8 +898,11 @@ public sealed class LogsControllerRustFileOperationsTests
             return Task.FromResult(new LogLineCountResult(0, 0, new Dictionary<string, long>()));
         };
 
-        await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
 
+        Assert.Equal("errors.logs.filesChanged", refusal.StageKey);
+        Assert.NotNull(refusal.Context);
+        Assert.False(string.IsNullOrWhiteSpace(Assert.IsType<string>(refusal.Context["reason"])));
         Assert.Empty(fixture.RustHelper.DeleteRequests);
         Assert.True(File.Exists(current));
         Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
@@ -944,6 +947,29 @@ public sealed class LogsControllerRustFileOperationsTests
         fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 3 });
         // logrotate moves the chosen file while the delete looks for its writer.
         nginx!.DuringWriterSearch = () => File.Move(current, Path.Combine(fixture.AlphaLogPath, "access.log.1"));
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Equal("errors.logs.writerCheckFailed", refusal.StageKey);
+        Assert.Empty(fixture.RustHelper.DeleteRequests);
+        Assert.Equal(3, fixture.State.GetLogPosition("alpha"));
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_AFileTheAppCannotOpenDuringTheWriterSearchDeletesNothingAsync()
+    {
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
+        var current = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(current, string.Concat(Enumerable.Repeat("x\n", 3)));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 3 });
+        // logrotate moves the chosen file while the delete looks for its writer and leaves in its place a
+        // path the app cannot open as a file.
+        nginx!.DuringWriterSearch = () =>
+        {
+            File.Move(current, Path.Combine(fixture.AlphaLogPath, "access.log.1"));
+            Directory.CreateDirectory(current);
+        };
 
         var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
 

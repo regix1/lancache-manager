@@ -732,8 +732,9 @@ public class LogsController : ControllerBase
             }
         }
         // The delete removes only files it proved no other program writes to. When that proof cannot be
-        // made (logrotate compressing or copying a log, a file logrotate moved during the check, or an
-        // nginx writer this app cannot confirm), nothing is deleted and the reason is shown.
+        // made (logrotate compressing or copying a log, a file logrotate moved or replaced with one this app
+        // cannot open during the check, or an nginx writer this app cannot confirm), nothing is deleted and
+        // the reason is shown.
         NginxReopenCheck prepared;
         try
         {
@@ -743,7 +744,7 @@ public class LogsController : ControllerBase
                 expectsPublication: false,
                 cancellationToken);
         }
-        catch (Exception error) when (error is InvalidOperationException or IOException)
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             throw new ConflictException(
                 $"The delete could not check that no other program is writing to the log files. Nothing was deleted. {error.Message}")
@@ -754,21 +755,22 @@ public class LogsController : ControllerBase
         }
         await using var reopenCheck = prepared;
 
-        // logrotate moved or replaced a chosen file since the check was prepared, or moved it between the
-        // check's existence test and its identity read: the delete is refused before anything is deleted,
-        // with a reason the user can act on.
+        // logrotate moved or replaced a chosen file since the check was prepared, moved it between the check's
+        // existence test and its identity read, or left a file this app cannot open: the delete is refused
+        // before anything is deleted, with the reason.
         void RefuseIfFilesChanged()
         {
             try
             {
                 _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
             }
-            catch (Exception changed) when (changed is InvalidOperationException or IOException)
+            catch (Exception changed) when (changed is InvalidOperationException or IOException or UnauthorizedAccessException)
             {
                 throw new ConflictException(
                     $"The log files changed while the delete was getting ready. Nothing was deleted. {changed.Message}")
                 {
-                    StageKey = "errors.logs.filesChanged"
+                    StageKey = "errors.logs.filesChanged",
+                    Context = new Dictionary<string, object?> { ["reason"] = changed.Message }
                 };
             }
         }
