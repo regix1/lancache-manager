@@ -1090,7 +1090,8 @@ public sealed class OperationRepairTests : IDisposable
             Datasource = "alpha",
             CacheRoot = type == OperationType.CacheClearing ? capturedCacheRoot : null,
             LogRoot = type == OperationType.LogRemoval ? capturedLogRoot : null,
-            KeyScheme = mixedKeyEvidence ? "monolithic" : null
+            KeyScheme = mixedKeyEvidence ? "monolithic" : null,
+            ReconcileCache = type == OperationType.CacheClearing
         };
         var repair = new OperationRepair
         {
@@ -1130,6 +1131,7 @@ public sealed class OperationRepairTests : IDisposable
             logger: log);
         owner = Assert.IsType<RepairOwner>(harness.Owner);
 
+        repair.Id = harness.Tracker.RegisterOperation(type, repair.Name, new CancellationTokenSource(), ownerCompletes: true);
         await owner.StartAsync(CancellationToken.None);
         await owner.PrepareRepairAsync(repair, CancellationToken.None);
         await owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
@@ -1138,7 +1140,20 @@ public sealed class OperationRepairTests : IDisposable
             success: false,
             cancelled: true,
             error: "requested cancellation").WaitAsync(TimeSpan.FromSeconds(5));
+        harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
         await WaitForAsync(() => state.LoadOperationRepairs().Single().Phase == OperationRepairPhase.Completed);
+        await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.Repairing == false);
+
+        // The card names what the repair left out: a changed or missing datasource, or a cache scan the
+        // changed log layout skipped; a log removal has no cache scan to skip.
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        var expectedWarning = !mixedKeyEvidence
+            ? "common.notifications.warnings.datasourcesNotRepaired"
+            : type == OperationType.CacheClearing
+                ? "common.notifications.warnings.cacheScansSkipped"
+                : null;
+        Assert.Equal(expectedWarning, row.Warnings.SingleOrDefault()?.StageKey);
+        Assert.Equal(expectedWarning is not null, row.Retained);
 
         // The changed or missing datasource abstains, and a mixed-evidence one only leaves the cache scan; this
         // canceled job left no log step to finish, so nothing of it is touched, nothing fails and nothing waits.

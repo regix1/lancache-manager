@@ -1808,6 +1808,9 @@ public partial class OperationStateService
         // Steps act on this copy; it is never saved.
         var applied = CopyRepair(repair);
 
+        // Datasources the repair leaves out, named on the job's card when it ends.
+        var removedOrChanged = new List<string>();
+        var layoutChanged = new List<string>();
         if (!IsDownloadsRefreshOnly(repair))
         {
             var datasourceService = services.GetRequiredService<DatasourceService>();
@@ -1831,6 +1834,7 @@ public partial class OperationStateService
                         source.Datasource,
                         repair.Id);
                     applied.Sources.Remove(source);
+                    removedOrChanged.Add(source.Datasource);
                 }
                 else if (source.KeyScheme is not null
                     && !string.Equals(
@@ -1847,7 +1851,15 @@ public partial class OperationStateService
                         source.Datasource,
                         repair.Id);
                     source.KeyScheme = null;
+                    layoutChanged.Add(source.Datasource);
                 }
+            }
+
+            if (removedOrChanged.Count > 0)
+            {
+                _operationTracker.SetWarning(repair.Id, new RunWarning(
+                    "common.notifications.warnings.datasourcesNotRepaired",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", removedOrChanged) }));
             }
         }
 
@@ -1980,13 +1992,28 @@ public partial class OperationStateService
         }
 
         // Only sources with a key scheme can be scanned (ReconcileRepairAsync drops the rest).
-        var scannedSources = applied.Type is (OperationType.CacheClearing
+        var scansCache = applied.Type is (OperationType.CacheClearing
                 or OperationType.GameRemoval
                 or OperationType.ServiceRemoval
                 or OperationType.CorruptionRemoval)
-            && !skipsCacheScan
+            && !skipsCacheScan;
+        var scannedSources = scansCache
             ? launchedSources.Where(source => source.ReconcileCache && source.KeyScheme is not null).ToList()
             : [];
+        // A datasource whose log layout changed is left out of a cache scan this repair runs, so the card
+        // says its cache was not rechecked; a repair that runs no scan skipped nothing.
+        var layoutSkipped = scansCache
+            ? launchedSources
+                .Where(source => source.ReconcileCache && layoutChanged.Contains(source.Datasource))
+                .Select(source => source.Datasource)
+                .ToList()
+            : [];
+        if (layoutSkipped.Count > 0)
+        {
+            _operationTracker.SetWarning(repair.Id, new RunWarning(
+                "common.notifications.warnings.cacheScansSkipped",
+                new Dictionary<string, object?> { ["datasources"] = string.Join(", ", layoutSkipped) }));
+        }
         if (scannedSources.Count > 0)
         {
             await services.GetRequiredService<CacheReconciliationService>()
