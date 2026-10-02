@@ -569,6 +569,20 @@ public class RustLogRemovalService
                         StageKey = string.IsNullOrEmpty(finalProgress?.StageKey) ? null : finalProgress.StageKey
                     };
 
+                    if (step.OtherLogsGone.Count > 0)
+                    {
+                        var otherLogs = string.Join(", ", step.OtherLogsGone);
+                        _logger.LogWarning(
+                            "Log removal for {Service} in datasource {Datasource} found other logs deleted outside the app ({Logs}); their series will be read again",
+                            service,
+                            datasourceName,
+                            otherLogs);
+                        // Set before CompleteOperation, whose ending row carries it as the warning.
+                        _operationTracker.UpdateMetadata(
+                            operationId!.Value,
+                            (object meta) => ((RemovalMetrics)meta).OtherLogsGone = otherLogs);
+                    }
+
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
                         service, datasourceName, finalProgress?.LinesRemoved ?? 0);
                     await SaveSourceAsync(
@@ -705,7 +719,7 @@ public class RustLogRemovalService
     /// end leaves the source started and not kept, so the repair runs this step again. The removal
     /// job runs it inside the cache lock and the repair runs it without.
     /// </summary>
-    private async Task<(ProcessExecutionResult Result, LogRemovalProgress? Progress, LogRotationResult Reopen)> RunLogRemovalStepAsync(
+    private async Task<(ProcessExecutionResult Result, LogRemovalProgress? Progress, LogRotationResult Reopen, IReadOnlyList<string> OtherLogsGone)> RunLogRemovalStepAsync(
         Guid operationId,
         string service,
         ResolvedDatasource datasource,
@@ -840,13 +854,26 @@ public class RustLogRemovalService
                     removedMap);
             }
 
+            IReadOnlyList<string> otherLogsGone = Array.Empty<string>();
             if (result.ExitCode == 0 && reopen.Success)
             {
                 // Bare-metal removal deletes the service's whole source file series; the
                 // deleted stems' checkpoints must not survive the files.
+                var serviceStems = LancacheManager.Core.Services.LogSourceLayout.StemsForService(service);
+                _stateService.ClearLogSourcePositions(datasource.Name, serviceStems);
+                // A bound log of another series that something outside the app deleted during the step was
+                // not this removal's to delete, and the child left it unchanged. A saved position counts
+                // lines across the whole series, so a vanished file shifts it past lines never read; that
+                // series is read again from its first line.
+                otherLogsGone = reopenCheck.AffectedPaths
+                    .Where(path => !File.Exists(path))
+                    .Select(path => Path.GetFileName(path))
+                    .Where(name => LancacheManager.Core.Services.LogSourceLayout.LogicalStem(name) is { } stem
+                        && !serviceStems.Contains(stem))
+                    .ToList();
                 _stateService.ClearLogSourcePositions(
                     datasource.Name,
-                    LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
+                    otherLogsGone.Select(name => LancacheManager.Core.Services.LogSourceLayout.LogicalStem(name)!));
                 await _operationStateService.MarkLogPositionsKeptAsync(operationId, datasource.Name);
             }
 
@@ -864,7 +891,7 @@ public class RustLogRemovalService
                     operationId);
             }
 
-            return (result, removalProgress, reopen);
+            return (result, removalProgress, reopen, otherLogsGone);
         }
     }
 

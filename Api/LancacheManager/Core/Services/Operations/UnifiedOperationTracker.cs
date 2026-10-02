@@ -991,10 +991,13 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return own < operation.VisibilityFloor ? own : operation.VisibilityFloor;
     }
 
-    // A run that succeeded with a warning: today the eviction scan whose game detection phase
-    // failed, which writes the raw error into its progress context.
+    // A run that succeeded with a warning: the eviction scan whose game detection phase failed, which
+    // writes the raw error into its progress context, or a log removal that found logs of another
+    // series deleted outside the app, which names them. The browser words each by the run's type.
     private static string? ReadWarning(object? state) =>
-        ReadContext(state)?.GetValueOrDefault("detectionError") is string { Length: > 0 } warning ? warning : null;
+        state is RemovalMetrics { OtherLogsGone: { Length: > 0 } otherLogs }
+            ? otherLogs
+            : ReadContext(state)?.GetValueOrDefault("detectionError") is string { Length: > 0 } warning ? warning : null;
 
     // The reporter mirrors each run's latest interpolation context into the operation metadata under
     // "context" so a mid-run page refresh can rehydrate the card with its {{processed}}/{{total}}

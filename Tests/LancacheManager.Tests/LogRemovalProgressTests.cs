@@ -384,6 +384,42 @@ public class LogRemovalProgressTests
         Assert.Equal(0, harness.Rust.CheckedFilesAtLaunch);
     }
 
+    [Fact]
+    public async Task LogRemoval_AnotherServiceLogDeletedOutsideTheAppEndsAsAWarningAndIsReadAgainAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        // A bare-metal folder: the removed service, the service whose log disappears, and one left alone.
+        File.Delete(Path.Combine(harness.LogPath, "access.log"));
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "steam-access.log"), "s1\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "blizzard-access.log"), "b1\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "epicgames-access.log"), "e1\ne2\n");
+        harness.State.SetLogSourcePositions("default", new Dictionary<string, long>
+        {
+            ["steam-access.log"] = 1,
+            ["blizzard-access.log"] = 1,
+            ["epicgames-access.log"] = 2
+        });
+        harness.Rust.GoneAtLaunch = "blizzard-access.log";
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        // The amber card names the other log and stays until someone closes it.
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
+        Assert.Equal("blizzard-access.log", row.Warning);
+        Assert.True(row.Retained);
+        // The removed series and the vanished one start again at line 1; the untouched one keeps its place.
+        Assert.Equal(
+            new Dictionary<string, long> { ["epicgames-access.log"] = 2 },
+            harness.State.GetLogSourcePositions("default"));
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
+    }
+
     /// <summary>
     /// A per-datasource log removal against a real repair owner, log lock and nginx reopen check,
     /// with a recording child in place of log_service_manager.
@@ -552,6 +588,12 @@ public class LogRemovalProgressTests
         /// <summary>How many log files the publication check attached at launch binds; null when none is attached.</summary>
         public int? CheckedFilesAtLaunch { get; private set; }
 
+        /// <summary>
+        /// A log of another service that something outside the app deletes while the child runs; null
+        /// when nothing outside the app touches the folder.
+        /// </summary>
+        public string? GoneAtLaunch { get; set; }
+
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
             Guid? operationId,
@@ -581,7 +623,50 @@ public class LogRemovalProgressTests
             var progressPath = arguments[5];
             // The real path resolver creates the operations directory each time it returns it; this one does not.
             Directory.CreateDirectory(Path.GetDirectoryName(progressPath)!);
-            if (ExitCode == 0)
+            if (ExitCode == 0 && GoneAtLaunch is not null)
+            {
+                // remove_service_from_logs on a folder holding steam-access.log: it deletes that file, and
+                // publish_deleted_files records it deleted and every other checked file unchanged, the one
+                // deleted outside the app included, without failing the publication. Then the final progress.
+                File.Delete(Path.Combine(arguments[1], GoneAtLaunch));
+                File.Delete(Path.Combine(arguments[1], "steam-access.log"));
+                await File.WriteAllTextAsync(
+                    start.Environment["LANCACHE_LOG_RESULT"]!,
+                    JsonSerializer.Serialize(
+                        new NginxPublicationResult(
+                            true,
+                            check!.Files.Select(file => Path.GetFileName(file.TargetPath) == "steam-access.log"
+                                ? new NginxPublicationRecord(
+                                    file.TargetPath,
+                                    file.OriginalIdentity,
+                                    null,
+                                    null,
+                                    Changed: true,
+                                    Deleted: true)
+                                : new NginxPublicationRecord(
+                                    file.TargetPath,
+                                    file.OriginalIdentity,
+                                    null,
+                                    file.OriginalIdentity,
+                                    Changed: false,
+                                    Deleted: false)).ToList()),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                    cancellationToken);
+                await File.WriteAllTextAsync(
+                    progressPath,
+                    JsonSerializer.Serialize(new LogRemovalProgress
+                    {
+                        PercentComplete = 100,
+                        Status = "completed",
+                        StageKey = "signalr.logRemoval.complete",
+                        Message = "Removed 1 steam entries from 1 total lines across 1 files in 0.00s",
+                        FilesProcessed = 1,
+                        LinesProcessed = 1,
+                        LinesRemoved = 1
+                    }),
+                    cancellationToken);
+            }
+            else if (ExitCode == 0)
             {
                 // With no log file the child reports that and changes nothing (log_service_manager.rs:1137-1156).
                 var noLogFile = !Directory.EnumerateFiles(arguments[1]).Any();
