@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { compileToUrl } from './transpile-module.mjs';
+import ts from 'typescript';
+import {
+  bulkRemovalCard,
+  compileToUrl,
+  findSoleNode,
+  loadNotificationModules,
+  MemoryStorage,
+  moduleUrl,
+  operationRunRow,
+  parseSource,
+  pushRun
+} from './transpile-module.mjs';
 
 /**
  * A snapshot fetched before the SignalR subscription was live misses every event raised in the
@@ -66,8 +77,26 @@ export const createComponent = () => {
 
 const reactStubUrl = `data:text/javascript;base64,${Buffer.from(reactStubSource).toString('base64')}`;
 const { createComponent } = await import(reactStubUrl);
-const { useReconnectRefetch } = await import(
-  await compileToUrl('../src/hooks/useReconnectRefetch.ts', { react: reactStubUrl })
+const reconnectRefetchUrl = await compileToUrl('../src/hooks/useReconnectRefetch.ts', {
+  react: reactStubUrl
+});
+const { useReconnectRefetch } = await import(reconnectRefetchUrl);
+
+// `useRepairEnd` runs over the real hook above and the runs the real store derives. The store keeps
+// the repairing cards hidden in this tab in sessionStorage and decides once, when it loads, whether
+// that storage works, so the storage is installed first.
+globalThis.sessionStorage = new MemoryStorage();
+const notificationModules = await loadNotificationModules();
+const notificationsStubUrl = moduleUrl(`
+  export const box = { runs: [] };
+  export const useNotifications = () => ({ repairingRuns: box.runs });
+`);
+const { box } = await import(notificationsStubUrl);
+const { useRepairEnd } = await import(
+  await compileToUrl('../src/hooks/useRepairEnd.ts', {
+    './useReconnectRefetch': reconnectRefetchUrl,
+    '@contexts/notifications/useNotifications': notificationsStubUrl
+  })
 );
 
 /**
@@ -150,5 +179,93 @@ test('the effect watches the connection alone', () => {
     hookSource,
     /\}, \[isConnected\]\);/,
     'adding the callback to the dependency list turns every unrelated re-render into a request'
+  );
+});
+
+/**
+ * A page watching game removal repairs over a real run store, whose one game removal is folded
+ * under a bulk card and so draws no card of its own. `push` applies that run's next row; `render`
+ * renders the page over the runs the store derives, with a fresh callback each time as a page does.
+ */
+const gameRemovalPage = () => {
+  const localCards = [bulkRemovalCard({ currentOperationId: 'I1', itemOperationIds: ['I1'] })];
+  let state = notificationModules.createRunStoreState();
+  const reloads = [];
+  const component = createComponent();
+  const push = (fields) => {
+    const row = operationRunRow('I1', {
+      operationType: 'gameRemoval',
+      name: 'Game Removal',
+      ...fields
+    });
+    state = pushRun(notificationModules, state, row, localCards);
+  };
+  const render = () => {
+    box.runs = notificationModules.deriveRepairingRuns(state);
+    component.render(() => useRepairEnd(['game_removal'], () => reloads.push(true)));
+  };
+  return { push, render, reloads };
+};
+
+const repairing = { status: 'cancelled', repairing: true, repairError: null };
+const repairEnded = { status: 'cancelled', repairing: false, repairError: null };
+
+test('a repair that ends reloads the page once, for a run folded under a bulk card too', () => {
+  const page = gameRemovalPage();
+  page.render();
+  assert.equal(page.reloads.length, 0, 'nothing repairs at mount');
+
+  page.push({});
+  page.push(repairing);
+  page.render();
+  assert.deepEqual(
+    box.runs.map((run) => `${run.id}:${run.type}`),
+    ['I1:game_removal'],
+    'the folded run draws no card, and its repair still changes the page'
+  );
+  assert.equal(page.reloads.length, 0, 'no reload while the repair runs');
+
+  page.push(repairEnded);
+  page.render();
+  assert.equal(page.reloads.length, 1);
+
+  page.render();
+  assert.equal(page.reloads.length, 1, 'a later render with nothing repairing does not reload');
+});
+
+test('a page opened while a repair runs reloads when it ends', () => {
+  const page = gameRemovalPage();
+  page.push({});
+  page.push(repairing);
+  page.render();
+  assert.equal(page.reloads.length, 0);
+
+  page.push(repairEnded);
+  page.render();
+  assert.equal(page.reloads.length, 1, 'what the page loaded at mount predates the repair');
+});
+
+test("pages that show eviction state reload when an eviction or corruption removal's repair ends", () => {
+  const repairTypes = (relativePath) => {
+    const sourceFile = parseSource(relativePath, ts.ScriptKind.TSX);
+    const call = findSoleNode(
+      sourceFile,
+      'useRepairEnd call',
+      (node) => ts.isCallExpression(node) && node.expression.getText(sourceFile) === 'useRepairEnd'
+    );
+    return call.arguments[0].elements.map((element) => element.text);
+  };
+
+  assert.ok(
+    repairTypes('src/components/features/management/sections/StorageSection.tsx').includes(
+      'eviction_removal'
+    ),
+    "a cancelled eviction removal's repair deletes the evicted rows the Evicted Items card lists"
+  );
+  assert.ok(
+    repairTypes('src/components/features/management/game-detection/GameCacheDetector.tsx').includes(
+      'corruption_removal'
+    ),
+    "a corruption removal's repair marks games evicted, so the Games list has to drop them"
   );
 });
