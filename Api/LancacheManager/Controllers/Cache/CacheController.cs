@@ -1789,6 +1789,9 @@ public class CacheController : ControllerBase
                                 detectionMethod.ToWireString()));
                     }
 
+                    // `remove` and the log step after it run with the scheme read once here.
+                    var keyScheme = _capabilityService.GetKeySchemeWireValue(datasource);
+
                     // Hybrid transport (mirrors CacheClearingService): the stdout progress event
                     // from corruption_manager is a zero-latency wake-up that triggers exactly one
                     // read of the (Rust-side-unchanged) progress file, replacing the previous
@@ -1800,7 +1803,7 @@ public class CacheController : ControllerBase
                         service: service,
                         evidenceFile: evidenceFilePath,
                         progressFile: progressFilePath,
-                        keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
+                        keyScheme: keyScheme,
                         cancellationToken: cancellationToken,
                         operationId: operationId,
                         onProgressEvent: async _ =>
@@ -1876,6 +1879,7 @@ public class CacheController : ControllerBase
                                 datasource,
                                 service,
                                 evidenceFilePath,
+                                keyScheme,
                                 RelayProgressAsync,
                                 cancellationToken));
                         }

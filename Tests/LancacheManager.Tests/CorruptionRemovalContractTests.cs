@@ -898,6 +898,50 @@ public sealed class CorruptionRemovalContractTests
             fixture.OperationsDirectory, operationId, "default")));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ALogStepRedoneAfterTheLogLayoutChangedRunsWithTheLaunchSchemeAsync(bool mixed)
+    {
+        // `remove-logs` over files that hold no evidence line: nothing removed, no stem counted, no row
+        // matched (cache_corruption.rs:1306-1324; a stem is counted only when it lost a line, log_purge.rs:785-795).
+        const string noLineRemoved = """{"status":"completed","stageKey":"signalr.gameRemove.finalizing","context":{"service":"steam","logLines":0,"logLinesBySource":{},"logLinesBeforePositionBySource":{},"downloads":0,"logEntries":0},"percentComplete":100,"filesProcessed":1,"totalFiles":1}""";
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.RepeatedMiss, transport: true);
+        var datasource = Assert.Single(fixture.Datasources);
+        // Read from the log files, as a datasource with no configured scheme is: access.log alone reads monolithic.
+        datasource.SchemeOverride = DatasourceSchemeOverride.Auto;
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval)).Id;
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.RepeatedMiss, second: false), 0);
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+        // While the log step runs, a per-service log appears beside access.log (both layouts) or the log
+        // folder is emptied (no layout), and the job is force stopped inside its log step.
+        if (mixed)
+        {
+            File.WriteAllText(Path.Combine(datasource.LogPath, "steam-access.log"), string.Empty);
+        }
+        else
+        {
+            File.Delete(Path.Combine(datasource.LogPath, "access.log"));
+        }
+        fixture.Tracker.ForceKillOperation(operationId);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // The repair redoes the step from the kept evidence with the scheme the job launched with.
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+        await fixture.Pipe.SendAsync(noLineRemoved, 0);
+        var repair = await fixture.WaitForCompletedRepairAsync(operationId);
+        var source = Assert.Single(repair.Sources);
+        Assert.Equal("monolithic", source.KeyScheme);
+        Assert.True(source.LogRewriteStarted);
+        Assert.True(source.LogPositionsKept);
+        Assert.False(File.Exists(CorruptionDetectionService.EvidenceFilePath(
+            fixture.OperationsDirectory, operationId, "default")));
+    }
+
     [Fact]
     public async Task CancelDuringRemoveLogsIsStoredAsACancelAsync()
     {

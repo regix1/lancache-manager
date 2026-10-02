@@ -1840,7 +1840,8 @@ public partial class OperationStateService
                 {
                     // Its log files no longer prove the key recipe it launched with (mixed or unknown
                     // evidence), so the cache scan leaves it out and the next eviction scan rechecks it. The
-                    // log step, the row cleanup and the position reset use no key recipe and still run.
+                    // log step, the row cleanup and the position reset still run; a corruption removal's log
+                    // step reads the stored launch recipe, never this copy.
                     _logger.LogWarning(
                         "Skipped the cache scan of datasource {Datasource} in operation repair {OperationId} because its log layout changed after the repair was prepared",
                         source.Datasource,

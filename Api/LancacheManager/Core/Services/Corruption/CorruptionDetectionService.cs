@@ -1738,13 +1738,15 @@ public class CorruptionDetectionService
     /// One datasource's repeated-miss log step under the Rewrite log lock: `remove-logs` removes
     /// the evidence's access.log lines and their rows, nginx reopens right after it exits, the
     /// saved positions come back by the removed lines, and one save keeps the positions with the
-    /// three log counts.
+    /// three log counts. It runs with the key scheme the job launched with, which built the evidence
+    /// file, so a folder whose layout changed since cannot refuse a step the repair must finish.
     /// </summary>
     internal async Task<CorruptionRemovalCounts> RunCorruptionLogStepAsync(
         Guid operationId,
         ResolvedDatasource datasource,
         string service,
         string evidenceFilePath,
+        string keyScheme,
         Func<CorruptionRemovalProgressData, Task>? onProgress,
         CancellationToken cancellationToken)
     {
@@ -1760,10 +1762,12 @@ public class CorruptionDetectionService
         try
         {
             // Prepared under the lock, so it binds the log files as they are after any step that ran first.
+            // With no log file left the child rewrites and publishes nothing and still deletes the rows.
+            var affectedLogPaths = NginxLogRotationService.GetAffectedLogPaths(datasource);
             await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
                 new[] { datasource },
-                NginxLogRotationService.GetAffectedLogPaths(datasource),
-                expectsPublication: true,
+                affectedLogPaths,
+                expectsPublication: affectedLogPaths.Count > 0,
                 cancellationToken);
             _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
             stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
@@ -1782,7 +1786,7 @@ public class CorruptionDetectionService
                     evidenceFile: evidenceFilePath,
                     progressFile: progressFilePath,
                     stemPositionsFile: stemPositionsPath,
-                    keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
+                    keyScheme: keyScheme,
                     cancellationToken: cancellationToken,
                     operationId: operationId,
                     onProgressEvent: onProgress == null
@@ -2042,6 +2046,9 @@ public class CorruptionDetectionService
         var operationsDirectory = _pathResolver.GetOperationsDirectory();
         if (captured.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
         {
+            // The dispatch clears a source's scheme on its own copy when the folder no longer proves it;
+            // the stored record keeps the scheme the job launched with.
+            var stored = _operationStateService.GetPendingRepairs().Single(pending => pending.Id == repair.Id);
             foreach (var source in repair.Sources.Where(source => OperationStateService.NeedsLogStepRedo(repair, source)))
             {
                 await RunCorruptionLogStepAsync(
@@ -2049,6 +2056,14 @@ public class CorruptionDetectionService
                     _datasourceService.GetDatasource(source.Datasource)!,
                     captured.Service,
                     EvidenceFilePath(operationsDirectory, repair.Id, source.Datasource),
+                    stored.Sources
+                        .Single(candidate => string.Equals(
+                            candidate.Datasource,
+                            source.Datasource,
+                            StringComparison.OrdinalIgnoreCase))
+                        .KeyScheme
+                        ?? throw new InvalidDataException(
+                            $"Corruption removal repair {repair.Id} has no key scheme for datasource '{source.Datasource}'"),
                     onProgress: null,
                     cancellationToken);
             }
