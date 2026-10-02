@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useNotifications,
   type UnifiedNotification,
@@ -19,15 +20,18 @@ import { platformDisplayModeKey, useScheduleDisplayModes } from '@hooks/useSched
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
 import { BackgroundTaskControls } from './BackgroundTaskControls';
 import { UnifiedNotificationItem } from './UnifiedNotificationItem';
+import { ConfirmationModal } from './ConfirmationModal';
 import {
   CANCEL_CONFIG_BY_TYPE,
   getNotificationVariant,
   handleCancel,
-  notifyToastError
+  notifyToastError,
+  willForceStop
 } from './notificationCancel';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 
 const UniversalNotificationBar: React.FC = () => {
+  const { t } = useTranslation();
   const { notifications, removeNotification, hideNotification, updateNotification } =
     useNotifications();
   const connectionLost = useConnectionLost();
@@ -37,6 +41,8 @@ const UniversalNotificationBar: React.FC = () => {
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
+  // The card whose force stop waits for the user to confirm it.
+  const [forceStopCardId, setForceStopCardId] = useState<string | null>(null);
 
   // Per-service display preference (full | condensed), live from the Schedules page, and the one
   // global default for everything a schedule does not set. This drives display only and never
@@ -188,17 +194,30 @@ const UniversalNotificationBar: React.FC = () => {
     [removeNotification, hideNotification]
   );
 
-  // Create cancel handler for a notification
+  // Create cancel handler for a notification. A press that would force stop asks first.
   const getCancelHandler = useCallback(
-    (notification: UnifiedNotification) =>
-      handleCancel(
+    (notification: UnifiedNotification) => {
+      if (willForceStop(notification)) {
+        setForceStopCardId(notification.id);
+        return;
+      }
+      return handleCancel(
         notification,
         updateNotification,
         removeNotification,
         () => notificationsRef.current
-      ),
+      );
+    },
     [removeNotification, updateNotification]
   );
+
+  // Retry runs a failed-out repair again; its run row then turns the card teal.
+  const handleRetryRepair = useCallback((notification: UnifiedNotification) => {
+    // Only a run card carries `details.repairFailed`, and every run card carries its operation id.
+    ApiService.retryRepair(notification.details!.operationId!).catch((error: unknown) =>
+      notifyToastError(i18n.t('common.notifications.retryRepairFailed'), error)
+    );
+  }, []);
 
   // Don't render if no notifications and not animating
   if (notifications.length === 0 && !shouldRender) {
@@ -255,7 +274,8 @@ const UniversalNotificationBar: React.FC = () => {
       {
         notification,
         serviceKey,
-        condensed: condensedByService || condensedByCap,
+        // A repairing card the user hid keeps only its compact strip segment.
+        condensed: condensedByService || condensedByCap || notification.stripOnly === true,
         control
       }
     ];
@@ -303,7 +323,10 @@ const UniversalNotificationBar: React.FC = () => {
     condensedSegments.push({
       key: 'background-controls',
       notification: compactControls[0],
-      variant: 'warning'
+      // Teal only when every row is a repair still running after its job ended.
+      variant: compactControls.every((control) => control.status === 'repairing')
+        ? 'repairing'
+        : 'warning'
     });
   }
   const condensedPanel = (
@@ -327,12 +350,17 @@ const UniversalNotificationBar: React.FC = () => {
           notification={notification}
           onDismiss={handleDismiss}
           onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
+          onRetryRepair={handleRetryRepair}
           isAnimatingOut={dismissingIds.has(notification.id)}
           connectionLost={connectionLost}
         />
       ))}
     </div>
   );
+  // The dialog follows the card as it is now: it closes when the card ends or leaves, and a
+  // confirm acts on the current card.
+  const forceStopCard = notifications.find((notification) => notification.id === forceStopCardId);
+  const forceStopOpen = forceStopCard !== undefined && willForceStop(forceStopCard);
 
   return (
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
@@ -393,6 +421,7 @@ const UniversalNotificationBar: React.FC = () => {
                 notification={notification}
                 onDismiss={handleDismiss}
                 onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
+                onRetryRepair={handleRetryRepair}
                 isAnimatingOut={dismissingIds.has(notification.id)}
                 connectionLost={connectionLost}
               />
@@ -400,6 +429,26 @@ const UniversalNotificationBar: React.FC = () => {
           </div>
         )}
       </div>
+      <ConfirmationModal
+        opened={forceStopOpen}
+        onClose={() => setForceStopCardId(null)}
+        onConfirm={() => {
+          setForceStopCardId(null);
+          if (forceStopOpen)
+            void handleCancel(
+              forceStopCard,
+              updateNotification,
+              removeNotification,
+              () => notificationsRef.current
+            );
+        }}
+        title={t('common.notifications.forceStopConfirm.title')}
+        confirmLabel={t('common.notifications.forceStop')}
+      >
+        <p className="text-sm text-themed-secondary">
+          {t('common.notifications.forceStopConfirm.message')}
+        </p>
+      </ConfirmationModal>
     </div>
   );
 };

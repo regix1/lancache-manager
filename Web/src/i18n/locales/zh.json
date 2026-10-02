@@ -342,6 +342,7 @@
       "titles": {
         "logProcessing": "日志处理",
         "cacheClearing": "缓存清理",
+        "cacheRepair": "缓存修复",
         "logRemoval": "日志移除",
         "serviceRemoval": "服务缓存移除",
         "gameRemoval": "游戏缓存移除",
@@ -399,6 +400,19 @@
       "forceStop": "强制停止",
       "cancelOperationFailed": "取消操作失败",
       "forceKillOperationFailed": "强制终止操作失败",
+      "forceStopConfirm": {
+        "title": "强制停止此操作？",
+        "message": "强制停止会立即结束此操作。它所需的清理仍会在后台运行，与该清理冲突的操作会等待其完成。"
+      },
+      "repairing": {
+        "completed": "已完成，正在修复缓存数据…",
+        "failed": "已失败，正在修复缓存数据…",
+        "cancelled": "已取消，正在修复缓存数据…",
+        "skipped": "已跳过，正在修复缓存数据…",
+        "fullRepair": "正在更新后或修复文件无法读取后检查所有缓存数据…"
+      },
+      "repairFailed": "修复失败：{{reason}}",
+      "retryRepairFailed": "无法重试修复",
       "cancelling": "取消中...",
       "operationWaiting": "正在等待其他进程完成...",
       "operationWaitingNamed": "{{name}}：正在等待其他进程完成...",
@@ -432,7 +446,8 @@
         "cancelled": "已取消",
         "cancelling": "取消中",
         "pending": "待处理",
-        "skipped": "已跳过"
+        "skipped": "已跳过",
+        "repairing": "修复中"
       },
       "steamAnonymous": "Steam 匿名",
       "steamAuthenticated": "Steam 已验证",
@@ -1577,8 +1592,8 @@
       "windowTooltip": "当前 {{seconds}} 秒滚动窗口内观察到的流量，不计入已记录的统计。"
     },
     "activity": {
-      "waitingTitle": "正在等待活动更新",
-      "waitingDescription": "跟踪器报告后，此处将显示当前活动。",
+      "waitingTitle": "实时活动不可用",
+      "waitingDescription": "当 LANCache Manager 能够从访问日志读取实时速度时，下载会显示在这里。",
       "unavailableTitle": "活动更新不可用",
       "unavailableDescription": "在推断活动时段仍有效时，会继续显示上次报告的会话。",
       "inferenceHelp": "当前活动根据已完成的缓存请求推断。安静的会话可能显示为零速度。历史筛选器不会更改此当前视图。"
@@ -6187,6 +6202,16 @@
           "description": "等待状态文本颜色",
           "affects": ["等待消息", "队列位置文本", "等待徽章文本"]
         },
+        "repairing": {
+          "label": "修复主要",
+          "description": "修复状态主色（已结束但缓存修复仍在运行的任务）",
+          "affects": ["修复通知边框", "修复图标", "紧凑条片段"]
+        },
+        "repairingText": {
+          "label": "修复文本",
+          "description": "修复状态文本颜色",
+          "affects": ["修复徽章文本"]
+        },
         "publicAccessBg": {
           "label": "公开访问背景",
           "description": "公开访问徽章的背景",
@@ -8069,7 +8094,8 @@
       "startFailed": "启动日志处理失败",
       "startFailedForDatasource": "启动数据源 '{{datasource}}' 的日志处理失败",
       "removeFailed": "从数据源 '{{datasource}}' 移除服务 '{{service}}' 的日志失败",
-      "fileNotFound": "找不到日志文件：{{path}}"
+      "fileNotFound": "找不到日志文件：{{path}}",
+      "processingActive": "日志处理正在运行。请在其完成后重试。"
     },
     "migration": {
       "notConfigured": "服务器数据库连接未配置"

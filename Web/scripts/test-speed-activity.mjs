@@ -6,7 +6,8 @@ import {
   hasImmediateSnapshotChange,
   isDownloadSpeedSnapshot
 } from '../src/contexts/SpeedContext/snapshot.ts';
-import { bindLifted, liftHookCallback } from './transpile-module.mjs';
+import typescript from 'typescript';
+import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './transpile-module.mjs';
 
 const FIRST_SEEN = '2026-09-30T12:00:00.000Z';
 const LAST_SEEN = '2026-09-30T12:00:05.000Z';
@@ -418,4 +419,233 @@ test('the shipped request callback rejects a response from an earlier owner', as
   await pending;
   assert.equal(accepted, false);
   assert.equal(loadingChanges, 0);
+});
+
+// ── The backend unreachable: the last snapshot ages out on screen ───────────
+
+const SPEED_CONTEXT = 'src/contexts/SpeedContext/index.tsx';
+const NOW = Date.parse('2026-09-30T12:00:10.000Z');
+const expiredGame = game({
+  key: 'steam|10.0.0.2|app:440',
+  clientIp: '10.0.0.2',
+  bytesPerSecond: 50,
+  requestCount: 3,
+  activeUntilUtc: '2026-09-30T12:00:08.000Z'
+});
+const lastSnapshot = snapshot({
+  totalBytesPerSecond: 150,
+  entriesInWindow: 5,
+  gameSpeeds: [game(), expiredGame],
+  clientSpeeds: [
+    client(),
+    client({ clientIp: '10.0.0.2', activeUntilUtc: '2026-09-30T12:00:08.000Z' })
+  ]
+});
+
+/** The shipped request callback, failing every fetch, with the connection state given. */
+const failingRequest = (isConnected) => {
+  const committed = [];
+  const outageCopyShownRef = { current: false };
+  const requestSpeed = bindLifted(
+    liftHookCallback(SPEED_CONTEXT, 'useCallback', 'activeRequest.trailing = true'),
+    {
+      mockMode: false,
+      applyMockSnapshot: () => undefined,
+      requestOwnerRef: { current: 1 },
+      inFlightRef: { current: null },
+      ApiService: { getCurrentSpeeds: () => Promise.reject(new Error('Server unreachable')) },
+      mountedRef: { current: true },
+      acceptSnapshot: () => assert.fail('nothing arrives'),
+      console: { error: () => undefined },
+      window: { dispatchEvent: () => true },
+      CustomEvent: class {},
+      APP_EVENTS: { SHOW_TOAST: 'show-toast' },
+      i18n: { t: (key) => key },
+      getErrorMessage: (error) => String(error),
+      setIsLoading: () => undefined,
+      isConnected,
+      acceptedSnapshotRef: { current: lastSnapshot },
+      outageCopyShownRef,
+      commitSnapshot: (value) => committed.push(value),
+      Date: { now: () => NOW, parse: Date.parse }
+    }
+  );
+  return { requestSpeed, committed, outageCopyShownRef };
+};
+
+test('a failed poll during an outage shows the last snapshot without its expired rows', async () => {
+  const { requestSpeed, committed, outageCopyShownRef } = failingRequest(false);
+  await requestSpeed({ notifyFailure: false, throttle: true });
+  assert.equal(committed.length, 1);
+  const [copy] = committed;
+  assert.deepEqual(
+    copy.gameSpeeds.map((row) => row.key),
+    [game().key]
+  );
+  assert.deepEqual(
+    copy.clientSpeeds.map((row) => row.clientIp),
+    ['10.0.0.1']
+  );
+  assert.equal(copy.totalBytesPerSecond, 100, 'the total drops with the rows that aged out');
+  assert.equal(copy.entriesInWindow, 2);
+  assert.equal(copy.hasActiveDownloads, true);
+  assert.equal(copy.isAvailable, false);
+  assert.equal(copy.revision, lastSnapshot.revision);
+  assert.equal(outageCopyShownRef.current, true);
+
+  // While the live connection still works, a failed poll leaves the screen alone.
+  const connected = failingRequest(true);
+  await connected.requestSpeed({ notifyFailure: false, throttle: true });
+  assert.deepEqual(connected.committed, []);
+  assert.equal(connected.outageCopyShownRef.current, false);
+});
+
+test('the outage copy replaces a throttled snapshot still waiting to render', () => {
+  const pendingSnapshotRef = { current: snapshot({ revision: 2 }) };
+  const throttleTimerRef = { current: 7 };
+  const cleared = [];
+  const rendered = [];
+  const commitSnapshot = bindLifted(
+    liftHookCallback(SPEED_CONTEXT, 'useCallback', 'clearThrottle();'),
+    {
+      clearThrottle: bindLifted(
+        liftHookCallback(SPEED_CONTEXT, 'useCallback', 'clearTimeout(throttleTimerRef.current)'),
+        {
+          throttleTimerRef,
+          pendingSnapshotRef,
+          clearTimeout: (id) => cleared.push(id)
+        }
+      ),
+      renderedSnapshotRef: { current: null },
+      lastSpeedUpdateRef: { current: 0 },
+      setSpeedSnapshot: (value) => rendered.push(value),
+      setIsLoading: () => undefined
+    }
+  );
+  const copy = { ...lastSnapshot, isAvailable: false };
+  commitSnapshot(copy);
+  assert.deepEqual(cleared, [7]);
+  assert.equal(pendingSnapshotRef.current, null, 'the waiting snapshot can no longer land');
+  assert.deepEqual(rendered, [copy]);
+});
+
+test('the next snapshot after an outage renders even at the revision the copy was made from', () => {
+  for (const outage of [true, false]) {
+    const outageCopyShownRef = { current: outage };
+    const rendered = [];
+    const acceptSnapshot = bindLifted(
+      liftHookCallback(SPEED_CONTEXT, 'useCallback', 'canAcceptRestSnapshot(current, value)'),
+      {
+        requestOwnerRef: { current: 1 },
+        mountedRef: { current: true },
+        mockMode: false,
+        isDownloadSpeedSnapshot,
+        acceptedSnapshotRef: { current: lastSnapshot },
+        canAcceptRestSnapshot,
+        outageCopyShownRef,
+        renderAcceptedSnapshot: (value) => rendered.push(value)
+      }
+    );
+    const same = snapshot({ revision: lastSnapshot.revision });
+    assert.equal(acceptSnapshot(same, 1, true), outage, `outage ${outage}`);
+    assert.deepEqual(rendered, outage ? [same] : []);
+    assert.equal(outageCopyShownRef.current, false);
+  }
+
+  // A push at the same revision ends the outage copy the same way.
+  let handler;
+  const outageCopyShownRef = { current: true };
+  const rendered = [];
+  bindLifted(liftHookCallback(SPEED_CONTEXT, 'useEffect', 'canAcceptSignalRSnapshot'), {
+    mockMode: false,
+    isDownloadSpeedSnapshot,
+    acceptedSnapshotRef: { current: lastSnapshot },
+    fetchSpeed: () => assert.fail('the push belongs to the shown stream'),
+    canAcceptSignalRSnapshot,
+    outageCopyShownRef,
+    renderAcceptedSnapshot: (value) => rendered.push(value),
+    signalR: {
+      on: (_name, callback) => {
+        handler = callback;
+      },
+      off: () => undefined
+    }
+  })();
+  const pushed = snapshot({ revision: lastSnapshot.revision });
+  handler(pushed);
+  assert.deepEqual(rendered, [pushed]);
+  assert.equal(outageCopyShownRef.current, false);
+});
+
+test('during an outage the activity view says updates stopped, with or without rows', () => {
+  const viewPath = 'src/components/features/downloads/ActiveDownloadsView.tsx';
+  const viewSource = parseSource(viewPath, typescript.ScriptKind.TSX);
+  const view = findSoleNode(
+    viewSource,
+    'ActiveDownloadsView',
+    (node) =>
+      typescript.isVariableDeclaration(node) &&
+      node.name.getText(viewSource) === 'ActiveDownloadsView'
+  ).initializer.getText(viewSource);
+  const h = {
+    createElement: (type, attributes, ...children) => ({
+      type,
+      props: { ...attributes, children: children.flat(Infinity) }
+    }),
+    Fragment: 'Fragment'
+  };
+  const render = (speedSnapshot, connectionLost) =>
+    bindLifted(
+      view,
+      {
+        React: h,
+        useTranslation: () => ({ t: (key) => key }),
+        useSpeed: () => ({
+          speedSnapshot,
+          gameSpeeds: speedSnapshot.gameSpeeds,
+          clientSpeeds: speedSnapshot.clientSpeeds,
+          isLoading: false,
+          refreshSpeed: () => undefined
+        }),
+        useActivityStatus: () => ({ isActive: () => false }),
+        useConnectionLost: () => connectionLost,
+        useState: (initial) => [initial, () => undefined],
+        EmptyState: 'EmptyState',
+        LoadingState: 'LoadingState',
+        Alert: 'Alert',
+        Activity: 'Activity'
+      },
+      { jsx: typescript.JsxEmit.React }
+    )();
+  const nodes = (tree) =>
+    !tree || typeof tree !== 'object' ? [] : [tree, ...tree.props.children.flatMap(nodes)];
+  const agedOut = snapshot({
+    isAvailable: false,
+    totalBytesPerSecond: 0,
+    entriesInWindow: 0,
+    gameSpeeds: [],
+    clientSpeeds: [],
+    hasActiveDownloads: false
+  });
+
+  const outage = nodes(render(agedOut, true));
+  assert.deepEqual(
+    outage.filter((node) => node.type === 'Alert').map((node) => node.props.title),
+    ['downloads.activity.unavailableTitle']
+  );
+  assert.equal(
+    outage.some((node) => node.type === 'EmptyState'),
+    false
+  );
+
+  // A server with nothing to track sends the same shape while connected: no promise of updates.
+  const untracked = nodes(render(agedOut, false));
+  assert.equal(
+    untracked.some((node) => node.type === 'Alert'),
+    false
+  );
+  assert.deepEqual(
+    untracked.filter((node) => node.type === 'EmptyState').map((node) => node.props.title),
+    ['downloads.activity.waitingTitle']
+  );
 });

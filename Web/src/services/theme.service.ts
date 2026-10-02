@@ -465,6 +465,8 @@ class ThemeService {
           waiting: '#9333ea', // purple-600
           waitingBg: '#f3e8ff', // purple-100
           waitingText: '#7e22ce', // purple-700
+          repairing: '#0d9488', // teal-600: 3.74:1 on the card fill
+          repairingText: '#115e59', // teal-800: 5.99:1 on its muted fill
 
           // Service colors - the same brand hues the schema defaults carry, darkened where the
           // brand's own value is too pale to read against a white card
@@ -890,6 +892,7 @@ class ThemeService {
     const error = colors.error!;
     const info = colors.info!;
     const waiting = colors.waiting!;
+    const repairing = colors.repairing!;
     const steam = colors.steamColor!;
     const epic = colors.epicColor!;
     const blizzard = colors.blizzardColor!;
@@ -1047,6 +1050,10 @@ class ThemeService {
       /* Waiting (purple notification-visibility tone) */
       --theme-waiting-muted: ${v('waitingMuted', rgba(waiting, 0.2))};
       --theme-waiting-glow: ${v('waitingGlow', rgba(waiting, glowAlpha))};
+
+      /* Repairing (teal: a job ended while its cache repair runs) */
+      --theme-repairing-muted: ${v('repairingMuted', rgba(repairing, 0.2))};
+      --theme-repairing-glow: ${v('repairingGlow', rgba(repairing, glowAlpha))};
 
       /* Accent */
       --theme-accent-faint: ${v('accentFaint', rgba(accent, 0.06))};
@@ -1329,6 +1336,8 @@ class ThemeService {
       --theme-waiting: ${colors.waiting};
       --theme-waiting-bg: ${colors.waitingBg};
       --theme-waiting-text: ${colors.waitingText};
+      --theme-repairing: ${colors.repairing};
+      --theme-repairing-text: ${colors.repairingText};
       --theme-info: ${colors.info};
       --theme-info-bg: ${colors.infoBg};
       --theme-info-text: ${colors.infoText};

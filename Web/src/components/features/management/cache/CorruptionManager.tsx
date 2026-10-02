@@ -28,6 +28,7 @@ import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRepairEnd } from '@hooks/useRepairEnd';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
@@ -480,12 +481,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (!hasInitiallyLoaded) void loadCachedData();
   }, [hasInitiallyLoaded, loadCachedData]);
 
-  // A dropped socket can swallow the completion event of a scan or removal that
-  // finished while it was down; resync the cached snapshot and history on reconnect.
-  useReconnectRefetch(isConnected, () => {
+  const resyncSnapshot = () => {
     void loadCachedData();
     setHistoryRefreshKey((key) => key + 1);
-  });
+  };
+  // A dropped socket can swallow the completion event of a scan or removal that
+  // finished while it was down; resync the cached snapshot and history on reconnect.
+  useReconnectRefetch(isConnected, resyncSnapshot);
+  // A removal's cache repair can change the snapshot after its Complete event already reloaded it.
+  useRepairEnd(['corruption_removal'], resyncSnapshot);
 
   const handleThresholdChange = useCallback(
     (value: string) => {

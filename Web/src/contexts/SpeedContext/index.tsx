@@ -23,6 +23,7 @@ import {
 
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
+  const { isConnected } = signalR;
   const { getRefreshInterval } = useRefreshRate();
   const { hasSession, isLoading: authLoading } = useAuth();
   const { mockMode } = useMockMode();
@@ -37,6 +38,9 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestOwnerRef = useRef(0);
   const mountedRef = useRef(true);
+  // Set while the copy drawn for an outage is on screen; the server's next snapshot then replaces it
+  // even at the revision the copy was made from.
+  const outageCopyShownRef = useRef(false);
   const inFlightRef = useRef<{
     owner: number;
     promise: Promise<void>;
@@ -122,8 +126,9 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       }
 
       const current = acceptedSnapshotRef.current;
-      if (!canAcceptRestSnapshot(current, value)) return false;
+      if (!outageCopyShownRef.current && !canAcceptRestSnapshot(current, value)) return false;
 
+      outageCopyShownRef.current = false;
       acceptedSnapshotRef.current = value;
       renderAcceptedSnapshot(value, throttle);
       return true;
@@ -179,6 +184,27 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
           } catch (error) {
             if (owner !== requestOwnerRef.current || !mountedRef.current) return;
             console.error('[SpeedContext] Failed to fetch speed data:', error);
+            // With the live connection down as well, nothing else would retire the last snapshot's
+            // rows, so they age out here and the views say that updates are unavailable.
+            const last = acceptedSnapshotRef.current;
+            if (!isConnected && last !== null) {
+              const now = Date.now();
+              const gameSpeeds = last.gameSpeeds.filter(
+                (game) => Date.parse(game.activeUntilUtc) > now
+              );
+              outageCopyShownRef.current = true;
+              commitSnapshot({
+                ...last,
+                isAvailable: false,
+                gameSpeeds,
+                clientSpeeds: last.clientSpeeds.filter(
+                  (client) => Date.parse(client.activeUntilUtc) > now
+                ),
+                totalBytesPerSecond: gameSpeeds.reduce((sum, game) => sum + game.bytesPerSecond, 0),
+                entriesInWindow: gameSpeeds.reduce((sum, game) => sum + game.requestCount, 0),
+                hasActiveDownloads: gameSpeeds.length > 0
+              });
+            }
             if (notifyFailure) {
               window.dispatchEvent(
                 new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
@@ -205,7 +231,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       inFlightRef.current = work;
       return work.promise;
     },
-    [acceptSnapshot, applyMockSnapshot, mockMode]
+    [acceptSnapshot, applyMockSnapshot, commitSnapshot, isConnected, mockMode]
   );
 
   const fetchSpeed = useCallback(
@@ -301,8 +327,9 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         void fetchSpeed(false);
         return;
       }
-      if (!canAcceptSignalRSnapshot(current, value)) return;
+      if (!outageCopyShownRef.current && !canAcceptSignalRSnapshot(current, value)) return;
 
+      outageCopyShownRef.current = false;
       acceptedSnapshotRef.current = value;
       renderAcceptedSnapshot(value, true);
     };

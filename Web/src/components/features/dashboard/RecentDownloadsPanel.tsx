@@ -29,6 +29,7 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import EventBadge from '../downloads/EventBadge';
 import LiveDownloadRows from '../downloads/LiveDownloadRows';
 import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
@@ -375,6 +376,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   // themselves the moment a dropdown moves; the totals cannot, so they need a way to say so.
   const downloadFilterFetching = useContext(DownloadFilterFetchContext);
   const { speedSnapshot, gameSpeeds, activeDownloadCount, isLoading: speedLoading } = useSpeed();
+  const connectionLost = useConnectionLost();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
 
   // Match Dashboard/DownloadsTab: non-live time range or event filter disables live Active tab
@@ -669,12 +671,22 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   </div>
                 </div>
               ) : !speedSnapshot || (!speedSnapshot.isAvailable && !hasActiveDownloads) ? (
-                <EmptyState
-                  variant="panel"
-                  icon={Activity}
-                  title={t('downloads.activity.waitingTitle')}
-                  subtitle={t('downloads.activity.waitingDescription')}
-                />
+                // During an outage the snapshot is a local copy whose rows aged out, so the panel
+                // says updates stopped rather than that live activity is not tracked.
+                speedSnapshot && connectionLost ? (
+                  <div className="p-3">
+                    <Alert color="yellow" title={t('downloads.activity.unavailableTitle')}>
+                      {t('downloads.activity.unavailableDescription')}
+                    </Alert>
+                  </div>
+                ) : (
+                  <EmptyState
+                    variant="panel"
+                    icon={Activity}
+                    title={t('downloads.activity.waitingTitle')}
+                    subtitle={t('downloads.activity.waitingDescription')}
+                  />
+                )
               ) : hasActiveDownloads && activeGames.length > 0 ? (
                 <>
                   {!speedSnapshot.isAvailable && (

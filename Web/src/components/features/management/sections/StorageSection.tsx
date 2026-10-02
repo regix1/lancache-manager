@@ -46,6 +46,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRepairEnd } from '@hooks/useRepairEnd';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
@@ -279,6 +280,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       off('GameDetectionComplete', handleScanDone);
     };
   }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning, scheduleEvictedItemsRefresh]);
+
+  // The cache repair those jobs owe can change the evicted items after their Complete events.
+  useRepairEnd(['cache_clearing', 'cache_repair', 'eviction_scan', 'game_detection'], () => {
+    if (isAnyEvictedRemovalRunning) return;
+    scheduleEvictedItemsRefresh(() => void fetchEvictedItems());
+  });
 
   // Track the eviction target so we know which item to filter on eviction_removal completion
   const removalTargetRef = useRef<CacheRemovalTarget | null>(null);

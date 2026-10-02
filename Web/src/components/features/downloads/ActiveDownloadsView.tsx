@@ -12,6 +12,7 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import Badge from '@components/ui/Badge';
 import BadgesRow from './BadgesRow';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import { useConnectionLost } from '@hooks/useConnectionLost';
 import { buildTrafficKey, getGameDisplayName } from './liveDownloadPreviews';
 import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
@@ -22,6 +23,7 @@ const ActiveDownloadsView: React.FC = () => {
   // Per-row dots resolve through useActivityStatus, whose download branch reads this same rendered
   // SpeedContext snapshot rather than the separately delivered activity event.
   const activity = useActivityStatus();
+  const connectionLost = useConnectionLost();
 
   const [viewMode, setViewMode] = useState<'games' | 'clients'>('games');
 
@@ -67,12 +69,20 @@ const ActiveDownloadsView: React.FC = () => {
   if (!speedSnapshot || (!hasActiveDownloads && !speedSnapshot.isAvailable)) {
     return (
       <div className="active-downloads-view">
-        <EmptyState
-          variant="panel"
-          icon={Activity}
-          title={t('downloads.activity.waitingTitle')}
-          subtitle={t('downloads.activity.waitingDescription')}
-        />
+        {/* During an outage the snapshot is a local copy whose rows aged out, so the view says
+            updates stopped rather than that live activity is not tracked. */}
+        {speedSnapshot && connectionLost ? (
+          <Alert color="yellow" title={t('downloads.activity.unavailableTitle')}>
+            {t('downloads.activity.unavailableDescription')}
+          </Alert>
+        ) : (
+          <EmptyState
+            variant="panel"
+            icon={Activity}
+            title={t('downloads.activity.waitingTitle')}
+            subtitle={t('downloads.activity.waitingDescription')}
+          />
+        )}
       </div>
     );
   }

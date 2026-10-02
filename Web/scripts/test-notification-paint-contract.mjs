@@ -325,6 +325,9 @@ const { VARIANT_BY_STATUS } = await import(await compileToUrl('../src/utils/stat
 const getNotificationVariant = bindLifted(initializer(cancelSource, 'getNotificationVariant'), {
   VARIANT_BY_STATUS
 });
+// The real force-stop test, over a cancel config the caller names.
+const forceStopFor = (CANCEL_CONFIG_BY_TYPE) =>
+  bindLifted(initializer(cancelSource, 'willForceStop'), { CANCEL_CONFIG_BY_TYPE });
 // A plain element factory for components lifted outside the mount harness.
 const jsx = { jsx: ts.JsxEmit.React };
 const h = {
@@ -348,6 +351,9 @@ const makeBar = (
     hide,
     lost = false,
     closeOperation,
+    retryRepair,
+    cancelConfig = {},
+    cancel,
     toasts = []
   } = {}
 ) => {
@@ -358,6 +364,7 @@ const makeBar = (
     updateNotification: () => assert.fail('rendering must not update notifications')
   };
   const runner = mount(barSource, 'UniversalNotificationBar', {
+    useTranslation: () => ({ t: (key) => key }),
     useNotifications: () => context,
     useConnectionLost: () => lost,
     themeService: { getDisableStickyNotificationsSync: () => false },
@@ -368,7 +375,7 @@ const makeBar = (
       `() => (${initializer(constantsSource, 'NOTIFICATION_ANIMATION_DURATION_MS')})`,
       {}
     )(),
-    CANCEL_CONFIG_BY_TYPE: {},
+    CANCEL_CONFIG_BY_TYPE: cancelConfig,
     SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: typeToServiceKey,
     MOBILE_FULL_CARD_CAP: bindLifted(
       `() => (${initializer(constantsSource, 'MOBILE_FULL_CARD_CAP')})`,
@@ -377,12 +384,17 @@ const makeBar = (
     isTerminalNotificationStatus,
     platformDisplayModeKey: (service, platform) => `${service}:${platform}`,
     getNotificationVariant,
-    handleCancel: () => {
-      assert.fail('rendering must not cancel work');
-    },
+    willForceStop: forceStopFor(cancelConfig),
+    handleCancel:
+      cancel ??
+      (() => {
+        assert.fail('rendering must not cancel work');
+      }),
     ApiService: {
-      closeOperation: closeOperation ?? (() => assert.fail('this card closes nothing'))
+      closeOperation: closeOperation ?? (() => assert.fail('this card closes nothing')),
+      retryRepair: retryRepair ?? (() => assert.fail('this card retries nothing'))
     },
+    ConfirmationModal: 'ConfirmationModal',
     notifyToastError: (message, error) => toasts.push([message, error.message]),
     getErrorMessage: (error) => error.message,
     i18n: { t: (key) => key },
@@ -1244,7 +1256,7 @@ const ruleBody = (css, selector) => {
 };
 
 test('card and strip read one status color map written once', () => {
-  const variants = ['success', 'error', 'warning', 'info', 'waiting', 'neutral'];
+  const variants = ['success', 'error', 'warning', 'info', 'waiting', 'repairing', 'neutral'];
   const allCss = [stripCss, itemCss, animationsCss].join('\n');
   for (const variant of variants) {
     const selector = `.notification-status--${variant}`;
@@ -1923,7 +1935,14 @@ const spinnerSizes = bindLifted(
 )();
 const liftItemPart = (name, bindings) =>
   bindLifted(initializer(itemSource, name), { React: h, ...bindings }, jsx);
-const renderItem = (notification, isAnimatingOut = false, connectionLost = false, onCancel) =>
+const renderItem = (
+  notification,
+  isAnimatingOut = false,
+  connectionLost = false,
+  onCancel,
+  onRetryRepair,
+  cancelConfig = {}
+) =>
   bindLifted(
     findSoleNode(
       itemSource,
@@ -1944,8 +1963,9 @@ const renderItem = (notification, isAnimatingOut = false, connectionLost = false
       ...iconBindings,
       isTerminalNotificationStatus,
       NOTIFICATION_TITLE_KEYS,
-      CANCEL_CONFIG_BY_TYPE: {},
+      CANCEL_CONFIG_BY_TYPE: cancelConfig,
       getNotificationVariant,
+      willForceStop: forceStopFor(cancelConfig),
       getNotificationIcon: liftItemPart('getNotificationIcon', {
         ...iconBindings,
         LoadingSpinner: 'LoadingSpinner'
@@ -1956,7 +1976,14 @@ const renderItem = (notification, isAnimatingOut = false, connectionLost = false
       FORCE_KILL_TOOLTIP_KEY: 'common.notifications.forceKillOperation'
     },
     jsx
-  )({ notification, onDismiss: () => undefined, onCancel, isAnimatingOut, connectionLost });
+  )({
+    notification,
+    onDismiss: () => undefined,
+    onCancel,
+    onRetryRepair,
+    isAnimatingOut,
+    connectionLost
+  });
 
 const textOf = (node) =>
   typeof node === 'string' || typeof node === 'number'
@@ -2282,4 +2309,224 @@ test('a prefill card leaves the reconnecting announcement to the connection bann
       !connectionLost,
       `lost=${connectionLost}`
     );
+});
+
+// ── A job's cache repair after it ended ─────────────────────────────────────
+
+const SERVER_CANCEL = { game_detection: { cancelKind: 'serverOp', tooltipKey: 'cancel' } };
+const repairingCard = {
+  id: 'fix',
+  type: 'game_detection',
+  status: 'repairing',
+  message: 'Canceled, repairing cache data…',
+  progress: 40,
+  startedAt: new Date(0),
+  details: { operationId: 'op', operationIds: ['op'] }
+};
+
+test('a repairing card spins, draws no bar, and offers only a dismiss X', () => {
+  const tree = renderItem(
+    repairingCard,
+    false,
+    false,
+    () => assert.fail('a repairing card cancels nothing'),
+    undefined,
+    SERVER_CANCEL
+  );
+  assert.match(tree.props.className, /^notification-card notification-status--repairing /);
+  assert.deepEqual(
+    elements(tree)
+      .filter((node) => STATUS_ICONS.has(node.type))
+      .map((node) => node.type),
+    ['LoadingSpinner']
+  );
+  assert.deepEqual(
+    slotsOf(tree).map((item) => item.name),
+    ['message']
+  );
+  const buttons = elements(tree).filter((node) => node.type === 'button');
+  assert.deepEqual(
+    buttons.map((node) => node.props['aria-label']),
+    ['common.dismiss']
+  );
+  assert.equal(
+    elements(tree).some((node) => node.type === 'Tooltip'),
+    false
+  );
+
+  const row = renderItem(
+    { ...repairingCard, controlOnly: true },
+    false,
+    false,
+    () => assert.fail('a repairing row cancels nothing'),
+    undefined,
+    SERVER_CANCEL
+  );
+  assert.equal(
+    textOf(elements(row).find((node) => node.props?.role === 'status')),
+    'common.notifications.condensedStatus.repairing'
+  );
+  assert.equal(
+    elements(row).some((node) => node.type === 'Button'),
+    false,
+    'no Cancel or Force stop'
+  );
+});
+
+test('a failed-out repair offers one Retry with no icon', () => {
+  const retried = [];
+  const red = {
+    ...repairingCard,
+    status: 'failed',
+    message: 'Repair failed: disk busy',
+    details: { operationId: 'op', repairFailed: true, closeOperationIds: ['op'] }
+  };
+  const tree = renderItem(red, false, false, undefined, (notification) =>
+    retried.push(notification)
+  );
+  const retry = elements(tree).filter((node) => node.type === 'Button');
+  assert.equal(retry.length, 1);
+  assert.equal(textOf(retry[0]), 'common.retry');
+  assert.equal(retry[0].props.leftSection, undefined);
+  retry[0].props.onClick();
+  assert.deepEqual(retried, [red]);
+  assert.equal(
+    elements(
+      renderItem({ ...red, details: { operationId: 'op' } }, false, false, undefined, () =>
+        assert.fail('no Retry to press')
+      )
+    ).some((node) => node.type === 'Button'),
+    false
+  );
+});
+
+test('the background controls segment is teal only when every compact control is repairing', () => {
+  const control = (id, status) => ({
+    ...notice(id),
+    status,
+    controlOnly: true,
+    details: { operationId: id }
+  });
+  for (const [cards, variant] of [
+    [[control('a', 'repairing'), control('b', 'repairing')], 'repairing'],
+    [[control('a', 'repairing'), control('b', 'running')], 'warning']
+  ]) {
+    const bar = makeBar(cards, {}, {}, { defaultMode: 'condensed' });
+    const strip = elements(bar.render()).find((node) => node.type === 'CondensedNotificationStrip');
+    assert.equal(
+      strip.props.segments.find((item) => item.key === 'background-controls').variant,
+      variant
+    );
+    bar.dispose();
+  }
+});
+
+test('a repairing card the user hid keeps only its compact strip segment', () => {
+  const bar = makeBar([{ ...repairingCard, stripOnly: true }]);
+  const tree = bar.render();
+  assert.equal(placement(tree, 'fix'), 'condensed');
+  const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
+  assert.deepEqual(
+    strip.props.segments.map((item) => item.variant),
+    ['repairing']
+  );
+  bar.dispose();
+});
+
+test('a press that would force stop asks first, and only Confirm sends it, for the card as it is now', () => {
+  const cancelled = [];
+  const card = {
+    ...notice('job'),
+    details: { operationId: 'op', operationIds: ['op'], cancelRequested: true, cancelSent: true }
+  };
+  const bar = makeBar(
+    [card],
+    {},
+    {},
+    {
+      cancelConfig: SERVER_CANCEL,
+      cancel: (notification) => cancelled.push(notification)
+    }
+  );
+  bar.render();
+  const modals = () => elements(bar.tree).filter((node) => node.type === 'ConfirmationModal');
+  const item = () => elements(bar.tree).find((node) => node.type === 'UnifiedNotificationItem');
+  const press = () => bar.event(() => item().props.onCancel(item().props.notification));
+  assert.equal(modals().length, 1, 'one dialog serves every card');
+  assert.equal(modals()[0].props.opened, false);
+
+  press();
+  assert.deepEqual(cancelled, [], 'the press only opens the dialog');
+  assert.equal(modals()[0].props.opened, true);
+  assert.equal(modals()[0].props.confirmLabel, 'common.notifications.forceStop');
+  assert.equal(modals()[0].props.title, 'common.notifications.forceStopConfirm.title');
+  bar.event(() => modals()[0].props.onClose());
+  assert.equal(modals()[0].props.opened, false);
+  assert.deepEqual(cancelled, [], 'Cancel sends nothing');
+
+  press();
+  const current = { ...card, message: 'Still detecting' };
+  bar.setNotifications([current]);
+  bar.event(() => modals()[0].props.onConfirm());
+  assert.deepEqual(cancelled, [current], 'Confirm stops the card as it is now');
+  assert.equal(modals()[0].props.opened, false);
+
+  press();
+  bar.setNotifications([
+    { ...card, status: 'cancelled', details: { operationId: 'op', operationIds: ['op'] } }
+  ]);
+  assert.equal(modals()[0].props.opened, false, 'a job that ends on its own closes the dialog');
+  assert.equal(cancelled.length, 1);
+  bar.dispose();
+
+  // A first press cancels at once, with no dialog.
+  const first = [];
+  const plain = makeBar(
+    [{ ...card, details: { operationId: 'op', operationIds: ['op'] } }],
+    {},
+    {},
+    {
+      cancelConfig: SERVER_CANCEL,
+      cancel: (notification) => first.push(notification)
+    }
+  );
+  plain.render();
+  const plainItem = elements(plain.tree).find((node) => node.type === 'UnifiedNotificationItem');
+  plain.event(() => plainItem.props.onCancel(plainItem.props.notification));
+  assert.equal(first.length, 1);
+  plain.dispose();
+});
+
+test('Retry on a failed-out repair asks the server to run it again and says so when that fails', async () => {
+  const retried = [];
+  const toasts = [];
+  const red = {
+    ...repairingCard,
+    status: 'failed',
+    details: { operationId: 'op', repairFailed: true, closeOperationIds: ['op'] }
+  };
+  let answer = Promise.resolve();
+  const bar = makeBar(
+    [red],
+    {},
+    {},
+    {
+      retryRepair: (operationId) => {
+        retried.push(operationId);
+        return answer;
+      },
+      toasts
+    }
+  );
+  bar.render();
+  const item = elements(bar.tree).find((node) => node.type === 'UnifiedNotificationItem');
+  item.props.onRetryRepair(red);
+  await settle();
+  assert.deepEqual(retried, ['op']);
+  assert.deepEqual(toasts, []);
+  answer = Promise.reject(new Error('Server unreachable'));
+  item.props.onRetryRepair(red);
+  await settle();
+  assert.deepEqual(toasts, [['common.notifications.retryRepairFailed', 'Server unreachable']]);
+  bar.dispose();
 });

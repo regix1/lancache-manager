@@ -6,6 +6,7 @@ import {
   entityBusyFor,
   liftHookCallback,
   loadNotificationModules,
+  MemoryStorage,
   moduleUrl,
   nextRunRevision,
   operationRunRow as row,
@@ -28,6 +29,8 @@ const TEMPLATES = {
   'common.notifications.operationWaitingNamed': '{{name}} is waiting',
   'common.notifications.operationWaitingOn': 'Waiting for {{blocker}} to finish...',
   'common.notifications.operationWaitingOnNamed': '{{name}} is waiting for {{blocker}}',
+  'common.notifications.cancelling': 'Cancelling...',
+  'common.notifications.repairFailed': 'Repair failed: {{reason}}',
   'prefill.auth.waitingForSignIn': 'Waiting for {{service}} sign-in',
   'prefill.persistent.services.steam': 'Steam',
   'signalr.gameDetect.error.fatal': 'Game detection failed: {{errorDetail}}',
@@ -47,6 +50,9 @@ export default {
   exists: (key) => key in templates || key.startsWith('signalr.')
 };`);
 
+// The store keeps the repairing cards hidden in this tab in sessionStorage, and decides once, when
+// it loads, whether that storage works; a test that hides one installs a fresh storage first.
+globalThis.sessionStorage = new MemoryStorage();
 const modules = await loadNotificationModules(I18N);
 const {
   NOTIFICATION_REGISTRY: notificationEntries,
@@ -2311,4 +2317,302 @@ test('a waiter follows a promotion before it reads a status, and a later 404 rel
   await flush();
   assert.equal(answers.length, 0);
   assert.equal(known.target, 'KNOWN');
+});
+
+// ── A job's cache repair after it ended ─────────────────────────────────────
+
+/** A terminal row of a job whose cache repair still runs. */
+const repairingRow = (operationId, fields = {}) =>
+  row(operationId, { status: 'cancelled', repairing: true, repairError: null, ...fields });
+/** The row of a job whose repair gave up: the server keeps it, with the reason. */
+const failedOutRow = (operationId, fields = {}) =>
+  row(operationId, {
+    status: 'cancelled',
+    repairing: false,
+    retained: true,
+    repairError: 'disk busy',
+    ...fields
+  });
+const HIDDEN_REPAIRS_KEY = 'lancache_hidden_repairing_runs';
+
+test('a job that ends while its repair runs keeps its card, teal, until the repair ends', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser();
+  browser.push(row('R'));
+  browser.state = setRunCancel(browser.state, 'R', { cancelRequested: true, cancelSent: true });
+  browser.push(repairingRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
+  const card = browser.card('R');
+  assert.equal(card.message, 'common.notifications.repairing.cancelled');
+  assert.equal(card.progress, undefined);
+  assert.equal(card.details.cancelRequested, undefined, 'an ended job carries no cancel to force');
+  const entry = browser.state.entries.get('R');
+  assert.equal(entry.retained, false, 'a repairing card is not a kept ending');
+  assert.equal(entry.leaving, false);
+  assert.deepEqual(
+    browser.ended,
+    [{ operationId: 'R', status: 'cancelled', error: undefined }],
+    'the job ended, so its waiters resolve'
+  );
+
+  browser.push(row('R', { status: 'cancelled', repairing: false, repairError: null }));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:cancelled'], 'then it ends as it does today');
+  assert.equal(browser.state.entries.get('R').leaving, true);
+
+  for (const status of ['completed', 'failed', 'skipped']) {
+    const fresh = new Browser();
+    fresh.snapshot([repairingRow('S', { status })]);
+    assert.deepEqual(fresh.drawn(), ['S:eviction_scan:repairing'], 'a snapshot creates the card');
+    assert.equal(fresh.card('S').message, `common.notifications.repairing.${status}`);
+  }
+});
+
+test('a run row carries repairing, repairError and fullRepair only in their wire types', () => {
+  const quiet = mock.method(console, 'error', () => undefined);
+  try {
+    assert.equal(readOperationRun(row('A', { repairing: 'yes' })), null);
+    assert.equal(readOperationRun(row('A', { repairError: 5 })), null);
+    assert.equal(readOperationRun(row('A', { fullRepair: 1 })), null);
+  } finally {
+    quiet.mock.restore();
+  }
+  assert.ok(readOperationRun(row('A', { repairing: true, repairError: null, fullRepair: false })));
+  assert.ok(readOperationRun(row('A', { repairError: 'disk busy' })));
+
+  // A row whose repair did not fail sends null: no red repair card and no Retry.
+  const browser = new Browser();
+  browser.push(row('N'));
+  browser.push(kept('N', { status: 'failed', error: 'Boom', repairing: false, repairError: null }));
+  assert.deepEqual(browser.drawn(), ['N:eviction_scan:failed']);
+  assert.equal(browser.card('N').details.repairFailed, undefined);
+  assert.doesNotMatch(browser.card('N').message, /Repair failed/);
+});
+
+test('a repair that fails out turns its card red with Retry, and Retry turns it teal again', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser({ keepSuccessVisible: true });
+  browser.push(row('R'));
+  browser.push(repairingRow('R'));
+  browser.push(failedOutRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:failed']);
+  const red = browser.card('R');
+  assert.equal(red.message, 'Repair failed: disk busy');
+  assert.equal(red.details.repairFailed, true);
+  assert.deepEqual(red.details.closeOperationIds, ['R']);
+
+  // Retry: the server runs the repair again under the same id.
+  browser.push(repairingRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
+  assert.equal(browser.card('R').details.repairFailed, undefined);
+  // Turning Keep Notifications Visible off releases kept successes, never a repairing card.
+  browser.state = releaseKeptSuccess(browser.state);
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
+  browser.push(failedOutRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:failed']);
+  assert.equal(browser.card('R').details.repairFailed, true);
+});
+
+test('a repair row after a cancel answered "already finished" brings the card back, teal', () => {
+  const browser = new Browser();
+  browser.push(row('R'));
+  browser.state = removeRuns(browser.state, ['R']);
+  assert.deepEqual(browser.drawn(), []);
+  browser.push(repairingRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
+
+  // A copy older than a snapshot applied since changes nothing: that snapshot did not hold it.
+  const late = new Browser();
+  late.push(row('L'));
+  late.state = removeRuns(late.state, ['L']);
+  const stale = repairingRow('L');
+  late.snapshot([]);
+  late.push(stale);
+  assert.deepEqual(late.drawn(), []);
+});
+
+test('closing a repairing card hides it to the strip until its repair ends, through reconnects and reloads', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser();
+  browser.push(row('R'));
+  browser.push(repairingRow('R'));
+  browser.state = hideRun(browser.state, 'R');
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
+  assert.equal(browser.card('R').stripOnly, true);
+  assert.equal(globalThis.sessionStorage.getItem(HIDDEN_REPAIRS_KEY), '["R"]');
+
+  browser.reconnect();
+  browser.snapshot([repairingRow('R')]);
+  assert.equal(browser.card('R').stripOnly, true, 'a new connection keeps it hidden');
+  const reloaded = new Browser();
+  reloaded.snapshot([repairingRow('R')]);
+  assert.equal(reloaded.card('R').stripOnly, true, 'a reload of the same tab keeps it hidden');
+
+  // The repair succeeds: the card does not come back, Keep Notifications Visible or not.
+  browser.keepSuccessVisible = true;
+  browser.push(row('R', { status: 'cancelled', repairing: false, repairError: null }));
+  assert.deepEqual(browser.drawn(), []);
+  assert.equal(browser.state.entries.size, 0);
+  assert.equal(globalThis.sessionStorage.getItem(HIDDEN_REPAIRS_KEY), '[]');
+});
+
+test("a hidden repair of a failed job shows the job's red card when the repair ends", () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser();
+  browser.push(row('F'));
+  browser.push(repairingRow('F', { status: 'failed', error: 'Boom', retained: true }));
+  assert.equal(browser.card('F').message, 'common.notifications.repairing.failed');
+  browser.state = hideRun(browser.state, 'F');
+  browser.push(kept('F', { status: 'failed', error: 'Boom', repairing: false, repairError: null }));
+  assert.deepEqual(browser.drawn(), ['F:eviction_scan:failed']);
+  assert.equal(browser.card('F').stripOnly, undefined);
+});
+
+test('a hidden repair that fails out shows its red card, and its Retry shows the full teal card', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser();
+  browser.push(row('R'));
+  browser.push(repairingRow('R'));
+  browser.state = hideRun(browser.state, 'R');
+  browser.push(failedOutRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:failed']);
+  assert.equal(browser.card('R').stripOnly, undefined);
+  assert.equal(globalThis.sessionStorage.getItem(HIDDEN_REPAIRS_KEY), '[]');
+  browser.push(repairingRow('R'));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
+  assert.equal(browser.card('R').stripOnly, undefined);
+});
+
+test('a bulk item still repairing shows its own teal card once the bulk card has left', () => {
+  const bulk = bulkRemovalCard({ currentOperationId: 'I1', itemOperationIds: ['I1'] });
+  const browser = new Browser({ localCards: [bulk] });
+  const item = { operationType: 'gameRemoval', name: 'Game Removal' };
+  browser.push(row('I1', item));
+  browser.push(repairingRow('I1', { ...item, status: 'completed' }));
+  assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:running']);
+  browser.localCards = [{ ...bulk, status: 'completed' }];
+  assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:completed'], 'the bulk card ends as today');
+  browser.localCards = [];
+  assert.deepEqual(browser.drawn(), ['I1:game_removal:repairing']);
+});
+
+test('a phase whose repair fails out shows its own red card while its parent card is kept', () => {
+  const browser = new Browser();
+  const phase = { operationType: 'gameDetection', parentOperationId: 'P', visibility: 'hidden' };
+  browser.push(row('P'));
+  browser.push(row('C', phase));
+  browser.push(kept('P', { status: 'failed', error: 'Boom' }));
+  browser.push(repairingRow('C', { ...phase, status: 'completed' }));
+  assert.deepEqual(browser.drawn(), ['P:eviction_scan:failed'], 'only repairing, it stays folded');
+  browser.push(failedOutRow('C', { ...phase, status: 'completed' }));
+  assert.deepEqual(browser.drawn(), ['P:eviction_scan:failed', 'C:game_detection:failed']);
+  assert.equal(browser.card('C').details.repairFailed, true);
+});
+
+test('a phase that is only repairing keeps its own visibility once its parent card has left', () => {
+  for (const [visibility, drawn] of [
+    ['hidden', []],
+    ['background', ['C:game_detection:repairing:row']]
+  ]) {
+    const browser = new Browser();
+    const phase = { operationType: 'gameDetection', parentOperationId: 'P', visibility };
+    browser.push(row('P'));
+    browser.push(row('C', phase));
+    browser.push(repairingRow('C', { ...phase, status: 'completed' }));
+    browser.push(row('P', { status: 'completed' }));
+    browser.fade();
+    assert.deepEqual(browser.drawn(), drawn, visibility);
+  }
+});
+
+test('the startup full repair draws a Cache Repair card that leaves the moment the repair succeeds', () => {
+  const full = {
+    operationType: 'cacheClearing',
+    name: 'Cache Clearing',
+    status: 'cancelled',
+    fullRepair: true
+  };
+  for (const keepSuccessVisible of [false, true]) {
+    for (const hidden of [false, true]) {
+      const label = `keep ${keepSuccessVisible}, hidden ${hidden}`;
+      globalThis.sessionStorage = new MemoryStorage();
+      const browser = new Browser({ keepSuccessVisible });
+      browser.snapshot([row('D', { ...full, repairing: true, repairError: null })]);
+      assert.deepEqual(browser.drawn(), ['D:cache_repair:repairing'], label);
+      assert.equal(browser.card('D').message, 'common.notifications.repairing.fullRepair');
+      if (hidden) browser.state = hideRun(browser.state, 'D');
+      browser.push(row('D', { ...full, repairing: false, repairError: null }));
+      assert.deepEqual(browser.drawn(), [], label);
+      assert.equal(browser.state.entries.size, 0, label);
+    }
+  }
+
+  const failing = new Browser();
+  failing.snapshot([row('D', { ...full, repairing: true })]);
+  failing.push(row('D', { ...full, repairing: false, retained: true, repairError: 'unreadable' }));
+  assert.deepEqual(failing.drawn(), ['D:cache_repair:failed']);
+  assert.equal(failing.card('D').details.repairFailed, true);
+  assert.equal(failing.card('D').message, 'Repair failed: unreadable');
+
+  const job = new Browser();
+  job.snapshot([row('J', { ...full, fullRepair: undefined, repairing: true })]);
+  assert.deepEqual(job.drawn(), ['J:cache_clearing:repairing']);
+  assert.equal(job.card('J').message, 'common.notifications.repairing.cancelled');
+});
+
+test('a later failed run of the same schedule leaves an older red repair card and its Retry', () => {
+  const failed = { status: 'failed', error: 'Boom' };
+  const browser = new Browser();
+  browser.push(row('A'));
+  browser.push(failedOutRow('A', failed));
+  browser.push(row('B'));
+  browser.push(kept('B', failed));
+  assert.deepEqual(browser.drawn(), ['A:eviction_scan:failed', 'B:eviction_scan:failed']);
+  assert.equal(browser.card('A').details.repairFailed, true);
+
+  // The other order: the older run's repair fails out after the newer run already failed.
+  const late = new Browser();
+  late.push(row('C'));
+  const firstEnding = repairingRow('C', failed);
+  late.push(firstEnding);
+  late.push(row('D'));
+  late.push(kept('D', failed));
+  late.push(failedOutRow('C', { ...failed, completedRevision: firstEnding.revision }));
+  assert.deepEqual(late.drawn(), ['C:eviction_scan:failed', 'D:eviction_scan:failed']);
+
+  // Control: an older plain failure is replaced as before.
+  const control = new Browser();
+  control.push(row('E'));
+  control.push(kept('E', failed));
+  control.push(row('F'));
+  control.push(kept('F', failed));
+  assert.deepEqual(control.drawn(), ['F:eviction_scan:failed']);
+});
+
+test('a running job held at its log step names what holds it, then shows its own progress', () => {
+  for (const operationType of ['gameRemoval', 'logProcessing']) {
+    const browser = new Browser();
+    const fields = { operationType, name: 'Job' };
+    browser.push(row('J', fields));
+    browser.detail('J', { message: 'Removing files' });
+    browser.push(row('J', { ...fields, blockedByName: 'Log Import' }));
+    assert.equal(browser.card('J').message, 'Job is waiting for Log Import', operationType);
+    assert.equal(browser.card('J').status, 'running');
+    browser.push(row('J', fields));
+    assert.equal(browser.card('J').message, 'Removing files', operationType);
+  }
+  const waiting = new Browser();
+  waiting.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
+  assert.equal(waiting.card('W').message, 'Eviction Scan is waiting for Game Removal');
+});
+
+test('a card being cancelled says so instead of its last progress line', () => {
+  const browser = new Browser();
+  browser.push(row('R'));
+  browser.detail('R', { message: 'Scanning 45%' });
+  assert.equal(browser.card('R').message, 'Scanning 45%');
+  browser.state = setRunCancel(browser.state, 'R', { cancelRequested: true, cancelSent: true });
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:cancelling']);
+  assert.equal(browser.card('R').message, 'Cancelling...');
+  browser.push(row('R', { status: 'cancelling' }));
+  assert.equal(browser.card('R').message, 'Cancelling...');
 });

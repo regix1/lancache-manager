@@ -23,6 +23,7 @@ import {
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { formatCount } from '@utils/formatters';
+import { sessionStore } from '@utils/storage';
 import type { OperationStatus } from '../../types/operations';
 import type { OperationRun, OperationRunsSnapshot, RunVisibility } from '../SignalRContext/types';
 import type {
@@ -161,6 +162,12 @@ const OPERATION_STATUSES: readonly OperationStatus[] = [
 ];
 // Every visibility a row may carry, for the wire check.
 const VISIBILITY_ORDER: readonly RunVisibility[] = ['hidden', 'background', 'card'];
+// Repairing cards hidden in this tab, by operation id, so a reload or a new connection keeps them
+// hidden until their repair ends.
+const HIDDEN_REPAIRING_RUNS_KEY = 'lancache_hidden_repairing_runs';
+
+const hiddenRepairingRuns = (): string[] =>
+  sessionStore.getJSON<string[]>(HIDDEN_REPAIRING_RUNS_KEY) ?? [];
 
 const isNonEmptyString = (value: unknown): boolean => typeof value === 'string' && value.length > 0;
 const isOptionalText = (value: unknown): boolean =>
@@ -201,6 +208,9 @@ export function readOperationRun(value: unknown): OperationRun | null {
     isOptionalFlag(value.retained) &&
     isOptionalFlag(value.closed) &&
     isOptionalFlag(value.latestRunSucceeded) &&
+    isOptionalFlag(value.repairing) &&
+    isOptionalFlag(value.fullRepair) &&
+    isOptionalText(value.repairError) &&
     isOptionalNonNegativeInteger(value.consecutiveFailures) &&
     (value.completedRevision === undefined ||
       value.completedRevision === null ||
@@ -487,12 +497,13 @@ export function applyRun(
     }
   }
   // A card removed here while its run still looked live (a cancel answered "already finished"
-  // before the terminal row arrived) comes back when the server says it kept that ending. A push
-  // counts only when it is newer than every snapshot applied since, which would have held the run.
+  // before the terminal row arrived) comes back when the server says it kept that ending, or that
+  // its repair still runs. A push counts only when it is newer than every snapshot applied since,
+  // which would have held the run.
   const keptAfterRemoval =
     record?.status === 'gone' &&
     !record.mergedInto &&
-    row.retained === true &&
+    (row.retained === true || row.repairing === true) &&
     (!options.pushed || row.revision > state.snapshotRevision);
   if (!entry && record && terminal && !keptAfterRemoval) return unchanged;
   // That snapshot was captured after this row was stamped and did not hold the run, so the run
@@ -549,7 +560,8 @@ export function applyRun(
     generation: next.generation,
     visibility: row.visibility,
     connectionRecovering: undefined,
-    hiddenHere: undefined,
+    // A repairing card hidden in this tab stays hidden; any other row draws a hidden card again.
+    hiddenHere: row.repairing === true && hiddenRepairingRuns().includes(id) ? true : undefined,
     // A parked run being cancelled has no worker to describe it, so it keeps its waiting sentence.
     ...(base.run.status === 'waiting' && row.status === 'cancelling'
       ? { carriedMessage: waitingCardMessage(base.run) }
@@ -578,10 +590,30 @@ export function applyRun(
     status: endStatus(row.status),
     error: row.error ?? undefined
   });
+  // The job ended but the cache repair it owes still runs, so its card stays. It is not a kept
+  // ending: Keep Notifications Visible never releases it, and its next row decides how it ends.
+  if (row.repairing) {
+    next.entries.set(id, { ...updated, retained: false });
+    return result;
+  }
+  // A failed-out repair is drawn as its own card even under a parent or a bulk card, so its Retry
+  // stays reachable.
+  const repairFailed = typeof row.repairError === 'string';
+  const hiddenRepairs = hiddenRepairingRuns();
+  const wasHiddenRepair = hiddenRepairs.includes(id);
+  if (wasHiddenRepair)
+    sessionStore.setJSON(
+      HIDDEN_REPAIRING_RUNS_KEY,
+      hiddenRepairs.filter((hidden) => hidden !== id)
+    );
   const leavesOnItsOwn = row.status === 'completed' || row.status === 'cancelled';
-  if (foldedUnderParent(next, updated)) {
+  if (!repairFailed && (row.fullRepair === true || (wasHiddenRepair && !row.retained))) {
+    // The startup repair's record carries a placeholder ending that is never shown, and a repair
+    // hidden here does not come back when it finishes.
     endEntry(next, updated, endStatus(row.status));
-  } else if (bulkOwner(updated, options.localCards)) {
+  } else if (!repairFailed && foldedUnderParent(next, updated)) {
+    endEntry(next, updated, endStatus(row.status));
+  } else if (!repairFailed && bulkOwner(updated, options.localCards)) {
     // A kept item stays, folded and never drawn, so its batch card can close it on the server.
     if (row.retained) next.entries.set(id, { ...updated, retained: true });
     else endEntry(next, updated, endStatus(row.status));
@@ -594,10 +626,16 @@ export function applyRun(
     // One kept ending of each kind per schedule, replaced in this same apply so two failure cards
     // (or two skips or warnings) of one schedule are never on screen together. An ending
     // never replaces one of another kind; the server keeps the same set. The removed ending
-    // resolved its waiters when it ended. [72]
-    const identity = row.retained ? scheduleIdentity(row) : undefined;
+    // resolved its waiters when it ended. [72] A failed-out repair keeps its own card and Retry
+    // whichever run of the schedule failed later.
+    const identity = row.retained && !repairFailed ? scheduleIdentity(row) : undefined;
     for (const other of identity ? [...next.entries.values()] : []) {
-      if (other.run.operationId === id || !other.run.retained || other.run.status !== row.status)
+      if (
+        other.run.operationId === id ||
+        !other.run.retained ||
+        other.run.status !== row.status ||
+        typeof other.run.repairError === 'string'
+      )
         continue;
       if (scheduleIdentity(other.run) !== identity) continue;
       if (endingOrder(other) < endingOrder(kept)) {
@@ -926,12 +964,19 @@ export function setRunCancel(
 
 /**
  * Hides a live run card on this screen while the server is unreachable. The entry stays, so the
- * run keeps its page busy and its waiters, and the next row for it draws the card again.
+ * run keeps its page busy and its waiters, and the next row for it draws the card again. A
+ * repairing card hides until its repair ends, through reconnects and reloads of this tab, and keeps
+ * its compact strip segment meanwhile.
  */
 export function hideRun(state: RunStoreState, cardId: string): RunStoreState {
   const entry = [...state.entries.values()].find((candidate) => candidate.cardId === cardId);
   // A row may have ended the run after the card was drawn; its ending must stay on screen.
-  if (!entry || !isLive(entry)) return state;
+  if (!entry || !(isLive(entry) || entry.run.repairing === true)) return state;
+  if (entry.run.repairing === true)
+    sessionStore.setJSON(HIDDEN_REPAIRING_RUNS_KEY, [
+      ...hiddenRepairingRuns(),
+      entry.run.operationId
+    ]);
   const next = cloneState(state);
   // A cancel still in flight settles against the drawn cards, which no longer hold this one, so
   // its pending flags would outlive the hide; the server's next row says whether it landed.
@@ -1016,10 +1061,20 @@ function drawRun(entry: RunEntry): UnifiedNotification {
           `prefill.persistent.services.${SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[run.serviceId ?? '']}`
         )
       : undefined;
-  const status =
-    live && (entry.cancel.cancelRequested || entry.cancel.cancelling) ? 'cancelling' : run.status;
+  const repairing = !live && run.repairing === true;
+  const repairFailed = !live && !repairing && typeof run.repairError === 'string';
+  const status = repairing
+    ? 'repairing'
+    : repairFailed
+      ? 'failed'
+      : live && (entry.cancel.cancelRequested || entry.cancel.cancelling)
+        ? 'cancelling'
+        : run.status;
   const kept = run.retained === true && !live;
-  const warning = run.status === 'completed' && run.warning ? run.warning : undefined;
+  const warning =
+    run.status === 'completed' && run.warning && !repairing && !repairFailed
+      ? run.warning
+      : undefined;
   const line = warning
     ? (detail.detailMessage ?? detectionErrorDetail({ context: { detectionError: warning } }))
     : detail.detailMessage;
@@ -1034,37 +1089,59 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     kept && run.latestRunSucceeded ? i18n.t('common.notifications.latestRunSucceeded') : undefined,
     line
   ].filter((part): part is string => part !== undefined);
-  const controlOnly = live && entry.visibility === 'background' ? true : undefined;
+  const controlOnly = (live || repairing) && entry.visibility === 'background' ? true : undefined;
   return {
     id: entry.cardId,
-    type: cardType(run),
+    type: run.fullRepair === true ? 'cache_repair' : cardType(run),
     status,
     controlOnly,
+    stripOnly: repairing && entry.hiddenHere ? true : undefined,
     message:
-      run.status === 'waiting'
-        ? // A background row prints the run's name beside its message, so it names only the blocker.
-          waitingCardMessage(controlOnly ? { blockedByName: run.blockedByName } : run)
-        : signIn
-          ? i18n.t('prefill.auth.waitingForSignIn', { service: platform })
-          : failedSignIn
-            ? i18n.t('common.errors.signInFailed', { platform })
-            : (detail.message ??
-              (run.status === 'skipped'
-                ? // A skip's row message is the reason the server kept, which the live card prints as is.
-                  translateStageKeyMessage(run.message, undefined, GENERIC_SKIPPED_I18N_KEY)
-                : isTerminalNotificationStatus(run.status)
-                  ? // An ended run no event described says how it ended, never "in progress". [56]
-                    translateRecoveryStage(
-                      run.message,
-                      undefined,
-                      {
-                        completed: GENERIC_COMPLETION_I18N_KEY,
-                        failed: GENERIC_FAILURE_I18N_KEY,
-                        cancelled: GENERIC_CANCELLED_I18N_KEY
-                      }[run.status]
-                    )
-                  : (entry.carriedMessage ??
-                    translateRecoveryStage(run.message, undefined, 'signalr.generic.unknown')))),
+      repairing && isTerminalNotificationStatus(run.status)
+        ? run.fullRepair === true
+          ? i18n.t('common.notifications.repairing.fullRepair')
+          : i18n.t(
+              {
+                completed: 'common.notifications.repairing.completed',
+                failed: 'common.notifications.repairing.failed',
+                cancelled: 'common.notifications.repairing.cancelled',
+                skipped: 'common.notifications.repairing.skipped'
+              }[run.status]
+            )
+        : repairFailed
+          ? i18n.t('common.notifications.repairFailed', { reason: run.repairError })
+          : run.status === 'waiting' || (run.status === 'running' && run.blockedByName)
+            ? // A background row prints the run's name beside its message, so it names only the blocker.
+              waitingCardMessage(controlOnly ? { blockedByName: run.blockedByName } : run)
+            : signIn
+              ? i18n.t('prefill.auth.waitingForSignIn', { service: platform })
+              : failedSignIn
+                ? i18n.t('common.errors.signInFailed', { platform })
+                : status === 'cancelling'
+                  ? // The last progress line no longer describes a run being stopped; a parked run
+                    // keeps the waiting sentence it carried in.
+                    (entry.carriedMessage ?? i18n.t('common.notifications.cancelling'))
+                  : (detail.message ??
+                    (run.status === 'skipped'
+                      ? // A skip's row message is the reason the server kept, which the live card prints as is.
+                        translateStageKeyMessage(run.message, undefined, GENERIC_SKIPPED_I18N_KEY)
+                      : isTerminalNotificationStatus(run.status)
+                        ? // An ended run no event described says how it ended, never "in progress". [56]
+                          translateRecoveryStage(
+                            run.message,
+                            undefined,
+                            {
+                              completed: GENERIC_COMPLETION_I18N_KEY,
+                              failed: GENERIC_FAILURE_I18N_KEY,
+                              cancelled: GENERIC_CANCELLED_I18N_KEY
+                            }[run.status]
+                          )
+                        : (entry.carriedMessage ??
+                          translateRecoveryStage(
+                            run.message,
+                            undefined,
+                            'signalr.generic.unknown'
+                          )))),
     detailMessage: lines.length > 0 ? lines.join(' ') : undefined,
     progress:
       'progress' in detail
@@ -1083,9 +1160,11 @@ function drawRun(entry: RunEntry): UnifiedNotification {
       operationId: run.operationId,
       operationIds: entry.aliases,
       parentOperationId: run.parentOperationId ?? undefined,
-      ...entry.cancel,
+      // A cancel reaches only a live run; an ended one's X never force-stops it.
+      ...(live ? entry.cancel : {}),
       cancelled: status === 'cancelled' || undefined,
       connectionRecovering: entry.connectionRecovering,
+      ...(repairFailed ? { repairFailed: true } : {}),
       ...(kept ? { closeOperationIds: [run.operationId] } : {}),
       ...(warning ? { notificationType: 'warning' as const } : {})
     }
@@ -1105,8 +1184,12 @@ export function deriveNotifications(
   const waitingItem = new Map<string, OperationRun>();
   const keptItems = new Map<string, string[]>();
   for (const entry of state.entries.values()) {
-    if (foldedUnderParent(state, entry)) continue;
-    const owner = bulkOwner(entry, localCards);
+    // A failed-out repair is always its own card, so its Retry is never folded away. A run that is
+    // only repairing stays folded while its parent or bulk card is stored, then shows by its own
+    // visibility.
+    const repairFailed = typeof entry.run.repairError === 'string';
+    if (!repairFailed && foldedUnderParent(state, entry)) continue;
+    const owner = repairFailed ? undefined : bulkOwner(entry, localCards);
     if (owner) {
       if (entry.run.status === 'waiting') waitingItem.set(owner.id, entry.run);
       if (entry.run.retained && !entry.leaving)
@@ -1119,7 +1202,8 @@ export function deriveNotifications(
       : entry.leaving
         ? entry.visibility === 'card'
         : entry.visibility !== 'hidden';
-    if (drawn && !entry.hiddenHere) cards.push(drawRun(entry));
+    // A repairing card hidden here is still drawn, as its compact strip segment only.
+    if (drawn && (!entry.hiddenHere || entry.run.repairing)) cards.push(drawRun(entry));
   }
   for (const card of localCards) {
     const waiting = isTerminalNotificationStatus(card.status)

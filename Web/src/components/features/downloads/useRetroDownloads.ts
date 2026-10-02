@@ -12,6 +12,7 @@ import { useMockMode } from '@contexts/useMockMode';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRepairEnd } from '@hooks/useRepairEnd';
 import { useRefreshThrottle } from '@hooks/useRefreshThrottle';
 import MockDataService from '@/test/mockData.service';
 import type { HitMissFilter } from './RetroView.types';
@@ -275,6 +276,27 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       RETRO_LIVE_ONLY_EVENTS.forEach((eventName) => off(eventName, handleLiveRefresh));
     };
   }, [enabled, mockMode, on, off, reload, scheduleReload, timeRange]);
+
+  // The cache repair a job owes can change the listed rows after the job's Complete event already
+  // reloaded them, so the end of that repair reloads once more.
+  useRepairEnd(
+    [
+      'game_detection',
+      'cache_clearing',
+      'cache_repair',
+      'eviction_scan',
+      'eviction_removal',
+      'depot_mapping',
+      'log_removal',
+      'corruption_removal',
+      'service_removal',
+      'game_removal'
+    ],
+    () => {
+      if (!enabled) return;
+      scheduleReload(reload);
+    }
+  );
 
   useEffect(() => {
     // A run where only refreshVersion changed since the last run is a background SignalR refresh;

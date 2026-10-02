@@ -47,6 +47,7 @@ export type NotificationType =
   | 'prefill_login'
   | 'download_history_upgrade'
   | 'steam_session_error'
+  | 'cache_repair'
   | 'generic';
 
 /**
@@ -54,8 +55,9 @@ export type NotificationType =
  * `OperationStatus` so SignalR status fields can flow through unchanged.
  * Consumers that only care about the narrower "running | completed | failed"
  * triple continue to work because those three values are still members.
+ * `repairing` exists only on a card: the run ended and its cache repair still runs.
  */
-export type NotificationStatus = OperationStatus;
+export type NotificationStatus = OperationStatus | 'repairing';
 
 /**
  * How a run ended, as far as this browser can tell. `gone` means the server no longer tracks the
@@ -76,6 +78,8 @@ export type NotificationProgressMode = 'determinate' | 'indeterminate';
  */
 export interface UnifiedNotification {
   controlOnly?: boolean;
+  /** A repairing card the user hid: only its compact strip segment shows. */
+  stripOnly?: boolean;
   /** Unique identifier for this notification */
   id: string;
   /** The type of operation this notification represents */
@@ -237,6 +241,8 @@ export interface UnifiedNotification {
 
     // Cancellation flag
     cancelled?: boolean;
+    /** The run's cache repair gave up; the card offers Retry. */
+    repairFailed?: boolean;
   };
 
   /** Error message when status is 'failed' */

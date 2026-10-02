@@ -78,6 +78,11 @@
   --notification-status-glow: var(--theme-waiting-glow);
 }
 
+.notification-status--repairing {
+  --notification-status-color: var(--theme-repairing);
+  --notification-status-glow: var(--theme-repairing-glow);
+}
+
 /* The gray a stopped run is drawn in has no -glow sibling, so it borrows the muted tier of the
    same color. That tier is fainter than the shared glow alpha, which suits the one status that
    is deliberately quiet. */

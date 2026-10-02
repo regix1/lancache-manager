@@ -2511,6 +2511,20 @@ class ApiService {
     }
   }
 
+  static async retryRepair(operationId: string): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/operations/${operationId}/retry-repair`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      })
+    );
+    if (!res.ok) {
+      await this.handleResponse<void>(res);
+    }
+  }
+
   static async forceKillOperation(operationId: string): Promise<{ message: string }> {
     try {
       const res = await fetch(
@@ -2518,7 +2532,9 @@ class ApiService {
         this.getFetchOptions({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(10000)
+          // The server answers a running card after at most 10 s (a 5 s cancel grace, then a 5 s
+          // wait after the kill), so the request needs room beyond that.
+          signal: AbortSignal.timeout(20000)
         })
       );
       return await this.handleResponse<{ message: string }>(res);

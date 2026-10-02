@@ -49,6 +49,7 @@ import {
   type DashboardSlices
 } from './applyBatchResponse';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRepairEnd } from '@hooks/useRepairEnd';
 import { useConnectionLost } from '@hooks/useConnectionLost';
 import { getEffectiveTimezone } from '@utils/timezone';
 import { useTimezone } from '@contexts/useTimezone';
@@ -872,6 +873,27 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       trigger: 'signalr-reconnected'
     });
   });
+
+  // The cache repair a job owes can change every range's figures after the job's Complete event
+  // already refreshed them, so the end of that repair forces the same all-range refresh.
+  useRepairEnd(
+    [
+      'game_detection',
+      'cache_clearing',
+      'cache_repair',
+      'eviction_scan',
+      'eviction_removal',
+      'depot_mapping',
+      'log_removal',
+      'corruption_removal',
+      'service_removal',
+      'game_removal'
+    ],
+    () => {
+      if (mockMode || !hasAccess) return;
+      fetchAllData({ forceRefresh: true, trigger: 'repair-end' });
+    }
+  );
 
   // While the hub is down no refresh event arrives, so pull a batch for the range on screen at
   // the same cadence as the speed cards. A plain call returns when another request is in flight.

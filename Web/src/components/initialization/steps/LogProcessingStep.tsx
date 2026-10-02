@@ -15,6 +15,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   ProcessingProgressEvent,
@@ -70,6 +71,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
   const [lastEventAt, setLastEventAt] = useState<number>(Date.now());
   const [isCancelling, setIsCancelling] = useState(false);
+  const [forceStopConfirmOpen, setForceStopConfirmOpen] = useState<boolean>(false);
   const completionHandledRef = React.useRef(false);
   const sessionStartedRef = React.useRef(false);
   const activeOperationIdRef = React.useRef<string | null>(null);
@@ -726,7 +728,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           <Button
             variant="filled"
             color="stop"
-            onClick={handleCancelProcessing}
+            onClick={() => setForceStopConfirmOpen(true)}
             disabled={isCancelling}
             fullWidth
           >
@@ -736,6 +738,21 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           </Button>
         )}
       </div>
+      {/* This stop force-kills the run, so it asks first, as a notification card's force stop does. */}
+      <ConfirmationModal
+        opened={forceStopConfirmOpen}
+        onClose={() => setForceStopConfirmOpen(false)}
+        onConfirm={() => {
+          setForceStopConfirmOpen(false);
+          void handleCancelProcessing();
+        }}
+        title={t('common.notifications.forceStopConfirm.title')}
+        confirmLabel={t('common.notifications.forceStop')}
+      >
+        <p className="text-sm text-themed-secondary">
+          {t('common.notifications.forceStopConfirm.message')}
+        </p>
+      </ConfirmationModal>
     </div>
   );
 };

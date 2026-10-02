@@ -7,6 +7,7 @@ export type BadgeVariant =
   | 'info'
   | 'neutral'
   | 'waiting'
+  | 'repairing'
   | 'waiting-outline';
 
 export interface BadgeProps {

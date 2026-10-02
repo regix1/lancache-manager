@@ -234,7 +234,8 @@ const importHook = async (relativePath) =>
       '@contexts/useRefreshRate': refreshRateUrl,
       '@hooks/useRefreshThrottle': await compileToUrl('../src/hooks/useRefreshThrottle.ts', {
         react: reactUrl
-      })
+      }),
+      '@hooks/useRepairEnd': moduleUrl('export const useRepairEnd = () => undefined;')
     })
   );
 

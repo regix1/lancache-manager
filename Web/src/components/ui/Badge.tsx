@@ -11,6 +11,7 @@ const VARIANT_CLASS: Record<BadgeVariant, string> = {
   info: 'status-badge-info',
   neutral: 'status-badge-neutral',
   waiting: 'status-badge-waiting',
+  repairing: 'status-badge-repairing',
   'waiting-outline': 'status-badge-waiting-outline'
 };
 

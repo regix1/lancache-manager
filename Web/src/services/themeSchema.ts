@@ -81,6 +81,10 @@ const themeColorDefaults: Record<string, string> = {
   waiting: '#a855f7',
   waitingBg: '#3b0764',
   waitingText: '#d8b4fe',
+  // Repairing state (a job ended while its cache repair still runs). Teal, kept apart from the
+  // running blue and the cyan accent by hue and brightness.
+  repairing: '#5eead4',
+  repairingText: '#99f6e4',
 
   // ── Service / platform colors ────────────────────────────────────────
   // Each service carries its own brand hue rather than borrowing one of the semantic colors.

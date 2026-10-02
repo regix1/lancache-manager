@@ -45,6 +45,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRepairEnd } from '@hooks/useRepairEnd';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
@@ -490,6 +491,19 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       off('EvictionScanComplete', handleEvictionStateChanged);
     };
   }, [on, off, scheduleCachedDetectionSync]);
+
+  // The cache repair those jobs owe can change the cached results after their Complete events.
+  useRepairEnd(
+    [
+      'game_detection',
+      'game_removal',
+      'eviction_removal',
+      'cache_clearing',
+      'cache_repair',
+      'eviction_scan'
+    ],
+    () => scheduleCachedDetectionSync('Failed to reload after cache repair')
+  );
 
   const startDetection = useCallback(
     async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {

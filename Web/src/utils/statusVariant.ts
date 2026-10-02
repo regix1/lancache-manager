@@ -23,5 +23,6 @@ export const VARIANT_BY_STATUS: Record<string, BadgeVariant> = {
   error: 'error',
   cancelled: 'neutral',
   waiting: 'waiting',
+  repairing: 'repairing',
   skipped: 'warning'
 };

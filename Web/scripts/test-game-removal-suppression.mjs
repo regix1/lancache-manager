@@ -59,31 +59,37 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
     controlOnly: true,
     details: { operationId: 'first', operationIds: ['first'] }
   };
-  const cancel = bindLifted(
-    liftConstArrow('src/components/common/notificationCancel.ts', 'handleCancel'),
-    {
-      CANCEL_CONFIG_BY_TYPE: { game_detection: { cancelKind: 'serverOp' } },
-      pendingCancels: new Set(),
-      notifyToastError: (message) => errors.push(message),
-      i18n: { t: (key) => key },
-      isTerminalNotificationStatus: (status) =>
-        ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
-      isAbortError: (error) => error?.name === 'AbortError',
-      ApiError: class extends Error {},
-      ApiService: {
-        cancelOperation: () => {
-          calls++;
-          return new Promise((resolve) => {
-            release = resolve;
-          });
-        },
-        forceKillOperation: () => {
-          calls++;
-          return Promise.reject(new Error('Connection closed'));
-        }
+  const cancelSource = 'src/components/common/notificationCancel.ts';
+  const CANCEL_CONFIG_BY_TYPE = { game_detection: { cancelKind: 'serverOp' } };
+  const isTerminalNotificationStatus = (status) =>
+    ['completed', 'failed', 'cancelled', 'skipped'].includes(status);
+  const cancel = bindLifted(liftConstArrow(cancelSource, 'handleCancel'), {
+    CANCEL_CONFIG_BY_TYPE,
+    pendingCancels: new Set(),
+    notifyToastError: (message) => errors.push(message),
+    i18n: { t: (key) => key },
+    isTerminalNotificationStatus,
+    willForceStop: bindLifted(liftConstArrow(cancelSource, 'willForceStop'), {
+      CANCEL_CONFIG_BY_TYPE
+    }),
+    cancelUnreachable: bindLifted(liftConstArrow(cancelSource, 'cancelUnreachable'), {
+      isTerminalNotificationStatus
+    }),
+    isAbortError: (error) => error?.name === 'AbortError',
+    ApiError: class extends Error {},
+    ApiService: {
+      cancelOperation: () => {
+        calls++;
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+      forceKillOperation: () => {
+        calls++;
+        return Promise.reject(new Error('Connection closed'));
       }
     }
-  );
+  });
   const update = (_id, change) => {
     state = { ...state, ...(typeof change === 'function' ? change(state) : change) };
   };

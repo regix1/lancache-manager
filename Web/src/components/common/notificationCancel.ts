@@ -60,6 +60,16 @@ export const notifyToastError = (message: string, error: unknown): void => {
   );
 };
 
+/** The card's X sends a force kill: a server operation whose cancel was already requested. */
+export const willForceStop = (notification: UnifiedNotification): boolean =>
+  CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp' &&
+  Boolean(notification.details?.operationId) &&
+  notification.details?.cancelRequested === true;
+
+// A repairing card's job already ended, so no cancel can reach it, as with a terminal card.
+const cancelUnreachable = (notification: UnifiedNotification): boolean =>
+  isTerminalNotificationStatus(notification.status) || notification.status === 'repairing';
+
 /**
  * Every write below patches `details` from the card as it stands when the write runs, not from the
  * card captured at click time. The cancel round trip is async and `updateNotification` merges at the
@@ -75,7 +85,7 @@ export const handleCancel = async (
   removeNotification: (id: string) => void,
   getNotifications: () => UnifiedNotification[]
 ): Promise<void> => {
-  if (isTerminalNotificationStatus(notification.status)) return;
+  if (cancelUnreachable(notification)) return;
   const cancelKind = CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind ?? 'none';
   if (cancelKind === 'none') return;
   if (cancelKind === 'clientQueue') {
@@ -104,7 +114,7 @@ export const handleCancel = async (
         : n.id === notification.id
     );
   if (pendingCancels.has(operationId) || findLive()?.details?.cancelPending) return;
-  const force = notification.details?.cancelRequested === true;
+  const force = willForceStop(notification);
   pendingCancels.add(operationId);
   updateNotification(notification.id, (current) =>
     !isTerminalNotificationStatus(current.status)
@@ -123,7 +133,8 @@ export const handleCancel = async (
       ? await ApiService.forceKillOperation(operationId)
       : await ApiService.cancelOperation(operationId);
     const live = findLive();
-    if (!live || isTerminalNotificationStatus(live.status)) return;
+    // A repairing card stays when the answer says the job already finished: its repair still runs.
+    if (!live || cancelUnreachable(live)) return;
     // The answer describes the operation the cancel actually reached, so `alreadyFinished` means
     // the work ended even when the request named the run this card was promoted from.
     if (result && 'alreadyFinished' in result && result.alreadyFinished === true) {
@@ -140,7 +151,7 @@ export const handleCancel = async (
     }
   } catch (err: unknown) {
     const live = findLive();
-    if (!live || isTerminalNotificationStatus(live.status)) return;
+    if (!live || cancelUnreachable(live)) return;
     if (isAbortError(err)) {
       updateNotification(live.id, (current) =>
         !isTerminalNotificationStatus(current.status)
@@ -163,7 +174,7 @@ export const handleCancel = async (
       err
     );
     updateNotification(live.id, (current) =>
-      !isTerminalNotificationStatus(current.status)
+      !cancelUnreachable(current)
         ? {
             details: {
               ...current.details,

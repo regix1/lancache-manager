@@ -1303,6 +1303,12 @@ export interface OperationRun {
   ownerSessionId?: string | null;
   /** Revision of the run's first terminal row, the order endings are kept in; null while live. */
   completedRevision?: number | null;
+  /** The run ended but the cache repair it owes is still running. */
+  repairing?: boolean;
+  /** Why the run's cache repair gave up after its last attempt; null when it did not fail. */
+  repairError?: string | null;
+  /** The startup repair that checks every cache file, not one tied to a job. */
+  fullRepair?: boolean;
   /** ISO timestamp. */
   startedAt: string;
   revision: number;

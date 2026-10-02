@@ -132,6 +132,12 @@
     color: var(--theme-waiting-text);
   }
 
+  /* A job that ended while its cache repair still runs: teal, apart from running blue. */
+  .status-badge-repairing {
+    background-color: var(--theme-repairing-muted);
+    color: var(--theme-repairing-text);
+  }
+
   .status-badge-waiting-outline {
     background-color: transparent;
     color: var(--theme-waiting-text);

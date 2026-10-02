@@ -42,7 +42,10 @@ const ApiService = {
     sent.push(operationId);
     return cancelImpl(operationId);
   },
-  forceKillOperation: () => Promise.resolve({})
+  forceKillOperation: (operationId) => {
+    sent.push(\`force:\${operationId}\`);
+    return Promise.resolve({});
+  }
 };
 export default ApiService;`);
 
@@ -60,7 +63,8 @@ export default { t: (key) => key };`);
   const registryUrl = moduleUrl(`// ${nonce}
 export const NOTIFICATION_REGISTRY = [
   { type: 'game_detection', cancelKind: 'serverOp', cancelTooltipKey: 'common.actions.cancel' },
-  { type: 'prefill_login', cancelKind: 'serverOp', cancelTooltipKey: 'common.actions.cancel' }
+  { type: 'prefill_login', cancelKind: 'serverOp', cancelTooltipKey: 'common.actions.cancel' },
+  { type: 'bulk_removal', cancelKind: 'clientQueue', cancelTooltipKey: 'common.actions.cancel' }
 ];`);
 
   const constantsUrl = moduleUrl(`// ${nonce}
@@ -341,6 +345,56 @@ test('a canceled card draws gray, a warning amber, and only a failure red', asyn
     'info',
     'a status with no row of its own reads as running'
   );
+});
+
+test('only a server operation whose cancel was already requested force stops', async () => {
+  const { cancel } = await loadCancel('force-table');
+  const card = (type, details) => ({ id: 'n1', type, status: 'running', details });
+  for (const [label, notification, expected] of [
+    ['requested', card('game_detection', { operationId: 'op', cancelRequested: true }), true],
+    ['first press', card('game_detection', { operationId: 'op' }), false],
+    ['re-armed', card('game_detection', { operationId: 'op', cancelRequested: false }), false],
+    ['no operation id', card('game_detection', { cancelRequested: true }), false],
+    ['client queue', card('bulk_removal', { operationId: 'op', cancelRequested: true }), false],
+    ['no cancel at all', card('cache_repair', { operationId: 'op', cancelRequested: true }), false]
+  ])
+    assert.equal(cancel.willForceStop(notification), expected, label);
+});
+
+test('a repairing card sends no cancel and no force kill', async () => {
+  const { cancel, api } = await loadCancel('repairing');
+  for (const cancelRequested of [false, true]) {
+    const notifications = [
+      {
+        ...runningCard(),
+        status: 'repairing',
+        details: { operationId: 'op-1', operationIds: ['op-1'], cancelRequested }
+      }
+    ];
+    const removed = await driveCancel(cancel, notifications, notifications[0]);
+    assert.deepEqual(removed, []);
+    assert.equal(notifications[0].details.cancelPending, undefined);
+  }
+  assert.deepEqual(api.sent, []);
+});
+
+test('an "already finished" answer leaves the card when its repair row arrived first', async () => {
+  const { cancel, api, toasts } = await loadCancel('repair-before-answer');
+  const notifications = [runningCard()];
+  api.setCancel(
+    () =>
+      new Promise((resolve) => {
+        // The job's terminal row says its repair still runs, before the cancel is answered.
+        queueMicrotask(() => {
+          notifications[0] = { ...notifications[0], status: 'repairing' };
+          resolve({ alreadyFinished: true });
+        });
+      })
+  );
+  const removed = await driveCancel(cancel, notifications, notifications[0]);
+  assert.deepEqual(removed, [], 'the teal card stays while the repair runs');
+  assert.equal(notifications[0].status, 'repairing');
+  assert.deepEqual(toasts, []);
 });
 
 test('a cancel for an operation that is already gone drops the card', async () => {

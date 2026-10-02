@@ -342,6 +342,7 @@
       "titles": {
         "logProcessing": "Log Processing",
         "cacheClearing": "Cache Clearing",
+        "cacheRepair": "Cache Repair",
         "logRemoval": "Log Removal",
         "serviceRemoval": "Service Cache Removal",
         "gameRemoval": "Game Cache Removal",
@@ -399,6 +400,19 @@
       "forceStop": "Force stop",
       "cancelOperationFailed": "Failed to cancel operation",
       "forceKillOperationFailed": "Failed to force kill operation",
+      "forceStopConfirm": {
+        "title": "Force stop this operation?",
+        "message": "Force stop ends this operation now. Any cleanup it needs still runs in the background, and operations that conflict with that cleanup wait for it."
+      },
+      "repairing": {
+        "completed": "Completed, repairing cache data…",
+        "failed": "Failed, repairing cache data…",
+        "cancelled": "Canceled, repairing cache data…",
+        "skipped": "Skipped, repairing cache data…",
+        "fullRepair": "Checking all cache data after an update or an unreadable repair file…"
+      },
+      "repairFailed": "Repair failed: {{reason}}",
+      "retryRepairFailed": "Could not retry the repair",
       "cancelling": "Cancelling...",
       "operationWaiting": "Waiting for another process to complete...",
       "operationWaitingNamed": "{{name}}: waiting for another process to complete...",
@@ -432,7 +446,8 @@
         "cancelled": "cancelled",
         "cancelling": "cancelling",
         "pending": "pending",
-        "skipped": "skipped"
+        "skipped": "skipped",
+        "repairing": "repairing"
       },
       "steamAnonymous": "Steam Anonymous",
       "steamAuthenticated": "Steam Authenticated",
@@ -1577,8 +1592,8 @@
       "windowTooltip": "Traffic observed in the current {{seconds}}-second rolling window. Not included in recorded totals."
     },
     "activity": {
-      "waitingTitle": "Waiting for activity updates",
-      "waitingDescription": "Current activity will appear after the tracker reports.",
+      "waitingTitle": "Live activity is not available",
+      "waitingDescription": "Downloads appear here when LANCache Manager can read live speeds from the access logs.",
       "unavailableTitle": "Activity updates unavailable",
       "unavailableDescription": "The last reported sessions remain visible while their inferred activity period is still current.",
       "inferenceHelp": "Current activity is inferred from completed cache requests. Quiet sessions can show zero speed. History filters do not change this current view."
@@ -6221,6 +6236,16 @@
           "description": "Waiting state text color",
           "affects": ["Waiting messages", "Queue position text", "Waiting badge text"]
         },
+        "repairing": {
+          "label": "Repairing Primary",
+          "description": "Repairing state primary color (a finished job whose cache repair still runs)",
+          "affects": ["Repairing notification borders", "Repairing icons", "Compact strip segments"]
+        },
+        "repairingText": {
+          "label": "Repairing Text",
+          "description": "Repairing state text color",
+          "affects": ["Repairing badge text"]
+        },
         "publicAccessBg": {
           "label": "Public Access Background",
           "description": "Background of the public access badge",
@@ -8103,7 +8128,8 @@
       "startFailed": "Failed to start log processing",
       "startFailedForDatasource": "Failed to start log processing for '{{datasource}}'",
       "removeFailed": "Failed to remove logs for service '{{service}}' from datasource '{{datasource}}'",
-      "fileNotFound": "Log file not found: {{path}}"
+      "fileNotFound": "Log file not found: {{path}}",
+      "processingActive": "Log processing is running. Try again when it finishes."
     },
     "migration": {
       "notConfigured": "Server database connection is not configured"

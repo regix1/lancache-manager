@@ -509,6 +509,16 @@ export const colorGroups: ColorGroup[] = [
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
       },
+      {
+        key: 'repairing',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
+      },
+      {
+        key: 'repairingText',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
+      },
       { key: 'publicAccessBg', supportsAlpha: true, pages: ['users', 'management'] },
       { key: 'publicAccessText', supportsAlpha: true, pages: ['users', 'management'] },
       { key: 'publicAccessBorder', supportsAlpha: true, pages: ['users', 'management'] },

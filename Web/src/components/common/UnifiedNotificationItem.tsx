@@ -10,7 +10,7 @@ import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
-import { CANCEL_CONFIG_BY_TYPE, getNotificationVariant } from './notificationCancel';
+import { CANCEL_CONFIG_BY_TYPE, getNotificationVariant, willForceStop } from './notificationCancel';
 import './UnifiedNotificationItem.css';
 
 const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
@@ -39,11 +39,12 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   }
 
   // Work in flight holds the same icon slot as every other status, so a card's text never moves
-  // sideways when its run ends.
+  // sideways when its run ends. A repair still running after its job ended is work in flight too.
   if (
     notification.status === 'running' ||
     notification.status === 'pending' ||
-    notification.status === 'cancelling'
+    notification.status === 'cancelling' ||
+    notification.status === 'repairing'
   ) {
     return (
       <LoadingSpinner
@@ -310,12 +311,15 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
   notification,
   onDismiss,
   onCancel,
+  onRetryRepair,
   isAnimatingOut,
   connectionLost
 }: {
   notification: UnifiedNotification;
   onDismiss: (notificationId: string) => void;
   onCancel?: (notification: UnifiedNotification) => void;
+  /** Runs a failed-out cache repair again; offered on a card whose repair gave up. */
+  onRetryRepair?: (notification: UnifiedNotification) => void;
   isAnimatingOut?: boolean;
   /** True while the connection banner is up; the bar reads it once and passes it to every card. */
   connectionLost: boolean;
@@ -337,11 +341,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
   const announcement = useNotificationAnnouncement(notification, connectionLost);
 
   if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
-    const canForceStop =
-      notification.details?.cancelRequested === true &&
-      notification.details?.cancelSent === true &&
-      Boolean(notification.details?.operationId) &&
-      CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp';
+    const canForceStop = willForceStop(notification);
     // A waiting row says what it waits for; its message is already a sentence. [106]
     const isWaiting = notification.status === 'waiting' && !notification.details?.cancelRequested;
 
@@ -365,8 +365,9 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
               )}
         </span>
         {/* A cancel cannot reach an unreachable server, so the row offers none until the
-            connection returns; it has no close button either. */}
-        {onCancel && !connectionLost && (
+            connection returns; it has no close button either. A repairing row's job already
+            ended, and its repair cannot be stopped. */}
+        {onCancel && !connectionLost && notification.status !== 'repairing' && (
           <Button
             type="button"
             onClick={() => onCancel(notification)}
@@ -498,8 +499,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           onCancel && (
             <Tooltip
               content={t(
-                notification.details?.cancelRequested &&
-                  CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp'
+                willForceStop(notification)
                   ? FORCE_KILL_TOOLTIP_KEY
                   : CANCEL_CONFIG_BY_TYPE[notification.type].tooltipKey
               )}
@@ -510,8 +510,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
                 disabled={notification.details?.cancelPending}
                 className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
                 aria-label={
-                  notification.details?.cancelRequested &&
-                  CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp'
+                  willForceStop(notification)
                     ? t(FORCE_KILL_TOOLTIP_KEY)
                     : t('common.notifications.cancelOperationAria')
                 }
@@ -524,7 +523,19 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
               </button>
             </Tooltip>
           )}
-        {(isTerminalNotificationStatus(notification.status) || closable) && (
+        {notification.details?.repairFailed && onRetryRepair && (
+          <Button
+            size="sm"
+            className="pointer-target-44"
+            onClick={() => onRetryRepair(notification)}
+          >
+            {t('common.retry')}
+          </Button>
+        )}
+        {/* A repairing card's X only hides it: the job already ended and its repair keeps running. */}
+        {(isTerminalNotificationStatus(notification.status) ||
+          closable ||
+          notification.status === 'repairing') && (
           <button
             onClick={() => onDismiss(notification.id)}
             className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
