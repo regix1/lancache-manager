@@ -719,12 +719,12 @@ public class RustLogRemovalService
             cancellationToken))
         {
             // Prepared under the lock, so another step's rename cannot change the files it binds to. With no
-            // log file left the child finds nothing to remove and publishes nothing.
-            var affectedPaths = NginxLogRotationService.GetAffectedLogPaths(datasource);
+            // log file left the check binds none, so the child refuses a log file that appears before it
+            // scans the folder.
             await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
                 new[] { datasource },
-                affectedPaths,
-                expectsPublication: affectedPaths.Count > 0,
+                NginxLogRotationService.GetAffectedLogPaths(datasource),
+                expectsPublication: true,
                 cancellationToken);
             _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
 

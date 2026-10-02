@@ -415,14 +415,8 @@ public class NginxLogRotationService
                 : StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToList();
-        if (existingPaths.Count == 0)
+        if (existingPaths.Count == 0 && !expectsPublication)
         {
-            if (expectsPublication)
-            {
-                throw new InvalidOperationException(
-                    "No existing log file was available to bind to the replacement check");
-            }
-
             return new NginxReopenCheck(
                 canonicalNames,
                 existingPaths,
@@ -435,7 +429,11 @@ public class NginxLogRotationService
                 expectsPublication);
         }
 
-        var writersByPath = await ResolveWritersAsync(existingPaths, cancellationToken);
+        // With no log file there is no writer to find. A child that publishes still gets a check, one that
+        // binds no file, so it refuses any log file that appears before it scans the folder.
+        var writersByPath = existingPaths.Count == 0
+            ? new Dictionary<string, IReadOnlyList<NginxWriterIdentity>>()
+            : await ResolveWritersAsync(existingPaths, cancellationToken);
         var writers = existingPaths
             .SelectMany(path => writersByPath[path])
             .DistinctBy(writer => (writer.Kind, writer.Name, writer.ProcessId, writer.StartIdentity))

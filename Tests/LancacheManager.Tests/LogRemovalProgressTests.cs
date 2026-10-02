@@ -343,8 +343,8 @@ public class LogRemovalProgressTests
     [InlineData(137, false)]
     public async Task LogRemoval_AFailedChildNamesTheServiceAndDatasourceAsync(int exitCode, bool wroteReason)
     {
-        // log_service_manager's reason for a log file it could not modify (log_service_manager.rs:1647-1655),
-        // behind the context its main adds (:1983).
+        // log_service_manager's reason for a log file it could not modify (remove_service_from_logs), behind
+        // the context its run adds.
         const string reason = "Service removal failed: FAILED: 1 log file(s) could not be modified due to permission errors. This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID 1000:1000. Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.";
         await using var harness = await LogStepHarness.CreateAsync();
         // Exit 1 after a permission failure, or 137 for a child the kernel killed before it wrote anything.
@@ -380,6 +380,8 @@ public class LogRemovalProgressTests
         var repair = await harness.WaitForOutcomeAsync(ended.Id);
         Assert.Equal(OperationStatus.Completed, repair.Outcome);
         Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
+        // The child still gets a check, one that binds no file, so it would refuse a log file that appeared.
+        Assert.Equal(0, harness.Rust.CheckedFilesAtLaunch);
     }
 
     /// <summary>
@@ -547,6 +549,9 @@ public class LogRemovalProgressTests
         /// </summary>
         public string? FailureMessage { get; set; }
 
+        /// <summary>How many log files the publication check attached at launch binds; null when none is attached.</summary>
+        public int? CheckedFilesAtLaunch { get; private set; }
+
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
             Guid? operationId,
@@ -560,6 +565,12 @@ public class LogRemovalProgressTests
                 .Single(repair => repair.Id == operationId)
                 .Sources
                 .Single();
+            var check = start.Environment.TryGetValue("LANCACHE_LOG_CHECK", out var checkPath) && checkPath is not null
+                ? JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                    await File.ReadAllTextAsync(checkPath, cancellationToken),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                : null;
+            CheckedFilesAtLaunch = check?.Files.Count;
             if (Launches.Count <= HeldLaunches)
             {
                 await Task.Delay(Timeout.Infinite, cancellationToken);
@@ -596,13 +607,22 @@ public class LogRemovalProgressTests
             }
             else if (FailureMessage is not null)
             {
-                // A log file it could not modify: the rewrite publishes no record for that file and reports
-                // failure (log_purge.rs:745-775, :806-811), then the child replaces its progress with the reason
-                // (log_service_manager.rs:1981-1985, :1801-1812) and exits 1 (progress_events.rs:304-312).
+                // A log file it could not modify: remove_all_log_entries_for_service publishes success false
+                // with no record for that file, publish_deleted_files adds an unchanged record for every checked
+                // file still missing one, and run replaces the progress with the reason (write_error_progress)
+                // before the child exits 1.
                 await File.WriteAllTextAsync(
                     start.Environment["LANCACHE_LOG_RESULT"]!,
                     JsonSerializer.Serialize(
-                        new NginxPublicationResult(false, []),
+                        new NginxPublicationResult(
+                            false,
+                            check!.Files.Select(file => new NginxPublicationRecord(
+                                file.TargetPath,
+                                file.OriginalIdentity,
+                                null,
+                                file.OriginalIdentity,
+                                Changed: false,
+                                Deleted: false)).ToList()),
                         new JsonSerializerOptions(JsonSerializerDefaults.Web)),
                     cancellationToken);
                 await File.WriteAllTextAsync(

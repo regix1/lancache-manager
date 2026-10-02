@@ -1738,8 +1738,9 @@ public class CorruptionDetectionService
     /// One datasource's repeated-miss log step under the Rewrite log lock: `remove-logs` removes
     /// the evidence's access.log lines and their rows, nginx reopens right after it exits, the
     /// saved positions come back by the removed lines, and one save keeps the positions with the
-    /// three log counts. It runs with the key scheme the job launched with, which built the evidence
-    /// file, so a folder whose layout changed since cannot refuse a step the repair must finish.
+    /// three log counts. The caller passes the key scheme: the job passes the one its `remove` used, and
+    /// the repair passes the one stored when the job was prepared, so a folder whose layout changed since
+    /// cannot refuse a step the repair must finish.
     /// </summary>
     internal async Task<CorruptionRemovalCounts> RunCorruptionLogStepAsync(
         Guid operationId,
@@ -1762,12 +1763,12 @@ public class CorruptionDetectionService
         try
         {
             // Prepared under the lock, so it binds the log files as they are after any step that ran first.
-            // With no log file left the child rewrites and publishes nothing and still deletes the rows.
-            var affectedLogPaths = NginxLogRotationService.GetAffectedLogPaths(datasource);
+            // With no log file left the check binds none: the child still deletes the rows and refuses a log
+            // file that appears before it scans the folder.
             await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
                 new[] { datasource },
-                affectedLogPaths,
-                expectsPublication: affectedLogPaths.Count > 0,
+                NginxLogRotationService.GetAffectedLogPaths(datasource),
+                expectsPublication: true,
                 cancellationToken);
             _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
             stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
@@ -2047,7 +2048,7 @@ public class CorruptionDetectionService
         if (captured.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
         {
             // The dispatch clears a source's scheme on its own copy when the folder no longer proves it;
-            // the stored record keeps the scheme the job launched with.
+            // the stored record keeps the scheme read when the job was prepared.
             var stored = _operationStateService.GetPendingRepairs().Single(pending => pending.Id == repair.Id);
             foreach (var source in repair.Sources.Where(source => OperationStateService.NeedsLogStepRedo(repair, source)))
             {
