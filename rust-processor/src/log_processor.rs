@@ -412,6 +412,8 @@ struct Processor {
     #[cfg(test)]
     before_content_open: Option<Box<dyn FnMut(&Path) + Send>>,
     #[cfg(test)]
+    after_stem_read: Option<Box<dyn FnMut() + Send>>,
+    #[cfg(test)]
     read_failure: Option<PathBuf>,
     #[cfg(test)]
     open_failure: Option<PathBuf>,
@@ -539,6 +541,8 @@ impl Processor {
             before_resume_open: None,
             #[cfg(test)]
             before_content_open: None,
+            #[cfg(test)]
+            after_stem_read: None,
             #[cfg(test)]
             read_failure: None,
             #[cfg(test)]
@@ -1032,6 +1036,11 @@ impl Processor {
                     continue 'stem_attempt;
                 }
 
+                #[cfg(test)]
+                if let Some(after_read) = self.after_stem_read.as_mut() {
+                    after_read();
+                }
+
                 let published = self
                     .source_positions
                     .get(&source.stem)
@@ -1041,18 +1050,38 @@ impl Processor {
                     last_reached
                         .as_ref()
                         .and_then(|(file_index, file_resume, file_records)| {
-                            let log_file = &stem_files[*file_index];
                             let identity = file_resume.opened.as_ref()?;
-                            if matches!(
-                                log_file.path.extension().and_then(|value| value.to_str()),
-                                Some("gz" | "zst")
-                            ) || log_purge::file_identity(&log_file.path).ok().as_ref()
-                                != Some(identity)
+                            let read_path = &stem_files[*file_index].path;
+                            // logrotate can rename the file this pass read (access.log to
+                            // access.log.1) before the stem ends. The entry follows that file by
+                            // identity, so the next pass still subtracts a rotation the same
+                            // logrotate run deleted.
+                            let target = if log_purge::file_identity(read_path).ok().as_ref()
+                                == Some(identity)
                             {
+                                read_path.clone()
+                            } else {
+                                discover_log_sources(&self.log_dir)
+                                    .ok()?
+                                    .sources
+                                    .into_iter()
+                                    .find(|candidate| candidate.stem == source.stem)?
+                                    .files
+                                    .into_iter()
+                                    .map(|file| file.path)
+                                    .find(|path| {
+                                        log_purge::file_identity(path).ok().as_ref()
+                                            == Some(identity)
+                                    })?
+                            };
+                            if matches!(
+                                target.extension().and_then(|value| value.to_str()),
+                                Some("gz" | "zst")
+                            ) {
                                 return None;
                             }
                             let tail_crc =
-                                log_resume::tail_crc(&log_file.path, file_resume.offset).ok()?;
+                                log_resume::tail_crc(&target, file_resume.offset).ok()?;
                             Some(log_resume::StemResume {
                                 position: published,
                                 older_files: marks[..marks.len().saturating_sub(1)].to_vec(),
@@ -3335,6 +3364,61 @@ mod classification_tests {
             6
         );
         assert_eq!(resumed.skipped_fallback_lines, 1);
+    }
+
+    #[tokio::test]
+    async fn resume_follows_a_file_logrotate_renamed_during_the_pass() {
+        let directory = tempfile::tempdir().expect("create rotation fixture");
+        let resume_path = directory.path().join("resume.json");
+        write_gzip(
+            &directory.path().join("fallback-access.log.2.gz"),
+            b"a\nb\nc\n",
+            Compression::default(),
+        );
+        std::fs::write(directory.path().join("fallback-access.log.1"), b"d\ne\nf\n")
+            .expect("write middle fixture");
+        std::fs::write(directory.path().join("fallback-access.log"), b"g\nh\n")
+            .expect("write current fixture");
+
+        let mut first = resume_processor(directory.path(), "first.json", &resume_path, 0);
+        let rotated = directory.path().to_path_buf();
+        first.after_stem_read = Some(Box::new(move || {
+            // logrotate deletes the oldest rotation, shifts the others and nginx opens a new file.
+            std::fs::remove_file(rotated.join("fallback-access.log.2.gz"))
+                .expect("delete oldest rotation");
+            std::fs::rename(
+                rotated.join("fallback-access.log.1"),
+                rotated.join("fallback-access.log.2"),
+            )
+            .expect("shift middle rotation");
+            std::fs::rename(
+                rotated.join("fallback-access.log"),
+                rotated.join("fallback-access.log.1"),
+            )
+            .expect("rotate current file");
+            std::fs::write(rotated.join("fallback-access.log"), b"i\n")
+                .expect("write new current file");
+        }));
+        first
+            .process()
+            .await
+            .expect("process series while logrotate runs");
+        assert_eq!(
+            position(&read_progress(&directory.path().join("first.json"))),
+            8
+        );
+        assert!(log_resume::load(&resume_path)
+            .stems
+            .contains_key("fallback-access.log"));
+
+        let mut second = resume_processor(directory.path(), "second.json", &resume_path, 8);
+        second.process().await.expect("resume the renamed file");
+
+        assert_eq!(
+            position(&read_progress(&directory.path().join("second.json"))),
+            6
+        );
+        assert_eq!(second.skipped_fallback_lines, 1);
     }
 
     #[tokio::test]
