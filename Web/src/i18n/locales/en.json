@@ -3303,8 +3303,7 @@
         "removeQuestion": "Remove all {{service}} entries from {{datasource}} logs? This will reduce log size and improve performance.",
         "serviceSummary": "Cached {{service}} game files stay where they are, but the removed log entries and the service's download history and statistics cannot be recovered.",
         "deleteEntireLogFile": "Delete Entire Log File",
-        "deleteQuestion": "Delete all log files for {{datasource}}? Entries not yet processed are lost and the logs cannot be reprocessed later.",
-        "deleteAccessLogQuestion": "Delete the current access.log for {{datasource}}? Entries in it that are not yet processed are lost. Rotated log files stay, and their entries can still be processed.",
+        "deleteQuestion": "Delete the log files for {{datasource}}? If it has per-service logs (such as steam-access.log), every log file and its rotated files are deleted. If it has only access.log, the current access.log is deleted and rotated log files stay, so their entries can still be processed. Entries not yet processed in a deleted file are lost.",
         "fileSummary": "Deletes the raw log files. Download history already in the database is kept, cached game files stay where they are, and this cannot be undone.",
         "batchSummary": "This cannot be undone."
       },
@@ -8131,7 +8130,10 @@
       "startFailedForDatasource": "Failed to start log processing for '{{datasource}}'",
       "removeFailed": "Failed to remove logs for service '{{service}}' from datasource '{{datasource}}'",
       "fileNotFound": "Log file not found: {{path}}",
-      "processingActive": "Log processing is running. Try again when it finishes."
+      "processingActive": "Log processing is running. Try again when it finishes.",
+      "fileUnreadable": "This app cannot open the log file {{path}}, so it cannot check that nothing is writing to it. Nothing was deleted. Give the app's user read access to the file, or delete it by hand, then try again.",
+      "filesChanged": "The log files changed while the delete was getting ready, most likely because logrotate ran. Nothing was deleted. Try again.",
+      "fileMovedDuringDelete": "logrotate moved access.log while it was being deleted, so the new access.log nginx had just opened was deleted instead. The file you chose was kept as a rotated file, where its entries can still be processed."
     },
     "migration": {
       "notConfigured": "Server database connection is not configured"

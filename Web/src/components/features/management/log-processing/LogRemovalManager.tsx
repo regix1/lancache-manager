@@ -147,7 +147,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { runs, isAnyRemovalRunning } = useNotifications();
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const { on, off, isConnected } = useSignalR();
-  const { config, refreshConfig } = useConfig();
+  const { config } = useConfig();
 
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
@@ -711,11 +711,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                 color="destructive"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  // The delete removes what is on disk now, so the dialog names it from
-                                  // a config fetched now.
-                                  void refreshConfig().then(() =>
-                                    setPendingLogFileDeletion(ds.datasource)
-                                  );
+                                  setPendingLogFileDeletion(ds.datasource);
                                 }}
                                 awaitPermissions
                                 loading={deletingLogFile === ds.datasource}
@@ -807,13 +803,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         loading={!!deletingLogFile}
       >
         <p className="text-themed-secondary">
-          {t(
-            pendingLogFileDeletion &&
-              datasourceInfoByName.get(pendingLogFileDeletion)?.layout === 'monolithic'
-              ? 'management.logRemoval.modal.deleteAccessLogQuestion'
-              : 'management.logRemoval.modal.deleteQuestion',
-            { datasource: pendingLogFileDeletion }
-          )}
+          {t('management.logRemoval.modal.deleteQuestion', { datasource: pendingLogFileDeletion })}
         </p>
 
         <Alert color="red" icon={null}>
