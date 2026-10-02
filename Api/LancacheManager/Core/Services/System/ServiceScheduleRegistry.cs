@@ -237,6 +237,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         if (_tracker is not null)
         {
             _tracker.OperationTerminal += OnTrackedOperationTerminal;
+            _tracker.BlockerCleared += OnBlockerCleared;
         }
 
         // The tracker sees downloads stop the moment it parses a snapshot with nothing in it, which
@@ -466,6 +467,33 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 operation.Id,
                 reason: null,
                 SkippedBeforeStartStageKey);
+        }
+    }
+
+    // EndRepair always raises BlockerCleared. The terminal pass leaves a repairing ending open, so
+    // once its repair ends well the ending is closed here when a newer failure of its schedule
+    // replaced it, whether or not the newer card is still open.
+    private void OnBlockerCleared()
+    {
+        // Subscribed only when the registry was given a tracker (see the constructor).
+        var tracker = _tracker!;
+        var failedWire = OperationStatus.Failed.ToWireString();
+        lock (_keptEndingsLock)
+        {
+            foreach (var run in tracker.GetRuns().Runs.Where(run => run.Retained && !run.Closed
+                && run.Status == failedWire && run.RepairError is null && !run.Repairing))
+            {
+                // Null when the run was reaped after the list was read.
+                if (tracker.GetOperation(run.OperationId) is not { } operation) continue;
+                var scheduleId = (operation.Metadata as ScheduledPrefillServiceRunState)?.ScheduleId;
+                if (IsScheduleOutcome(operation, scheduleId)
+                    && _scheduleOutcomes.TryGetValue((operation.Type, scheduleId), out var outcomes)
+                    && outcomes.Endings.Any(ending => ending.Key > run.CompletedRevision
+                        && ending.Value == OperationStatus.Failed))
+                {
+                    tracker.CloseRun(run.OperationId);
+                }
+            }
         }
     }
 

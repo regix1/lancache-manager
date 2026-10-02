@@ -24,6 +24,8 @@ public sealed class KeptEndingPerScheduleTests
 {
     private static readonly MethodInfo TerminalHandler = typeof(ServiceScheduleRegistry)
         .GetMethod("OnTrackedOperationTerminal", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly MethodInfo BlockerClearedHandler = typeof(ServiceScheduleRegistry)
+        .GetMethod("OnBlockerCleared", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     [Fact]
     public void ThreeFailuresOfOneScheduleLeaveOneCardCountingThree()
@@ -426,6 +428,43 @@ public sealed class KeptEndingPerScheduleTests
         Assert.Equal("disk gone", Assert.Single(kept, run => run.OperationId == first.Id).RepairError);
     }
 
+    // The newer failure's pass skipped this card only while its repair ran, so the card closes once
+    // the repair ends well, also when the newer card was closed first and a reload would redraw it.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ARepairThatEndsWellClosesItsCardWhenALaterRunOfItsScheduleFailed(bool retried, bool newerClosedFirst)
+    {
+        var (tracker, recorder, handle) = Create();
+        var first = Fail(tracker);
+        handle(first);
+        tracker.BeginRepair(first.Id);
+        if (retried)
+        {
+            tracker.EndRepair(first.Id, "disk gone");
+            tracker.BeginRepair(first.Id);
+        }
+
+        var second = Fail(tracker);
+        handle(second);
+
+        var repairing = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == first.Id);
+        Assert.False(repairing.Closed);
+        Assert.True(repairing.Repairing);
+        if (newerClosedFirst)
+        {
+            tracker.CloseRun(second.Id);
+        }
+
+        tracker.EndRepair(first.Id, null);
+        BlockerClearedHandler.Invoke(handle.Target, null);
+
+        Assert.DoesNotContain(tracker.GetRuns().Runs, run => run.OperationId == first.Id && !run.Closed);
+        Assert.Contains(SentRows(recorder), row => row.OperationId == first.Id && row.Closed);
+    }
+
     private static IEnumerable<int[]> Orders(int count)
     {
         if (count == 0)
@@ -444,8 +483,8 @@ public sealed class KeptEndingPerScheduleTests
     }
 
     /// <summary>
-    /// A registry over a tracker that records every row it sends, with the registry's terminal handler
-    /// detached so each test calls it in the order it names.
+    /// A registry over a tracker that records every row it sends, with the registry's terminal and
+    /// blocker-cleared handlers detached so each test calls them in the order it names.
     /// </summary>
     private static (UnifiedOperationTracker Tracker, RecordingNotificationProxy Recorder, Action<OperationInfo> Handle) Create(
         CacheScanGate? gate = null)
@@ -473,6 +512,7 @@ public sealed class KeptEndingPerScheduleTests
 
         var handle = (Action<OperationInfo>)Delegate.CreateDelegate(typeof(Action<OperationInfo>), schedules, TerminalHandler);
         tracker.OperationTerminal -= handle;
+        tracker.BlockerCleared -= (Action)Delegate.CreateDelegate(typeof(Action), schedules, BlockerClearedHandler);
         return (tracker, recorder, handle);
     }
 
