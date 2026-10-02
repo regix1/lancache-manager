@@ -442,6 +442,31 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
+    public async Task DeleteLogFile_AbortDuringTheDeleteStillResetsThePositionsAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "sixsix");
+        fixture.State.SetLogPosition("alpha", 9);
+        fixture.State.SetLogTotalLines("alpha", 9);
+        using var request = new CancellationTokenSource();
+        fixture.RustHelper.DeleteHandler = (path, token) =>
+        {
+            var bytes = new FileInfo(path).Length;
+            File.Delete(path);
+            request.Cancel();
+            // The real helper checks the token again after the child exits 0.
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(new LogFileDeletionResult(bytes));
+        };
+
+        var result = await fixture.Controller.DeleteLogFileAsync("alpha", request.Token);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
+    }
+
+    [Fact]
     public async Task DeleteLogFile_WaitsForAStepThenHoldsTheLogsWhileDeletingAsync()
     {
         using var fixture = new ControllerFixture();

@@ -713,9 +713,9 @@ public class LogsController : ControllerBase
         _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
         try
         {
-            deletion = await _rustProcessHelper.DeleteLogFileAsync(
-                deleteTarget,
-                cancellationToken);
+            // The delete cannot be undone, so once the logs are held it runs to the end and the
+            // positions below are always reset.
+            deletion = await _rustProcessHelper.DeleteLogFileAsync(deleteTarget, CancellationToken.None);
         }
         catch (Exception error)
         {
