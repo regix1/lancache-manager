@@ -67,6 +67,21 @@ public sealed class KeySchemeLaunchFreshnessContractTests
         Assert.DoesNotContain("await ", source[scheme..launchStatement], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EvictionScanResolvesSchemeAfterItsRepairWait()
+    {
+        var source = ReadSource("Cache/CacheReconciliationService.cs");
+        var scan = source.IndexOf("private async Task<EvictionScanRunOutcome> ReconcileCacheFilesAsync", StringComparison.Ordinal);
+        var wait = source.IndexOf("await repairOwner.StartWorkAsync(operationId, source.Datasource, stoppingToken);", scan, StringComparison.Ordinal);
+        var scheme = source.IndexOf("keyScheme = _capabilityService.GetKeySchemeWireValue(ds)", scan, StringComparison.Ordinal);
+        var launch = source.IndexOf("_rustProcessHelper.RunEvictionScanAsync(", scan, StringComparison.Ordinal);
+
+        Assert.True(scan >= 0, "eviction scan runner is missing");
+        Assert.True(wait > scan, "eviction scan must wait for blocking repairs");
+        Assert.True(scheme > wait, "the scan's key scheme must be read after the repair wait");
+        Assert.True(launch > scheme, "the scan must launch with the freshly read scheme");
+    }
+
     private static string ReadSource(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

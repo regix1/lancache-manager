@@ -526,18 +526,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary");
 
-            // Write datasource configuration to temp file for the Rust binary
-            datasourceConfigPath = Path.GetTempFileName();
-            var datasourceConfig = _datasourceService.GetDatasources().Select(ds => new
-            {
-                name = ds.Name,
-                cachePath = ds.CachePath,
-                isDefault = ds == _datasourceService.GetDefaultDatasource(),
-                keyScheme = _capabilityService.GetKeySchemeWireValue(ds)
-            }).ToArray();
-            var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-            await File.WriteAllTextAsync(datasourceConfigPath, JsonSerializer.Serialize(datasourceConfig, jsonOptions), stoppingToken);
-
             // Create progress file for monitoring
             progressFilePath = Path.GetTempFileName();
 
@@ -561,6 +549,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 await repairOwner.StartWorkAsync(operationId, source.Datasource, stoppingToken);
             }
+
+            // Read after the repair waits above: key evidence can change while a repair runs, and the scan
+            // must use the scheme the log files show at launch.
+            // Write datasource configuration to temp file for the Rust binary
+            datasourceConfigPath = Path.GetTempFileName();
+            var datasourceConfig = _datasourceService.GetDatasources().Select(ds => new
+            {
+                name = ds.Name,
+                cachePath = ds.CachePath,
+                isDefault = ds == _datasourceService.GetDefaultDatasource(),
+                keyScheme = _capabilityService.GetKeySchemeWireValue(ds)
+            }).ToArray();
+            var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+            await File.WriteAllTextAsync(datasourceConfigPath, JsonSerializer.Serialize(datasourceConfig, jsonOptions), stoppingToken);
 
             // Hybrid transport (mirrors CacheClearingService): the stdout progress event from
             // cache_eviction_scan.rs is a zero-latency wake-up that triggers exactly one read of
