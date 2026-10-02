@@ -30,7 +30,7 @@ public sealed class CacheRepairNativeTests
     private const string BinaryDirectoryVariable = "LANCACHE_NATIVE_TEST_BIN";
 
     [NativeRun]
-    public async Task RestartAfterNativeClearRepairsCacheBeforeSingleTerminalAsync()
+    public async Task RestartAfterNativeClearEndsTheCardThenRepairsTheCacheAsync()
     {
         var connection = Environment.GetEnvironmentVariable(ConnectionVariable);
         var databaseUrl = Environment.GetEnvironmentVariable(DatabaseUrlVariable);
@@ -312,50 +312,14 @@ public sealed class CacheRepairNativeTests
                 }
             ]);
 
-            OperationRepair? repairAtNotification = null;
-            EvictionScanCheckpoint? checkpointAtNotification = null;
-            CachedGameDetection? detectionAtNotification = null;
-            CachedDetectionSummary? summaryAtNotification = null;
-            bool? selectedEvictedAtNotification = null;
-            bool? foreignEvictedAtNotification = null;
-            bool? receiptPresentAtNotification = null;
             var notificationBarrier = new TaskCompletionSource<object?>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             var notifications = DispatchProxy.Create<ISignalRNotificationService, NotificationSink>();
             var notificationSink = (NotificationSink)(object)notifications;
-            notificationSink.OnCacheClearingComplete = async message =>
+            notificationSink.OnCacheClearingComplete = message =>
             {
-                try
-                {
-                    var persistedRepair = Assert.Single(state.LoadOperationRepairs());
-                    repairAtNotification = persistedRepair;
-                    receiptPresentAtNotification = File.Exists(receiptPath);
-                    await using var callbackContext = new AppDbContext(contextOptions);
-                    selectedEvictedAtNotification = await callbackContext.Downloads
-                        .Where(download => download.Id == selectedDownloadId)
-                        .Select(download => download.IsEvicted)
-                        .SingleAsync();
-                    foreignEvictedAtNotification = await callbackContext.Downloads
-                        .Where(download => download.Id == foreignDownloadId)
-                        .Select(download => download.IsEvicted)
-                        .SingleAsync();
-                    detectionAtNotification = await callbackContext.CachedGameDetections
-                        .AsNoTracking()
-                        .SingleAsync(detection => detection.GameAppId == gameAppId);
-                    summaryAtNotification = await callbackContext.CachedDetectionSummaries
-                        .AsNoTracking()
-                        .SingleAsync(summary => summary.Id == CachedDetectionSummary.SingletonId);
-                    checkpointAtNotification = await callbackContext.EvictionScanCheckpoints
-                        .AsNoTracking()
-                        .SingleAsync(checkpoint =>
-                            checkpoint.OperationId == persistedRepair.EvictionScanId);
-                    notificationBarrier.TrySetResult(message);
-                }
-                catch (Exception exception)
-                {
-                    notificationBarrier.TrySetException(exception);
-                    throw;
-                }
+                notificationBarrier.TrySetResult(message);
+                return Task.CompletedTask;
             };
 
             firstHost = CreateHost(
@@ -392,7 +356,16 @@ public sealed class CacheRepairNativeTests
             Assert.False(notification.Cancelled);
             Assert.Equal(OperationStatus.Failed, terminalOperation.Status);
 
-            var completedRepair = Assert.IsType<OperationRepair>(repairAtNotification);
+            // The restored card ends while its repair still runs. The row stops showing the repair
+            // only after the repair has saved its outcome and removed the receipt.
+            var repairDeadline = DateTime.UtcNow.AddMinutes(2);
+            while (firstTracker.GetOperation(operationId) is { Repairing: true }
+                && DateTime.UtcNow < repairDeadline)
+            {
+                await Task.Delay(100);
+            }
+
+            var completedRepair = Assert.Single(state.LoadOperationRepairs());
             Assert.Equal(operationId, completedRepair.Id);
             Assert.Equal(OperationRepairPhase.Completed, completedRepair.Phase);
             Assert.Equal(OperationStatus.Failed, completedRepair.Outcome);
@@ -403,7 +376,7 @@ public sealed class CacheRepairNativeTests
             Assert.NotEqual(operationId, completedRepair.EvictionScanId);
             var acceptedSource = Assert.Single(completedRepair.Sources);
             Assert.True(acceptedSource.NativeCompletionAccepted);
-            Assert.False(receiptPresentAtNotification);
+            Assert.False(File.Exists(receiptPath));
             var acceptedMetrics = Assert.IsType<CacheClearingRepair>(completedRepair.CacheClearing);
             Assert.Equal(directoriesProcessed, acceptedMetrics.DirectoriesProcessed);
             Assert.Equal(totalDirectories, acceptedMetrics.TotalDirectories);
@@ -411,21 +384,36 @@ public sealed class CacheRepairNativeTests
             Assert.Equal(filesDeleted, acceptedMetrics.FilesDeleted);
             Assert.Equal(1, acceptedMetrics.DatasourcesCleared);
 
-            Assert.True(selectedEvictedAtNotification);
-            Assert.False(foreignEvictedAtNotification);
-            var completedCheckpoint = Assert.IsType<EvictionScanCheckpoint>(checkpointAtNotification);
-            Assert.Equal(completedRepair.EvictionScanId, completedCheckpoint.OperationId);
-            Assert.Equal(1, completedCheckpoint.Processed);
-            Assert.Equal(1, completedCheckpoint.Evicted);
-            Assert.Equal(0, completedCheckpoint.UnEvicted);
-            Assert.NotNull(completedCheckpoint.FinalizedAtUtc);
-            var completedDetection = Assert.IsType<CachedGameDetection>(detectionAtNotification);
-            Assert.True(completedDetection.IsEvicted);
-            Assert.Equal(0UL, completedDetection.TotalSizeBytes);
-            var completedSummary = Assert.IsType<CachedDetectionSummary>(summaryAtNotification);
-            Assert.Equal(0UL, completedSummary.GamesOnDiskBytes);
-            Assert.Equal(0, completedSummary.GamesOnDiskCount);
-            Assert.Equal(0UL, completedSummary.IdentifiedCacheBytes);
+            await using (var repairedContext = new AppDbContext(contextOptions))
+            {
+                Assert.True(await repairedContext.Downloads
+                    .Where(download => download.Id == selectedDownloadId)
+                    .Select(download => download.IsEvicted)
+                    .SingleAsync());
+                Assert.False(await repairedContext.Downloads
+                    .Where(download => download.Id == foreignDownloadId)
+                    .Select(download => download.IsEvicted)
+                    .SingleAsync());
+                var completedCheckpoint = await repairedContext.EvictionScanCheckpoints
+                    .AsNoTracking()
+                    .SingleAsync(checkpoint => checkpoint.OperationId == completedRepair.EvictionScanId);
+                Assert.Equal(completedRepair.EvictionScanId, completedCheckpoint.OperationId);
+                Assert.Equal(1, completedCheckpoint.Processed);
+                Assert.Equal(1, completedCheckpoint.Evicted);
+                Assert.Equal(0, completedCheckpoint.UnEvicted);
+                Assert.NotNull(completedCheckpoint.FinalizedAtUtc);
+                var completedDetection = await repairedContext.CachedGameDetections
+                    .AsNoTracking()
+                    .SingleAsync(detection => detection.GameAppId == gameAppId);
+                Assert.True(completedDetection.IsEvicted);
+                Assert.Equal(0UL, completedDetection.TotalSizeBytes);
+                var completedSummary = await repairedContext.CachedDetectionSummaries
+                    .AsNoTracking()
+                    .SingleAsync(summary => summary.Id == CachedDetectionSummary.SingletonId);
+                Assert.Equal(0UL, completedSummary.GamesOnDiskBytes);
+                Assert.Equal(0, completedSummary.GamesOnDiskCount);
+                Assert.Equal(0UL, completedSummary.IdentifiedCacheBytes);
+            }
 
             await firstHost.StopAsync();
             firstHost.Dispose();

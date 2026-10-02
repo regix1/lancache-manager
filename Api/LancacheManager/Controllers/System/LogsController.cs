@@ -735,10 +735,12 @@ public class LogsController : ControllerBase
             throw;
         }
 
+        // The file is already gone, so an aborted request must still reopen nginx and reset the
+        // positions.
         var rotationResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
             reopenCheck,
             physicalChange: true,
-            cancellationToken);
+            CancellationToken.None);
         if (!rotationResult.Success)
         {
             throw new IOException(rotationResult.ErrorMessage!);

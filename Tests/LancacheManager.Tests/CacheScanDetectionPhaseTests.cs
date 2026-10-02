@@ -227,7 +227,14 @@ public sealed class CacheScanDetectionPhaseTests
             NullLogger<UnifiedOperationTracker>.Instance);
         var paths = new TempDirPathResolver(ctx.Root) { DockerSocketAvailable = true };
         var rust = new SaveRustProcessHelper(target, paths, tracker);
-        var nginx = new SaveNginxLogRotationService(source.LogPath, paths);
+        var nginx = new SaveNginxLogRotationService(
+            source.LogPath,
+            paths,
+            reopenAnswers: new Queue<ProcessCommandResult>(
+            [
+                new ProcessCommandResult { ExitCode = 41, Error = "first reopen denied" },
+                new ProcessCommandResult { ExitCode = 0 }
+            ]));
         var capability = new DatasourceCapabilityService(ctx.Datasources);
         var gate = Idle();
         var configuration = new ConfigurationBuilder().Build();
@@ -1320,7 +1327,7 @@ public sealed class CacheScanDetectionPhaseTests
         var rust = new CapturingPurgeRust(paths);
         var reopenedWithReportUnread = false;
         var positionAtReopen = 0L;
-        var nginx = new ReopenRecordingNginx(source.LogPath, paths, () =>
+        var nginx = new SaveNginxLogRotationService(source.LogPath, paths, () =>
         {
             reopenedWithReportUnread = File.Exists(rust.OutputPath);
             positionAtReopen = ctx.State.GetLogSourcePositions(source.Name)["access"];
@@ -2165,16 +2172,23 @@ public sealed class CacheScanDetectionPhaseTests
         }
     }
 
+    /// <summary>
+    /// One docker nginx writer over the test log folder. Every reopen runs <c>onReopen</c>, so a
+    /// test can see what had happened by the time nginx reopened. Without <c>reopenAnswers</c>
+    /// every reopen succeeds at once; with them each reopen takes the next answer, and the second
+    /// reopen first waits for <see cref="ReleaseSecondReopen"/>.
+    /// </summary>
     private sealed class SaveNginxLogRotationService : NginxLogRotationService
     {
         private readonly string _logs;
-        private readonly Queue<ProcessCommandResult> _signals = new(
-        [
-            new ProcessCommandResult { ExitCode = 41, Error = "first reopen denied" },
-            new ProcessCommandResult { ExitCode = 0 }
-        ]);
+        private readonly Action? _onReopen;
+        private readonly Queue<ProcessCommandResult>? _reopenAnswers;
 
-        public SaveNginxLogRotationService(string logs, TempDirPathResolver paths)
+        public SaveNginxLogRotationService(
+            string logs,
+            TempDirPathResolver paths,
+            Action? onReopen = null,
+            Queue<ProcessCommandResult>? reopenAnswers = null)
             : base(
                 NullLogger<NginxLogRotationService>.Instance,
                 new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -2186,6 +2200,8 @@ public sealed class CacheScanDetectionPhaseTests
                 TimeProvider.System)
         {
             _logs = logs;
+            _onReopen = onReopen;
+            _reopenAnswers = reopenAnswers;
         }
 
         public int SignalCalls { get; private set; }
@@ -2217,12 +2233,18 @@ public sealed class CacheScanDetectionPhaseTests
                     break;
                 case "docker nginx verified reopen":
                     SignalCalls++;
+                    _onReopen?.Invoke();
+                    if (_reopenAnswers is null)
+                    {
+                        result = new ProcessCommandResult { ExitCode = 0 };
+                        break;
+                    }
                     if (SignalCalls == 2)
                     {
                         SecondReopenReached.SetResult();
                         await ReleaseSecondReopen.Task.WaitAsync(cancellationToken);
                     }
-                    result = _signals.Dequeue();
+                    result = _reopenAnswers.Dequeue();
                     break;
                 default:
                     throw new InvalidOperationException($"Unexpected nginx command: {label} {start.Arguments}");
@@ -2301,45 +2323,6 @@ public sealed class CacheScanDetectionPhaseTests
                 await OnRun(Runs.Count, Assert.IsType<Guid>(operationId));
             }
             return new ProcessExecutionResult { ExitCode = 0 };
-        }
-    }
-
-    /// <summary>
-    /// One docker nginx writer over the test log folder whose reopen always succeeds and runs the
-    /// test's callback, so the test can see what had happened by the time nginx reopened.
-    /// </summary>
-    private sealed class ReopenRecordingNginx(string logs, TempDirPathResolver paths, Action onReopen)
-        : NginxLogRotationService(
-            NullLogger<NginxLogRotationService>.Instance,
-            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["NginxLogRotation:ContainerName"] = "writer"
-            }).Build(),
-            new ProcessManager(NullLogger<ProcessManager>.Instance),
-            paths,
-            TimeProvider.System)
-    {
-        protected override bool CanProbeHostWriters => false;
-        protected override bool CanReplaceDockerLogs => true;
-
-        protected override Task<ProcessCommandResult> RunProcessAsync(
-            ProcessStartInfo start,
-            string label,
-            CancellationToken cancellationToken = default)
-        {
-            if (label == "docker nginx verified reopen")
-            {
-                onReopen();
-            }
-
-            return Task.FromResult(label switch
-            {
-                "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "writer\n" },
-                "docker nginx mount inspection" => new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" },
-                "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "4242|saved\n" },
-                "docker nginx writer ownership" or "docker nginx verified reopen" => new ProcessCommandResult { ExitCode = 0 },
-                _ => throw new InvalidOperationException($"Unexpected nginx command: {label} {start.Arguments}")
-            });
         }
     }
 
@@ -2507,7 +2490,7 @@ public sealed class CacheScanDetectionPhaseTests
             var processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
             var tracker = new UnifiedOperationTracker(processes, NullLogger<UnifiedOperationTracker>.Instance);
             var rust = new CapturingPurgeRust(paths);
-            var nginx = new ReopenRecordingNginx(Path.Combine(root, "logs"), paths, () => { });
+            var nginx = new SaveNginxLogRotationService(Path.Combine(root, "logs"), paths);
             var lifetime = new TestHostApplicationLifetime();
 
             OperationStateService operationState = null!;
