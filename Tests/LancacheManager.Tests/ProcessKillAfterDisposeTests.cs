@@ -184,6 +184,72 @@ public sealed class ProcessKillAfterDisposeTests
             withoutPositions);
     }
 
+    [Fact]
+    public void RemoveCommand_NeverPassesStemPositions()
+    {
+        // The binary's remove command rejects --stem-positions; the log lines go through remove-logs.
+        var operationId = Guid.Parse("4f2c4b1e-8d3a-4c55-9a51-2f0f3b7c9e10");
+
+        var arguments = RustProcessHelper.BuildCorruptionManagerArguments(
+            "remove",
+            "C:/logs",
+            "C:/cache",
+            "steam",
+            "C:/ops/evidence.json",
+            "C:/ops/progress.json",
+            "bare_metal",
+            "C:/ops/positions.json",
+            operationId);
+
+        Assert.Equal(
+            $"remove \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal --operation-id \"{operationId}\"",
+            arguments);
+    }
+
+    [Fact]
+    public async Task TrackedProcessDoesNotHoldTheLeftoverWaitAsync()
+    {
+        // A copy under a unique name keeps every other run of the helper out of the name match.
+        var folder = Path.Combine(AppContext.BaseDirectory, "log-process");
+        var extension = OperatingSystem.IsWindows() ? ".exe" : "";
+        var name = $"LogProcess-wait-{Guid.NewGuid().ToString("N")[..8]}";
+        var copy = Path.Combine(folder, name + extension);
+        var work = Directory.CreateTempSubdirectory("leftover-wait-");
+        File.Copy(Path.Combine(folder, "LogProcess" + extension), copy);
+
+        // The control file names a pipe nobody serves, so the child waits in its connect.
+        File.WriteAllText(Path.Combine(work.FullName, "log-processing-pipe"), $"unserved-{Guid.NewGuid():N}");
+        var start = new ProcessStartInfo(copy) { UseShellExecute = false, CreateNoWindow = true };
+        start.ArgumentList.Add(work.FullName);
+        start.ArgumentList.Add(Path.Combine(work.FullName, "progress.json"));
+        start.ArgumentList.Add("0");
+        start.ArgumentList.Add("default");
+        start.ArgumentList.Add(Path.Combine(work.FullName, "positions.json"));
+        var manager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var process = Process.Start(start)!;
+        try
+        {
+            manager.Track(process);
+            using (var tracked = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+            {
+                await manager.WaitForProcessesExitAsync([name], tracked.Token);
+            }
+
+            manager.Untrack(process);
+            using var untracked = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => manager.WaitForProcessesExitAsync([name], untracked.Token));
+        }
+        finally
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            process.Dispose();
+            File.Delete(copy);
+            work.Delete(recursive: true);
+        }
+    }
+
     private sealed class KillWaitProcessManager : ProcessManager
     {
         public TaskCompletionSource WaitStarted { get; } =

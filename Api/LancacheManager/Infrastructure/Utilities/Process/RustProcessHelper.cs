@@ -1236,8 +1236,7 @@ public partial class RustProcessHelper
                 && !string.IsNullOrEmpty(progressFile)
                 && !string.IsNullOrEmpty(keyScheme)
                 && operationId.HasValue =>
-                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\""
-                    + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\""),
+                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\"",
             "remove-logs" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)

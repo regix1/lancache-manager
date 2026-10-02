@@ -253,7 +253,11 @@ public class ProcessManager : IHostedService, IDisposable
             var processes = FindProcesses(processName);
             try
             {
-                await Task.WhenAll(processes.Select(process => process.WaitForExitAsync(cancellationToken)));
+                // A child this instance still tracks belongs to a live run of another job, which
+                // waits for and untracks its own child; it is not a leftover.
+                await Task.WhenAll(processes
+                    .Where(process => !_activeProcesses.ContainsKey(process.Id))
+                    .Select(process => process.WaitForExitAsync(cancellationToken)));
             }
             finally
             {

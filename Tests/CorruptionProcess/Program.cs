@@ -35,7 +35,7 @@ internal static class Program
             for (var index = optionIndex; index < args.Length; index++)
             {
                 var option = args[index];
-                var optional = command is "remove" or "remove-logs" && option == "--stem-positions";
+                var optional = command == "remove-logs" && option == "--stem-positions";
                 if ((!required.Contains(option) && !optional) || !seen.Add(option))
                     throw new ArgumentException("An unsupported or repeated corruption option was supplied");
                 if (option == "--progress") continue;
