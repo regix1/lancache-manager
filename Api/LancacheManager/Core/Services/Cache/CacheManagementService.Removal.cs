@@ -63,11 +63,7 @@ public partial class CacheManagementService
 
         // A log step that started is finished (the dispatch already reset its positions); a crash
         // or failure after a cache step rolls its log step forward, a cancel leaves the history.
-        foreach (var source in repair.Sources.Where(source =>
-                     source.LogRewriteStarted && !source.LogPositionsKept
-                     || source.NativeCompletionAccepted
-                         && !source.LogRewriteStarted
-                         && repair.Outcome != OperationStatus.Cancelled))
+        foreach (var source in repair.Sources.Where(source => OperationStateService.NeedsLogStepRedo(repair, source)))
         {
             await RunRemovalLogStepAsync(
                 repair.Id,
@@ -292,27 +288,33 @@ public partial class CacheManagementService
 
         // A cancel before this line leaves the log untouched; one after it is finished by the repair.
         cancellationToken.ThrowIfCancellationRequested();
-        await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
-        var report = await new LogPurgeRunner(
-                _pathResolver,
-                _rustProcessHelper,
-                _nginxLogRotationService,
-                _stateService,
-                _logger)
-            .RunAsync(operationId, datasource, targets, onProgress, cancellationToken);
+        ulong linesRemoved = 0;
+        // The purge binary publishes no identity result when it has nothing to match, so it is not started.
+        if (targets.Urls.Count > 0 || targets.DepotIds.Count > 0)
+        {
+            await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
+            var report = await new LogPurgeRunner(
+                    _pathResolver,
+                    _rustProcessHelper,
+                    _nginxLogRotationService,
+                    _stateService,
+                    _logger)
+                .RunAsync(operationId, datasource, targets, onProgress, cancellationToken);
+            linesRemoved = checked((ulong)report.LinesRemoved);
+        }
         await CleanupRemovalAsync(selection, cancellationToken);
 
-        var linesRemoved = checked((ulong)report.LinesRemoved);
         await _operationStateService.SaveRepairAsync(
             operationId,
             current =>
             {
-                current.Sources.Single(candidate =>
-                        string.Equals(
-                            candidate.Datasource,
-                            datasource.Name,
-                            StringComparison.OrdinalIgnoreCase))
-                    .LogPositionsKept = true;
+                var source = current.Sources.Single(candidate =>
+                    string.Equals(
+                        candidate.Datasource,
+                        datasource.Name,
+                        StringComparison.OrdinalIgnoreCase));
+                source.LogRewriteStarted = true;
+                source.LogPositionsKept = true;
                 var metrics = current.Removal
                     ?? throw new InvalidDataException(
                         $"Operation repair {operationId} has no removal metrics.");

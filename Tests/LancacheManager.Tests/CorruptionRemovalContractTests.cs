@@ -899,6 +899,35 @@ public sealed class CorruptionRemovalContractTests
     }
 
     [Fact]
+    public async Task CancelDuringRemoveLogsIsStoredAsACancelAsync()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.RepeatedMiss, transport: true);
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval)).Id;
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.RepeatedMiss, second: false), 0);
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+
+        // The stopped child publishes no result for the log it was rewriting.
+        fixture.Tracker.CancelOperation(operationId);
+        var complete = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(complete.Cancelled, complete.Error);
+        Assert.Null(complete.Error);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // The repair finishes the step that started, from the same evidence file.
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+        await fixture.Pipe.SendAsync(LogCompletion(second: false), 0);
+        var repair = await fixture.WaitForCompletedRepairAsync(operationId);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        var source = Assert.Single(repair.Sources);
+        Assert.True(source.LogRewriteStarted);
+        Assert.True(source.LogPositionsKept);
+    }
+
+    [Fact]
     public async Task FailureAfterTheCacheStep_RollsTheLogStepForwardOnce()
     {
         await using var fixture = new RemovalRun(CorruptionDetectionMethod.RepeatedMiss, transport: true);

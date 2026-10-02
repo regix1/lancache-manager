@@ -134,6 +134,7 @@ public sealed class RemovalLogStepTests
     public async Task CancelDuringTheCacheStepIsACancelAndOwesNoLogStepAsync()
     {
         await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        harness.Rust.ReportUrls.Add("/report/url");
         var config = harness.CreateConfig(
             OperationType.GameRemoval,
             Metrics(OperationType.GameRemoval),
@@ -335,6 +336,99 @@ public sealed class RemovalLogStepTests
         Assert.True(alpha.LogPositionsKept);
         Assert.Equal(9, repair.Removal!.FilesDeleted);
         Assert.Equal(5UL, repair.Removal.LogEntriesRemoved);
+    }
+
+    [Fact]
+    public async Task CancelDuringThePurgeIsStoredAsACancelAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.HeldPurges = 1;
+        rust.ReportDepotIds.Add(1);
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await WaitUntilAsync(() => rust.Launches.Any(launch => launch.Purge));
+        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.DoesNotContain(
+            harness.ReadMessages(),
+            message => message.Value is string text && text.Contains("One or more errors", StringComparison.Ordinal));
+        // The repair redoes the step the cancel cut short.
+        Assert.Equal(2, rust.Launches.Count(launch => launch.Purge));
+        var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
+        Assert.True(alpha.LogRewriteStarted);
+        Assert.True(alpha.LogPositionsKept);
+    }
+
+    [Theory]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.ServiceRemoval)]
+    public async Task ADatasourceWithNothingToPurgeEndsCleanlyAsync(OperationType type)
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), type);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = true;
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            await seed.SaveChangesAsync();
+        }
+        var config = harness.CreateConfig(type, Metrics(type), async (operationId, cancellationToken, report) =>
+        {
+            if (type == OperationType.GameRemoval)
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            }
+
+            var service = await harness.Manager.RemoveServiceFromCacheAsync(
+                "steam",
+                cancellationToken,
+                Progress(report),
+                operationId);
+            return (service.CacheFilesDeleted, checked((long)service.TotalBytesFreed));
+        });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        var purge = Assert.Single(rust.Launches, launch => launch.Purge);
+        Assert.Equal(
+            new[] { "/depot/2/alpha" },
+            purge.PurgeInput!.Value.GetProperty("urls").EnumerateArray().Select(url => url.GetString()));
+        var beta = repair.Sources.Single(source => source.Datasource == "beta");
+        Assert.True(beta.NativeCompletionAccepted);
+        Assert.True(beta.LogRewriteStarted);
+        Assert.True(beta.LogPositionsKept);
     }
 
     private static string Root() =>

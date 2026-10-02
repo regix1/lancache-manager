@@ -8,8 +8,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using LancacheManager.Security;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -227,6 +225,30 @@ public class LogRemovalProgressTests
     }
 
     [Fact]
+    public async Task CancelDuringTheRewriteIsStoredAsACancelAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        harness.Rust.HeldLaunches = 1;
+        var run = harness.RunRemovalAsync();
+        var operationId = harness.Removal.CurrentOperationId!.Value;
+        for (var attempt = 0; harness.Rust.Launches.IsEmpty; attempt++)
+        {
+            Assert.True(attempt < 400, "The removal never launched its child.");
+            await Task.Delay(25);
+        }
+
+        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var repair = await harness.WaitForOutcomeAsync(operationId);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Null(repair.Error);
+        var source = Assert.Single(repair.Sources);
+        Assert.True(source.LogRewriteStarted);
+        Assert.False(source.LogPositionsKept);
+    }
+
+    [Fact]
     public async Task Repair_RunsAnUnfinishedLogStepAgainWithoutTheCacheLockAsync()
     {
         await using var harness = await LogStepHarness.CreateAsync();
@@ -285,7 +307,7 @@ public class LogRemovalProgressTests
     public async Task LogRemoval_FailedOutcomeSaveStillEndsTheRunAndLandsLaterAsync()
     {
         await using var harness = await LogStepHarness.CreateAsync();
-        harness.State.FailOutcomeSave = true;
+        harness.State.FailRepairStarts = 1;
         var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
 
@@ -293,7 +315,7 @@ public class LogRemovalProgressTests
 
         var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(OperationStatus.Completed, ended.Status);
-        Assert.Equal(1, harness.State.FailedWrites);
+        Assert.Equal(0, harness.State.FailRepairStarts);
         var repair = await harness.WaitForOutcomeAsync(ended.Id);
         Assert.Equal(OperationStatus.Completed, repair.Outcome);
         Assert.Equal((1, 3L), (repair.LogRemoval!.FilesProcessed, repair.LogRemoval.LinesProcessed));
@@ -312,7 +334,7 @@ public class LogRemovalProgressTests
             string root,
             string logPath,
             OperationRepairTests.RepairHarness repairs,
-            OutcomeFailingStateService state,
+            OperationRepairTests.FailingStateService state,
             StepRustProcessHelper rust,
             CacheManagementService cache,
             RustLogRemovalService removal)
@@ -329,7 +351,7 @@ public class LogRemovalProgressTests
         public string LogPath { get; }
         public OperationStateService Owner => _repairs.Owner;
         public UnifiedOperationTracker Tracker => _repairs.Tracker;
-        public OutcomeFailingStateService State { get; }
+        public OperationRepairTests.FailingStateService State { get; }
         public StepRustProcessHelper Rust { get; }
         public CacheManagementService Cache { get; }
         public RustLogRemovalService Removal { get; }
@@ -342,22 +364,7 @@ public class LogRemovalProgressTests
             Directory.CreateDirectory(Path.Combine(root, "cache"));
             await File.WriteAllTextAsync(Path.Combine(logs, "access.log"), "line\n");
 
-            var statePaths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
-            ((PathResolverProxy)(object)statePaths).Root = Path.Combine(root, "state");
-            var encryption = new SecureStateEncryptionService(
-                DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, "state", "dp-keys"))),
-                new ApiKeyService(
-                    NullLogger<ApiKeyService>.Instance,
-                    new ConfigurationBuilder().Build(),
-                    statePaths),
-                NullLogger<SecureStateEncryptionService>.Instance);
-            var state = new OutcomeFailingStateService(
-                statePaths,
-                encryption,
-                new SteamAuthStorageService(
-                    NullLogger<SteamAuthStorageService>.Instance,
-                    statePaths,
-                    encryption));
+            var state = OperationRepairTests.CreateFailingStateService(Path.Combine(root, "state"));
             // Outcome retries run at once instead of a minute later.
             var repairs = await OperationRepairTests.RepairHarness.CreateAsync(
                 Path.Combine(root, "repair"),
@@ -438,33 +445,6 @@ public class LogRemovalProgressTests
     }
 
     /// <summary>
-    /// Fails the first repair write after the source was accepted, which is the run's outcome save.
-    /// </summary>
-    private sealed class OutcomeFailingStateService(
-        IPathResolver pathResolver,
-        SecureStateEncryptionService encryption,
-        SteamAuthStorageService steamAuthStorage)
-        : StateService(NullLogger<StateService>.Instance, pathResolver, encryption, steamAuthStorage)
-    {
-        private int _acceptedWrites;
-
-        public bool FailOutcomeSave { get; set; }
-        public int FailedWrites { get; private set; }
-
-        protected override void WriteOperationRepairs(string contents)
-        {
-            var accepted = JsonSerializer.Deserialize<List<OperationRepair>>(contents)!
-                .Any(repair => repair.Sources.Any(source => source.NativeCompletionAccepted));
-            if (FailOutcomeSave && accepted && ++_acceptedWrites == 2)
-            {
-                FailedWrites++;
-                throw new IOException("Injected outcome save failure.");
-            }
-            base.WriteOperationRepairs(contents);
-        }
-    }
-
-    /// <summary>
     /// Stands in for log_service_manager: records what the step holds at launch and writes a
     /// finished progress file.
     /// </summary>
@@ -482,6 +462,9 @@ public class LogRemovalProgressTests
         public bool LockHeldAtLaunch { get; private set; }
         public OperationRepairSource? SourceAtLaunch { get; private set; }
 
+        /// <summary>The first this many launches run until the cancel and write nothing, as a killed child does.</summary>
+        public int HeldLaunches { get; set; }
+
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
             Guid? operationId,
@@ -490,22 +473,15 @@ public class LogRemovalProgressTests
             string processLabel = "rust")
         {
             Launches.Enqueue(start.Arguments);
-            using (var probe = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
-            {
-                try
-                {
-                    await owner.WaitForLogStepAsync(active: true, probe.Token);
-                    LockHeldAtLaunch = true;
-                }
-                catch (OperationCanceledException) when (probe.IsCancellationRequested)
-                {
-                    // No step held the logs at launch; the test asserts on the flag.
-                }
-            }
+            LockHeldAtLaunch = await RemovalRepairHarness.StepHeldAsync(owner);
             SourceAtLaunch = owner.GetPendingRepairs()
                 .Single(repair => repair.Id == operationId)
                 .Sources
                 .Single();
+            if (Launches.Count <= HeldLaunches)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
 
             // The quoted arguments are the log directory, the service and the progress file.
             var progressPath = start.Arguments.Split('"')[5];

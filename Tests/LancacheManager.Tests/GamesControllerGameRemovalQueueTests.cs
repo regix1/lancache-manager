@@ -932,6 +932,21 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             Cancelled: cancelled);
     }
 
+    /// <summary>Whether a log step holds the logs when a child launches, given 200 ms to show it.</summary>
+    internal static async Task<bool> StepHeldAsync(OperationStateService owner)
+    {
+        using var probe = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        try
+        {
+            await owner.WaitForLogStepAsync(active: true, probe.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (probe.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
     internal sealed class RemovalRustProcessHelper : RustProcessHelper
     {
         private readonly string _root;
@@ -1003,6 +1018,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
 
         /// <summary>The first this many purge launches exit with a failure.</summary>
         internal int FailingPurges { get; set; }
+
+        /// <summary>The first this many purge launches run until the cancel and publish nothing, as a killed child does.</summary>
+        internal int HeldPurges { get; set; }
         internal long PurgeLinesRemoved { get; set; }
         internal System.Collections.Concurrent.ConcurrentQueue<RemovalLaunch> Launches { get; } = new();
 
@@ -1020,17 +1038,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             Assert.NotNull(operationId);
-            bool stepHeld;
-            try
-            {
-                await _owner.WaitForLogStepAsync(active: true, CancellationToken.None)
-                    .WaitAsync(TimeSpan.FromMilliseconds(200));
-                stepHeld = true;
-            }
-            catch (TimeoutException)
-            {
-                stepHeld = false;
-            }
+            var stepHeld = await StepHeldAsync(_owner);
             if (start.FileName == _purgeBinary)
             {
                 Assert.Equal("cache_purge_log_entries", processLabel);
@@ -1135,8 +1143,23 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             }
             using var input = JsonDocument.Parse(await File.ReadAllTextAsync(quoted[1], cancellationToken));
             Launches.Enqueue(new RemovalLaunch(Purge: true, stepHeld, input.RootElement.Clone()));
+            var purge = Interlocked.Increment(ref _purges);
+            if (purge <= HeldPurges)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            // The binary returns before it publishes anything when it has nothing to match.
+            if (input.RootElement.GetProperty("urls").GetArrayLength() == 0
+                && input.RootElement.GetProperty("depot_ids").GetArrayLength() == 0)
+            {
+                await File.WriteAllTextAsync(
+                    quoted[2],
+                    JsonSerializer.Serialize(new { success = true, lines_removed = 0 }),
+                    cancellationToken);
+                return new ProcessExecutionResult { ExitCode = 0 };
+            }
             await WritePublicationAsync(start, cancellationToken);
-            if (Interlocked.Increment(ref _purges) <= FailingPurges)
+            if (purge <= FailingPurges)
             {
                 return new ProcessExecutionResult { ExitCode = 3, Error = "Injected purge failure." };
             }

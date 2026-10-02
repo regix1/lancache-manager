@@ -1792,6 +1792,15 @@ public class CorruptionDetectionService
                     CancellationToken.None);
                 if (!failedReopen.Success)
                 {
+                    // A canceled child stops before it publishes. The record already holds the
+                    // started step, so the repair redoes it and reopens nginx then.
+                    if (error is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                    {
+                        _logger.LogWarning(
+                            "[CorruptionDetection] Could not reopen nginx after a canceled log step: {Error}",
+                            failedReopen.ErrorMessage);
+                        throw;
+                    }
                     throw new AggregateException(error, new IOException(failedReopen.ErrorMessage!));
                 }
                 throw;
@@ -2019,11 +2028,7 @@ public class CorruptionDetectionService
         var operationsDirectory = _pathResolver.GetOperationsDirectory();
         if (captured.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
         {
-            foreach (var source in repair.Sources.Where(source =>
-                         source.LogRewriteStarted && !source.LogPositionsKept
-                         || source.NativeCompletionAccepted
-                             && !source.LogRewriteStarted
-                             && repair.Outcome != OperationStatus.Cancelled))
+            foreach (var source in repair.Sources.Where(source => OperationStateService.NeedsLogStepRedo(repair, source)))
             {
                 await RunCorruptionLogStepAsync(
                     repair.Id,

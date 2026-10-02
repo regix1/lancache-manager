@@ -1263,7 +1263,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         // A log step that started always finishes, after a crash, a force stop or a failure too.
-        if (repair.Sources.Any(source => source.LogRewriteStarted && !source.LogPositionsKept))
+        if (repair.Sources.Any(OperationStateService.LogStepUnfinished))
         {
             await RunEvictionLogStepAsync(
                 scope.ServiceProvider.GetRequiredService<AppDbContext>(),

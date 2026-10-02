@@ -187,7 +187,7 @@ public class RustLogRemovalService
         // A log step that started and never kept its positions runs again here, after the repair
         // reset those positions. It takes no cache lock: a removal job can hold that lock while its
         // StartWorkAsync waits for this repair.
-        foreach (var source in repair.Sources.Where(source => source.LogRewriteStarted && !source.LogPositionsKept))
+        foreach (var source in repair.Sources.Where(OperationStateService.LogStepUnfinished))
         {
             var datasource = _datasourceService.GetDatasource(source.Datasource)
                 ?? throw new InvalidDataException(
@@ -553,8 +553,7 @@ public class RustLogRemovalService
 
                 if (exitCode == 0)
                 {
-                    // Note: Database cleanup is not datasource-specific, so we skip it for per-datasource removal
-                    // The user would need to remove from all datasources to clean up DB records
+                    // Log removal rewrites access.log only; the database rows stay.
 
                     var finalProgress = step.Progress;
 
@@ -772,6 +771,15 @@ public class RustLogRemovalService
                     CancellationToken.None);
                 if (!failedReopen.Success)
                 {
+                    // A canceled child stops before it publishes. The record already holds the
+                    // started step, so the repair redoes it and reopens nginx then.
+                    if (error is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                    {
+                        _logger.LogWarning(
+                            "Could not reopen nginx after a canceled log step: {Error}",
+                            failedReopen.ErrorMessage);
+                        throw;
+                    }
                     throw new AggregateException(
                         error,
                         new IOException(failedReopen.ErrorMessage!));
@@ -1080,61 +1088,5 @@ public class RustLogRemovalService
         var operationsDir = _pathResolver.GetOperationsDirectory();
         var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
         return await ReadProgressFileAsync(progressPath);
-    }
-
-    /// <summary>
-    /// Deletes one service's LogEntries and Downloads for the given datasources in one transaction
-    /// run by the execution strategy, after checking that no entry belongs to another datasource.
-    /// Throws <see cref="InvalidDataException"/> on that mismatch.
-    /// </summary>
-    internal static async Task<(int LogEntriesDeleted, int DownloadsDeleted)> DeleteServiceHistoryAsync(
-        AppDbContext context,
-        string serviceLower,
-        IReadOnlyList<string> datasourceNames)
-    {
-        // Large set-based deletes can exceed Npgsql's 30-second default. A command timeout would
-        // otherwise retry the whole transaction while the ordered table locks are held.
-        context.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
-
-        // The pooled context can retry transient database failures only when it owns the complete
-        // transaction. EF rejects a user transaction outside this retry block at the first query.
-        return await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
-        {
-            await using var transaction = await context.Database.BeginTransactionAsync();
-            if (context.Database.IsNpgsql())
-            {
-                await context.Database.ExecuteSqlRawAsync(
-                    "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE");
-                await context.Database.ExecuteSqlRawAsync(
-                    "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE");
-            }
-
-            var mismatch = await (
-                from download in context.Downloads
-                join logEntry in context.LogEntries on download.Id equals logEntry.DownloadId
-                where download.Service.ToLower() == serviceLower &&
-                    datasourceNames.Contains(download.Datasource.ToLower()) &&
-                    logEntry.Datasource != download.Datasource
-                select logEntry.Id).AnyAsync();
-            if (mismatch)
-            {
-                throw new InvalidDataException(
-                    "Selected service history contains a log entry attributed to a different datasource");
-            }
-
-            var logEntriesDeleted = await context.LogEntries
-                .Where(logEntry =>
-                    logEntry.Service.ToLower() == serviceLower &&
-                    datasourceNames.Contains(logEntry.Datasource.ToLower()))
-                .ExecuteDeleteAsync();
-
-            var downloadsDeleted = await context.Downloads
-                .Where(d =>
-                    d.Service.ToLower() == serviceLower &&
-                    datasourceNames.Contains(d.Datasource.ToLower()))
-                .ExecuteDeleteAsync();
-            await transaction.CommitAsync();
-            return (logEntriesDeleted, downloadsDeleted);
-        });
     }
 }

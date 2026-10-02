@@ -121,6 +121,15 @@ internal sealed class LogPurgeRunner
                     CancellationToken.None);
                 if (!failedReopen.Success)
                 {
+                    // A canceled child stops before it publishes. The record already holds the
+                    // started step, so the repair redoes it and reopens nginx then.
+                    if (error is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                    {
+                        _logger.LogWarning(
+                            "[LogPurge] Could not reopen nginx after a canceled log step: {Error}",
+                            failedReopen.ErrorMessage);
+                        throw;
+                    }
                     throw new AggregateException(error, new IOException(failedReopen.ErrorMessage!));
                 }
                 throw;

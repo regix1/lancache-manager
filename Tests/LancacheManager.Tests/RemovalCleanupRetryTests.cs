@@ -1,7 +1,6 @@
 using System.Data.Common;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -95,80 +94,6 @@ public sealed class RemovalCleanupRetryTests
                     mismatchContext,
                     selection,
                     CancellationToken.None));
-        }
-
-        await AssertHistoryUnchangedAsync(mismatchDatabase);
-    }
-
-    [Fact]
-    public async Task ServiceLogCleanupRetriesWholeTransaction()
-    {
-        await using var database = await TestDatabase.CreateAsync();
-        await using (var seed = database.Factory.CreateDbContext())
-        {
-            await SeedHistoryAsync(seed, mismatch: false);
-        }
-
-        var recorder = new RecordingCommandInterceptor();
-        var options = RetryOptions(database, recorder);
-        var lockAttempts = 0;
-        var observedTimeout = 0;
-        recorder.OnExecuting = command =>
-        {
-            if (!IsDownloadsLock(command))
-            {
-                return;
-            }
-
-            observedTimeout = command.CommandTimeout;
-            if (Interlocked.Increment(ref lockAttempts) == 1)
-            {
-                throw new PostgresException(
-                    "Injected transient service-log cleanup failure",
-                    "ERROR",
-                    "ERROR",
-                    PostgresErrorCodes.SerializationFailure);
-            }
-        };
-
-        await using (var retryContext = new AppDbContext(options))
-        {
-            var result = await RustLogRemovalService.DeleteServiceHistoryAsync(
-                retryContext,
-                "steam",
-                ["alpha"]);
-
-            Assert.Equal(1, result.LogEntriesDeleted);
-            Assert.Equal(1, result.DownloadsDeleted);
-            Assert.Equal(1800, retryContext.Database.GetCommandTimeout());
-        }
-
-        Assert.Equal(2, lockAttempts);
-        Assert.Equal(1800, observedTimeout);
-        AssertDownloadsLockComesFirst(recorder.Commands);
-        await using (var verify = database.Factory.CreateDbContext())
-        {
-            Assert.False(await verify.Downloads.AnyAsync(row => row.Datasource.ToLower() == "alpha"));
-            Assert.False(await verify.LogEntries.AnyAsync(row => row.Datasource.ToLower() == "alpha"));
-            Assert.Equal(1, await verify.Downloads.CountAsync(row => row.Datasource.ToLower() == "beta"));
-            Assert.Equal(1, await verify.LogEntries.CountAsync(row => row.Datasource.ToLower() == "beta"));
-        }
-
-        await using var mismatchDatabase = await TestDatabase.CreateAsync();
-        await using (var seed = mismatchDatabase.Factory.CreateDbContext())
-        {
-            await SeedHistoryAsync(seed, mismatch: true);
-        }
-
-        await using (var mismatchContext = new AppDbContext(RetryOptions(
-            mismatchDatabase,
-            new RecordingCommandInterceptor())))
-        {
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                RustLogRemovalService.DeleteServiceHistoryAsync(
-                    mismatchContext,
-                    "steam",
-                    ["alpha"]));
         }
 
         await AssertHistoryUnchangedAsync(mismatchDatabase);
