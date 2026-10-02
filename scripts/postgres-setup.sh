@@ -244,6 +244,8 @@ else
 
     # Ensure PostgreSQL data directory is owned by postgres (may have been changed by upgrades or manual chown)
     chown -R postgres:postgres "$PGDATA"
+    # PostgreSQL refuses to start when its data directory is group-writable or open to others, which a recursive permission change on the host can cause, so repair it here with the ownership
+    chmod g-w,o-rwx "$PGDATA" || echo "[postgres] WARNING: could not restrict $PGDATA; PostgreSQL refuses to start when its data folder is open to group or other users. Remove group and other access on that folder."
 
     # Ensure the PostgreSQL log file exists and is writable by the postgres user
     touch "$PG_LOG"

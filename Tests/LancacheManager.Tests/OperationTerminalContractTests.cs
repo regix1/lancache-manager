@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using LancacheManager.Core.Services;
@@ -255,6 +256,8 @@ public sealed partial class OperationTerminalContractTests
             registrations.AddSingleton(_ => reconciliation);
             registrations.AddSingleton(_ => detection);
             registrations.AddSingleton(_ => games);
+            // A clean clear that saw no downloads skips the scan and drops the cached scan through this service.
+            registrations.AddSingleton((CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService)));
             _services = registrations.BuildServiceProvider();
             OperationState = operationState = new OperationStateService(
                 Logger<OperationStateService>(),

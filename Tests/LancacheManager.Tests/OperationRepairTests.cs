@@ -3347,7 +3347,7 @@ public sealed class OperationRepairTests : IDisposable
             Directory.CreateDirectory(paths.GetOperationsDirectory());
             Datasources = new DatasourceService(Configuration, paths, NullLogger<DatasourceService>.Instance);
             Capabilities = new DatasourceCapabilityService(Datasources);
-            State = CreateStateService(Path.Combine(root, "state"));
+            State = CreateFailingStateService(Path.Combine(root, "state"));
             CorruptionContexts = new CountingContexts(database.Factory);
             _detectionStore = new GameCacheDetectionDataService(
                 database.Factory,
@@ -3381,6 +3381,8 @@ public sealed class OperationRepairTests : IDisposable
                     .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!
                     .SetValue(_management, value);
             }
+            // The repair redoes a removal's unfinished log step, and its reopen check needs a log file.
+            File.WriteAllText(Path.Combine(root, "alpha-logs", "access.log"), "GET /alpha HTTP/1.1\n");
         }
 
         public string Root { get; }
@@ -3388,7 +3390,7 @@ public sealed class OperationRepairTests : IDisposable
         public IPathResolver Paths { get; }
         public DatasourceService Datasources { get; }
         public DatasourceCapabilityService Capabilities { get; }
-        public StateService State { get; }
+        public FailingStateService State { get; }
         public RepairHarness Repairs { get; private set; } = null!;
         public OperationStateService Owner => Repairs.Owner;
         public ScheduledRunReporterTests.CapturingNotificationService Notifications { get; } = new();
@@ -3426,6 +3428,33 @@ public sealed class OperationRepairTests : IDisposable
                 registrations: harness.Register,
                 logger: harness.Log);
             harness._owner.TrySetResult((RepairOwner)harness.Repairs.Owner);
+            // What the redone log step uses; the owner exists only once the repair harness does.
+            foreach (var (field, value) in new (string, object)[]
+                     {
+                         ("_operationStateService", harness.Owner),
+                         ("_datasourceService", harness.Datasources),
+                         ("_dbContextFactory", harness._database.Factory),
+                         ("_stateService", harness.State),
+                         ("_nginxLogRotationService", new NginxLogRotationService(
+                             NullLogger<NginxLogRotationService>.Instance,
+                             harness.Configuration,
+                             new ProcessManager(NullLogger<ProcessManager>.Instance),
+                             harness.Paths,
+                             TimeProvider.System)),
+                         ("_rustProcessHelper", new RemovalRepairHarness.RemovalRustProcessHelper(
+                             root,
+                             OperationType.GameRemoval,
+                             harness.Paths,
+                             harness.Repairs.Tracker,
+                             harness.Owner,
+                             harness.State,
+                             harness._database.Factory))
+                     })
+            {
+                typeof(CacheManagementService)
+                    .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(harness._management, value);
+            }
             return harness;
         }
 

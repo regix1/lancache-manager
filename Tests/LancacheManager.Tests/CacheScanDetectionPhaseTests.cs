@@ -2531,7 +2531,9 @@ public sealed class CacheScanDetectionPhaseTests
                 operationState,
                 tracker,
                 capability,
-                Idle()));
+                Idle(),
+                nginx,
+                state));
             registrations.AddSingleton(_ => new CacheManagementService(
                 configuration,
                 NullLogger<CacheManagementService>.Instance,
