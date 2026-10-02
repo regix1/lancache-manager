@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Core.Cache;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
@@ -181,6 +182,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 var outcome = new EvictionScanRunOutcome(
                     Success: false,
                     Error: "Eviction scan worker failed before it started");
+                var stoppedByShutdown = false;
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
@@ -191,6 +193,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         cts.Token,
                         notice,
                         deferIfDownloading);
+                }
+                catch (OperationCanceledException) when (_applicationLifetime.ApplicationStopping.IsCancellationRequested)
+                {
+                    // The scan's outcome was never recorded, so the next start owns its repair record
+                    // and the card with it.
+                    stoppedByShutdown = true;
                 }
                 catch (Exception ex)
                 {
@@ -203,13 +211,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // Single owner and strict ordering: release the service-local gate exactly once,
                     // then complete the tracker operation so queue promotion can safely acquire it.
                     EndRun();
-                    var repairPending = _serviceProvider
-                        .GetRequiredService<OperationStateService>()
-                        .GetPendingRepairs()
-                        .Any(repair => repair.Id == operationId);
                     // A skipped run did not fail, so it is completed with success true and the
-                    // reason on the message, which is the pairing CompleteOperation documents.
-                    if (!repairPending)
+                    // reason on the message, which is the pairing CompleteOperation documents. The
+                    // card ends even while the scan's repair still runs or its outcome save retries.
+                    if (!stoppedByShutdown)
                     {
                         _operationTracker.CompleteOperation(
                             operationId,
@@ -478,8 +483,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 CacheRoot = source.CachePath,
                 KeyScheme = _capabilityService.GetKeySchemeWireValue(source),
                 ReconcileCache = true,
-                RefreshDetection = true,
-                InvalidateCorruption = true
+                RefreshDetection = true
+                // No corruption invalidation: a scan deletes no cache file, so the results stay removable.
             })
             .ToList();
         await repairOwner.PrepareRepairAsync(
@@ -991,7 +996,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     name = source.Name,
                     cachePath = source.CachePath,
                     isDefault = source == _datasourceService.GetDefaultDatasource(),
-                    keyScheme = _capabilityService.GetKeySchemeWireValue(source)
+                    // A datasource outside the repair may have no key recipe; it is listed, not scanned.
+                    keyScheme = DatasourceCapabilityService.GetSchemeWireValue(
+                        _capabilityService.GetCapabilities(source))
                 })
                 .ToArray();
             var document = new CacheRepairDocument
@@ -1014,11 +1021,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 JsonSerializer.Serialize(document, jsonOptions),
                 stoppingToken);
 
+            // Not tied to the card's operation: a force stop of the card must not kill a repair,
+            // which always runs to completion.
             var result = await _rustProcessHelper.RunEvictionScanAsync(
                 datasourcePath,
                 progressPath,
                 stoppingToken,
-                repair.Id,
+                operationId: null,
                 onProgressEvent: null,
                 scanId: scanId,
                 repairPath: repairPath);
@@ -1099,7 +1108,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 context,
                 repair.Target,
                 stoppingToken);
-            if (prefillRowsRemoved > 0)
+            // The prefill picker also hides the badge of an app whose downloads are evicted, so a
+            // scan that moved any eviction flag refreshes it.
+            if (prefillRowsRemoved > 0 || checkpoint.Evicted > 0 || checkpoint.UnEvicted > 0)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
@@ -1108,9 +1119,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 .GetRequiredService<CorruptionDetectionService>()
                 .InvalidateRepairAsync(repair, stoppingToken);
             await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
-            scope.ServiceProvider
-                .GetRequiredService<CacheManagementService>()
-                .InvalidateCachedScan();
+            // A normal eviction scan deletes no cache file, so the Cache Files card keeps its scan.
+            if (repair.Type != OperationType.EvictionScan)
+            {
+                scope.ServiceProvider
+                    .GetRequiredService<CacheManagementService>()
+                    .InvalidateCachedScan();
+            }
 
             if (repair.Type == OperationType.EvictionScan
                 && (checkpoint.Evicted > 0 || checkpoint.UnEvicted > 0))
@@ -1245,6 +1260,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             terminal.StageKey = metrics.StageKey;
             terminal.DownloadsRemoved = metrics.DownloadsRemoved;
             terminal.LogEntriesRemoved = metrics.LogEntriesRemoved;
+        }
+
+        // A log step that started always finishes, after a crash, a force stop or a failure too.
+        if (repair.Sources.Any(source => source.LogRewriteStarted && !source.LogPositionsKept))
+        {
+            await RunEvictionLogStepAsync(
+                scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+                repair.Id,
+                metrics.Selection,
+                repair.Sources,
+                stoppingToken);
         }
 
         if (!repair.DatabaseWriteStarted)
@@ -1966,18 +1992,358 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         };
     }
 
-    private async Task RunEvictedLogPurgeAsync(
+    /// <summary>
+    /// The eviction removal's log step. Its purge targets, every datasource's purge and its row
+    /// deletes run under one Rewrite lock, so no import adds a line or a row for a target between
+    /// the target queries and the deletes. The row deletes cover every datasource, so a step that
+    /// stopped after any purge started is redone whole by the repair; redoing only the started
+    /// datasources would leave log lines for rows the step deletes.
+    /// </summary>
+    /// <param name="redoSources">
+    /// Null when the removal runs the step. The repair passes the sources it may still touch: its
+    /// record is Repairing, so it starts no work, and its card has ended, so it reports no progress.
+    /// </param>
+    private async Task<(int DetectionGames, int DetectionServices, int LogEntries, int Downloads,
+        int PrefillDepots, int PrefillApps)> RunEvictionLogStepAsync(
+        AppDbContext context,
+        Guid operationId,
+        EvictionRemovalMetadata selection,
+        IReadOnlyCollection<OperationRepairSource>? redoSources,
+        CancellationToken stoppingToken)
+    {
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
+        var reportProgress = redoSources is null;
+        var datasources = _datasourceService.GetDatasources()
+            .Where(datasource => !string.IsNullOrWhiteSpace(datasource.LogPath)
+                && Directory.Exists(datasource.LogPath)
+                && (redoSources is null || redoSources.Any(source => string.Equals(
+                    source.Datasource,
+                    datasource.Name,
+                    StringComparison.OrdinalIgnoreCase))))
+            .ToList();
+        if (redoSources is null)
+        {
+            // Every start comes before the lock: a start waits for another operation's repair,
+            // and that repair may need the lock for its own position reset.
+            foreach (var datasource in datasources)
+            {
+                await repairOwner.StartWorkAsync(operationId, datasource.Name, stoppingToken);
+            }
+            await repairOwner.StartWorkAsync(
+                operationId,
+                datasource: null,
+                cancellationToken: stoppingToken);
+        }
+
+        Task ReportAsync(double percentComplete, string status, string stageKey, int logEntriesRemoved = 0) =>
+            reportProgress
+                ? ReportRemovalProgressAsync(operationId, percentComplete, status, stageKey, logEntriesRemoved: logEntriesRemoved)
+                : Task.CompletedTask;
+
+        int detectionGamesDeleted = 0;
+        int detectionServicesDeleted = 0;
+        int logEntriesDeleted = 0;
+        int downloadsDeleted = 0;
+        int prefillDepotsDeleted = 0;
+        int prefillAppsDeleted = 0;
+        await using (await repairOwner.LockLogFilesAsync(
+            operationId,
+            OperationType.EvictionRemoval,
+            LogFileLockKind.Rewrite,
+            stoppingToken))
+        {
+            List<string> purged;
+            var retryPolicy = context.Database.CreateExecutionStrategy();
+            if (selection.Scope is null)
+            {
+                // Rewrite nginx access.log files before deleting LogEntries or Downloads. A later
+                // full re-parse would otherwise restore evicted games from URLs that remain on disk.
+                // A failed rewrite blocks the database deletion so the two stores stay consistent.
+                purged = await PurgeLogEntriesAsync(context, operationId, datasources, reportProgress, stoppingToken);
+
+                // Removal-driven cleanup: the bulk path (Remove mode auto-scan and the controller-
+                // driven "Remove All Evicted" button) is an explicit user request to delete evicted
+                // entities. Like the per-item path (RemoveEvictedRecordsForEntityAsync), we DELETE
+                // the matching CachedGameDetections / CachedServiceDetections rows so the Evicted
+                // Items list clears on the frontend's next refetch - no ghost rows with 0 files /
+                // 0 B left behind. Order: detection rows → log entries → downloads, all in one
+                // transaction.
+                await retryPolicy.ExecuteAsync(async () =>
+                {
+                    detectionGamesDeleted = 0;
+                    detectionServicesDeleted = 0;
+                    logEntriesDeleted = 0;
+                    downloadsDeleted = 0;
+                    prefillDepotsDeleted = 0;
+                    prefillAppsDeleted = 0;
+
+                    await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
+                    try
+                    {
+                        if (context.Database.IsNpgsql())
+                        {
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                                stoppingToken);
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                                stoppingToken);
+                        }
+
+                        // Step 1: delete evicted detection rows so the frontend list clears.
+                        await ReportAsync(
+                            40,
+                            "removing_detection_rows",
+                            "signalr.evictionRemove.removingDetectionRows");
+
+                        detectionGamesDeleted = await context.CachedGameDetections
+                            .Where(g => g.IsEvicted)
+                            .ExecuteDeleteAsync(stoppingToken);
+
+                        detectionServicesDeleted = await context.CachedServiceDetections
+                            .Where(s => s.IsEvicted)
+                            .ExecuteDeleteAsync(stoppingToken);
+
+                        // The prefill "Cached" badges are a record of what prefill put on disk for a
+                        // Steam app, and these downloads are being deleted precisely because their cache
+                        // files are gone. Left behind, the prefill game picker keeps calling those games
+                        // cached and the daemon skips them on the next run. Matched through Downloads
+                        // because a prefill row carries only a Steam app id.
+                        var evictedGameAppIds = await context.Downloads
+                            .Where(d => d.IsEvicted && d.Service == "steam" && d.GameAppId != null && d.GameAppId > 0)
+                            .Select(d => d.GameAppId!.Value)
+                            .Distinct()
+                            .ToListAsync(stoppingToken);
+
+                        prefillDepotsDeleted = await context.PrefillCachedDepots
+                            .Where(depot => evictedGameAppIds.Contains(depot.AppId))
+                            .ExecuteDeleteAsync(stoppingToken);
+                        prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context,
+                            context.Downloads.Where(d => d.IsEvicted)).ExecuteDeleteAsync(stoppingToken);
+
+                        // Step 2: delete LogEntries for evicted downloads (FK constraint).
+                        await ReportAsync(
+                            60,
+                            "removing_log_entries",
+                            "signalr.evictionRemove.removingLogs");
+
+                        // One statement over every evicted download's log entries ran past the
+                        // command timeout on a production removal, and the retry strategy re-ran the
+                        // same statement three times before giving up. A statement per batch of
+                        // downloads stays short whatever the table holds.
+                        var evictedDownloadIds = await context.Downloads
+                            .Where(d => d.IsEvicted)
+                            .Select(d => d.Id)
+                            .ToListAsync(stoppingToken);
+                        foreach (var batch in evictedDownloadIds.Chunk(200))
+                        {
+                            logEntriesDeleted += await context.LogEntries
+                                .Where(le => le.DownloadId != null && batch.Contains(le.DownloadId.Value))
+                                .ExecuteDeleteAsync(stoppingToken);
+                        }
+
+                        // Step 3: delete evicted Downloads.
+                        await ReportAsync(
+                            80,
+                            "removing_downloads",
+                            "signalr.evictionRemove.removingDownloads",
+                            logEntriesRemoved: logEntriesDeleted);
+
+                        downloadsDeleted = await context.Downloads
+                            .Where(d => d.IsEvicted)
+                            .ExecuteDeleteAsync(stoppingToken);
+
+                        await transaction.CommitAsync(stoppingToken);
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync(stoppingToken);
+                        throw;
+                    }
+                });
+            }
+            else
+            {
+                var scope = Enum.Parse<EvictionScope>(selection.Scope, ignoreCase: true);
+                var key = selection.Key
+                    ?? throw new InvalidDataException($"Eviction removal {operationId} has no key for its {selection.Scope} selection.");
+                // Service names are stored lowercase, so the Service and Named queries compare with
+                // plain == (Npgsql cannot translate an ignore-case string.Equals).
+                var keyLower = key.ToLowerInvariant();
+                var namedGameName = scope == EvictionScope.Named ? selection.GameName : null;
+
+                // Rewrite nginx access.log files before deleting this entity's LogEntries or Downloads.
+                // A failed rewrite blocks the database deletion so the two stores stay consistent.
+                purged = await PurgeLogEntriesForEntityAsync(
+                    context, scope, key, operationId, datasources, reportProgress, stoppingToken, namedGameName);
+
+                await ReportAsync(
+                    25,
+                    "removing_log_entries",
+                    "signalr.evictionRemove.removingLogs");
+
+                // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
+                // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
+                // to BeginTransactionAsync throws InvalidOperationException. Match the pattern used in
+                // DownloadCleanupService / DatabaseService / PicsDataService.
+                await retryPolicy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
+                    try
+                    {
+                        if (context.Database.IsNpgsql())
+                        {
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
+                                stoppingToken);
+                            await context.Database.ExecuteSqlRawAsync(
+                                "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
+                                stoppingToken);
+                        }
+
+                        prefillAppsDeleted = 0;
+                        prefillDepotsDeleted = 0;
+                        logEntriesDeleted = 0;
+                        downloadsDeleted = 0;
+                        var downloads = context.Downloads.Where(d => d.IsEvicted);
+                        downloads = scope switch
+                        {
+                            EvictionScope.Steam => downloads.Where(d => d.Service == "steam" && d.GameAppId == long.Parse(key)),
+                            EvictionScope.Epic => downloads.Where(d => d.Service == "epicgames" && d.EpicAppId == key),
+                            EvictionScope.Named => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null
+                                && d.Service == keyLower && d.GameName == namedGameName),
+                            EvictionScope.Service => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null && d.Service == keyLower),
+                            _ => throw new ArgumentOutOfRangeException(nameof(selection))
+                        };
+                        prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context, downloads)
+                            .ExecuteDeleteAsync(stoppingToken);
+                        // Step 1: Delete LogEntries for this entity's evicted Downloads (FK constraint).
+                        logEntriesDeleted = scope switch
+                        {
+                            EvictionScope.Steam => await context.LogEntries
+                                .Where(le => le.DownloadId != null
+                                          && le.Download != null
+                                          && le.Download.IsEvicted
+                                          && le.Download.GameAppId == long.Parse(key)
+                                          && le.Download.EpicAppId == null)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            EvictionScope.Epic => await context.LogEntries
+                                .Where(le => le.DownloadId != null
+                                          && le.Download != null
+                                          && le.Download.IsEvicted
+                                          && le.Download.EpicAppId == key)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            EvictionScope.Named => await context.LogEntries
+                                .Where(le => le.DownloadId != null
+                                          && le.Download != null
+                                          && le.Download.IsEvicted
+                                          && le.Download.GameAppId == null
+                                          && le.Download.EpicAppId == null
+                                          && le.Download.Service == keyLower
+                                          && le.Download.GameName == namedGameName)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            EvictionScope.Service => await context.LogEntries
+                                .Where(le => le.DownloadId != null
+                                          && le.Download != null
+                                          && le.Download.IsEvicted
+                                          && le.Download.GameAppId == null
+                                          && le.Download.EpicAppId == null
+                                          && le.Download.Service == keyLower)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            _ => throw new ArgumentOutOfRangeException(nameof(selection))
+                        };
+
+                        // Step 2: Delete this entity's evicted Downloads.
+                        await ReportAsync(
+                            50,
+                            "removing_downloads",
+                            "signalr.evictionRemove.removingDownloads",
+                            logEntriesRemoved: logEntriesDeleted);
+
+                        downloadsDeleted = scope switch
+                        {
+                            EvictionScope.Steam => await context.Downloads
+                                .Where(d => d.IsEvicted
+                                         && d.GameAppId == long.Parse(key)
+                                         && d.EpicAppId == null)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            EvictionScope.Epic => await context.Downloads
+                                .Where(d => d.IsEvicted && d.EpicAppId == key)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            EvictionScope.Named => await context.Downloads
+                                .Where(d => d.IsEvicted
+                                         && d.GameAppId == null
+                                         && d.EpicAppId == null
+                                         && d.Service == keyLower
+                                         && d.GameName == namedGameName)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            EvictionScope.Service => await context.Downloads
+                                .Where(d => d.IsEvicted
+                                         && d.GameAppId == null
+                                         && d.EpicAppId == null
+                                         && d.Service == keyLower)
+                                .ExecuteDeleteAsync(stoppingToken),
+
+                            _ => throw new ArgumentOutOfRangeException(nameof(selection))
+                        };
+
+                        // Drop the prefill "Cached" badge rows for this entity. Only the Steam scope can
+                        // match one: a prefill row carries a Steam app id and nothing else. Left behind,
+                        // the prefill game picker keeps calling the game cached and the daemon skips it
+                        // on the next run, though the files that row recorded are gone.
+                        prefillDepotsDeleted = scope == EvictionScope.Steam
+                            ? await context.PrefillCachedDepots
+                                .Where(depot => depot.AppId == long.Parse(key))
+                                .ExecuteDeleteAsync(stoppingToken)
+                            : 0;
+
+                        await transaction.CommitAsync(stoppingToken);
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync(stoppingToken);
+                        throw;
+                    }
+                });
+            }
+
+            // Marked only after the rows are gone, so a stop before this point redoes the step.
+            foreach (var datasource in purged)
+            {
+                await repairOwner.MarkLogPositionsKeptAsync(operationId, datasource);
+            }
+        }
+
+        return (detectionGamesDeleted, detectionServicesDeleted, logEntriesDeleted, downloadsDeleted,
+            prefillDepotsDeleted, prefillAppsDeleted);
+    }
+
+    /// <summary>Purges each datasource's logs in turn and returns the datasources it purged.</summary>
+    private async Task<List<string>> RunEvictedLogPurgeAsync(
         Guid operationId,
         LogPurgeTargets targets,
+        IReadOnlyList<ResolvedDatasource> datasources,
+        bool reportProgress,
         CancellationToken stoppingToken,
         EvictedLogPurgeRunOptions options)
     {
-        await ReportRemovalProgressAsync(
-            operationId,
-            options.ProgressStartPercent,
-            "purging_log_entries",
-            "signalr.evictionRemove.purgingLogs",
-            context: new Dictionary<string, object?> { ["count"] = targets.Urls.Count + targets.DepotIds.Count });
+        var purged = new List<string>();
+        if (reportProgress)
+        {
+            await ReportRemovalProgressAsync(
+                operationId,
+                options.ProgressStartPercent,
+                "purging_log_entries",
+                "signalr.evictionRemove.purgingLogs",
+                context: new Dictionary<string, object?> { ["count"] = targets.Urls.Count + targets.DepotIds.Count });
+        }
 
         var rustBinaryPath = _pathResolver.GetRustLogPurgePath();
         if (!File.Exists(rustBinaryPath))
@@ -1985,14 +2351,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogWarning(
                 "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} - skipping log rewrite. DB deletes will still proceed.",
                 rustBinaryPath);
-            return;
+            return purged;
         }
 
         long totalLinesRemoved = 0;
-        int datasourcesProcessed = 0;
-        var allDatasources = _datasourceService.GetDatasources().ToList();
-        var totalDatasources = Math.Max(1, allDatasources.Count);
+        var totalDatasources = Math.Max(1, datasources.Count);
         var dsIndex = 0;
+        var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
         var runner = new LogPurgeRunner(
             _pathResolver,
             _rustProcessHelper,
@@ -2000,48 +2365,35 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _stateService,
             _logger);
 
-        foreach (var datasource in allDatasources)
+        foreach (var datasource in datasources)
         {
-            if (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-
-            var dsLogPath = datasource.LogPath;
-            if (string.IsNullOrWhiteSpace(dsLogPath) || !Directory.Exists(dsLogPath))
-            {
-                _logger.LogDebug(
-                    "[EvictedLogPurge] Skipping datasource '{Datasource}': log dir '{LogPath}' does not exist",
-                    datasource.Name,
-                    dsLogPath);
-                dsIndex++;
-                continue;
-            }
-
             var dsSliceStart = options.ProgressStartPercent +
                 (options.ProgressSpanPercent * dsIndex / totalDatasources);
             var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
 
-            await _serviceProvider
-                .GetRequiredService<OperationStateService>()
-                .StartWorkAsync(operationId, datasource.Name, stoppingToken);
+            // A cancel seen here stores no started flag, so the repair neither resets the
+            // positions nor redoes the step. The flag is stored before the child can rewrite a log.
+            stoppingToken.ThrowIfCancellationRequested();
+            await repairOwner.MarkLogRewriteStartedAsync(operationId, datasource.Name);
             var report = await runner.RunAsync(
                 operationId,
                 datasource,
                 targets,
-                progress => ReportRemovalProgressAsync(
-                    operationId,
-                    dsSliceStart + (progress.PercentComplete / 100.0) * dsSliceSize,
-                    "purging_log_entries",
-                    "signalr.evictionRemove.purgingLogs",
-                    context: new Dictionary<string, object?>
-                    {
-                        ["count"] = targets.Urls.Count + targets.DepotIds.Count,
-                        ["datasource"] = datasource.Name
-                    }),
+                reportProgress
+                    ? progress => ReportRemovalProgressAsync(
+                        operationId,
+                        dsSliceStart + (progress.PercentComplete / 100.0) * dsSliceSize,
+                        "purging_log_entries",
+                        "signalr.evictionRemove.purgingLogs",
+                        context: new Dictionary<string, object?>
+                        {
+                            ["count"] = targets.Urls.Count + targets.DepotIds.Count,
+                            ["datasource"] = datasource.Name
+                        })
+                    : null,
                 stoppingToken);
             totalLinesRemoved += report.LinesRemoved;
-            datasourcesProcessed++;
+            purged.Add(datasource.Name);
             _logger.LogInformation(
                 "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
                 options.SuccessDescription,
@@ -2056,7 +2408,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             "[EvictedRemoval] {SummaryDescription}: {Total} lines removed across {Ok} datasources",
             options.SummaryDescription,
             totalLinesRemoved,
-            datasourcesProcessed);
+            purged.Count);
 
         if (totalLinesRemoved > 0)
         {
@@ -2067,6 +2419,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             await cacheManagementService.InvalidateServiceCountsAsync();
 
         }
+
+        return purged;
     }
 
     /// <summary>
@@ -2164,126 +2518,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 stoppingToken);
             repairPrepared = true;
 
-            // Rewrite nginx access.log files before deleting LogEntries or Downloads. A later
-            // full re-parse would otherwise restore evicted games from URLs that remain on disk.
-            // A failed rewrite blocks the database deletion so the two stores stay consistent.
-            await PurgeLogEntriesAsync(context, opId, stoppingToken);
-
-            // Removal-driven cleanup: the bulk path (Remove mode auto-scan and the controller-
-            // driven "Remove All Evicted" button) is an explicit user request to delete evicted
-            // entities. Like the per-item path (RemoveEvictedRecordsForEntityAsync), we DELETE
-            // the matching CachedGameDetections / CachedServiceDetections rows so the Evicted
-            // Items list clears on the frontend's next refetch - no ghost rows with 0 files /
-            // 0 B left behind. Order: detection rows → log entries → downloads, all in one
-            // transaction.
-            int detectionGamesDeleted = 0;
-            int detectionServicesDeleted = 0;
-            int logEntriesDeleted = 0;
-            int downloadsDeleted = 0;
-            int prefillDepotsDeleted = 0;
-            int prefillAppsDeleted = 0;
-
-            var strategy = context.Database.CreateExecutionStrategy();
-            await repairOwner.StartWorkAsync(
+            var (detectionGamesDeleted, detectionServicesDeleted, logEntriesDeleted, downloadsDeleted,
+                prefillDepotsDeleted, prefillAppsDeleted) = await RunEvictionLogStepAsync(
+                context,
                 opId,
-                datasource: null,
-                cancellationToken: stoppingToken);
-            await strategy.ExecuteAsync(async () =>
-            {
-                detectionGamesDeleted = 0;
-                detectionServicesDeleted = 0;
-                logEntriesDeleted = 0;
-                downloadsDeleted = 0;
-                prefillDepotsDeleted = 0;
-                prefillAppsDeleted = 0;
-
-                await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
-                try
-                {
-                    if (context.Database.IsNpgsql())
-                    {
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
-                            stoppingToken);
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
-                            stoppingToken);
-                    }
-
-                    // Step 1: delete evicted detection rows so the frontend list clears.
-                    await ReportRemovalProgressAsync(
-                        opId,
-                        40,
-                        "removing_detection_rows",
-                        "signalr.evictionRemove.removingDetectionRows");
-
-                    detectionGamesDeleted = await context.CachedGameDetections
-                        .Where(g => g.IsEvicted)
-                        .ExecuteDeleteAsync(stoppingToken);
-
-                    detectionServicesDeleted = await context.CachedServiceDetections
-                        .Where(s => s.IsEvicted)
-                        .ExecuteDeleteAsync(stoppingToken);
-
-                    // The prefill "Cached" badges are a record of what prefill put on disk for a
-                    // Steam app, and these downloads are being deleted precisely because their cache
-                    // files are gone. Left behind, the prefill game picker keeps calling those games
-                    // cached and the daemon skips them on the next run. Matched through Downloads
-                    // because a prefill row carries only a Steam app id.
-                    var evictedGameAppIds = await context.Downloads
-                        .Where(d => d.IsEvicted && d.Service == "steam" && d.GameAppId != null && d.GameAppId > 0)
-                        .Select(d => d.GameAppId!.Value)
-                        .Distinct()
-                        .ToListAsync(stoppingToken);
-
-                    prefillDepotsDeleted = await context.PrefillCachedDepots
-                        .Where(depot => evictedGameAppIds.Contains(depot.AppId))
-                        .ExecuteDeleteAsync(stoppingToken);
-                    prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context,
-                        context.Downloads.Where(d => d.IsEvicted)).ExecuteDeleteAsync(stoppingToken);
-
-                    // Step 2: delete LogEntries for evicted downloads (FK constraint).
-                    await ReportRemovalProgressAsync(
-                        opId,
-                        60,
-                        "removing_log_entries",
-                        "signalr.evictionRemove.removingLogs");
-
-                    // One statement over every evicted download's log entries ran past the
-                    // command timeout on a production removal, and the retry strategy re-ran the
-                    // same statement three times before giving up. A statement per batch of
-                    // downloads stays short whatever the table holds.
-                    var evictedDownloadIds = await context.Downloads
-                        .Where(d => d.IsEvicted)
-                        .Select(d => d.Id)
-                        .ToListAsync(stoppingToken);
-                    foreach (var batch in evictedDownloadIds.Chunk(200))
-                    {
-                        logEntriesDeleted += await context.LogEntries
-                            .Where(le => le.DownloadId != null && batch.Contains(le.DownloadId.Value))
-                            .ExecuteDeleteAsync(stoppingToken);
-                    }
-
-                    // Step 3: delete evicted Downloads.
-                    await ReportRemovalProgressAsync(
-                        opId,
-                        80,
-                        "removing_downloads",
-                        "signalr.evictionRemove.removingDownloads",
-                        logEntriesRemoved: logEntriesDeleted);
-
-                    downloadsDeleted = await context.Downloads
-                        .Where(d => d.IsEvicted)
-                        .ExecuteDeleteAsync(stoppingToken);
-
-                    await transaction.CommitAsync(stoppingToken);
-                }
-                catch
-                {
-                    await transaction.RollbackAsync(stoppingToken);
-                    throw;
-                }
-            });
+                selection,
+                redoSources: null,
+                stoppingToken);
 
             await repairOwner.SaveRepairAsync(
                 opId,
@@ -2392,6 +2633,25 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
 
     /// <summary>
+    /// Removes the chosen orphaned download rows. Deleting Downloads rows must not run beside a log
+    /// import or another job's log step, so it waits for the log lock; it has no operation of its own.
+    /// </summary>
+    public async Task<int> RemoveOrphanedDownloadsAsync(
+        AppDbContext context,
+        IReadOnlyCollection<long> downloadIds,
+        CancellationToken cancellationToken)
+    {
+        await using (await _serviceProvider.GetRequiredService<OperationStateService>().LockLogFilesAsync(
+            operationId: null,
+            OperationType.DatabaseReset,
+            LogFileLockKind.Rows,
+            cancellationToken))
+        {
+            return await OrphanedDownloadRecords.RemoveAsync(context, downloadIds, cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// Partial-eviction safety (shared by the bulk <see cref="PurgeLogEntriesAsync"/> and the
     /// per-entity <see cref="PurgeLogEntriesForEntityAsync"/> paths). The Rust log purger matches
     /// access.log lines on URL OR depot_id; a depot present in BOTH an evicted and a still-cached
@@ -2418,13 +2678,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Fix 2: Rewrites nginx access.log files to drop all entries belonging to evicted games,
     /// using the `cache_purge_log_entries` Rust binary. Runs once per configured datasource.
     ///
-    /// Called by <see cref="RemoveEvictedRecordsAsync"/> BEFORE the DB LogEntries/Downloads deletes
+    /// Called by <see cref="RunEvictionLogStepAsync"/> BEFORE the DB LogEntries/Downloads deletes
     /// so a future `ResetLogPosition` + full log re-parse cannot resurrect the evicted games.
     ///
     /// A failed Rust rewrite blocks the database deletion because a later full re-parse could
     /// recreate the removed rows.
     /// </summary>
-    private async Task PurgeLogEntriesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken)
+    private async Task<List<string>> PurgeLogEntriesAsync(
+        AppDbContext context,
+        Guid operationId,
+        IReadOnlyList<ResolvedDatasource> datasources,
+        bool reportProgress,
+        CancellationToken stoppingToken)
     {
         try
         {
@@ -2438,7 +2703,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (evictedDownloadIds.Count == 0)
             {
                 _logger.LogDebug("[EvictedLogPurge] No evicted downloads - skipping log rewrite");
-                return;
+                return [];
             }
 
             // Collect candidate depot IDs from the evicted Downloads only.
@@ -2493,11 +2758,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _logger.LogInformation(
                     "[EvictedLogPurge] {Count} evicted downloads have no URL/depot history - nothing to purge from logs",
                     evictedDownloadIds.Count);
-                return;
+                return [];
             }
-            await RunEvictedLogPurgeAsync(
+            return await RunEvictedLogPurgeAsync(
                 operationId,
                 new LogPurgeTargets(urls, depotIds, Service: null),
+                datasources,
+                reportProgress,
                 stoppingToken,
                 new EvictedLogPurgeRunOptions(
                     0,
@@ -2918,157 +3185,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 stoppingToken);
             repairPrepared = true;
 
-            // Rewrite nginx access.log files before deleting this entity's LogEntries or Downloads.
-            // A failed rewrite blocks the database deletion so the two stores stay consistent.
-            await PurgeLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken, namedGameName);
-
-            int logEntriesDeleted = 0;
-            int downloadsDeleted = 0;
-            int prefillDepotsDeleted = 0;
-            int prefillAppsDeleted = 0;
-
-            await ReportRemovalProgressAsync(
-                opId,
-                25,
-                "removing_log_entries",
-                "signalr.evictionRemove.removingLogs");
-
-            // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
-            // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
-            // to BeginTransactionAsync throws InvalidOperationException. Match the pattern used in
-            // DownloadCleanupService / DatabaseService / PicsDataService.
-            var strategy = context.Database.CreateExecutionStrategy();
-            await repairOwner.StartWorkAsync(
-                opId,
-                datasource: null,
-                cancellationToken: stoppingToken);
-            await strategy.ExecuteAsync(async () =>
-            {
-                await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
-                try
-                {
-                    if (context.Database.IsNpgsql())
-                    {
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"Downloads\" IN SHARE ROW EXCLUSIVE MODE",
-                            stoppingToken);
-                        await context.Database.ExecuteSqlRawAsync(
-                            "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
-                            stoppingToken);
-                    }
-
-                    prefillAppsDeleted = 0;
-                    prefillDepotsDeleted = 0;
-                    logEntriesDeleted = 0;
-                    downloadsDeleted = 0;
-                    var downloads = context.Downloads.Where(d => d.IsEvicted);
-                    downloads = scope switch
-                    {
-                        EvictionScope.Steam => downloads.Where(d => d.Service == "steam" && d.GameAppId == long.Parse(key)),
-                        EvictionScope.Epic => downloads.Where(d => d.Service == "epicgames" && d.EpicAppId == key),
-                        EvictionScope.Named => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null
-                            && d.Service == keyLower && d.GameName == namedGameName),
-                        EvictionScope.Service => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null && d.Service == keyLower),
-                        _ => throw new ArgumentOutOfRangeException(nameof(scope))
-                    };
-                    prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context, downloads)
-                        .ExecuteDeleteAsync(stoppingToken);
-                    // Step 1: Delete LogEntries for this entity's evicted Downloads (FK constraint).
-                    logEntriesDeleted = scope switch
-                    {
-                        EvictionScope.Steam => await context.LogEntries
-                            .Where(le => le.DownloadId != null
-                                      && le.Download != null
-                                      && le.Download.IsEvicted
-                                      && le.Download.GameAppId == long.Parse(key)
-                                      && le.Download.EpicAppId == null)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        EvictionScope.Epic => await context.LogEntries
-                            .Where(le => le.DownloadId != null
-                                      && le.Download != null
-                                      && le.Download.IsEvicted
-                                      && le.Download.EpicAppId == key)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        EvictionScope.Named => await context.LogEntries
-                            .Where(le => le.DownloadId != null
-                                      && le.Download != null
-                                      && le.Download.IsEvicted
-                                      && le.Download.GameAppId == null
-                                      && le.Download.EpicAppId == null
-                                      && le.Download.Service == keyLower
-                                      && le.Download.GameName == namedGameName)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        EvictionScope.Service => await context.LogEntries
-                            .Where(le => le.DownloadId != null
-                                      && le.Download != null
-                                      && le.Download.IsEvicted
-                                      && le.Download.GameAppId == null
-                                      && le.Download.EpicAppId == null
-                                      && le.Download.Service == keyLower)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        _ => throw new ArgumentOutOfRangeException(nameof(scope))
-                    };
-
-                    // Step 2: Delete this entity's evicted Downloads.
-                    await ReportRemovalProgressAsync(
-                        opId,
-                        50,
-                        "removing_downloads",
-                        "signalr.evictionRemove.removingDownloads",
-                        logEntriesRemoved: logEntriesDeleted);
-
-                    downloadsDeleted = scope switch
-                    {
-                        EvictionScope.Steam => await context.Downloads
-                            .Where(d => d.IsEvicted
-                                     && d.GameAppId == long.Parse(key)
-                                     && d.EpicAppId == null)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        EvictionScope.Epic => await context.Downloads
-                            .Where(d => d.IsEvicted && d.EpicAppId == key)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        EvictionScope.Named => await context.Downloads
-                            .Where(d => d.IsEvicted
-                                     && d.GameAppId == null
-                                     && d.EpicAppId == null
-                                     && d.Service == keyLower
-                                     && d.GameName == namedGameName)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        EvictionScope.Service => await context.Downloads
-                            .Where(d => d.IsEvicted
-                                     && d.GameAppId == null
-                                     && d.EpicAppId == null
-                                     && d.Service == keyLower)
-                            .ExecuteDeleteAsync(stoppingToken),
-
-                        _ => throw new ArgumentOutOfRangeException(nameof(scope))
-                    };
-
-                    // Drop the prefill "Cached" badge rows for this entity. Only the Steam scope can
-                    // match one: a prefill row carries a Steam app id and nothing else. Left behind,
-                    // the prefill game picker keeps calling the game cached and the daemon skips it
-                    // on the next run, though the files that row recorded are gone.
-                    prefillDepotsDeleted = scope == EvictionScope.Steam
-                        ? await context.PrefillCachedDepots
-                            .Where(depot => depot.AppId == long.Parse(key))
-                            .ExecuteDeleteAsync(stoppingToken)
-                        : 0;
-
-                    await transaction.CommitAsync(stoppingToken);
-                }
-                catch
-                {
-                    await transaction.RollbackAsync(stoppingToken);
-                    throw;
-                }
-            });
+            var (_, _, logEntriesDeleted, downloadsDeleted, prefillDepotsDeleted, prefillAppsDeleted) =
+                await RunEvictionLogStepAsync(
+                    context,
+                    opId,
+                    selection,
+                    redoSources: null,
+                    stoppingToken);
 
             await repairOwner.SaveRepairAsync(
                 opId,
@@ -3364,11 +3487,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// files to drop entries belonging only to the specified entity's evicted downloads.
     /// A failed rewrite blocks the database deletion so a later full re-parse cannot restore rows.
     /// </summary>
-    private async Task PurgeLogEntriesForEntityAsync(
+    private async Task<List<string>> PurgeLogEntriesForEntityAsync(
         AppDbContext context,
         EvictionScope scope,
         string key,
         Guid operationId,
+        IReadOnlyList<ResolvedDatasource> datasources,
+        bool reportProgress,
         CancellationToken stoppingToken,
         string? namedGameName = null)
     {
@@ -3418,7 +3543,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (evictedDownloadIds.Count == 0)
             {
                 _logger.LogDebug("[EvictedLogPurge] No evicted downloads for {Scope} '{Key}' - skipping log rewrite", scope, key);
-                return;
+                return [];
             }
 
             // Collect distinct URLs from LogEntries belonging to these evicted downloads.
@@ -3543,11 +3668,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _logger.LogInformation(
                     "[EvictedLogPurge] {Count} evicted downloads for {Scope} '{Key}' have no URL/depot history - nothing to purge from logs",
                     evictedDownloadIds.Count, scope, key);
-                return;
+                return [];
             }
-            await RunEvictedLogPurgeAsync(
+            return await RunEvictedLogPurgeAsync(
                 operationId,
                 new LogPurgeTargets(urls, depotIds, Service: null),
+                datasources,
+                reportProgress,
                 stoppingToken,
                 new EvictedLogPurgeRunOptions(
                     10,

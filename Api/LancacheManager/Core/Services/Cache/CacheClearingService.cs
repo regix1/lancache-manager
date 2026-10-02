@@ -348,7 +348,11 @@ public class CacheClearingService : ScheduledBackgroundService
                         Datasource = source.Name,
                         LogRoot = source.LogPath,
                         CacheRoot = source.CachePath,
-                        KeyScheme = _capabilityService.GetKeySchemeWireValue(source),
+                        // A clear empties the whole root without a key recipe, so a datasource
+                        // whose logs give none is still cleared; it records no scheme and no scan reads it.
+                        KeyScheme = _capabilityService.GetCapabilities(source) is { CanMapLogicalObjects: true } capabilities
+                            ? DatasourceCapabilityService.GetSchemeWireValue(capabilities)
+                            : null,
                         ReceiptPath = Path.Combine(
                             source.CachePath,
                             $".lancache-repair-{operationId:N}.json"),
@@ -394,6 +398,9 @@ public class CacheClearingService : ScheduledBackgroundService
                 if (dirCount == 0)
                 {
                     _logger.LogInformation($"Datasource {dsName}: no cache directories found; skipping native clear ({dsIndex + 1}/{validCachePaths.Count})");
+                    // Its repair still evicts the downloads that ended before the clear, so the
+                    // record starts work and owes that repair.
+                    await _operationStateService.StartWorkAsync(operationId, null, cancellationToken);
                     clearedDatasourceNames.Add(dsName);
                     continue;
                 }

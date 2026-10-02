@@ -371,7 +371,7 @@ public class StatsController : ControllerBase
         [FromBody] RemoveOrphanedDownloadsRequest request,
         CancellationToken cancellationToken)
     {
-        var removed = await OrphanedDownloadRecords.RemoveAsync(_context, request.DownloadIds, cancellationToken);
+        var removed = await _reconciliationService.RemoveOrphanedDownloadsAsync(_context, request.DownloadIds, cancellationToken);
         if (removed > 0)
         {
             await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new

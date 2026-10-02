@@ -69,7 +69,8 @@ public sealed class DatasourceRemovalTests
         Assert.Equal(OperationStatus.Completed, terminal.Status);
         Assert.Equal(11, metrics.FilesDeleted);
         Assert.Equal(230L, metrics.BytesFreed);
-        var repair = harness.ReadRepair(operationId);
+        // The repair finishes after the card's terminal.
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
         Assert.Equal(OperationRepairPhase.Completed, repair.Phase);
         Assert.Equal(11, repair.Removal!.FilesDeleted);
         Assert.Equal(230L, repair.Removal.BytesFreed);
@@ -457,17 +458,13 @@ public sealed class DatasourceRemovalTests
         Directory.Delete(resetRoot, recursive: true);
     }
 
-    [Fact]
+    [CacheClearRun]
     public async Task CacheClear_PartialChildFailure_ReconcilesOnlyCompletedDatasourceAsync()
     {
-        var schema = Environment.GetEnvironmentVariable("DS_IMPL_CACHE_CLEAR_SCHEMA");
-        var binary = Environment.GetEnvironmentVariable("DS_IMPL_CACHE_CLEAR_BINARY");
-        if (string.IsNullOrWhiteSpace(schema) || string.IsNullOrWhiteSpace(binary))
-        {
-            return;
-        }
+        var schema = Environment.GetEnvironmentVariable(CacheClearRun.SchemaVariable)!;
+        var binary = Environment.GetEnvironmentVariable(CacheClearRun.BinaryVariable)!;
 
-        var root = Path.Combine(Path.GetTempPath(), "ds-impl-a-cache-clear-" + Guid.NewGuid().ToString("N"));
+        var root =Path.Combine(Path.GetTempPath(), "ds-impl-a-cache-clear-" + Guid.NewGuid().ToString("N"));
         var alphaCache = Path.Combine(root, "alpha", "cache");
         var betaCache = Path.Combine(root, "beta", "cache");
         var alphaFile = Path.Combine(alphaCache, "aa", "alpha.bin");
@@ -679,6 +676,22 @@ public sealed class DatasourceRemovalTests
         Timestamp = DateTime.UtcNow,
         CreatedAt = DateTime.UtcNow
     };
+
+    /// <summary>Runs only against the schema and the cache_clear binary its two variables name.</summary>
+    public sealed class CacheClearRun : FactAttribute
+    {
+        public const string SchemaVariable = "DS_IMPL_CACHE_CLEAR_SCHEMA";
+        public const string BinaryVariable = "DS_IMPL_CACHE_CLEAR_BINARY";
+
+        public CacheClearRun()
+        {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(SchemaVariable))
+                || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(BinaryVariable)))
+            {
+                Skip = $"Set {SchemaVariable} and {BinaryVariable} to run.";
+            }
+        }
+    }
 
     private sealed class RemovalPathResolver(string root) : PathResolverBase(NullLogger.Instance)
     {
