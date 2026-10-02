@@ -39,6 +39,8 @@ const TEMPLATES = {
   'signalr.generic.nothingToDo': 'Nothing to do',
   'signalr.generic.skipped': 'Operation skipped',
   'signalr.generic.unknown': 'Operation in progress...',
+  'signalr.logRemoval.otherLogsGone':
+    'Deleted outside the app during this removal: {{fileNames}}. That log will be read again once.',
   'signalr.downloadHistoryUpgrade.merging': 'Merging split download rows'
 };
 const I18N = moduleUrl(`
@@ -1282,6 +1284,47 @@ test('a failed log removal card shows the reason the server gave', () => {
     })
   );
   assert.equal(browser.card('LR').message, reason);
+});
+
+test('a log removal that found another log deleted outside the app is an amber card naming that log', () => {
+  const text =
+    'Deleted outside the app during this removal: blizzard-access.log. That log will be read again once.';
+  const live = new Browser();
+  const dispatchDetail = (operationId, build, source) => {
+    live.state = applyDetail(live.state, operationId, build, source, { requestSeq: 0 });
+  };
+  const logRemoval = notificationEntries.find((entry) => entry.type === 'log_removal');
+  live.push(row('LR', { operationType: 'logRemoval', name: 'Log Removal' }));
+  buildCompleteHandler(
+    logRemoval,
+    logRemoval.complete,
+    dispatchDetail
+  )({
+    operationId: 'LR',
+    success: true,
+    status: 'completed',
+    message: 'Successfully removed steam entries from default',
+    cancelled: false,
+    service: 'steam',
+    stageKey: 'signalr.logRemoval.complete',
+    context: { service: 'steam', datasourceName: 'default', linesRemoved: 1 }
+  });
+  // The ending is built after the live row so its revision is the newer one.
+  const ending = kept('LR', {
+    operationType: 'logRemoval',
+    name: 'Log Removal',
+    status: 'completed',
+    warning: 'blizzard-access.log'
+  });
+  live.push(ending);
+  assert.equal(live.card('LR').details.notificationType, 'warning');
+  assert.equal(live.card('LR').detailMessage, text);
+
+  // After a reload only the row is known.
+  const reloaded = new Browser();
+  reloaded.snapshot([ending]);
+  assert.equal(reloaded.card('LR').details.notificationType, 'warning');
+  assert.equal(reloaded.card('LR').detailMessage, text);
 });
 
 // ── Reload, reconnect, tab return (criteria 12, 13) ─────────────────────────

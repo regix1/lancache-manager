@@ -1083,8 +1083,13 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     run.status === 'completed' && run.warning && !repairing && !repairFailed
       ? run.warning
       : undefined;
+  // A log removal's warning names logs of other series deleted outside the app; every other warning
+  // is the eviction scan's failed game detection.
   const line = warning
-    ? (detail.detailMessage ?? detectionErrorDetail({ context: { detectionError: warning } }))
+    ? (detail.detailMessage ??
+      (cardType(run) === 'log_removal'
+        ? i18n.t('signalr.logRemoval.otherLogsGone', { fileNames: warning })
+        : detectionErrorDetail({ context: { detectionError: warning } })))
     : detail.detailMessage;
   const failures = run.consecutiveFailures ?? 0;
   const lines = [

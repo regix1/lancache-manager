@@ -7902,6 +7902,7 @@
       "removing": "Removing {{service}} entries from logs...",
       "complete": "Removed {{service}} entries from logs.",
       "completeNoFiles": "No matching log entries found, nothing to remove",
+      "otherLogsGone": "Deleted outside the app during this removal: {{fileNames}}. That log will be read again once.",
       "starting": {
         "default": "Starting removal of {{service}} entries from logs...",
         "multi": "Starting removal of {{service}} entries from {{datasourceCount}} datasource(s)...",

@@ -7868,6 +7868,7 @@
       "removing": "正在从日志中移除 {{service}} 条目...",
       "complete": "已从日志中移除 {{service}} 条目。",
       "completeNoFiles": "未找到匹配的日志条目，无需移除",
+      "otherLogsGone": "移除期间有日志在应用外被删除：{{fileNames}}。该日志将重新读取一次。",
       "starting": {
         "default": "开始从日志中移除 {{service}} 条目...",
         "multi": "开始从 {{datasourceCount}} 个数据源移除 {{service}} 条目...",
