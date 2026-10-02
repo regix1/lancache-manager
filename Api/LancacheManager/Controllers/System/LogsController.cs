@@ -711,10 +711,15 @@ public class LogsController : ControllerBase
 
         LogFileDeletionResult deletion;
         _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+        // Reset before the delete, under the lock, so a delete that fails partway or a reopen that
+        // fails cannot leave the old line count for the next import. A file that survives a failed
+        // delete is read again from the start, which is safe because lines whose rows exist are skipped.
+        _stateRepository.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
+        _stateRepository.SetLogPosition(datasourceName, 0);
+        _stateRepository.SetLogTotalLines(datasourceName, 0);
         try
         {
-            // The delete cannot be undone, so once the logs are held it runs to the end and the
-            // positions below are always reset.
+            // The delete cannot be undone, so once the logs are held it runs to the end.
             deletion = await _rustProcessHelper.DeleteLogFileAsync(deleteTarget, CancellationToken.None);
         }
         catch (Exception error)
@@ -735,8 +740,7 @@ public class LogsController : ControllerBase
             throw;
         }
 
-        // The file is already gone, so an aborted request must still reopen nginx and reset the
-        // positions.
+        // The file is already gone, so an aborted request must still reopen nginx.
         var rotationResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
             reopenCheck,
             physicalChange: true,
@@ -745,10 +749,6 @@ public class LogsController : ControllerBase
         {
             throw new IOException(rotationResult.ErrorMessage!);
         }
-
-        _stateRepository.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
-        _stateRepository.SetLogPosition(datasourceName, 0);
-        _stateRepository.SetLogTotalLines(datasourceName, 0);
 
         _logger.LogInformation(
             "Deleted log file(s) for datasource '{Datasource}': {Path} ({Size} bytes)",

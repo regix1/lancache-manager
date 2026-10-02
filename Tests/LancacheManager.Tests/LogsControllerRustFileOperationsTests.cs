@@ -467,6 +467,25 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
+    public async Task DeleteLogFile_FailedDeleteStillResetsThePositionsAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "sixsix");
+        fixture.State.SetLogPosition("alpha", 9);
+        fixture.State.SetLogTotalLines("alpha", 9);
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            File.Delete(path);
+            throw new IOException("Injected unlink failure.");
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
+    }
+
+    [Fact]
     public async Task DeleteLogFile_WaitsForAStepThenHoldsTheLogsWhileDeletingAsync()
     {
         using var fixture = new ControllerFixture();
@@ -495,7 +514,7 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
-    public async Task DeleteLogFile_RustFailureLeavesFileAndStateUntouchedAsync()
+    public async Task DeleteLogFile_RustFailureLeavesFileAsync()
     {
         using var fixture = new ControllerFixture();
         var logPath = Path.Combine(fixture.AlphaLogPath, "access.log");
@@ -508,9 +527,10 @@ public sealed class LogsControllerRustFileOperationsTests
         await Assert.ThrowsAsync<RustProcessException>(() =>
             fixture.Controller.DeleteLogFileAsync("alpha"));
 
+        // The surviving file is read again from the start; lines whose rows exist are skipped.
         Assert.True(File.Exists(logPath));
-        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
-        Assert.Equal(8, fixture.State.GetLogTotalLines("alpha"));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
     }
 
     [Fact]
