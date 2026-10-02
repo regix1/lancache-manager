@@ -23,7 +23,8 @@ namespace LancacheManager.Tests;
 /// ends; (2) a repair is never canceled without a cancel, never lost, and runs or fails out with its
 /// error shown; (3) a removal that conflicts with a repair is refused until the repair ends, then
 /// starts; (4) history rows are neither lost nor duplicated and leave only with their log step;
-/// (5) a stored log position never passes the end of access.log and moves back only for an owed reset.
+/// (5) a stored log position never passes the end of access.log and moves back only for an owed reset
+/// or by the lines a purge removed below it.
 /// </summary>
 public sealed class RepairOrderStressTests(ITestOutputHelper output)
 {
@@ -284,7 +285,8 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
     /// <summary>
     /// The positions a simulated import stored for one datasource. An import only moves a position
     /// forward to the end of the file it read; only a repair that redoes an unfinished log step moves
-    /// it back to 0, and that reset stays owed until an import runs after the repair ended.
+    /// it back to 0, and that reset stays owed until an import runs after the repair ended. A purge
+    /// moves it back by the lines it removed below it.
     /// </summary>
     private sealed class ImportedPositions
     {
@@ -327,6 +329,19 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             }
         }
 
+        // Runs while the purge holds the logs, so no import stores a value between the purge and the
+        // position it brings back.
+        internal void Purged(long removedBefore)
+        {
+            lock (_stored)
+            {
+                var moved = _stored.Select(value => Math.Max(0, value - removedBefore)).ToList();
+                _stored.Clear();
+                _stored.UnionWith(moved);
+                _newest = Math.Max(0, _newest - removedBefore);
+            }
+        }
+
         // Invariant 5.
         internal void Check(string datasource, long stored, long lines)
         {
@@ -352,7 +367,8 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
     /// <summary>
     /// A real game or service removal over alpha and beta with history rows on both. Beta's cache
     /// step may wait for a release and the first purge may run until a cancel, so events land inside
-    /// both steps; a queued removal of the same target parks behind the first one and its repair.
+    /// both steps; a queued removal of the same target parks behind the first one and its repair. Each
+    /// purge that publishes removes the first line of its access.log.
     /// </summary>
     private sealed class RemovalRun(Random random, EventLog events)
     {
@@ -423,6 +439,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             var rust = harness.Rust;
             rust.BetaSucceeds = betaSucceeds;
             rust.HeldPurges = heldPurges;
+            rust.OnLinePurged = (datasource, removedBefore) => _positions[datasource].Purged(removedBefore);
             if (reportUrl)
             {
                 rust.ReportUrls.Add("/report/url");
@@ -569,12 +586,34 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             CheckRecords(_harness.Tracker, ended, repairs, _canceled, _seenRepairing);
             await ProbeConflictAsync(_harness.Owner, _checker, _type);
             await CheckRowsAsync(repairs, final);
-            foreach (var datasource in Datasources)
+            // Read under the import's lock, as an import reads them, so a purge that shortened
+            // access.log has also brought the position back. A step that keeps the logs longer, such
+            // as a purge held until a cancel, leaves the positions to a later check.
+            using var wait = new CancellationTokenSource(final ? Bound : TimeSpan.FromMilliseconds(200));
+            LogFileLock? logs = null;
+            try
             {
-                _positions[datasource].Check(
-                    datasource,
-                    _harness.Rust.State.GetLogPosition(datasource),
-                    CountLines(AccessLog(datasource)));
+                logs = await _harness.Owner.LockLogFilesAsync(
+                    null,
+                    OperationType.LogProcessing,
+                    LogFileLockKind.Ingest,
+                    wait.Token);
+            }
+            catch (OperationCanceledException) when (!final && wait.IsCancellationRequested)
+            {
+            }
+            if (logs is not null)
+            {
+                await using (logs)
+                {
+                    foreach (var datasource in Datasources)
+                    {
+                        _positions[datasource].Check(
+                            datasource,
+                            _harness.Rust.State.GetLogPosition(datasource),
+                            CountLines(AccessLog(datasource)));
+                    }
+                }
             }
             if (_harness.Rust.Launches.Any(launch => launch.Purge && !launch.StepHeld))
             {
@@ -742,9 +781,12 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                     await context.SaveChangesAsync();
                 }
                 Interlocked.Increment(ref _insertsDone);
+                // Stored per source as the import stores it, the map a purge's report brings back.
                 _positions[datasource].Import(
                     AccessLog(datasource),
-                    position => _harness.Rust.State.SetLogPosition(datasource, position));
+                    position => _harness.Rust.State.SetLogSourcePositions(
+                        datasource,
+                        new Dictionary<string, long> { ["access.log"] = position }));
             }
             if (batch is { } done)
             {

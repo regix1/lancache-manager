@@ -1022,6 +1022,13 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         /// <summary>The first this many purge launches run until the cancel and publish nothing, as a killed child does.</summary>
         internal int HeldPurges { get; set; }
         internal long PurgeLinesRemoved { get; set; }
+
+        /// <summary>
+        /// When set, a purge that publishes removes the first line of its datasource's access.log,
+        /// reports it per source as the binary does, then runs this with the datasource and the lines
+        /// it removed below the stored position.
+        /// </summary>
+        internal Action<string, long>? OnLinePurged { get; set; }
         internal System.Collections.Concurrent.ConcurrentQueue<RemovalLaunch> Launches { get; } = new();
 
         internal void Release()
@@ -1137,7 +1144,8 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             var quoted = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
                 .Select(match => match.Groups[1].Value)
                 .ToArray();
-            foreach (var path in quoted)
+            // A fifth path is the stored positions file, which the state service writes to the system temp folder.
+            foreach (var path in quoted.Take(4))
             {
                 AssertOwnedPath(path);
             }
@@ -1158,16 +1166,53 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                     cancellationToken);
                 return new ProcessExecutionResult { ExitCode = 0 };
             }
-            await WritePublicationAsync(start, cancellationToken);
+            await WritePublicationAsync(start, replaced: null, cancellationToken);
             if (purge <= FailingPurges)
             {
                 return new ProcessExecutionResult { ExitCode = 3, Error = "Injected purge failure." };
             }
+            if (OnLinePurged is not { } linePurged)
+            {
+                await File.WriteAllTextAsync(
+                    quoted[2],
+                    JsonSerializer.Serialize(new { success = true, lines_removed = PurgeLinesRemoved }),
+                    cancellationToken);
+                return new ProcessExecutionResult { ExitCode = 0 };
+            }
 
+            // The binary counts a removed line as read when it sits below the stored position, and
+            // counts every removed line as read when it was given no positions.
+            var accessLog = Path.Combine(quoted[0], "access.log");
+            var text = await File.ReadAllTextAsync(accessLog, cancellationToken);
+            long removed = text.Length > 0 ? 1 : 0;
+            var removedBefore = removed;
+            if (quoted.Length > 4)
+            {
+                var positions = Assert.IsType<Dictionary<string, long>>(
+                    JsonSerializer.Deserialize<Dictionary<string, long>>(
+                        await File.ReadAllTextAsync(quoted[4], cancellationToken)));
+                removedBefore = positions["access.log"] > 0 ? removed : 0;
+            }
+            // Written outside the log folder, so a replacement a cancel leaves behind is never read as a log.
+            var replacement = Path.Combine(_root, "access.log.purged");
+            await File.WriteAllTextAsync(replacement, text[(text.IndexOf('\n') + 1)..], cancellationToken);
+            await WritePublicationAsync(start, NginxWriterProbe.ReadIdentity(replacement), cancellationToken);
             await File.WriteAllTextAsync(
                 quoted[2],
-                JsonSerializer.Serialize(new { success = true, lines_removed = PurgeLinesRemoved }),
+                JsonSerializer.Serialize(new
+                {
+                    success = true,
+                    lines_removed = removed,
+                    log_lines_removed_by_source = new Dictionary<string, long> { ["access.log"] = removed },
+                    log_lines_removed_before_position_by_source =
+                        new Dictionary<string, long> { ["access.log"] = removedBefore }
+                }),
                 cancellationToken);
+            // Published after every write a cancel can stop, so a cancel leaves access.log as it was.
+            // The held no-writer proof shares delete but not write, so the old file is deleted first.
+            File.Delete(accessLog);
+            File.Move(replacement, accessLog);
+            linePurged(Path.GetFullPath(quoted[0]) == _alphaLogs ? "alpha" : "beta", removedBefore);
             return new ProcessExecutionResult { ExitCode = 0 };
         }
 
@@ -1183,8 +1228,10 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             Assert.True(fullPath.StartsWith(rootPrefix, comparison), fullPath);
         }
 
+        // A replaced identity names the one log the harness's log folders hold.
         private async Task WritePublicationAsync(
             ProcessStartInfo start,
+            NginxFileIdentity? replaced,
             CancellationToken cancellationToken)
         {
             var checkPath = Assert.IsType<string>(start.Environment["LANCACHE_LOG_CHECK"]);
@@ -1207,9 +1254,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                 check.Files.Select(expected => new NginxPublicationRecord(
                     expected.TargetPath,
                     expected.OriginalIdentity,
-                    TemporaryIdentity: null,
-                    PublishedIdentity: expected.OriginalIdentity,
-                    Changed: false,
+                    TemporaryIdentity: replaced,
+                    PublishedIdentity: replaced ?? expected.OriginalIdentity,
+                    Changed: replaced is not null,
                     Deleted: false)).ToList());
             await File.WriteAllTextAsync(
                 resultPath,
