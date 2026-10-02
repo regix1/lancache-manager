@@ -15,9 +15,10 @@ public partial class OperationStateService
     private const string InterruptedByRestartError = "Operation interrupted by application restart";
     private static readonly TimeSpan _repairRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan _completedRepairRetention = TimeSpan.FromHours(48);
-    // A repair program that prints no progress and uses no CPU time is blocked on one call; the
-    // longest single call the app allows is a 30-minute database statement
-    // (CacheManagementService.Removal.cs, DownloadHistoryUpgradeService.cs). Log rewrites and cache
+    // A repair program that prints no progress and uses no CPU time is blocked on one call. Every
+    // database statement the app runs is bounded at 30 minutes (CacheManagementService.Removal.cs)
+    // except the download history upgrade's index rebuild (DownloadHistoryUpgradeService.cs), which
+    // cannot overlap a repair: a pending repair keeps the upgrade queued. Log rewrites and cache
     // walks use CPU, so they never look silent.
     private readonly TimeSpan _repairSilenceLimit = TimeSpan.FromMinutes(30);
 
@@ -1871,49 +1872,55 @@ public partial class OperationStateService
             skipsCacheScan = !clearSawTraffic;
         }
 
-        switch (applied.Type)
+        try
         {
-            case OperationType.CacheClearing:
-                await services.GetRequiredService<CacheClearingService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                await services.GetRequiredService<CacheReconciliationService>()
-                    .EvictClearedSourcesAsync(applied, skipsCacheScan, stoppingToken);
-                break;
-            case OperationType.LogProcessing:
-                await services.GetRequiredService<RustLogProcessorService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                break;
-            case OperationType.LogRemoval:
-                await services.GetRequiredService<RustLogRemovalService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                break;
-            case OperationType.GameRemoval:
-            case OperationType.ServiceRemoval:
-                await services.GetRequiredService<CacheManagementService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                break;
-            case OperationType.CorruptionRemoval:
-                await services.GetRequiredService<CorruptionDetectionService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                break;
-            case OperationType.GameDetection:
-                await services.GetRequiredService<GameCacheDetectionService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                break;
-            case OperationType.EvictionScan:
-            case OperationType.EvictionRemoval:
-                await services.GetRequiredService<CacheReconciliationService>()
-                    .ResumeRepairAsync(applied, stoppingToken);
-                break;
-            default:
-                throw new InvalidDataException($"Operation type {applied.Type} has no repair owner.");
+            switch (applied.Type)
+            {
+                case OperationType.CacheClearing:
+                    await services.GetRequiredService<CacheClearingService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    await services.GetRequiredService<CacheReconciliationService>()
+                        .EvictClearedSourcesAsync(applied, skipsCacheScan, stoppingToken);
+                    break;
+                case OperationType.LogProcessing:
+                    await services.GetRequiredService<RustLogProcessorService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    break;
+                case OperationType.LogRemoval:
+                    await services.GetRequiredService<RustLogRemovalService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    break;
+                case OperationType.GameRemoval:
+                case OperationType.ServiceRemoval:
+                    await services.GetRequiredService<CacheManagementService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    break;
+                case OperationType.CorruptionRemoval:
+                    await services.GetRequiredService<CorruptionDetectionService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    break;
+                case OperationType.GameDetection:
+                    await services.GetRequiredService<GameCacheDetectionService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    break;
+                case OperationType.EvictionScan:
+                case OperationType.EvictionRemoval:
+                    await services.GetRequiredService<CacheReconciliationService>()
+                        .ResumeRepairAsync(applied, stoppingToken);
+                    break;
+                default:
+                    throw new InvalidDataException($"Operation type {applied.Type} has no repair owner.");
+            }
         }
-
-        // After the family resume, so the Log Removal panel counts the log its redone step rewrote.
-        if (launchedSources.Any(source => source.ResetLogPositions))
+        finally
         {
-            await services.GetRequiredService<CacheManagementService>()
-                .InvalidateServiceCountsAsync();
+            // Also after a failed attempt: a redo that rewrote one datasource's log before another
+            // failed changed the counts the Log Removal panel shows.
+            if (launchedSources.Any(source => source.ResetLogPositions))
+            {
+                await services.GetRequiredService<CacheManagementService>()
+                    .InvalidateServiceCountsAsync();
+            }
         }
 
         // Only sources with a key scheme can be scanned (ReconcileRepairAsync drops the rest).

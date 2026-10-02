@@ -207,6 +207,7 @@ public class OperationConflictCheckerTests
     [Theory]
     [InlineData(OperationType.GameRemoval)]
     [InlineData(OperationType.DatabaseReset)]
+    [InlineData(OperationType.DownloadHistoryUpgrade)]
     public async Task RepairingRecordBlocksAffectedWorkWithOriginalOperationIdAsync(
         OperationType requestedType)
     {

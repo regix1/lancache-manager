@@ -2738,6 +2738,53 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task ServiceCountsAreInvalidatedWhenTheRedoFailsAsync()
+    {
+        await using var harness = await DispatchHarness.CreateAsync(Path.Combine(_root, "service-counts-after-failed-redo"));
+        int ServiceCountEvents() => harness.Notifications.Events
+            .Count(item => item.EventName == SignalREvents.ServiceCountsChanged);
+        var countsAtFailure = new List<int>();
+        harness.Log.OnLogged = entry =>
+        {
+            if (entry.Message.StartsWith("Required repair failed", StringComparison.Ordinal))
+            {
+                lock (countsAtFailure)
+                {
+                    countsAtFailure.Add(ServiceCountEvents());
+                }
+            }
+        };
+        harness.State.SetLogPosition("alpha", 73);
+        var removal = harness.NewRemoval(OperationType.GameRemoval);
+        await harness.Owner.PrepareRepairAsync(removal, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(removal.Id, "alpha", CancellationToken.None);
+        await harness.Owner.MarkLogRewriteStartedAsync(removal.Id, "alpha");
+
+        // The repair's reset waits behind a running import, so every save before the redo has
+        // landed and the redo's closing save is the write that fails.
+        var import = await harness.Owner.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(removal.Id, false, true, null);
+        await WaitForAsync(() => (int)typeof(OperationStateService)
+            .GetField("_logStepWaiters", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(harness.Owner)! == 1);
+        harness.State.FailNextRepairWrite = true;
+        await import.DisposeAsync();
+        await harness.WaitForCompletedAsync(removal.Id);
+
+        var failure = Assert.Single(
+            harness.Log.Entries,
+            entry => entry.Message.StartsWith("Required repair failed", StringComparison.Ordinal));
+        Assert.Equal("Injected operation repair write failure.", Assert.IsType<IOException>(failure.Exception).Message);
+        // One invalidation from the failed attempt before its failure was counted, one from the retry.
+        Assert.Equal([1], countsAtFailure);
+        Assert.Equal(2, ServiceCountEvents());
+    }
+
+    [Fact]
     public async Task RetryAfterTheCardWasClosedIsRefusedAsync()
     {
         var now = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);

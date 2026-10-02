@@ -85,7 +85,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         or OperationType.CorruptionRemoval
         or OperationType.EvictionScan
         or OperationType.EvictionRemoval
-        or OperationType.DatabaseReset;
+        or OperationType.DatabaseReset
+        or OperationType.DownloadHistoryUpgrade;
 
     /// <summary>
     /// Pure decision function for ONE active op. Returns the 409 body if the new op must be
