@@ -482,6 +482,13 @@ public partial class RustProcessHelper
     }
 
     /// <summary>
+    /// Set by a repair attempt for its own async flow. A child started in that flow that prints no
+    /// progress event and uses no CPU time for this long is killed, and its run throws
+    /// <see cref="TimeoutException"/>.
+    /// </summary>
+    internal static readonly AsyncLocal<TimeSpan?> ChildSilenceLimit = new();
+
+    /// <summary>
     /// Runs a tracked Rust process, consuming LIVE structured progress events from its stdout
     /// (progress_events.rs's started/progress/complete NDJSON protocol) instead of polling a
     /// progress file. Only a binary that actually emits this protocol (every migrated binary now
@@ -493,22 +500,107 @@ public partial class RustProcessHelper
     /// only changes what C# reads live, replacing the up-to-<see cref="DefaultProgressPollMs"/>ms
     /// poll delay with an event-driven reaction to each line Rust actually emits.
     /// </summary>
-    public virtual Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+    public virtual async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
         ProcessStartInfo startInfo,
         Guid? operationId,
         CancellationToken cancellationToken,
         Func<RustProgressEvent, Task>? onProgressEvent,
-        string processLabel = "rust") =>
-        RunTrackedProcessAsync(
-            startInfo,
-            operationId,
-            cancellationToken,
-            process => ExecuteWithProgressEventsAsync(
-                process,
+        string processLabel = "rust")
+    {
+        if (ChildSilenceLimit.Value is not { } limit)
+        {
+            return await RunTrackedProcessAsync(
+                startInfo,
+                operationId,
                 cancellationToken,
-                onProgressEvent,
-                processLabel),
-            processLabel: processLabel);
+                process => ExecuteWithProgressEventsAsync(process, cancellationToken, onProgressEvent, processLabel),
+                processLabel: processLabel);
+        }
+
+        // Linked to the caller's token, so the token-cancel kill stops a silent child and the
+        // post-kill wait in RunTrackedProcessAsync sees it exit before this throws.
+        using var silence = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        long progressEvents = 0;
+        try
+        {
+            return await RunTrackedProcessAsync(
+                startInfo,
+                operationId,
+                silence.Token,
+                async process =>
+                {
+                    using var watchStop = new CancellationTokenSource();
+                    var watch = CancelWhenSilentAsync(process, watchStop.Token);
+                    try
+                    {
+                        return await ExecuteWithProgressEventsAsync(
+                            process,
+                            silence.Token,
+                            async (RustProgressEvent progressEvent) =>
+                            {
+                                Interlocked.Increment(ref progressEvents);
+                                if (onProgressEvent != null)
+                                {
+                                    await onProgressEvent(progressEvent);
+                                }
+                            },
+                            processLabel);
+                    }
+                    finally
+                    {
+                        watchStop.Cancel();
+                        await watch;
+                    }
+                },
+                processLabel: processLabel);
+        }
+        catch (OperationCanceledException)
+            when (silence.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "[{ProcessLabel}] Stopped after {Minutes:0} minutes without progress or CPU time",
+                processLabel,
+                limit.TotalMinutes);
+            throw new TimeoutException(
+                $"{processLabel} wrote no progress and used no CPU time for {limit.TotalMinutes:0} minutes, so it was stopped");
+        }
+
+        // A child counts as working while it prints progress events or uses CPU time; one blocked on
+        // a stalled mount does neither.
+        async Task CancelWhenSilentAsync(Process process, CancellationToken stop)
+        {
+            try
+            {
+                var lastEvents = Interlocked.Read(ref progressEvents);
+                var lastCpu = process.TotalProcessorTime;
+                var quietSince = Stopwatch.GetTimestamp();
+                while (true)
+                {
+                    await Task.Delay(limit / 4, stop);
+                    var events = Interlocked.Read(ref progressEvents);
+                    var cpu = process.TotalProcessorTime;
+                    if (events != lastEvents || cpu != lastCpu)
+                    {
+                        lastEvents = events;
+                        lastCpu = cpu;
+                        quietSince = Stopwatch.GetTimestamp();
+                    }
+                    else if (Stopwatch.GetElapsedTime(quietSince) >= limit)
+                    {
+                        silence.Cancel();
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+                // The child exited between two checks; there is nothing left to stop.
+            }
+        }
+    }
 
     private async Task<ProcessExecutionResult> ExecuteWithProgressEventsAsync(
         Process process,

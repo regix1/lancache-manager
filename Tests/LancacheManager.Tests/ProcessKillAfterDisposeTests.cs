@@ -1,5 +1,9 @@
 using System.Diagnostics;
+using System.IO.Pipes;
+using System.Reflection;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -209,44 +213,254 @@ public sealed class ProcessKillAfterDisposeTests
     [Fact]
     public async Task TrackedProcessDoesNotHoldTheLeftoverWaitAsync()
     {
-        // A copy under a unique name keeps every other run of the helper out of the name match.
-        var folder = Path.Combine(AppContext.BaseDirectory, "log-process");
-        var extension = OperatingSystem.IsWindows() ? ".exe" : "";
-        var name = $"LogProcess-wait-{Guid.NewGuid().ToString("N")[..8]}";
-        var copy = Path.Combine(folder, name + extension);
-        var work = Directory.CreateTempSubdirectory("leftover-wait-");
-        File.Copy(Path.Combine(folder, "LogProcess" + extension), copy);
-
-        // The control file names a pipe nobody serves, so the child waits in its connect.
-        File.WriteAllText(Path.Combine(work.FullName, "log-processing-pipe"), $"unserved-{Guid.NewGuid():N}");
-        var start = new ProcessStartInfo(copy) { UseShellExecute = false, CreateNoWindow = true };
-        start.ArgumentList.Add(work.FullName);
-        start.ArgumentList.Add(Path.Combine(work.FullName, "progress.json"));
-        start.ArgumentList.Add("0");
-        start.ArgumentList.Add("default");
-        start.ArgumentList.Add(Path.Combine(work.FullName, "positions.json"));
+        using var child = new SilentChild();
         var manager = new ProcessManager(NullLogger<ProcessManager>.Instance);
-        var process = Process.Start(start)!;
+        using var process = Process.Start(child.Start)!;
+        manager.Track(process);
+        using (var tracked = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+        {
+            await manager.WaitForProcessesExitAsync([child.Name], tracked.Token);
+        }
+
+        manager.Untrack(process);
+        using var untracked = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => manager.WaitForProcessesExitAsync([child.Name], untracked.Token));
+    }
+
+    [Fact]
+    public async Task ASilentChildInARepairIsStoppedAsync()
+    {
+        using var child = new SilentChild();
+        var helper = new RustProcessHelper(
+            NullLogger<RustProcessHelper>.Instance,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            pathResolver: null!,
+            operationTracker: null!);
+        RustProcessHelper.ChildSilenceLimit.Value = TimeSpan.FromSeconds(2);
+
+        // Well under the child's own 30 s exit, so only the stop can end the run in time; the
+        // message tells the stop apart from the bound running out.
+        var stopped = await Assert.ThrowsAsync<TimeoutException>(
+            () => helper.ExecuteTrackedProcessWithProgressEventsAsync(
+                    child.Start,
+                    operationId: null,
+                    CancellationToken.None,
+                    onProgressEvent: null,
+                    "silent")
+                .WaitAsync(TimeSpan.FromSeconds(15)));
+
+        Assert.StartsWith("silent wrote no progress", stopped.Message);
+        Assert.Empty(Process.GetProcessesByName(child.Name));
+    }
+
+    [Fact]
+    public async Task AChildThatReportsProgressKeepsRunningAsync()
+    {
+        var work = Directory.CreateTempSubdirectory("progress-child-");
         try
         {
-            manager.Track(process);
-            using (var tracked = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+            await using var pipe = new LogProcessingOperationOwnershipTests.LogPipe(work.FullName);
+            var extension = OperatingSystem.IsWindows() ? ".exe" : "";
+            var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "log-process", "LogProcess" + extension))
             {
-                await manager.WaitForProcessesExitAsync([name], tracked.Token);
-            }
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            start.ArgumentList.Add(work.FullName);
+            start.ArgumentList.Add(Path.Combine(work.FullName, "progress.json"));
+            start.ArgumentList.Add("0");
+            start.ArgumentList.Add("default");
+            start.ArgumentList.Add(Path.Combine(work.FullName, "positions.json"));
+            var helper = new RustProcessHelper(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                pathResolver: null!,
+                operationTracker: null!);
+            RustProcessHelper.ChildSilenceLimit.Value = TimeSpan.FromSeconds(2);
 
-            manager.Untrack(process);
-            using var untracked = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => manager.WaitForProcessesExitAsync([name], untracked.Token));
+            var run = helper.ExecuteTrackedProcessWithProgressEventsAsync(
+                start,
+                operationId: null,
+                CancellationToken.None,
+                onProgressEvent: null,
+                "progress");
+            await pipe.ConnectAsync();
+            // Each step makes the child print one progress event; together they outlast the limit
+            // three times over.
+            for (var step = 0; step < 6; step++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+                await pipe.SendAsync(new LogProcessingProgress());
+            }
+            await pipe.SendAsync(new LogProcessingProgress(), exitCode: 0);
+
+            Assert.Equal(0, (await run.WaitAsync(TimeSpan.FromSeconds(15))).ExitCode);
         }
         finally
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
-            process.Dispose();
-            File.Delete(copy);
             work.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AHungRepairProgramFailsTheAttemptAsync()
+    {
+        using var child = new SilentChild();
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(
+            Path.Combine(Path.GetTempPath(), "lm-silent-repair-" + Guid.NewGuid().ToString("N")),
+            OperationType.GameRemoval);
+        // The job's purge fails, so alpha's log step started and was never kept, and the repair
+        // redoes it.
+        harness.Rust.FailingPurges = 1;
+        harness.Rust.ReportDepotIds.Add(1);
+        typeof(OperationStateService)
+            .GetField("_repairSilenceLimit", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(harness.Owner, TimeSpan.FromSeconds(2));
+        typeof(CacheManagementService)
+            .GetField("_rustProcessHelper", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(harness.Manager, new SilentRedoRustProcessHelper(harness.Rust, child, harness.Tracker));
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            new RemovalMetrics { EntityKey = "570", EntityName = "Dota 2", EntityKind = "steam" },
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    570,
+                    cancellationToken,
+                    (percent, stage, context, files, bytes) =>
+                        report(new RemovalProgressUpdate(percent, stage, context, files, bytes)),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await harness.WaitForTerminalAsync(operationId);
+
+        // Well under the child's own 30 s exit, which would also fail the attempt.
+        var bound = Stopwatch.StartNew();
+        while (harness.ReadRepair(operationId).RetryAtUtc is null)
+        {
+            Assert.True(bound.Elapsed < TimeSpan.FromSeconds(15), "The hung attempt was never counted as failed.");
+            await Task.Delay(250);
+        }
+
+        Assert.Empty(Process.GetProcessesByName(child.Name));
+        // One failed attempt, not three, so the repair still holds the queue.
+        Assert.Equal(operationId, harness.Owner.GetBlockingRepair()?.Id);
+    }
+
+    /// <summary>
+    /// A copy of the log-processing helper under a unique name, so no other run of the helper matches
+    /// it. The name stays within the 15 characters Linux keeps of a process name, so a lookup by name
+    /// finds it on both systems. Its control file names a pipe this class holds open and never
+    /// answers, so the child connects and then waits 30 s for a command, printing nothing and using
+    /// no CPU time. A pipe nobody serves would not do: on Linux the child retries that connect in a
+    /// loop that uses CPU time.
+    /// </summary>
+    private sealed class SilentChild : IDisposable
+    {
+        private readonly string _copy;
+        private readonly DirectoryInfo _work;
+        private readonly NamedPipeServerStream _pipe;
+
+        public SilentChild()
+        {
+            var folder = Path.Combine(AppContext.BaseDirectory, "log-process");
+            var extension = OperatingSystem.IsWindows() ? ".exe" : "";
+            Name = $"silent{Guid.NewGuid().ToString("N")[..8]}";
+            _copy = Path.Combine(folder, Name + extension);
+            _work = Directory.CreateTempSubdirectory("silent-child-");
+            File.Copy(Path.Combine(folder, "LogProcess" + extension), _copy);
+            var pipeName = $"silent-{Guid.NewGuid():N}";
+            _pipe = new NamedPipeServerStream(
+                pipeName,
+                PipeDirection.InOut,
+                1,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous);
+            File.WriteAllText(Path.Combine(_work.FullName, "log-processing-pipe"), pipeName);
+            Start = new ProcessStartInfo(_copy)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            Start.ArgumentList.Add(_work.FullName);
+            Start.ArgumentList.Add(Path.Combine(_work.FullName, "progress.json"));
+            Start.ArgumentList.Add("0");
+            Start.ArgumentList.Add("default");
+            Start.ArgumentList.Add(Path.Combine(_work.FullName, "positions.json"));
+        }
+
+        public string Name { get; }
+        public ProcessStartInfo Start { get; }
+
+        public void Dispose()
+        {
+            foreach (var process in Process.GetProcessesByName(Name))
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+                process.Dispose();
+            }
+            _pipe.Dispose();
+            File.Delete(_copy);
+            _work.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Hands every launch to the removal fake except the repair's redo purge, which starts the silent
+    /// child for real, the way the attempt starts the purge binary.
+    /// </summary>
+    private sealed class SilentRedoRustProcessHelper : RustProcessHelper
+    {
+        private readonly RustProcessHelper _launches;
+        private readonly SilentChild _child;
+        private int _purges;
+
+        public SilentRedoRustProcessHelper(
+            RustProcessHelper launches,
+            SilentChild child,
+            IUnifiedOperationTracker tracker)
+            : base(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                pathResolver: null!,
+                tracker)
+        {
+            _launches = launches;
+            _child = child;
+        }
+
+        public override Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo start,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            // The job's own purge fails, so the second purge is the repair's redo.
+            return processLabel == "cache_purge_log_entries" && Interlocked.Increment(ref _purges) == 2
+                ? base.ExecuteTrackedProcessWithProgressEventsAsync(
+                    _child.Start,
+                    operationId,
+                    cancellationToken,
+                    onProgressEvent,
+                    processLabel)
+                : _launches.ExecuteTrackedProcessWithProgressEventsAsync(
+                    start,
+                    operationId,
+                    cancellationToken,
+                    onProgressEvent,
+                    processLabel);
         }
     }
 

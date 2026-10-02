@@ -15,6 +15,11 @@ public partial class OperationStateService
     private const string InterruptedByRestartError = "Operation interrupted by application restart";
     private static readonly TimeSpan _repairRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan _completedRepairRetention = TimeSpan.FromHours(48);
+    // A repair program that prints no progress and uses no CPU time is blocked on one call; the
+    // longest single call the app allows is a 30-minute database statement
+    // (CacheManagementService.Removal.cs, DownloadHistoryUpgradeService.cs). Log rewrites and cache
+    // walks use CPU, so they never look silent.
+    private readonly TimeSpan _repairSilenceLimit = TimeSpan.FromMinutes(30);
 
     private readonly IServiceScopeFactory _scopes;
     private readonly IHostApplicationLifetime _applicationLifetime;
@@ -1760,6 +1765,10 @@ public partial class OperationStateService
 
     private async Task DispatchRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
     {
+        // Only this attempt's own steps see the limit; children of other jobs keep running
+        // unbounded. It is set inside this async method because the caller ends the repair, and
+        // ending it starts queued jobs on tasks that would copy the value.
+        RustProcessHelper.ChildSilenceLimit.Value = _repairSilenceLimit;
         await using var scope = _scopes.CreateAsyncScope();
         var services = scope.ServiceProvider;
         // Steps act on this copy; it is never saved.

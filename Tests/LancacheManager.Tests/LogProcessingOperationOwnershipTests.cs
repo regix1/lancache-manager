@@ -1374,7 +1374,7 @@ public sealed class LogProcessingOperationOwnershipTests
                 : targetMethod.Invoke(Inner, args);
     }
 
-    private sealed class LogPipe : IAsyncDisposable
+    internal sealed class LogPipe : IAsyncDisposable
     {
         private readonly string _name = "log-processing-" + Guid.NewGuid().ToString("N");
         private readonly List<Process> _processes = [];
