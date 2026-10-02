@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
@@ -16,6 +17,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     private readonly NginxLogRotationService _rotationService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly OperationStateService _operationStateService;
 
     private const string StageBase = "signalr.scheduledRun.logRotation";
     private static readonly ScheduledRunEventNames _eventNames = new(
@@ -46,12 +48,14 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         IPathResolver pathResolver,
         IStateService stateService,
         ISignalRNotificationService notifications,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        OperationStateService operationStateService)
         : base(logger, configuration)
     {
         _rotationService = rotationService;
         _notifications = notifications;
         _operationTracker = operationTracker;
+        _operationStateService = operationStateService;
 
         var configHours = configuration.GetValue<int>("NginxLogRotation:ScheduleHours", 24);
         _defaultInterval = TimeSpan.FromHours(configHours);
@@ -143,7 +147,17 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         // run it, then complete from the rotation result.
         await reporter.ReportAsync(50, $"{StageBase}.running");
 
-        var result = await _rotationService.ReopenNginxLogsAsync();
+        // A step that deletes or rewrites a log holds this lock. A reopen inside it makes nginx recreate
+        // a file the step just deleted, and the step then fails and runs again.
+        LogRotationResult result;
+        await using (await _operationStateService.LockLogFilesAsync(
+            reporter.OperationId,
+            OperationType.LogRotation,
+            LogFileLockKind.Rewrite,
+            stoppingToken))
+        {
+            result = await _rotationService.ReopenNginxLogsAsync();
+        }
 
         if (result.Success)
         {

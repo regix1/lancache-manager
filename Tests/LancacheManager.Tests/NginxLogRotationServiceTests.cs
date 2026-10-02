@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
@@ -1575,6 +1577,51 @@ public sealed class NginxLogRotationServiceTests
             Assert.Equal("docker nginx verified reopen", Assert.Single(service.Commands).Label);
             await harness.Owner.WaitForLogStepAsync(active: false, CancellationToken.None)
                 .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task ScheduledRotationWaitsForTheLogStepBeforeItReopensNginxAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-rotation-lock-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+            service.DetectionResult = (null, "No container with nginx found");
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+            var rotation = new NginxLogRotationHostedService(
+                service,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                NullLogger<NginxLogRotationHostedService>.Instance,
+                new TestPathResolver(NullLogger.Instance),
+                harness.StateService,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                harness.Tracker,
+                harness.Owner);
+            var executeWork = typeof(NginxLogRotationHostedService).GetMethod(
+                "ExecuteWorkAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            Task run;
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogRemoval,
+                LogFileLockKind.Rewrite,
+                CancellationToken.None))
+            {
+                run = (Task)executeWork.Invoke(rotation, [CancellationToken.None])!;
+                // While a log step holds the lock, the rotation waits and signals nothing.
+                Assert.NotSame(run, await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(2))));
+                Assert.Empty(service.Commands);
+            }
+
+            await run.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(
+                new[] { "host nginx writer identity", "host nginx verified reopen" },
+                service.Commands.Select(command => command.Label));
         }
         Directory.Delete(root, recursive: true);
     }
