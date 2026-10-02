@@ -2607,6 +2607,167 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Equal(OperationRepairPhase.Completed, Assert.Single(state.LoadOperationRepairs()).Phase);
     }
 
+    [Fact]
+    public async Task FullRepairResetsLogPositionsOnceAcrossFailedAttemptsAsync()
+    {
+        var root = Path.Combine(_root, "full-repair-reset-once");
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var path = RepairFilePath(Path.Combine(root, "state"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "not-json");
+        harness.State.SetLogPosition("alpha", 73);
+        harness.HoldScans = true;
+        harness.FailScans = 1;
+
+        await harness.Owner.StartAsync(CancellationToken.None);
+        var fullRepair = Assert.Single(harness.Owner.GetPendingRepairs());
+        await WaitForAsync(() => harness.Scans == 1);
+        Assert.Equal(0, harness.State.GetLogPosition("alpha"));
+        Assert.True(Assert.Single(harness.Owner.GetPendingRepairs()).Sources.Single().LogPositionsKept);
+
+        // The import reads the log again before the failed attempt is retried.
+        harness.State.SetLogPosition("alpha", 55);
+        harness.ScanRelease.TrySetResult();
+        await harness.WaitForCompletedAsync(fullRepair.Id);
+
+        Assert.Equal(2, harness.Scans);
+        Assert.Equal(55, harness.State.GetLogPosition("alpha"));
+    }
+
+    [Fact]
+    public async Task OwnerSaveAfterAFailedForceStopSaveUnblocksAtOnceAsync()
+    {
+        var state = CreateFailingStateService(_root);
+        var retryEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: state,
+            // The force stop's retry never comes due, so only the owner's own save lands.
+            waitUntil: async (_, cancellationToken) =>
+            {
+                retryEntered.TrySetResult(true);
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            });
+        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+
+        state.FailRepairStarts = 1;
+        await harness.Owner.RecordForceStopAsync(repair.Id).WaitAsync(TimeSpan.FromSeconds(5));
+        await retryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await harness.Owner.FinishRepairAsync(repair.Id, false, true, null).WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForAsync(() => harness.Owner.GetPendingRepairs().Count == 0);
+
+        Assert.Null(harness.Owner.GetBlockingRepair());
+        Assert.Empty(PrivateDictionary(harness.Owner, "_pendingOutcomes"));
+        Assert.Equal(OperationStatus.Cancelled, Assert.Single(state.LoadOperationRepairs()).Outcome);
+    }
+
+    [Fact]
+    public async Task OwnerMetricsAfterAForceStopAreKeptAsync()
+    {
+        OperationRepair? applied = null;
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            apply: (accepted, _) =>
+            {
+                applied = accepted;
+                return Task.CompletedTask;
+            });
+        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+
+        await harness.Owner.RecordForceStopAsync(repair.Id).WaitAsync(TimeSpan.FromSeconds(5));
+        await harness.Owner.FinishRepairAsync(
+                repair.Id,
+                success: false,
+                cancelled: true,
+                error: null,
+                update: next => next.Removal!.FilesDeleted = 7)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForAsync(() => harness.StateService.LoadOperationRepairs().Single().Phase
+            == OperationRepairPhase.Completed);
+
+        Assert.Equal(7, applied!.Removal!.FilesDeleted);
+        Assert.Equal(7, harness.StateService.LoadOperationRepairs().Single().Removal!.FilesDeleted);
+    }
+
+    [Fact]
+    public async Task ServiceCountsAreInvalidatedAfterTheLogStepRedoAsync()
+    {
+        await using var harness = await DispatchHarness.CreateAsync(Path.Combine(_root, "service-counts-after-redo"));
+        int Waiters(string field) => (int)typeof(OperationStateService)
+            .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(harness.Owner)!;
+        harness.State.SetLogPosition("alpha", 73);
+        var removal = harness.NewRemoval(OperationType.GameRemoval);
+        await harness.Owner.PrepareRepairAsync(removal, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(removal.Id, "alpha", CancellationToken.None);
+        await harness.Owner.MarkLogRewriteStartedAsync(removal.Id, "alpha");
+
+        // The repair's reset queues behind a running import; a second import that queues while the
+        // reset runs takes the logs next, so the redo waits behind it.
+        var import = await harness.Owner.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(removal.Id, false, true, null);
+        await WaitForAsync(() => Waiters("_logStepWaiters") == 1);
+        var nextImport = harness.Owner.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None);
+        await WaitForAsync(() => Waiters("_ingestWaiters") == 1);
+        await import.DisposeAsync();
+        var heldImport = await nextImport.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForAsync(() => Waiters("_logStepWaiters") == 1);
+
+        Assert.Equal(0, harness.State.GetLogPosition("alpha"));
+        Assert.DoesNotContain(
+            harness.Notifications.Events,
+            item => item.EventName == SignalREvents.ServiceCountsChanged);
+
+        await heldImport.DisposeAsync();
+        await harness.WaitForCompletedAsync(removal.Id);
+        Assert.Single(
+            harness.Notifications.Events,
+            item => item.EventName == SignalREvents.ServiceCountsChanged);
+    }
+
+    [Fact]
+    public async Task RetryAfterTheCardWasClosedIsRefusedAsync()
+    {
+        var now = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            now: () => now,
+            waitUntil: (retryAt, _) =>
+            {
+                now = retryAt > now ? retryAt : now;
+                return Task.CompletedTask;
+            },
+            apply: (_, _) => Task.FromException(new IOException("Injected repair failure.")));
+        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        repair.Id = harness.Tracker.RegisterOperation(
+            OperationType.GameRemoval,
+            repair.Name,
+            new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(repair.Id, false, true, null);
+        harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
+        await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.RepairError is not null);
+
+        Assert.True(harness.Tracker.CloseRun(repair.Id));
+
+        Assert.False(await harness.Owner.RetryRepairAsync(repair.Id));
+        Assert.Equal(3, PrivateDictionary(harness.Owner, "_repairFailures")[repair.Id]);
+    }
+
     private static OperationRepair CleanRemoval(
         DispatchHarness harness,
         OperationType type,
@@ -3307,7 +3468,7 @@ public sealed class OperationRepairTests : IDisposable
 
     // Drives the real DispatchRepairAsync over a test database. The full cache scan is counted
     // instead of run, and a test can hold it or make it fail.
-    private sealed class DispatchHarness : IAsyncDisposable
+    internal sealed class DispatchHarness : IAsyncDisposable
     {
         private readonly TestDatabase _database;
         private readonly TaskCompletionSource<RepairOwner> _owner =
@@ -3604,7 +3765,7 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     // Counts the contexts a service opens, so a test can tell whether a database step ran.
-    private sealed class CountingContexts(TestDbContextFactory inner) : IDbContextFactory<AppDbContext>
+    internal sealed class CountingContexts(TestDbContextFactory inner) : IDbContextFactory<AppDbContext>
     {
         private int _opened;
 

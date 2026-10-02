@@ -251,6 +251,26 @@ public partial class OperationStateService
                 : GetRequiredRepair(operationId).Phase;
             if (phase is OperationRepairPhase.Repairing or OperationRepairPhase.Completed)
             {
+                // A force stop that landed first saved no metrics, so the owner's final ones are saved
+                // before the barrier opens and the repair reads them; a failed save still opens it.
+                if (phase == OperationRepairPhase.Repairing && !forceStop && update is not null)
+                {
+                    try
+                    {
+                        await SaveRepairCoreAsync(GetRequiredRepair(operationId), update, stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Could not save the final metrics for operation {OperationId}",
+                            operationId);
+                    }
+                }
                 if (!forceStop && _forceStoppedOwners.TryRemove(operationId, out _))
                 {
                     SignalWorkChanged();
@@ -365,7 +385,12 @@ public partial class OperationStateService
                     await _admissionGate.WaitAsync(stoppingToken);
                     try
                     {
-                        call = _pendingOutcomes[operationId];
+                        // An owner's outcome that landed on its own already settled this retry.
+                        if (!_pendingOutcomes.TryGetValue(operationId, out var pending))
+                        {
+                            return;
+                        }
+                        call = pending;
                     }
                     finally
                     {
@@ -406,19 +431,53 @@ public partial class OperationStateService
                 }
             });
         }
-        if (saveFailed || nextPhase == OperationRepairPhase.Repairing)
+        if (saveFailed)
         {
             return;
         }
 
-        if (refreshDownloads)
+        if (nextPhase == OperationRepairPhase.Completed)
         {
-            await using var scope = _scopes.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>()
-                .NotifyAllAsync(SignalREvents.DownloadsRefresh);
+            if (refreshDownloads)
+            {
+                await using var scope = _scopes.CreateAsyncScope();
+                await scope.ServiceProvider.GetRequiredService<ISignalRNotificationService>()
+                    .NotifyAllAsync(SignalREvents.DownloadsRefresh);
+            }
+            CleanupCompletedRepairReceipts(saved!);
+            await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
         }
-        CleanupCompletedRepairReceipts(saved!);
-        await ForgetCompletedLogRepairAsync(operationId, stoppingToken);
+        if (forceStop)
+        {
+            return;
+        }
+
+        // The owner's landed outcome also settles a stored retry (a force stop whose save failed, or
+        // this call replayed by the retry loop), so the record stops blocking now instead of after
+        // that retry's delay. The outcome is already saved, so a stopping app still settles it.
+        var settled = false;
+        await _admissionGate.WaitAsync(CancellationToken.None);
+        try
+        {
+            settled = _pendingOutcomes.TryRemove(operationId, out _);
+            if (settled)
+            {
+                SignalWorkChanged();
+            }
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
+        if (settled)
+        {
+            _operationTracker.NotifyBlockerCleared();
+            if (nextPhase == OperationRepairPhase.Completed)
+            {
+                // A skipped record or a log pass has no repair task to end its row.
+                _operationTracker.EndRepair(operationId, null);
+            }
+        }
     }
 
     public async Task WaitForRecoveryOwnershipAsync(CancellationToken cancellationToken)
@@ -453,11 +512,12 @@ public partial class OperationStateService
         try
         {
             // While the failed run still holds its task entry, a claim would get that ending task
-            // back and start nothing.
+            // back and start nothing. A card closed elsewhere would leave the new run with no card.
             if (!_repairs.TryGetValue(operationId, out var repair)
                 || repair.Phase != OperationRepairPhase.Repairing
                 || !HasFailedOut(operationId)
-                || _repairTasks.ContainsKey(operationId))
+                || _repairTasks.ContainsKey(operationId)
+                || _operationTracker.GetOperation(operationId) is null or { Closed: true })
             {
                 return false;
             }
@@ -819,16 +879,25 @@ public partial class OperationStateService
         finally
         {
             // The only place the entry leaves, so a retry can start a new run only after this one
-            // has ended; a run the stopping token ended leaves its card to the next start.
-            _repairTasks.TryRemove(operationId, out _);
-            if (completed)
+            // has ended; a run the stopping token ended leaves its card to the next start. Retry
+            // takes the same gate, so it never starts a run between the removal and the row's end.
+            await _admissionGate.WaitAsync(CancellationToken.None);
+            try
             {
-                _repairFailures.TryRemove(operationId, out _);
-                _operationTracker.EndRepair(operationId, null);
+                _repairTasks.TryRemove(operationId, out _);
+                if (completed)
+                {
+                    _repairFailures.TryRemove(operationId, out _);
+                    _operationTracker.EndRepair(operationId, null);
+                }
+                else if (failure is not null)
+                {
+                    _operationTracker.EndRepair(operationId, failure);
+                }
             }
-            else if (failure is not null)
+            finally
             {
-                _operationTracker.EndRepair(operationId, failure);
+                _admissionGate.Release();
             }
         }
     }
@@ -1735,11 +1804,7 @@ public partial class OperationStateService
         // A log step that started and did not keep its positions is redone by the family resume, so
         // its datasource imports from the start again. Only such a source takes the lock, so a clean
         // repair never pauses the import.
-        static bool LogStepUnfinished(OperationRepairSource source) => source.ResetLogPositions
-            && source.NativeLaunchAuthorized
-            && source.LogRewriteStarted
-            && !source.LogPositionsKept;
-        if (launchedSources.Any(LogStepUnfinished))
+        if (launchedSources.Any(source => source.ResetLogPositions && LogStepUnfinished(source)))
         {
             await using (await LockLogFilesAsync(repair.Id, repair.Type, LogFileLockKind.Rows, stoppingToken))
             {
@@ -1749,16 +1814,19 @@ public partial class OperationStateService
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var logProcessor = services.GetRequiredService<RustLogProcessorService>();
                 foreach (var source in GetRequiredRepair(repair.Id).Sources
-                    .Where(source => LogStepUnfinished(source) && appliedNames.Contains(source.Datasource)))
+                    .Where(source => source.ResetLogPositions
+                        && LogStepUnfinished(source)
+                        && appliedNames.Contains(source.Datasource)))
                 {
                     logProcessor.ResetLogPosition(source.Datasource);
+                    // A cache clear has no log step to redo, so its reset is the whole step and a
+                    // retried attempt leaves the positions the import has read since.
+                    if (repair.Type == OperationType.CacheClearing)
+                    {
+                        await MarkLogPositionsKeptAsync(repair.Id, source.Datasource);
+                    }
                 }
             }
-        }
-        if (launchedSources.Any(source => source.ResetLogPositions))
-        {
-            await services.GetRequiredService<CacheManagementService>()
-                .InvalidateServiceCountsAsync();
         }
 
         // A clean in-session removal changed only what its own steps recorded, so the repair
@@ -1832,6 +1900,13 @@ public partial class OperationStateService
                 throw new InvalidDataException($"Operation type {applied.Type} has no repair owner.");
         }
 
+        // After the family resume, so the Log Removal panel counts the log its redone step rewrote.
+        if (launchedSources.Any(source => source.ResetLogPositions))
+        {
+            await services.GetRequiredService<CacheManagementService>()
+                .InvalidateServiceCountsAsync();
+        }
+
         // Only sources with a key scheme can be scanned (ReconcileRepairAsync drops the rest).
         var scannedSources = applied.Type is (OperationType.CacheClearing
                 or OperationType.GameRemoval
@@ -1879,6 +1954,17 @@ public partial class OperationStateService
                 .NotifyAllAsync(SignalREvents.DownloadsRefresh);
         }
     }
+
+    // A log step that started and did not keep its positions is always finished by the repair.
+    internal static bool LogStepUnfinished(OperationRepairSource source) =>
+        source.LogRewriteStarted && !source.LogPositionsKept;
+
+    // A crash or failure after a cache step also rolls its log step forward; a cancel leaves the history.
+    internal static bool NeedsLogStepRedo(OperationRepair repair, OperationRepairSource source) =>
+        LogStepUnfinished(source)
+        || source.NativeCompletionAccepted
+            && !source.LogRewriteStarted
+            && repair.Outcome != OperationStatus.Cancelled;
 
     private static bool IsDownloadsRefreshOnly(OperationRepair repair)
     {
