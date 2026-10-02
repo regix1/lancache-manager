@@ -689,7 +689,9 @@ where
         let sources = discover_log_sources(file_path)?.sources;
         let mut bytes_deleted = 0u64;
         let mut files_deleted = 0usize;
-        for log_file in sources.iter().flat_map(|s| &s.files) {
+        // Newest file of each series first, so a delete that stops partway leaves only older files
+        // of a series, and the host can count the read lines still in them.
+        for log_file in sources.iter().flat_map(|s| s.files.iter().rev()) {
             if is_cancelled() {
                 let progress = ProgressData::new(
                     false,
@@ -2585,6 +2587,27 @@ mod tests {
         assert!(!directory.path().join("steam-access.log.1").exists());
         assert!(directory.path().join("nginx-error.log").exists());
         assert_eq!(read_progress(&progress_path)["status"], "completed");
+    }
+
+    #[test]
+    fn delete_log_file_directory_removes_each_series_newest_first() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("steam-access.log.1"), b"1\n").expect("write");
+        fs::write(directory.path().join("steam-access.log"), b"2\n").expect("write");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+        // One check before the walk and one before each file, so the third stops it after one file.
+        let checks = std::cell::Cell::new(0u32);
+
+        let result = delete_log_file(directory.path(), &progress_path, &reporter, None, || {
+            checks.set(checks.get() + 1);
+            checks.get() == 3
+        })
+        .expect("stop after one file");
+
+        assert!(result.cancelled);
+        assert!(!directory.path().join("steam-access.log").exists());
+        assert!(directory.path().join("steam-access.log.1").exists());
     }
 
     #[test]

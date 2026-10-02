@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
@@ -31,6 +32,7 @@ public class LogsController : ControllerBase
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly OperationStateService _operationStateService;
+    private readonly CacheManagementService _cacheManagementService;
 
     public LogsController(
         RustLogProcessorService rustLogProcessorService,
@@ -43,7 +45,8 @@ public class LogsController : ControllerBase
         NginxLogRotationService nginxLogRotationService,
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        CacheManagementService cacheManagementService)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
@@ -56,6 +59,7 @@ public class LogsController : ControllerBase
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
         _operationStateService = operationStateService;
+        _cacheManagementService = cacheManagementService;
     }
 
     /// <summary>
@@ -654,7 +658,8 @@ public class LogsController : ControllerBase
     /// Deletes the entire access.log file for a datasource.
     /// </summary>
     /// <remarks>
-    /// This is a destructive operation that removes all log history for the datasource.
+    /// Deletes the datasource's access.log, or every per-service log series with its rotations,
+    /// and keeps the read position of any older log file left on disk.
     /// </remarks>
     [HttpDelete("datasources/{datasourceName}/file")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
@@ -693,32 +698,33 @@ public class LogsController : ControllerBase
                 Context = new Dictionary<string, object?> { ["path"] = accessLogPath }
             });
         }
-        var affectedPaths = hasPerServiceSources
-            ? NginxLogRotationService.GetAffectedLogPaths(datasource)
-            : new[] { accessLogPath };
-        // Held through the positions reset, so no import reads the file this deletes and no other
-        // step rewrites it; the reopen check is prepared after this, against the file as it is now.
+        // Held through the position update, so no import reads the files this deletes and no other
+        // step rewrites them; the reopen check is prepared after this, against the files as they are now.
         await using var logLock = await _operationStateService.LockLogFilesAsync(
             null,
             OperationType.LogProcessing,
             LogFileLockKind.Rewrite,
             cancellationToken);
+        // Listed after the lock: a logrotate run during the wait renames and removes files.
+        var affectedPaths = hasPerServiceSources
+            ? NginxLogRotationService.GetAffectedLogPaths(datasource)
+            : new[] { accessLogPath };
         await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
             new[] { datasource },
             affectedPaths,
             expectsPublication: false,
             cancellationToken);
 
-        LogFileDeletionResult deletion;
         _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
-        var savedSourcePositions = _stateRepository.GetLogSourcePositions(datasourceName);
-        var savedPosition = _stateRepository.GetLogPosition(datasourceName);
-        var savedTotalLines = _stateRepository.GetLogTotalLines(datasourceName);
-        // Reset before the delete, under the lock, so a delete that fails partway or a reopen that
-        // fails cannot leave the old line count of a removed file for the next import.
-        _stateRepository.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
-        _stateRepository.SetLogPosition(datasourceName, 0);
-        _stateRepository.SetLogTotalLines(datasourceName, 0);
+        var positions = _stateRepository.GetLogSourcePositions(datasourceName);
+        if (positions.Count == 0 && _stateRepository.GetLogPosition(datasourceName) is > 0 and var legacyPosition)
+        {
+            // The importer reads a datasource that has only a legacy total as that many lines of access.log.
+            positions[LogSourceLayout.MonolithicStem] = legacyPosition;
+        }
+
+        LogFileDeletionResult? deletion = null;
+        ExceptionDispatchInfo? deleteFailure = null;
         try
         {
             // The delete cannot be undone, so once the logs are held it runs to the end.
@@ -726,59 +732,75 @@ public class LogsController : ControllerBase
         }
         catch (Exception error)
         {
-            // Checked before the reopen below, which lets nginx create a removed file again. A source
-            // the failed delete left whole keeps its position: lines skipped on purpose (the
-            // fresh-install seed, "Reset position to end") have no rows, so reading it from the start
-            // would import them. A source that lost a file stays at 0.
-            var removedStems = affectedPaths
-                .Where(path => !System.IO.File.Exists(path))
-                .Select(path => LogSourceLayout.LogicalStem(Path.GetFileName(path)))
-                .ToHashSet();
-            if (removedStems.Count == 0)
+            deleteFailure = ExceptionDispatchInfo.Capture(error);
+        }
+
+        LogRotationResult reopen;
+        try
+        {
+            // A position counts the lines of a series, oldest file first, that were imported or skipped
+            // on purpose (the fresh-install seed, "Reset position to end"); skipped lines have no rows.
+            // The delete removes each series newest file first, so a series whose current file is still
+            // there lost nothing and keeps its position, and a series that lost it keeps the read lines
+            // still in its older files. Counted before the reopen, which lets nginx create a new current
+            // file. Written after the delete: a kill before the first unlink leaves every position right;
+            // a kill between the first unlink and this write leaves the old position on a series that
+            // lost its current file, so the next import skips that many lines, less its older files'
+            // lines, of the new file.
+            var emptiedStems = positions.Keys
+                .Where(stem => !System.IO.File.Exists(Path.Combine(datasource.LogPath, stem)))
+                .ToList();
+            if (emptiedStems.Count > 0)
             {
-                _stateRepository.SetLogSourcePositions(datasourceName, savedSourcePositions);
-                _stateRepository.SetLogPosition(datasourceName, savedPosition);
-                _stateRepository.SetLogTotalLines(datasourceName, savedTotalLines);
+                var remaining = await _rustProcessHelper.CountLogLinesAsync(
+                    datasource.LogPath,
+                    CancellationToken.None);
+                foreach (var stem in emptiedStems)
+                {
+                    positions[stem] = Math.Min(positions[stem], remaining.SourceLineCounts.GetValueOrDefault(stem));
+                }
+                _stateRepository.SetLogSourcePositions(datasourceName, positions);
+                _stateRepository.SetLogTotalLines(datasourceName, remaining.LinesProcessed);
             }
-            else
+        }
+        finally
+        {
+            if (deleteFailure != null)
             {
-                _stateRepository.SetLogSourcePositions(
-                    datasourceName,
-                    savedSourcePositions
-                        .Where(pair => !removedStems.Contains(pair.Key))
-                        .ToDictionary(pair => pair.Key, pair => pair.Value));
+                await _nginxLogRotationService.InvalidateReopenCheckAsync(
+                    reopenCheck,
+                    CancellationToken.None);
             }
-            await _nginxLogRotationService.InvalidateReopenCheckAsync(
-                reopenCheck,
-                CancellationToken.None);
-            var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+            // Files may already be gone, so an aborted request or a failed position write must still
+            // reopen nginx.
+            reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
                 reopenCheck,
                 physicalChange: true,
                 CancellationToken.None);
-            if (!failedReopen.Success)
-            {
-                throw new AggregateException(
-                    error,
-                    new IOException(failedReopen.ErrorMessage!));
-            }
-            throw;
+            // Every open Log Removal panel and the cached counts still list the deleted files.
+            await _cacheManagementService.InvalidateServiceCountsAsync();
         }
 
-        // The file is already gone, so an aborted request must still reopen nginx.
-        var rotationResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
-            reopenCheck,
-            physicalChange: true,
-            CancellationToken.None);
-        if (!rotationResult.Success)
+        if (deleteFailure != null)
         {
-            throw new IOException(rotationResult.ErrorMessage!);
+            if (!reopen.Success)
+            {
+                throw new AggregateException(
+                    deleteFailure.SourceException,
+                    new IOException(reopen.ErrorMessage!));
+            }
+            deleteFailure.Throw();
+        }
+        if (!reopen.Success)
+        {
+            throw new IOException(reopen.ErrorMessage!);
         }
 
         _logger.LogInformation(
             "Deleted log file(s) for datasource '{Datasource}': {Path} ({Size} bytes)",
             datasourceName,
             deleteTarget,
-            deletion.BytesDeleted);
+            deletion!.BytesDeleted);
 
         return Ok(new MessageResponse
         {

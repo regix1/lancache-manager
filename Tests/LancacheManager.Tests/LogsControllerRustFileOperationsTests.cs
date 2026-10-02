@@ -4,6 +4,7 @@ using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -532,29 +533,212 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(8, fixture.State.GetLogTotalLines("alpha"));
     }
 
-    [Fact]
-    public async Task DeleteLogFile_PartialDeleteKeepsThePositionsOfSurvivingSourcesAsync()
+    public sealed record LogDeleteCase(
+        string Name,
+        (string File, int Lines)[] Files,
+        Dictionary<string, long> Saved,
+        long LegacySaved,
+        string[] Deleted,
+        bool Fails,
+        Dictionary<string, long> Expected,
+        long ExpectedTotal);
+
+    public static TheoryData<LogDeleteCase> LogDeleteCases => new()
+    {
+        new LogDeleteCase(
+            "monolithic success, no rotation",
+            new[] { ("access.log", 6) },
+            new Dictionary<string, long> { ["access.log"] = 6 },
+            0,
+            new[] { "access.log" },
+            false,
+            new Dictionary<string, long> { ["access.log"] = 0 },
+            0),
+        new LogDeleteCase(
+            "monolithic success keeps the rotation's read lines",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long> { ["access.log"] = 7 },
+            0,
+            new[] { "access.log" },
+            false,
+            new Dictionary<string, long> { ["access.log"] = 4 },
+            4),
+        new LogDeleteCase(
+            "monolithic success, datasource with only a legacy total",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long>(),
+            7,
+            new[] { "access.log" },
+            false,
+            new Dictionary<string, long> { ["access.log"] = 4 },
+            4),
+        new LogDeleteCase(
+            "monolithic success, saved position inside the rotation",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long> { ["access.log"] = 2 },
+            0,
+            new[] { "access.log" },
+            false,
+            new Dictionary<string, long> { ["access.log"] = 2 },
+            4),
+        new LogDeleteCase(
+            "per-service success removes every series",
+            new[] { ("steam-access.log.1", 4), ("steam-access.log", 3), ("epicgames-access.log", 2) },
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            0,
+            new[] { "steam-access.log", "steam-access.log.1", "epicgames-access.log" },
+            false,
+            new Dictionary<string, long> { ["steam-access.log"] = 0, ["epicgames-access.log"] = 0 },
+            0),
+        new LogDeleteCase(
+            "per-service failure before any unlink",
+            new[] { ("steam-access.log.1", 4), ("steam-access.log", 3), ("epicgames-access.log", 2) },
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            0,
+            Array.Empty<string>(),
+            true,
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            9),
+        new LogDeleteCase(
+            "per-service failure after a current file, before its rotation",
+            new[] { ("steam-access.log.1", 4), ("steam-access.log", 3), ("epicgames-access.log", 2) },
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            0,
+            new[] { "steam-access.log" },
+            true,
+            new Dictionary<string, long> { ["steam-access.log"] = 4, ["epicgames-access.log"] = 2 },
+            6),
+        new LogDeleteCase(
+            "per-service failure after a whole series",
+            new[] { ("steam-access.log.1", 4), ("steam-access.log", 3), ("epicgames-access.log", 2) },
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            0,
+            new[] { "epicgames-access.log" },
+            true,
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 0 },
+            7),
+        new LogDeleteCase(
+            "a rotation disappears during the lock wait, then the delete fails before any unlink",
+            new[] { ("steam-access.log.1", 4), ("steam-access.log", 3), ("epicgames-access.log", 2) },
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            0,
+            new[] { "steam-access.log.1" },
+            true,
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            9),
+        new LogDeleteCase(
+            "monolithic failure after the unlink",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long> { ["access.log"] = 7 },
+            0,
+            new[] { "access.log" },
+            true,
+            new Dictionary<string, long> { ["access.log"] = 4 },
+            4)
+    };
+
+    [Theory]
+    [MemberData(nameof(LogDeleteCases))]
+    public async Task DeleteLogFile_KeepsTheReadLinesStillOnDiskAsync(LogDeleteCase deleteCase)
     {
         using var fixture = new ControllerFixture();
-        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "steam-access.log"), "steam");
-        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "epicgames-access.log"), "epic");
-        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        foreach (var (file, lines) in deleteCase.Files)
         {
-            ["steam-access.log"] = 5,
-            ["epicgames-access.log"] = 4
-        });
-        fixture.RustHelper.DeleteHandler = (path, _) =>
+            await File.WriteAllTextAsync(
+                Path.Combine(fixture.AlphaLogPath, file),
+                string.Concat(Enumerable.Repeat("x\n", lines)));
+        }
+        if (deleteCase.LegacySaved > 0)
         {
-            File.Delete(Path.Combine(path, "epicgames-access.log"));
-            throw new IOException("Injected unlink failure.");
+            fixture.State.SetLogPosition("alpha", deleteCase.LegacySaved);
+        }
+        else
+        {
+            fixture.State.SetLogSourcePositions("alpha", deleteCase.Saved);
+        }
+        fixture.State.SetLogTotalLines("alpha", deleteCase.Files.Sum(entry => entry.Lines));
+        var countsPath = Path.Combine(fixture.OperationsPath, "log_count_progress_alpha.json");
+        await File.WriteAllTextAsync(countsPath, "{}");
+        fixture.RustHelper.CountHandler = (path, _) =>
+        {
+            var perStem = new Dictionary<string, long>();
+            var files = 0;
+            foreach (var file in Directory.GetFiles(path))
+            {
+                var stem = LogSourceLayout.LogicalStem(Path.GetFileName(file));
+                if (stem is null)
+                {
+                    continue;
+                }
+                perStem[stem] = perStem.GetValueOrDefault(stem) + File.ReadAllText(file).Count(c => c == '\n');
+                files++;
+            }
+            return Task.FromResult(new LogLineCountResult(perStem.Values.Sum(), files, perStem));
+        };
+        var positionDuringDelete = -1L;
+        fixture.RustHelper.DeleteHandler = (_, _) =>
+        {
+            positionDuringDelete = fixture.State.GetLogPosition("alpha");
+            foreach (var file in deleteCase.Deleted)
+            {
+                File.Delete(Path.Combine(fixture.AlphaLogPath, file));
+            }
+            if (deleteCase.Fails)
+            {
+                throw new IOException("Injected unlink failure.");
+            }
+            return Task.FromResult(new LogFileDeletionResult(0));
         };
 
-        await Assert.ThrowsAnyAsync<Exception>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+        if (deleteCase.Fails)
+        {
+            await Assert.ThrowsAnyAsync<Exception>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+        }
+        else
+        {
+            Assert.IsType<OkObjectResult>(await fixture.Controller.DeleteLogFileAsync("alpha"));
+        }
 
-        Assert.Equal(
-            new Dictionary<string, long> { ["steam-access.log"] = 5 },
-            fixture.State.GetLogSourcePositions("alpha"));
-        Assert.Equal(5, fixture.State.GetLogPosition("alpha"));
+        // Nothing is written before the delete, so a kill before its first unlink leaves the saved position.
+        Assert.Equal(deleteCase.LegacySaved + deleteCase.Saved.Values.Sum(), positionDuringDelete);
+        var positions = fixture.State.GetLogSourcePositions("alpha");
+        foreach (var (stem, expected) in deleteCase.Expected)
+        {
+            Assert.Equal(expected, positions.GetValueOrDefault(stem));
+        }
+        Assert.Equal(deleteCase.Expected.Values.Sum(), fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(deleteCase.ExpectedTotal, fixture.State.GetLogTotalLines("alpha"));
+        Assert.False(File.Exists(countsPath));
+        var push = Assert.Single(fixture.Notifications.Invocations);
+        Assert.Equal(nameof(ISignalRNotificationService.NotifyAllAsync), push.Method);
+        Assert.Equal(SignalREvents.ServiceCountsChanged, push.Args[0]);
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_AFailedPositionUpdateStillReopensNginxAsync()
+    {
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.AlphaLogPath, "access.log.1"),
+            string.Concat(Enumerable.Repeat("x\n", 4)));
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.AlphaLogPath, "access.log"),
+            string.Concat(Enumerable.Repeat("x\n", 3)));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 7 });
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            File.Delete(path);
+            throw new IOException("Injected unlink failure.");
+        };
+        fixture.RustHelper.CountHandler = (_, _) =>
+            throw new InvalidOperationException("Injected count failure.");
+
+        var delete = fixture.Controller.DeleteLogFileAsync("alpha");
+        await nginx!.ReopenReached.Task.WaitAsync(_wait);
+        nginx.ReleaseReopen.SetResult();
+
+        await Assert.ThrowsAnyAsync<Exception>(() => delete);
     }
 
     [Fact]
@@ -578,7 +762,10 @@ public sealed class LogsControllerRustFileOperationsTests
         var releaseCount = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.RustHelper.CountHandler = async (_, _) =>
         {
-            countStarted.SetResult();
+            if (!countStarted.TrySetResult())
+            {
+                return new LogLineCountResult(0, 0, new Dictionary<string, long>());
+            }
             await releaseCount.Task;
             return new LogLineCountResult(8, 1, new Dictionary<string, long> { ["access.log"] = 8 });
         };
@@ -612,6 +799,52 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
         Assert.False(File.Exists(logPath));
+    }
+
+    [Fact]
+    public async Task FreshInstallSeed_APassThatSavedFirstKeepsItsPositionsAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.AlphaLogPath, "access.log"),
+            string.Concat(Enumerable.Repeat("x\n", 3)));
+        await using var pass = await fixture.RepairOwner.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None);
+        fixture.RustHelper.CountHandler = (_, _) =>
+            Task.FromResult(new LogLineCountResult(8, 1, new Dictionary<string, long> { ["access.log"] = 8 }));
+        var monitor = new LiveLogMonitorService(
+            NullLogger<LiveLogMonitorService>.Instance,
+            new ConfigurationBuilder().Build(),
+            fixture.Processor,
+            fixture.State,
+            fixture.Datasources,
+            fixture.Checker,
+            fixture.RustHelper,
+            fixture.RepairOwner);
+        var seed = (Task)typeof(LiveLogMonitorService)
+            .GetMethod("OnStartupAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(monitor, new object[] { CancellationToken.None })!;
+        var stepWaiters = typeof(OperationStateService)
+            .GetField("_logStepWaiters", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var deadline = DateTime.UtcNow + _wait;
+        while ((int)stepWaiters.GetValue(fixture.RepairOwner)! != 1)
+        {
+            Assert.True(DateTime.UtcNow < deadline);
+            await Task.Delay(50);
+        }
+
+        // The pass that holds the logs saves its end positions while the seed waits for them.
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 3 });
+        await pass.DisposeAsync();
+        await seed.WaitAsync(_wait);
+
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 3 },
+            fixture.State.GetLogSourcePositions("alpha"));
+        Assert.DoesNotContain(fixture.AlphaLogPath, fixture.RustHelper.CountRequests);
     }
 
     private static Task<LogFileLock> HoldStepAsync(ControllerFixture fixture) =>
@@ -710,6 +943,8 @@ public sealed class LogsControllerRustFileOperationsTests
                 configuration,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 pathResolver);
+            var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+            Notifications = (RecordingNotificationProxy)(object)notifications;
 
             Controller = new LogsController(
                 Processor,
@@ -722,7 +957,24 @@ public sealed class LogsControllerRustFileOperationsTests
                 nginxRotation,
                 Checker,
                 operationQueue: null!,
-                _repairOwner);
+                _repairOwner,
+                new CacheManagementService(
+                    configuration,
+                    NullLogger<CacheManagementService>.Instance,
+                    pathResolver,
+                    RustHelper,
+                    nginxRotation,
+                    Datasources,
+                    State,
+                    dbContextFactory: null!,
+                    gameCacheDetectionService: null!,
+                    Tracker,
+                    notifications,
+                    envFileReader: null!,
+                    Checker,
+                    new DatasourceCapabilityService(Datasources),
+                    CacheScanGateHarness.Idle(),
+                    _repairOwner));
         }
 
         public string AlphaLogPath { get; }
@@ -734,6 +986,7 @@ public sealed class LogsControllerRustFileOperationsTests
         public RustLogProcessorService Processor { get; }
         public UnifiedOperationTracker Tracker { get; }
         public OperationConflictChecker Checker { get; }
+        public RecordingNotificationProxy Notifications { get; }
         public LogsController Controller { get; }
         public OperationStateService RepairOwner => _repairOwner;
 

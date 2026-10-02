@@ -131,6 +131,14 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                         OperationType.LogProcessing,
                         LogFileLockKind.Rows,
                         stoppingToken);
+                    // Asked again under the lock: a "Process" pass for this datasource can hold the logs
+                    // first and save its own end positions, and a count taken now would skip every line
+                    // written after that pass ended.
+                    if (_stateService.GetLogSourcePositions(ds.Name).Count > 0 ||
+                        _stateService.GetLogPosition(ds.Name) > 0)
+                    {
+                        continue;
+                    }
                     var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
                     _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
                     _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);
