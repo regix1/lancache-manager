@@ -211,13 +211,20 @@ const UniversalNotificationBar: React.FC = () => {
     [removeNotification, updateNotification]
   );
 
-  // Retry runs a failed-out repair again; its run row then turns the card teal.
-  const handleRetryRepair = useCallback((notification: UnifiedNotification) => {
-    // Only a run card carries `details.repairFailed`, and every run card carries its operation id.
-    ApiService.retryRepair(notification.details!.operationId!).catch((error: unknown) =>
-      notifyToastError(i18n.t('common.notifications.retryRepairFailed'), error)
-    );
-  }, []);
+  // Retry runs a failed-out repair again; its run row then turns the card teal. The card learns
+  // whether the server took it, so a refused Retry can be pressed again.
+  const handleRetryRepair = useCallback(
+    (notification: UnifiedNotification): Promise<boolean> =>
+      // Only a run card carries `details.repairFailed`, and every run card carries its operation id.
+      ApiService.retryRepair(notification.details!.operationId!).then(
+        () => true,
+        (error: unknown) => {
+          notifyToastError(i18n.t('common.notifications.retryRepairFailed'), error);
+          return false;
+        }
+      ),
+    []
+  );
 
   // Don't render if no notifications and not animating
   if (notifications.length === 0 && !shouldRender) {

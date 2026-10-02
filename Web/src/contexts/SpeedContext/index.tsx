@@ -51,6 +51,10 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
 
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   getRefreshIntervalRef.current = getRefreshInterval;
+  // Read when a request fails, not when it started: a poll that joins a slow request keeps that
+  // request's loop running, so a value captured at its start would miss the connection dropping.
+  const isConnectedRef = useRef(isConnected);
+  isConnectedRef.current = isConnected;
 
   const gameSpeeds: GameSpeedInfo[] = useMemo(
     () => speedSnapshot?.gameSpeeds ?? [],
@@ -187,7 +191,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
             // With the live connection down as well, nothing else would retire the last snapshot's
             // rows, so they age out here and the views say that updates are unavailable.
             const last = acceptedSnapshotRef.current;
-            if (!isConnected && last !== null) {
+            if (!isConnectedRef.current && last !== null) {
               const now = Date.now();
               const gameSpeeds = last.gameSpeeds.filter(
                 (game) => Date.parse(game.activeUntilUtc) > now
@@ -231,7 +235,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       inFlightRef.current = work;
       return work.promise;
     },
-    [acceptSnapshot, applyMockSnapshot, commitSnapshot, isConnected, mockMode]
+    [acceptSnapshot, applyMockSnapshot, commitSnapshot, mockMode]
   );
 
   const fetchSpeed = useCallback(

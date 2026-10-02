@@ -200,7 +200,9 @@ const mount = (source, name, extra = {}) => {
         key: attributes?.key ?? null,
         props: { ...attributes, children }
       };
-    }
+    },
+    // The setup wizard's log step reads its refs through `React.useRef`.
+    useRef
   };
   const bindings = {
     React,
@@ -316,7 +318,7 @@ const segment = (key = 'one') => ({
   variant: 'success'
 });
 
-const { isTerminalNotificationStatus } = await import(
+const { cancelUnreachable, isTerminalNotificationStatus } = await import(
   await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
 );
 // The real variant function, so the bar and card tests read the class a card is drawn with.
@@ -1935,6 +1937,33 @@ const spinnerSizes = bindLifted(
 )();
 const liftItemPart = (name, bindings) =>
   bindLifted(initializer(itemSource, name), { React: h, ...bindings }, jsx);
+/** Everything the card reads from its module, except React and its own state. */
+const itemBindings = (cancelConfig) => ({
+  useTranslation: () => ({
+    t: (key, values) => (values ? `${key}:${JSON.stringify(values)}` : key)
+  }),
+  useSteamWebApiStatus: () => ({ status: { hasApiKey: true } }),
+  formatBytes: (bytes) => `${bytes} B`,
+  Tooltip: 'Tooltip',
+  Badge: 'Badge',
+  Button: 'Button',
+  LoadingSpinner: 'LoadingSpinner',
+  ...iconBindings,
+  cancelUnreachable,
+  isTerminalNotificationStatus,
+  NOTIFICATION_TITLE_KEYS,
+  CANCEL_CONFIG_BY_TYPE: cancelConfig,
+  getNotificationVariant,
+  willForceStop: forceStopFor(cancelConfig),
+  getNotificationIcon: liftItemPart('getNotificationIcon', {
+    ...iconBindings,
+    LoadingSpinner: 'LoadingSpinner'
+  }),
+  renderCompletionDetails: liftItemPart('renderCompletionDetails', { formatCount: String }),
+  renderProgressBar: liftItemPart('renderProgressBar', {}),
+  useNotificationAnnouncement: () => '',
+  FORCE_KILL_TOOLTIP_KEY: 'common.notifications.forceKillOperation'
+});
 const renderItem = (
   notification,
   isAnimatingOut = false,
@@ -1951,29 +1980,8 @@ const renderItem = (
     ).getText(itemSource),
     {
       React: h,
-      useTranslation: () => ({
-        t: (key, values) => (values ? `${key}:${JSON.stringify(values)}` : key)
-      }),
-      useSteamWebApiStatus: () => ({ status: { hasApiKey: true } }),
-      formatBytes: (bytes) => `${bytes} B`,
-      Tooltip: 'Tooltip',
-      Badge: 'Badge',
-      Button: 'Button',
-      LoadingSpinner: 'LoadingSpinner',
-      ...iconBindings,
-      isTerminalNotificationStatus,
-      NOTIFICATION_TITLE_KEYS,
-      CANCEL_CONFIG_BY_TYPE: cancelConfig,
-      getNotificationVariant,
-      willForceStop: forceStopFor(cancelConfig),
-      getNotificationIcon: liftItemPart('getNotificationIcon', {
-        ...iconBindings,
-        LoadingSpinner: 'LoadingSpinner'
-      }),
-      renderCompletionDetails: liftItemPart('renderCompletionDetails', { formatCount: String }),
-      renderProgressBar: liftItemPart('renderProgressBar', {}),
-      useNotificationAnnouncement: () => '',
-      FORCE_KILL_TOOLTIP_KEY: 'common.notifications.forceKillOperation'
+      useState: (initial) => [initial, () => undefined],
+      ...itemBindings(cancelConfig)
     },
     jsx
   )({
@@ -2381,9 +2389,10 @@ test('a failed-out repair offers one Retry with no icon', () => {
     message: 'Repair failed: disk busy',
     details: { operationId: 'op', repairFailed: true, closeOperationIds: ['op'] }
   };
-  const tree = renderItem(red, false, false, undefined, (notification) =>
-    retried.push(notification)
-  );
+  const tree = renderItem(red, false, false, undefined, (notification) => {
+    retried.push(notification);
+    return Promise.resolve(true);
+  });
   const retry = elements(tree).filter((node) => node.type === 'Button');
   assert.equal(retry.length, 1);
   assert.equal(textOf(retry[0]), 'common.retry');
@@ -2520,13 +2529,172 @@ test('Retry on a failed-out repair asks the server to run it again and says so w
   );
   bar.render();
   const item = elements(bar.tree).find((node) => node.type === 'UnifiedNotificationItem');
-  item.props.onRetryRepair(red);
-  await settle();
+  assert.equal(await item.props.onRetryRepair(red), true, 'the card learns the server took it');
   assert.deepEqual(retried, ['op']);
   assert.deepEqual(toasts, []);
   answer = Promise.reject(new Error('Server unreachable'));
-  item.props.onRetryRepair(red);
-  await settle();
+  assert.equal(await item.props.onRetryRepair(red), false, 'the card learns it did not');
   assert.deepEqual(toasts, [['common.notifications.retryRepairFailed', 'Server unreachable']]);
   bar.dispose();
+});
+
+test('Retry takes one press until the server answers, and comes back when the repair fails out again', async () => {
+  const presses = [];
+  let answer;
+  const red = {
+    ...repairingCard,
+    status: 'failed',
+    message: 'Repair failed: disk busy',
+    details: { operationId: 'op', repairFailed: true, closeOperationIds: ['op'] }
+  };
+  // Mounted, so the card's own state carries from one render to the next.
+  const runner = mount(itemSource, 'UnifiedNotificationItem', {
+    React: { ...h, memo: (component) => component },
+    ...itemBindings({})
+  });
+  const show = (notification) =>
+    runner.render({
+      notification,
+      onDismiss: () => undefined,
+      onRetryRepair: (pressed) => {
+        presses.push(pressed.id);
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+      connectionLost: false
+    });
+  show(red);
+  const retry = () => elements(runner.tree).find((node) => node.type === 'Button');
+  runner.event(() => retry().props.onClick());
+  assert.equal(retry().props.disabled, true, 'a second press waits for the first answer');
+
+  // The server refused it, and the bar already said so: Retry is offered again.
+  answer(false);
+  await settle();
+  runner.render();
+  assert.equal(retry().props.disabled, false);
+
+  // The server took it: Retry stays off until the teal card replaces the red one.
+  runner.event(() => retry().props.onClick());
+  answer(true);
+  await settle();
+  runner.render();
+  assert.equal(retry().props.disabled, true);
+  show(repairingCard);
+  assert.equal(retry(), undefined);
+  show(red);
+  assert.equal(retry().props.disabled, false, 'a repair that fails out again can be retried');
+  assert.deepEqual(presses, ['fix', 'fix']);
+  runner.dispose();
+});
+
+// ── The setup wizard's stop asks first, only while its run is going ─────────
+
+/** The wizard's log step over a run the server reports as going, with its SignalR handlers kept. */
+const mountWizardStep = async () => {
+  const handlers = new Map();
+  const forceKills = [];
+  const translation = { t: (key) => key };
+  const signalR = {
+    on: (name, handler) => handlers.set(name, handler),
+    off: (name) => handlers.delete(name)
+  };
+  const source = parseSource(
+    'src/components/initialization/steps/LogProcessingStep.tsx',
+    ts.ScriptKind.TSX
+  );
+  const runner = mount(source, 'LogProcessingStep', {
+    useTranslation: () => translation,
+    useSignalR: () => signalR,
+    useConfig: () => ({ config: { dataSources: [] } }),
+    useSelectionSet: () => ({ selected: new Set(), toggle: () => undefined }),
+    ApiService: {
+      getProcessingStatus: () =>
+        Promise.resolve({
+          isProcessing: true,
+          operationId: 'op',
+          progress: 10,
+          status: 'processing'
+        }),
+      resetLogPosition: () => Promise.resolve(),
+      processAllLogs: () => Promise.resolve(),
+      forceKillOperation: (operationId) => {
+        forceKills.push(operationId);
+        return Promise.resolve();
+      }
+    },
+    setInterval: () => 0,
+    clearInterval: () => undefined,
+    getErrorMessage: (error) => error.message,
+    formatCount: String,
+    Button: 'Button',
+    ProgressBar: 'ProgressBar',
+    Tooltip: 'Tooltip',
+    Badge: 'Badge',
+    CollapsibleRegion: 'CollapsibleRegion',
+    LoadingSpinner: 'LoadingSpinner',
+    ConfirmationModal: 'ConfirmationModal',
+    FileText: 'FileText',
+    CheckCircle: 'CheckCircle',
+    FolderOpen: 'FolderOpen',
+    ChevronDown: 'ChevronDown',
+    ChevronUp: 'ChevronUp',
+    PlayCircle: 'PlayCircle',
+    XCircle: 'XCircle'
+  });
+  runner.render({ onComplete: () => undefined, onSkip: () => undefined });
+  runner.flushPassive();
+  await settle();
+  runner.render();
+  const modal = () => elements(runner.tree).find((node) => node.type === 'ConfirmationModal');
+  const press = (color) =>
+    runner.event(() =>
+      elements(runner.tree)
+        .find((node) => node.type === 'Button' && node.props.color === color)
+        .props.onClick()
+    );
+  return { runner, handlers, forceKills, modal, press };
+};
+
+test('the setup wizard closes its force-stop dialog when the run ends on its own', async () => {
+  const { runner, handlers, forceKills, modal, press } = await mountWizardStep();
+  press('stop');
+  assert.equal(modal().props.opened, true, 'the stop asks first');
+
+  runner.event(() =>
+    handlers.get('LogProcessingComplete')({
+      operationId: 'op',
+      success: true,
+      entriesProcessed: 3,
+      linesProcessed: 3
+    })
+  );
+  assert.equal(modal().props.opened, false, 'a finished run closes the dialog');
+  // The dialog keeps its buttons through its close animation, so Confirm can still land.
+  modal().props.onConfirm();
+  await settle();
+  assert.deepEqual(forceKills, [], 'a finished run is never force stopped');
+  runner.dispose();
+});
+
+test('a run that fails while the wizard asks to force stop does not reopen the dialog for the next run', async () => {
+  const { runner, handlers, forceKills, modal, press } = await mountWizardStep();
+  press('stop');
+  runner.event(() =>
+    handlers.get('LogProcessingComplete')({ operationId: 'op', success: false, message: 'Failed' })
+  );
+  assert.equal(modal().props.opened, false, 'a failed run closes the dialog');
+
+  press('run');
+  await settle();
+  runner.render();
+  assert.equal(modal().props.opened, false, 'starting the next run does not reopen it');
+
+  press('stop');
+  assert.equal(modal().props.opened, true);
+  runner.event(() => modal().props.onConfirm());
+  await settle();
+  assert.deepEqual(forceKills, ['op'], 'the next run still stops through the dialog');
+  runner.dispose();
 });

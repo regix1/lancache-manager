@@ -335,6 +335,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     setProcessing(true);
     setNotice(null);
     setComplete(false);
+    setForceStopConfirmOpen(false);
     setActionLoading('all');
     completionHandledRef.current = false;
     sessionStartedRef.current = true;
@@ -367,6 +368,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     setProcessing(true);
     setNotice(null);
     setComplete(false);
+    setForceStopConfirmOpen(false);
     setActionLoading(datasourceName);
     completionHandledRef.current = false;
     sessionStartedRef.current = true;
@@ -738,12 +740,15 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           </Button>
         )}
       </div>
-      {/* This stop force-kills the run, so it asks first, as a notification card's force stop does. */}
+      {/* This stop force-kills the run, so it asks first, as a notification card's force stop does.
+          A run that ends on its own closes the dialog, and the next run starts with it closed. Its
+          buttons stay pressable through the close animation, so Confirm checks the run again. */}
       <ConfirmationModal
-        opened={forceStopConfirmOpen}
+        opened={forceStopConfirmOpen && processing && !complete}
         onClose={() => setForceStopConfirmOpen(false)}
         onConfirm={() => {
           setForceStopConfirmOpen(false);
+          if (!processing || complete) return;
           void handleCancelProcessing();
         }}
         title={t('common.notifications.forceStopConfirm.title')}

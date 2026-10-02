@@ -72,9 +72,10 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
     willForceStop: bindLifted(liftConstArrow(cancelSource, 'willForceStop'), {
       CANCEL_CONFIG_BY_TYPE
     }),
-    cancelUnreachable: bindLifted(liftConstArrow(cancelSource, 'cancelUnreachable'), {
-      isTerminalNotificationStatus
-    }),
+    cancelUnreachable: bindLifted(
+      liftConstArrow('src/contexts/notifications/notificationStatus.ts', 'cancelUnreachable'),
+      { isTerminalNotificationStatus }
+    ),
     isAbortError: (error) => error?.name === 'AbortError',
     ApiError: class extends Error {},
     ApiService: {

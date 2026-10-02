@@ -8,7 +8,10 @@ import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import type { CancelKind, NotificationsContextType } from '@contexts/notifications/types';
 import { APP_EVENTS } from '@utils/constants';
-import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
+import {
+  cancelUnreachable,
+  isTerminalNotificationStatus
+} from '@contexts/notifications/notificationStatus';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -65,10 +68,6 @@ export const willForceStop = (notification: UnifiedNotification): boolean =>
   CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp' &&
   Boolean(notification.details?.operationId) &&
   notification.details?.cancelRequested === true;
-
-// A repairing card's job already ended, so no cancel can reach it, as with a terminal card.
-const cancelUnreachable = (notification: UnifiedNotification): boolean =>
-  isTerminalNotificationStatus(notification.status) || notification.status === 'repairing';
 
 /**
  * Every write below patches `details` from the card as it stands when the write runs, not from the

@@ -7,7 +7,7 @@
  * Keeping this in one place stops the call sites from drifting apart again.
  */
 
-import type { NotificationStatus, NotificationTerminal } from './types';
+import type { NotificationStatus, NotificationTerminal, UnifiedNotification } from './types';
 
 const TERMINAL_STATUSES: readonly NotificationStatus[] = [
   'completed',
@@ -22,3 +22,7 @@ export function isTerminalNotificationStatus(
 ): status is Extract<NotificationStatus, NotificationTerminal['status']> {
   return TERMINAL_STATUSES.includes(status);
 }
+
+// A repairing card's job already ended, so no cancel can reach it, as with a terminal card.
+export const cancelUnreachable = (notification: UnifiedNotification): boolean =>
+  isTerminalNotificationStatus(notification.status) || notification.status === 'repairing';

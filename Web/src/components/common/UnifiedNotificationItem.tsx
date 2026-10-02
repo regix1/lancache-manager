@@ -8,7 +8,10 @@ import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
+import {
+  cancelUnreachable,
+  isTerminalNotificationStatus
+} from '@contexts/notifications/notificationStatus';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
 import { CANCEL_CONFIG_BY_TYPE, getNotificationVariant, willForceStop } from './notificationCancel';
 import './UnifiedNotificationItem.css';
@@ -318,14 +321,22 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
   notification: UnifiedNotification;
   onDismiss: (notificationId: string) => void;
   onCancel?: (notification: UnifiedNotification) => void;
-  /** Runs a failed-out cache repair again; offered on a card whose repair gave up. */
-  onRetryRepair?: (notification: UnifiedNotification) => void;
+  /**
+   * Runs a failed-out cache repair again; offered on a card whose repair gave up. Resolves false
+   * when the server refused it.
+   */
+  onRetryRepair?: (notification: UnifiedNotification) => Promise<boolean>;
   isAnimatingOut?: boolean;
   /** True while the connection banner is up; the bar reads it once and passes it to every card. */
   connectionLost: boolean;
 }) {
   const { t } = useTranslation();
   const { status: webApiStatus } = useSteamWebApiStatus();
+  // A second press would reach a repair the first one already restarted, so Retry waits for the
+  // answer. An accepted Retry stays off until the card stops showing the failure, which lets a
+  // repair that fails out again be retried.
+  const [retryPending, setRetryPending] = useState(false);
+  if (retryPending && !notification.details?.repairFailed) setRetryPending(false);
 
   // Setup format bytes helper - uses centralized formatter
   const formatBytesLocal = (bytes: number) => formatBytes(bytes, 2, '0 B');
@@ -527,15 +538,17 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           <Button
             size="sm"
             className="pointer-target-44"
-            onClick={() => onRetryRepair(notification)}
+            disabled={retryPending}
+            onClick={() => {
+              setRetryPending(true);
+              void onRetryRepair(notification).then((accepted) => setRetryPending(accepted));
+            }}
           >
             {t('common.retry')}
           </Button>
         )}
         {/* A repairing card's X only hides it: the job already ended and its repair keeps running. */}
-        {(isTerminalNotificationStatus(notification.status) ||
-          closable ||
-          notification.status === 'repairing') && (
+        {(cancelUnreachable(notification) || closable) && (
           <button
             onClick={() => onDismiss(notification.id)}
             className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"

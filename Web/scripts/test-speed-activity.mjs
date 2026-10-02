@@ -443,9 +443,13 @@ const lastSnapshot = snapshot({
 });
 
 /** The shipped request callback, failing every fetch, with the connection state given. */
-const failingRequest = (isConnected) => {
+const failingRequest = (
+  isConnected,
+  getCurrentSpeeds = () => Promise.reject(new Error('Server unreachable'))
+) => {
   const committed = [];
   const outageCopyShownRef = { current: false };
+  const isConnectedRef = { current: isConnected };
   const requestSpeed = bindLifted(
     liftHookCallback(SPEED_CONTEXT, 'useCallback', 'activeRequest.trailing = true'),
     {
@@ -453,7 +457,7 @@ const failingRequest = (isConnected) => {
       applyMockSnapshot: () => undefined,
       requestOwnerRef: { current: 1 },
       inFlightRef: { current: null },
-      ApiService: { getCurrentSpeeds: () => Promise.reject(new Error('Server unreachable')) },
+      ApiService: { getCurrentSpeeds },
       mountedRef: { current: true },
       acceptSnapshot: () => assert.fail('nothing arrives'),
       console: { error: () => undefined },
@@ -463,14 +467,14 @@ const failingRequest = (isConnected) => {
       i18n: { t: (key) => key },
       getErrorMessage: (error) => String(error),
       setIsLoading: () => undefined,
-      isConnected,
+      isConnectedRef,
       acceptedSnapshotRef: { current: lastSnapshot },
       outageCopyShownRef,
       commitSnapshot: (value) => committed.push(value),
       Date: { now: () => NOW, parse: Date.parse }
     }
   );
-  return { requestSpeed, committed, outageCopyShownRef };
+  return { requestSpeed, committed, outageCopyShownRef, isConnectedRef };
 };
 
 test('a failed poll during an outage shows the last snapshot without its expired rows', async () => {
@@ -498,6 +502,24 @@ test('a failed poll during an outage shows the last snapshot without its expired
   await connected.requestSpeed({ notifyFailure: false, throttle: true });
   assert.deepEqual(connected.committed, []);
   assert.equal(connected.outageCopyShownRef.current, false);
+});
+
+test('a slow failing request that outlives the live connection still shows the outage copy', async () => {
+  const failures = [];
+  const { requestSpeed, committed, isConnectedRef } = failingRequest(
+    true,
+    () => new Promise((_resolve, reject) => failures.push(reject))
+  );
+  const running = requestSpeed({ notifyFailure: false, throttle: true });
+  // The connection drops while that request is still out, and the next poll joins it.
+  isConnectedRef.current = false;
+  requestSpeed({ notifyFailure: false, throttle: true });
+  failures.shift()(new Error('Server unreachable'));
+  await new Promise((resolve) => setImmediate(resolve));
+  failures.shift()(new Error('Server unreachable'));
+  await running;
+  assert.equal(committed.length, 2, 'each failure after the drop renders the outage copy');
+  assert.equal(committed[0].isAvailable, false);
 });
 
 test('the outage copy replaces a throttled snapshot still waiting to render', () => {
