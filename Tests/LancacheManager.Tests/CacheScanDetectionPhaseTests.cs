@@ -123,6 +123,39 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task ARemoveModeScanLeavesEvictedRecordsWhileAGameDetectionRunsAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var detectionId = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
+
+        await ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None);
+
+        Assert.Equal(0, ctx.Notifications.Count(SignalREvents.EvictionRemovalStarted));
+        Assert.Empty(tracker.GetActiveOperations(OperationType.EvictionRemoval));
+        Assert.True(await context.Downloads.AnyAsync(download => download.IsEvicted));
+
+        // Once the detection has ended, the next scan's cleanup removes the record.
+        tracker.CompleteOperation(detectionId, success: true);
+        await ctx.WaitForRepairAsync(
+            ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None),
+            TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => ctx._operationStateService.GetBlockingRepair() is null);
+        Assert.Equal(1, ctx.Notifications.Count(SignalREvents.EvictionRemovalStarted));
+        Assert.False(await context.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
     public async Task SaveRemoveRetriesReopenBeforeDeletingEvictedRowsAsync()
     {
         using var ctx = new PhaseContext();

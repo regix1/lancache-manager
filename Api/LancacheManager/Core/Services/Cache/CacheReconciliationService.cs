@@ -2446,6 +2446,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
         if (operationId == null)
         {
+            // A detection can un-evict a download after this removal reads its targets, which
+            // would keep the row and purge its log lines.
+            if (_operationTracker.GetActiveOperations(OperationType.GameDetection).Any())
+            {
+                _logger.LogInformation("[EvictionScan] A game detection is running, so the evicted records are removed by the next scan");
+                return;
+            }
+
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             // Run the removal work on the LINKED token: the universal cancel path
             // (/api/operations/{id}/cancel) drives the CTS registered with the tracker, so the
