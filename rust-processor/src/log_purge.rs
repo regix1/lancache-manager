@@ -69,7 +69,7 @@ struct PublicationCheck {
     files: Vec<PublicationExpectation>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicationRecord {
     target_path: PathBuf,
@@ -80,7 +80,7 @@ struct PublicationRecord {
     deleted: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicationResult {
     success: bool,
@@ -234,6 +234,64 @@ fn write_publication_result(records: Vec<PublicationRecord>, success: bool) -> R
         .map_err(|error| error.error)
         .with_context(|| format!("failed to publish log result {}", result_path.display()))?;
     Ok(())
+}
+
+/// Completes the publication of a removal that deleted whole files itself (one service's
+/// per-service series) before any rewrite ran. The host's check expects one record per file it
+/// bound: the records a rewrite already published stay, each deleted file is added as deleted,
+/// and every other checked file as unchanged, which holds only while its identity still matches.
+pub fn publish_deleted_files(deleted: &[FileIdentity], deletes_succeeded: bool) -> Result<()> {
+    let (Some(check_path), Some(result_path)) = (
+        std::env::var_os(LOG_CHECK_ENV),
+        std::env::var_os(LOG_RESULT_ENV),
+    ) else {
+        return Ok(());
+    };
+    let check: PublicationCheck =
+        serde_json::from_slice(&std::fs::read(&check_path).with_context(|| {
+            format!(
+                "failed to read log publication check {}",
+                Path::new(&check_path).display()
+            )
+        })?)
+        .context("failed to parse log publication check")?;
+    let mut success = deletes_succeeded && check.valid;
+    let mut records = Vec::new();
+    let result_path = PathBuf::from(result_path);
+    if result_path.exists() {
+        let published: PublicationResult = serde_json::from_slice(
+            &std::fs::read(&result_path).context("failed to read log publication result")?,
+        )
+        .context("failed to parse log publication result")?;
+        success &= published.success;
+        records = published.files;
+    }
+    for expected in check.files {
+        if records
+            .iter()
+            .any(|record| record.original_identity == expected.original_identity)
+        {
+            continue;
+        }
+        let was_deleted = deleted.contains(&expected.original_identity);
+        if !was_deleted {
+            success &= file_identity(&expected.target_path).ok().as_ref()
+                == Some(&expected.original_identity);
+        }
+        records.push(PublicationRecord {
+            published_identity: if was_deleted {
+                None
+            } else {
+                Some(expected.original_identity.clone())
+            },
+            target_path: expected.target_path,
+            original_identity: expected.original_identity,
+            temporary_identity: None,
+            changed: was_deleted,
+            deleted: was_deleted,
+        });
+    }
+    write_publication_result(records, success)
 }
 
 /// Byte-level prefilter for removal candidates. A line that fails

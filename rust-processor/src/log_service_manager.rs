@@ -1200,6 +1200,7 @@ fn remove_service_from_logs(
     let mut permission_errors: usize = 0;
     let mut deleted_files: usize = 0;
     let mut deletion_failures: usize = 0;
+    let mut deleted_identities: Vec<log_purge::FileIdentity> = Vec::new();
     let mut rewrite_failures: usize = 0;
     let tagged_files = log_files.len();
 
@@ -1239,9 +1240,12 @@ fn remove_service_from_logs(
                 Err(_) => 0,
             };
 
+            // Read before the delete: the host's check matches a deleted file by this identity.
+            let identity = log_purge::file_identity(&log_file.path);
             match fs::remove_file(&log_file.path) {
                 Ok(()) => {
                     deleted_files += 1;
+                    deleted_identities.extend(identity.ok());
                     total_lines_processed += lines_in_file;
                     total_lines_removed += lines_in_file;
                     eprintln!(
@@ -1274,6 +1278,8 @@ fn remove_service_from_logs(
         }
     }
 
+    let deletes_succeeded = permission_errors == 0 && deletion_failures == 0;
+
     if !log_files.is_empty() {
         total_lines_processed += log_files
             .iter()
@@ -1301,6 +1307,10 @@ fn remove_service_from_logs(
         removed_before_by_stem.extend(outcome.lines_removed_before_position_by_stem);
         log_files.clear();
     }
+
+    // The host's check bound every log file, the deleted series included, so the publication covers
+    // them all; a rewrite above published only the files it walked.
+    log_purge::publish_deleted_files(&deleted_identities, deletes_succeeded)?;
 
     // Process each log file
     for (file_index, (log_file, stem)) in log_files.iter().enumerate() {
@@ -2147,6 +2157,9 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
+    // The publication variables are process-wide, so the tests that run a service removal take turns.
+    static PUBLICATION_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn json_line(service: &str) -> String {
         serde_json::json!({
             "cache_identifier": service,
@@ -2715,6 +2728,9 @@ mod tests {
 
     #[test]
     fn remove_service_deletes_per_service_series_and_rewrites_tagged_logs() {
+        let _env = PUBLICATION_ENV
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let directory = tempfile::tempdir().expect("create fixture directory");
         fs::write(directory.path().join("steam-access.log"), b"s1\ns2\n").expect("write");
         fs::write(directory.path().join("steam-access.log.1"), b"s3\n").expect("write");
@@ -2749,6 +2765,83 @@ mod tests {
         assert_eq!(progress["status"], "completed");
         // 3 lines from the deleted steam series + 1 tagged line from access.log
         assert_eq!(progress["lines_removed"], 4);
+    }
+
+    #[test]
+    fn remove_service_publishes_every_checked_file_when_it_deletes_a_per_service_series() {
+        let _env = PUBLICATION_ENV
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Per-service logs only (bare metal), then per-service logs beside access.log (mixed).
+        for mixed in [false, true] {
+            let directory = tempfile::tempdir().expect("create fixture directory");
+            let logs = directory.path().join("logs");
+            fs::create_dir(&logs).expect("create log folder");
+            fs::write(logs.join("steam-access.log"), b"s1\n").expect("write");
+            fs::write(logs.join("blizzard-access.log"), b"b1\n").expect("write");
+            if mixed {
+                fs::write(
+                    logs.join("access.log"),
+                    b"[blizzard] tagged blizzard line\n",
+                )
+                .expect("write");
+            }
+            // The check the host writes: every log file it bound, with its identity.
+            let files: Vec<serde_json::Value> = fs::read_dir(&logs)
+                .expect("list log folder")
+                .map(|entry| {
+                    let path = entry.expect("log folder entry").path();
+                    let identity = log_purge::file_identity(&path).expect("read identity");
+                    serde_json::json!({ "targetPath": path, "originalIdentity": identity })
+                })
+                .collect();
+            let check_path = directory.path().join("check.json");
+            fs::write(
+                &check_path,
+                serde_json::to_vec(&serde_json::json!({ "valid": true, "files": files }))
+                    .expect("serialize check"),
+            )
+            .expect("write check");
+            let result_path = directory.path().join("result.json");
+            std::env::set_var("LANCACHE_LOG_CHECK", &check_path);
+            std::env::set_var("LANCACHE_LOG_RESULT", &result_path);
+            let removal = remove_service_from_logs(
+                logs.to_str().expect("UTF-8 fixture path"),
+                "steam",
+                &directory.path().join("progress.json"),
+                &ProgressReporter::new(false),
+                None,
+                None,
+            );
+            std::env::remove_var("LANCACHE_LOG_CHECK");
+            std::env::remove_var("LANCACHE_LOG_RESULT");
+            removal.expect("remove steam");
+
+            let published: serde_json::Value =
+                serde_json::from_slice(&fs::read(&result_path).expect("read published result"))
+                    .expect("parse published result");
+            assert_eq!(published["success"], true);
+            let records = published["files"].as_array().expect("published records");
+            assert_eq!(records.len(), files.len());
+            let record = |name: &str| {
+                records
+                    .iter()
+                    .find(|record| {
+                        record["targetPath"]
+                            .as_str()
+                            .expect("record path")
+                            .ends_with(name)
+                    })
+                    .expect("a record for every checked file")
+            };
+            assert_eq!(record("steam-access.log")["deleted"], true);
+            assert_eq!(record("steam-access.log")["changed"], true);
+            assert_eq!(record("blizzard-access.log")["changed"], false);
+            assert_eq!(
+                record("blizzard-access.log")["publishedIdentity"],
+                record("blizzard-access.log")["originalIdentity"]
+            );
+        }
     }
 
     #[test]
