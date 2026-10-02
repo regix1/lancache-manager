@@ -929,7 +929,7 @@ public sealed class CorruptionRemovalContractTests
         fixture.Tracker.ForceKillOperation(operationId);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
 
-        // The repair redoes the step from the kept evidence with the scheme the job launched with.
+        // The repair redoes the step from the kept evidence with the scheme stored when the job was prepared.
         await fixture.Pipe.ConnectAsync();
         Assert.Equal("remove-logs", fixture.Pipe.Command);
         await fixture.Pipe.SendAsync(noLineRemoved, 0);
@@ -1282,9 +1282,19 @@ public sealed class CorruptionRemovalContractTests
 
         public CorruptionDetectionService? Service { get; set; }
 
-        protected override Task ApplyRepairAsync(OperationRepair repair, CancellationToken stoppingToken) =>
-            (Service ?? throw new InvalidOperationException("The corruption detection service is not initialized."))
-                .ResumeRepairAsync(repair, stoppingToken);
+        // Production hands the owner the dispatch's copy, whose scheme the dispatch clears for a folder that
+        // no longer proves its layout. Clearing it on every source makes a redo that reads the copy fail.
+        protected override Task ApplyRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
+        {
+            var applied = JsonSerializer.Deserialize<OperationRepair>(JsonSerializer.Serialize(repair))!;
+            foreach (var source in applied.Sources)
+            {
+                source.KeyScheme = null;
+            }
+
+            return (Service ?? throw new InvalidOperationException("The corruption detection service is not initialized."))
+                .ResumeRepairAsync(applied, stoppingToken);
+        }
 
         protected override Task RestoreOwnerAsync(OperationRepair repair, CancellationToken stoppingToken) =>
             (Service ?? throw new InvalidOperationException("The corruption detection service is not initialized."))
