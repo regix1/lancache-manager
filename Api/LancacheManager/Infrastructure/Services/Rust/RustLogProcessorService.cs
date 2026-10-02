@@ -279,6 +279,10 @@ public class RustLogProcessorService
                 null,
                 "Log processing completed successfully",
                 "signalr.logProcessing.complete");
+            if (batch.FailedFiles.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, SkippedLogFilesWarning(batch.FailedFiles, entriesProcessed));
+            }
             _operationTracker.CompleteOperation(
                 operationId,
                 true,
@@ -298,6 +302,20 @@ public class RustLogProcessorService
             "Log processing ended without completing",
             onCompleting: operation => operation.Metadata = incompleteMetrics);
     }
+
+    /// <summary>
+    /// The warning a log processing run that skipped files with errors ends with: each file's name
+    /// (the processor reports "path: reason") and the entries the other files saved.
+    /// </summary>
+    private static RunWarning SkippedLogFilesWarning(IEnumerable<string> filesWithErrors, long entriesSaved) =>
+        new(
+            "common.notifications.warnings.logFilesSkipped",
+            new Dictionary<string, object?>
+            {
+                ["fileNames"] = string.Join(", ", filesWithErrors.Select(entry =>
+                    Path.GetFileName(entry[..entry.IndexOf(": ", StringComparison.Ordinal)]))),
+                ["entriesSaved"] = entriesSaved
+            });
 
     private async Task<bool> RunAllDatasourcesAsync()
     {
@@ -1511,9 +1529,8 @@ public class RustLogProcessorService
                     return false;
                 }
 
-                // A partial run saved what it could but hit per-file errors: positions are
-                // persisted for every stem Rust reached, and the operation surfaces as
-                // failed-with-detail, never plain success.
+                // A partial run saved the entries of every file that read cleanly and the positions it
+                // reached, so it completes with a warning naming the files that had errors.
                 if (finalProgress!.TerminalStatus == "partial")
                 {
                     PersistIngestDiagnostics(datasourceName!, finalProgress, startPositions);
@@ -1530,8 +1547,9 @@ public class RustLogProcessorService
                     var partialMessage =
                         $"Log processing finished with {finalProgress.FilesWithErrors.Count} file error(s); " +
                         $"{finalProgress.EntriesSaved} entries were saved";
-                    _logger.LogError("{Message}: {Files}", partialMessage,
+                    _logger.LogWarning("{Message}: {Files}", partialMessage,
                         string.Join("; ", finalProgress.FilesWithErrors));
+                    batch?.FailedFiles.AddRange(finalProgress.FilesWithErrors);
                     if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         terminalMetrics = new LogProcessingTerminalMetrics(
@@ -1539,18 +1557,22 @@ public class RustLogProcessorService
                             LinesProcessed: finalProgress.LinesParsed,
                             Elapsed: null,
                             Message: partialMessage,
-                            StageKey: null);
+                            StageKey: "signalr.logProcessing.complete");
                         terminalMetrics = await FinishProcessingRepairAsync(
                             repairOwner!,
                             ownerOperationId.Value,
                             terminalMetrics,
-                            success: false,
+                            success: true,
                             cancelled: false,
-                            error: partialMessage);
+                            error: null);
                         repairFinished = true;
-                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, partialMessage, onCompleting: operation => operation.Metadata = terminalMetrics);
+                        _operationTracker.SetWarning(
+                            ownerOperationId.Value,
+                            SkippedLogFilesWarning(finalProgress.FilesWithErrors, finalProgress.EntriesSaved));
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, true, onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
-                    return false;
+                    childSucceeded = true;
+                    return true;
                 }
 
                 // Success is an ALLOWLIST, not "anything that wasn't rejected": a checkpoint

@@ -266,6 +266,42 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.False(fixture.RepairOwner.OwnsRepair(operationId));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APartialPassCompletesWithAWarningNamingTheSkippedFilesAsync(bool batch)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+
+        var run = fixture.Track(batch
+            ? fixture.Processor.StartProcessingAsync()
+            : fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        // log_processor after one rotated member failed: terminal "partial", exit 0, the file named
+        // "path: reason".
+        var partial = TerminalProgress(7, 11, "partial", sourcePosition: 25);
+        partial.FilesWithErrors =
+        [
+            Path.Combine(Path.GetDirectoryName(fixture.LogFilePath)!, "access.log.2.gz") + ": unexpected end of file"
+        ];
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("completed", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.logFilesSkipped", warning.StageKey);
+        Assert.Equal("access.log.2.gz", warning.Context["fileNames"]);
+        Assert.Equal(7L, warning.Context["entriesSaved"]);
+        Assert.True(row.Retained);
+    }
+
     [Fact]
     public async Task BatchUsesOneOperationAndKeepsTheFirstChildCountsAsync()
     {
