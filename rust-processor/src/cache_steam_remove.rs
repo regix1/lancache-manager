@@ -586,6 +586,7 @@ async fn main() -> Result<()> {
         empty_dirs_removed,
         cache_permission_errors,
         verification_skips,
+        undeleted_files,
     ) = {
         let count = url_data.len();
         removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": count }), 10.0, 0, 0)?;
@@ -630,10 +631,11 @@ async fn main() -> Result<()> {
             empty_dirs,
             outcome.permission_errors,
             outcome.verification_skips,
+            outcome.undeleted_files,
         )
     };
 
-    if let Err(error) = removal_core::ensure_cache_deletions_verified(verification_skips) {
+    if let Err(error) = removal_core::ensure_cache_deletions_verified(verification_skips, undeleted_files) {
         let report = RemovalReport {
             game_app_id,
             game_name: game_name.to_string(),

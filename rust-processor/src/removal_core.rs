@@ -94,6 +94,9 @@ pub struct CacheRemovalOutcome {
     /// read): left untouched. Some bins consume this to stop before deleting provenance.
     #[allow(dead_code)]
     pub verification_skips: usize,
+    /// Files that are still on disk because their delete failed for a reason other than permission
+    /// (in use, an I/O error, a read-only mount) or their path was refused as unsafe.
+    pub undeleted_files: usize,
 }
 
 /// Where the collection walk reports its own progress, and under which stage key. A removal
@@ -343,6 +346,7 @@ pub fn remove_cache_files(
     let bytes_freed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let verification_skips = AtomicUsize::new(0);
+    let undeleted_files = AtomicUsize::new(0);
     let parent_dirs = Mutex::new(HashSet::new());
 
     eprintln!("Collecting cache file paths for deletion...");
@@ -368,9 +372,13 @@ pub fn remove_cache_files(
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
         if path.exists() {
-            // Refuse to follow symlinks or delete anything outside the cache root.
+            // Refuse to follow symlinks or delete anything outside the cache root. Such a file stays
+            // on disk, so the removal must not delete its history; one that vanished first is gone.
             if let Err(e) = cache_utils::safe_path_under_root(cache_dir, path) {
                 eprintln!("  skipping unsafe path {}: {}", path.display(), e);
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    undeleted_files.fetch_add(1, Ordering::Relaxed);
+                }
                 return;
             }
 
@@ -397,21 +405,25 @@ pub fn remove_cache_files(
                     );
                 }
             } else {
-                match fs::metadata(path) {
-                    Ok(metadata) => {
-                        bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
-                    }
+                // Read before the delete and counted only after it, so a file that stays is never
+                // reported freed.
+                let size = match fs::metadata(path) {
+                    Ok(metadata) => metadata.len(),
                     // The file is still deleted below; only the freed-bytes total is
                     // short by its size, so say which file it was short by.
-                    Err(e) => eprintln!(
-                        "  Warning: could not read the size of {}, it is missing from the freed total: {}",
-                        path.display(),
-                        e
-                    ),
-                }
+                    Err(e) => {
+                        eprintln!(
+                            "  Warning: could not read the size of {}, it is missing from the freed total: {}",
+                            path.display(),
+                            e
+                        );
+                        0
+                    }
+                };
 
                 match fs::remove_file(path) {
                     Ok(_) => {
+                        bytes_freed.fetch_add(size, Ordering::Relaxed);
                         let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
 
                         if let Some(parent) = path.parent() {
@@ -439,6 +451,12 @@ pub fn remove_cache_files(
                             let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
                             if err_count <= 5 {
                                 eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
+                            }
+                        } else if e.kind() != std::io::ErrorKind::NotFound {
+                            // A busy file, an I/O error or a read-only mount leaves the file on disk.
+                            let failures = undeleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+                            if failures <= 5 {
+                                eprintln!("  ERROR: Failed to delete {}: {}", path.display(), e);
                             }
                         }
                     }
@@ -523,6 +541,13 @@ pub fn remove_cache_files(
             final_verification_skips
         );
     }
+    let final_undeleted_files = undeleted_files.load(Ordering::Relaxed);
+    if final_undeleted_files > 0 {
+        eprintln!(
+            "  Left {} file(s) on disk that could not be deleted",
+            final_undeleted_files
+        );
+    }
 
     // After the parallel deletion phase: flush partial progress on cancel.
     if cancel::is_cancelled() {
@@ -546,20 +571,30 @@ pub fn remove_cache_files(
         parent_dirs: final_dirs,
         permission_errors: final_permission_errors,
         verification_skips: final_verification_skips,
+        undeleted_files: final_undeleted_files,
     })
 }
 
-/// Bare-metal KEY verification left one or more cache files untouched. Abort the
-/// log/DB tail so provenance is preserved for a corrected retry.
-pub fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
-    if verification_skips == 0 {
-        return Ok(());
+/// Bare-metal KEY verification left one or more cache files untouched, or a file could not be
+/// deleted or was refused as unsafe. Either way the file is still cached, so abort the log/DB
+/// tail and keep its provenance for a corrected retry.
+pub fn ensure_cache_deletions_verified(
+    verification_skips: usize,
+    undeleted_files: usize,
+) -> Result<()> {
+    if verification_skips > 0 {
+        anyhow::bail!(
+            "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
+            verification_skips
+        );
     }
-
-    anyhow::bail!(
-        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
-        verification_skips
-    )
+    if undeleted_files > 0 {
+        anyhow::bail!(
+            "{} cache file(s) could not be deleted (in use, an I/O error, a read-only mount or an unsafe path); access logs and database records were left intact",
+            undeleted_files
+        );
+    }
+    Ok(())
 }
 
 /// Build the PUID/PGID permission-error abort message shared by every removal bin.
@@ -709,7 +744,10 @@ pub fn run_url_removal_steps(
     // A failed bare-metal KEY check is not a successful removal. The cache helper
     // correctly left the candidate untouched; preserve its URL provenance as well
     // so a corrected retry can still find it instead of turning it into an orphan.
-    if let Err(error) = ensure_cache_deletions_verified(outcome.verification_skips) {
+    // A file that could not be deleted is still cached the same way.
+    if let Err(error) =
+        ensure_cache_deletions_verified(outcome.verification_skips, outcome.undeleted_files)
+    {
         write_failure_report(&tail)?;
         return Err(error);
     }
@@ -856,11 +894,19 @@ mod tests {
 
     #[test]
     fn verification_skips_block_log_and_database_removal() {
-        assert!(ensure_cache_deletions_verified(0).is_ok());
+        assert!(ensure_cache_deletions_verified(0, 0).is_ok());
 
-        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        let error = ensure_cache_deletions_verified(2, 0)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("2 file(s)"));
         assert!(error.contains("access logs, and database records were left intact"));
+
+        let error = ensure_cache_deletions_verified(0, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("1 cache file(s) could not be deleted"));
+        assert!(error.contains("access logs and database records were left intact"));
     }
 
     #[test]
@@ -906,6 +952,73 @@ mod tests {
         assert_eq!(tail.deleted_files, 1);
         assert_eq!(tail.purge_urls, vec![url.to_string()]);
         assert_eq!(fs::read(&log_path).unwrap(), log_bytes);
+    }
+
+    /// What every case below expects: the file stays, nothing is reported freed, the failure report
+    /// is written once, and the log step is not named a single URL.
+    #[cfg(unix)]
+    fn remove_and_expect_the_tail_stopped(cache_dir: &Path, url: &str, service: &str) -> String {
+        let urls = HashMap::from([(url.to_string(), (service.to_string(), 0_i64))]);
+        let failure_reports = std::cell::Cell::new(0);
+        let error = run_url_removal_steps(
+            cache_dir,
+            &urls,
+            &cache_dir.join("progress.json"),
+            &ProgressReporter::new(false),
+            &TEST_STAGE_KEYS,
+            &RemovalLifecycleKeys {
+                cache_removing: "test.cache.removing",
+                dirs_cleaning: "test.dirs.cleaning",
+                db_deleting: "test.db.deleting",
+            },
+            ProgressCadence::OnPercentAdvance,
+            SliceReach::ForwardWalkIsComplete,
+            &|tail| {
+                assert_eq!(tail.bytes_freed, 0);
+                assert!(tail.purge_urls.is_empty());
+                failure_reports.set(failure_reports.get() + 1);
+                Ok(())
+            },
+        )
+        .err()
+        .expect("a cache file left on disk stops the removal");
+        assert_eq!(failure_reports.get(), 1);
+        error.to_string()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_that_cannot_be_deleted_stops_the_log_and_database_steps() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let url = "/Builds/Org/o-abc/chunk.chunk";
+        // A folder where the cache file should be: the unlink fails with "is a directory", which is
+        // neither permission denied nor not found, as a busy file or an I/O error is.
+        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, "epicgames", url);
+        fs::create_dir_all(&cache_path).unwrap();
+
+        let error = remove_and_expect_the_tail_stopped(&cache_dir, url, "epicgames");
+
+        assert!(cache_path.exists());
+        assert!(error.contains("1 cache file(s) could not be deleted"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_path_refused_as_unsafe_stops_the_log_and_database_steps() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let url = "/Builds/Org/o-abc/chunk.chunk";
+        let elsewhere = temp.path().join("elsewhere");
+        fs::write(&elsewhere, b"cache").unwrap();
+        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, "epicgames", url);
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &cache_path).unwrap();
+
+        let error = remove_and_expect_the_tail_stopped(&cache_dir, url, "epicgames");
+
+        assert!(elsewhere.exists());
+        assert!(error.contains("1 cache file(s) could not be deleted"));
     }
 
     #[test]

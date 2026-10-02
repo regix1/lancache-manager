@@ -239,8 +239,8 @@ fn remove_cache_files_for_service(
     progress_path: &Path,
     reporter: &ProgressReporter,
     scheme: cache_utils::CacheKeyScheme,
-) -> (usize, u64, usize, usize) {
-    // Returns (deleted_count, bytes_freed, permission_errors, verification_skips).
+) -> (usize, u64, usize, usize, usize) {
+    // Returns (deleted_count, bytes_freed, permission_errors, verification_skips, undeleted_files).
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
@@ -258,6 +258,7 @@ fn remove_cache_files_for_service(
     let bytes_freed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let verification_skips = AtomicUsize::new(0);
+    let undeleted_files = AtomicUsize::new(0);
     // Track how many paths have been checked for progress (not just deleted)
     let paths_checked = AtomicUsize::new(0);
     // Track last reported percent to avoid writing progress too frequently
@@ -292,21 +293,23 @@ fn remove_cache_files_for_service(
                             );
                         }
                     } else {
-                        match fs::metadata(&cache_path) {
-                            Ok(metadata) => {
-                                bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
-                            }
+                        let size = match fs::metadata(&cache_path) {
+                            Ok(metadata) => metadata.len(),
                             // The file is still deleted below; only the freed-bytes total
                             // is short by its size, so say which file it was short by.
-                            Err(e) => eprintln!(
-                                "  Warning: could not read the size of {}, it is missing from the freed total: {}",
-                                cache_path.display(),
-                                e
-                            ),
-                        }
+                            Err(e) => {
+                                eprintln!(
+                                    "  Warning: could not read the size of {}, it is missing from the freed total: {}",
+                                    cache_path.display(),
+                                    e
+                                );
+                                0
+                            }
+                        };
 
                         match fs::remove_file(&cache_path) {
                             Ok(_) => {
+                                bytes_freed.fetch_add(size, Ordering::Relaxed);
                                 let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
                                 if count.is_multiple_of(100) {
                                     eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
@@ -319,8 +322,10 @@ fn remove_cache_files_for_service(
                                     if err_count <= 5 {
                                         eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
                                     }
-                                } else {
-                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                } else if e.kind() != std::io::ErrorKind::NotFound {
+                                    // A busy file, an I/O error or a read-only mount leaves the file on disk.
+                                    undeleted_files.fetch_add(1, Ordering::Relaxed);
+                                    eprintln!("  ERROR: Failed to delete {}: {}", cache_path.display(), e);
                                 }
                             }
                         }
@@ -328,6 +333,11 @@ fn remove_cache_files_for_service(
                 }
                 Err(e) => {
                     eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
+                    // The file stays on disk, so the removal must not delete its history; one that
+                    // vanished first is gone.
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        undeleted_files.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -361,6 +371,7 @@ fn remove_cache_files_for_service(
     let final_bytes = bytes_freed.load(Ordering::Relaxed);
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
     let final_verification_skips = verification_skips.load(Ordering::Relaxed);
+    let final_undeleted_files = undeleted_files.load(Ordering::Relaxed);
 
     if final_permission_errors > 5 {
         eprintln!(
@@ -386,6 +397,7 @@ fn remove_cache_files_for_service(
         final_bytes,
         final_permission_errors,
         final_verification_skips,
+        final_undeleted_files,
     )
 }
 
@@ -573,6 +585,7 @@ async fn main() -> Result<()> {
         total_bytes_freed,
         cache_permission_errors,
         verification_skips,
+        cache_undeleted_files,
     ) = remove_cache_files_for_service(
         &cache_dir,
         service,
@@ -602,7 +615,7 @@ async fn main() -> Result<()> {
     // A failed bare-metal KEY check leaves the cache candidate untouched. Preserve its
     // access-log and database provenance, write the successfully completed cache portion,
     // and fail the logical removal so the caller can surface and retry it.
-    if let Err(error) = removal_core::ensure_cache_deletions_verified(verification_skips) {
+    if let Err(error) = removal_core::ensure_cache_deletions_verified(verification_skips, cache_undeleted_files) {
         let report = RemovalReport::partial(service, cache_files_deleted, total_bytes_freed);
         write_removal_report(&output_json, &report)?;
         return Err(error);
@@ -733,7 +746,7 @@ mod tests {
 
         let progress_path = temp.path().join("progress.json");
         let urls = HashMap::from([(url.to_string(), 0_i64)]);
-        let (deleted, bytes, permission_errors, verification_skips) =
+        let (deleted, bytes, permission_errors, verification_skips, undeleted_files) =
             remove_cache_files_for_service(
                 temp.path(),
                 service,
@@ -745,8 +758,8 @@ mod tests {
 
         assert!(cache_path.exists(), "unverified file must remain untouched");
         assert_eq!(
-            (deleted, bytes, permission_errors, verification_skips),
-            (0, 0, 0, 1)
+            (deleted, bytes, permission_errors, verification_skips, undeleted_files),
+            (0, 0, 0, 1, 0)
         );
         let progress: serde_json::Value =
             serde_json::from_slice(&fs::read(progress_path).unwrap()).unwrap();
@@ -756,8 +769,8 @@ mod tests {
 
     #[test]
     fn verification_skips_write_a_partial_report_and_block_log_and_database_removal() {
-        assert!(removal_core::ensure_cache_deletions_verified(0).is_ok());
-        let error = removal_core::ensure_cache_deletions_verified(2)
+        assert!(removal_core::ensure_cache_deletions_verified(0, 0).is_ok());
+        let error = removal_core::ensure_cache_deletions_verified(2, 0)
             .unwrap_err()
             .to_string();
         assert!(error.contains("2 file(s)"));
@@ -802,7 +815,7 @@ mod tests {
         assert!(no_range.exists(), "counting must not delete anything");
         assert!(noslice.exists(), "counting must not delete anything");
 
-        let (deleted, _bytes, permission_errors, verification_skips) =
+        let (deleted, _bytes, permission_errors, verification_skips, undeleted_files) =
             remove_cache_files_for_service(
                 temp.path(),
                 service,
@@ -813,11 +826,35 @@ mod tests {
             );
 
         assert_eq!(
-            (deleted, permission_errors, verification_skips),
-            (counted, 0, 0)
+            (deleted, permission_errors, verification_skips, undeleted_files),
+            (counted, 0, 0, 0)
         );
         assert!(!no_range.exists());
         assert!(!noslice.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_that_cannot_be_deleted_is_counted_and_not_freed() {
+        let temp = tempfile::tempdir().unwrap();
+        let url = "/depot/1/chunk/abcdef";
+        // A folder where the cache file should be: the unlink fails with "is a directory".
+        let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), "steam", url);
+        fs::create_dir_all(&cache_path).unwrap();
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+
+        let outcome = remove_cache_files_for_service(
+            temp.path(),
+            "steam",
+            &urls,
+            &temp.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
+        );
+
+        assert!(cache_path.exists());
+        assert_eq!(outcome, (0, 0, 0, 0, 1));
+        assert!(removal_core::ensure_cache_deletions_verified(outcome.3, outcome.4).is_err());
     }
 
     #[test]
