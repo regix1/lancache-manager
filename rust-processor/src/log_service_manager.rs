@@ -1,14 +1,10 @@
 use anyhow::{Context, Result};
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use tempfile::NamedTempFile;
 
 use lancache_processor::cancel;
 use lancache_processor::content_scan;
@@ -19,7 +15,6 @@ use lancache_processor::log_reader;
 use lancache_processor::log_resume;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
-use lancache_processor::service_utils::line_matches_service;
 // The production binary does not use riot_hosts; it is compiled only for the test build, where the
 // shared parser_http_detailed test suite resolves a Riot CDN host through `crate::riot_hosts`.
 use lancache_processor::service_utils;
@@ -1166,10 +1161,8 @@ fn remove_service_from_logs(
         .iter()
         .filter(|s| matches!(&s.kind, SourceKind::Service(svc) if *svc == service_lower))
         .collect();
-    // Monolithic files keep their stem so removals can be split at each stem's saved read
-    // position. Files stay in series order (oldest -> newest) within each source, which is
-    // what makes the running series offset meaningful.
-    let mut log_files: Vec<(LogFile, String)> = sources
+    // Monolithic (tagged) files, counted here and rewritten by remove_all_log_entries_for_service below.
+    let log_files: Vec<(LogFile, String)> = sources
         .iter()
         .filter(|s| s.kind == SourceKind::Monolithic)
         .flat_map(|s| {
@@ -1177,7 +1170,6 @@ fn remove_service_from_logs(
             s.files.iter().cloned().map(move |f| (f, stem.clone()))
         })
         .collect();
-    let mut series_offsets: HashMap<String, u64> = HashMap::new();
     let mut removed_by_stem: HashMap<String, u64> = HashMap::new();
     let mut removed_before_by_stem: HashMap<String, u64> = HashMap::new();
 
@@ -1314,350 +1306,11 @@ fn remove_service_from_logs(
         rewrite_failures += outcome.other_errors;
         removed_by_stem.extend(outcome.lines_removed_by_stem);
         removed_before_by_stem.extend(outcome.lines_removed_before_position_by_stem);
-        log_files.clear();
     }
 
     // The host's check bound every log file, the deleted series included, so the publication covers
     // them all; a rewrite above published only the files it walked.
     log_purge::publish_deleted_files(&deleted_identities, deletes_succeeded, &service_lower)?;
-
-    // Process each log file
-    for (file_index, (log_file, stem)) in log_files.iter().enumerate() {
-        // None = no positions supplied -> every removed line counts as already read (the
-        // replay-safe fallback). Some(0) = stem never ingested -> nothing counts.
-        let stem_position: Option<u64> = stem_positions.map(|m| m.get(stem).copied().unwrap_or(0));
-        let series_offset: u64 = series_offsets.get(stem).copied().unwrap_or(0);
-        // Cooperative cancel: check between file iterations (each file uses NamedTempFile+rename, so
-        // stopping between files is safe — completed files are already atomically rewritten)
-        if cancel::is_cancelled() {
-            eprintln!(
-                "Cancel requested — stopping before file {}/{}",
-                file_index + 1,
-                log_files.len()
-            );
-            let elapsed = start_time.elapsed();
-            let progress = ProgressData::new(
-                false,
-                if !log_files.is_empty() {
-                    (file_index as f64 / log_files.len() as f64) * 100.0
-                } else {
-                    0.0
-                },
-                "cancelled".to_string(),
-                format!(
-                    "Cancelled after {} files. {} lines processed, {} removed in {:.2}s.",
-                    file_index,
-                    total_lines_processed,
-                    total_lines_removed,
-                    elapsed.as_secs_f64()
-                ),
-                total_lines_processed,
-                total_lines_removed,
-                file_index,
-                None,
-                ds_name.clone(),
-            );
-            write_progress(progress_path, reporter, &progress)?;
-            std::process::exit(0);
-        }
-
-        eprintln!(
-            "\nProcessing file {}/{}: {}",
-            file_index + 1,
-            log_files.len(),
-            log_file.path.display()
-        );
-
-        // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
-        let file_result = (|| -> Result<(u64, u64, u64)> {
-            let file_size = std::fs::metadata(&log_file.path)?.len();
-
-            // Progress update for this file
-            let progress = ProgressData::new(
-                true,
-                0.0,
-                "removing".to_string(),
-                format!(
-                    "Processing file {}/{}: removing {} entries...",
-                    file_index + 1,
-                    log_files.len(),
-                    service_to_remove
-                ),
-                total_lines_processed,
-                total_lines_removed,
-                file_index + 1,
-                None,
-                ds_name.clone(),
-            )
-            .with_stage_key("signalr.logRemoval.removing");
-            write_progress(progress_path, reporter, &progress)?;
-
-            // Builds the 500ms-throttled progress payload shared by both passes.
-            let build_progress = |percent: f64, current_processed: u64, current_removed: u64| {
-                let message = if current_removed > 0 {
-                    format!(
-                        "File {}/{}: {} lines processed, {} removed",
-                        file_index + 1,
-                        log_files.len(),
-                        current_processed,
-                        current_removed
-                    )
-                } else {
-                    format!(
-                        "File {}/{}: {} lines processed",
-                        file_index + 1,
-                        log_files.len(),
-                        current_processed
-                    )
-                };
-                ProgressData::new(
-                    true,
-                    percent,
-                    "removing".to_string(),
-                    message,
-                    current_processed,
-                    current_removed,
-                    file_index + 1,
-                    None,
-                    ds_name.clone(),
-                )
-                .with_stage_key("signalr.logRemoval.removing")
-            };
-
-            // PASS 1: read-only scan. If the file contains no entries for this
-            // service it is left completely untouched (no temp file, no recompression).
-            let mut scan_lines: u64 = 0;
-            let mut scan_matches: u64 = 0;
-            {
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
-                let mut bytes_scanned: u64 = 0;
-                let mut last_progress_update = Instant::now();
-                let mut line: Vec<u8> = Vec::with_capacity(1024);
-
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_until_newline(&mut line)?;
-                    if bytes_read == 0 {
-                        break; // EOF
-                    }
-
-                    bytes_scanned += line.len() as u64;
-                    scan_lines += 1;
-                    if line_matches_service(&line, &service_lower) {
-                        scan_matches += 1;
-                    }
-
-                    // Update progress every 500ms
-                    if last_progress_update.elapsed().as_millis() > 500 {
-                        let percent = if file_size > 0 {
-                            ((bytes_scanned as f64 / file_size as f64) * 100.0).min(100.0)
-                        } else {
-                            0.0
-                        };
-                        let progress = build_progress(
-                            percent,
-                            total_lines_processed + scan_lines,
-                            total_lines_removed + scan_matches,
-                        );
-                        write_progress(progress_path, reporter, &progress)?;
-                        last_progress_update = Instant::now();
-                    }
-                }
-            }
-
-            if scan_matches == 0 {
-                eprintln!(
-                    "  No {} entries in this file - leaving it untouched",
-                    service_to_remove
-                );
-                return Ok((scan_lines, 0, 0));
-            }
-
-            // Allow removing all lines - user may want to clear all entries for a service
-            // If file would be empty, just delete it instead of leaving an empty file
-            if scan_lines > 0 && scan_matches == scan_lines {
-                eprintln!(
-                    "  INFO: All {} lines from this file will be removed",
-                    scan_lines
-                );
-                eprintln!("    Deleting the log file entirely");
-                remove_log_file_if_present(&log_file.path)?;
-                // The file occupied series indices offset..offset+scan_lines; the
-                // already-read share is whatever of that range lies below the position.
-                let removed_before = match stem_position {
-                    Some(p) => p.saturating_sub(series_offset).min(scan_lines),
-                    None => scan_matches,
-                };
-                return Ok((scan_lines, scan_matches, removed_before));
-            }
-
-            // PASS 2: rewrite the file without this service's lines.
-            // Create temp file for filtered output with automatic cleanup
-            // Try the log directory first (enables atomic rename), fall back to system temp
-            // if the directory doesn't allow file creation (common in Docker volume mounts)
-            let file_dir = log_file
-                .path
-                .parent()
-                .context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir).or_else(|_| {
-                eprintln!("  Cannot create temp file in log directory, using system temp dir");
-                NamedTempFile::new()
-            })?;
-
-            let mut lines_processed: u64 = 0;
-            let mut lines_removed: u64 = 0;
-            let mut removed_before: u64 = 0;
-
-            // Scope the file operations so handles are closed before deletion
-            {
-                // Use LogFileReader for automatic compression support (.gz, .zst)
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                // Create writer that matches the compression of the original file
-                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                    let path_str = log_file.path.to_string_lossy();
-                    if path_str.ends_with(".gz") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::fast()),
-                        ))
-                    } else if path_str.ends_with(".zst") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?,
-                        ))
-                    } else {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            temp_file.as_file().try_clone()?,
-                        ))
-                    }
-                } else {
-                    Box::new(BufWriter::with_capacity(
-                        1024 * 1024,
-                        temp_file.as_file().try_clone()?,
-                    ))
-                };
-
-                let mut bytes_processed: u64 = 0;
-                let mut last_progress_update = Instant::now();
-                let mut line: Vec<u8> = Vec::with_capacity(1024);
-
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_until_newline(&mut line)?;
-                    if bytes_read == 0 {
-                        break; // EOF
-                    }
-
-                    bytes_processed += line.len() as u64;
-                    lines_processed += 1;
-
-                    if line_matches_service(&line, &service_lower) {
-                        lines_removed += 1;
-                        // An unterminated final record naturally lands in the not-read
-                        // bucket: the saved position only ever counts complete records.
-                        match stem_position {
-                            Some(p) if series_offset + (lines_processed - 1) >= p => {}
-                            _ => removed_before += 1,
-                        }
-                        if lines_removed.is_multiple_of(10000) {
-                            eprintln!(
-                                "Removed {} {} entries from this file",
-                                lines_removed, service_to_remove
-                            );
-                        }
-                    } else {
-                        writer.write_all(&line)?;
-                    }
-
-                    // Update progress every 500ms
-                    if last_progress_update.elapsed().as_millis() > 500 {
-                        let percent = if file_size > 0 {
-                            ((bytes_processed as f64 / file_size as f64) * 100.0).min(100.0)
-                        } else {
-                            0.0
-                        };
-                        let progress = build_progress(
-                            percent,
-                            total_lines_processed + lines_processed,
-                            total_lines_removed + lines_removed,
-                        );
-                        write_progress(progress_path, reporter, &progress)?;
-                        last_progress_update = Instant::now();
-                    }
-                }
-
-                // Flush and close writer
-                writer.flush()?;
-                drop(writer);
-
-                // reader and file are automatically dropped here when scope ends
-            }
-
-            // Safety net: the live access.log may have changed between the scan and
-            // rewrite passes — if the rewrite saw only matching lines, delete the file
-            // instead of persisting an empty one (same semantics as before).
-            if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!(
-                    "  INFO: All {} lines from this file will be removed",
-                    lines_processed
-                );
-                eprintln!("    Deleting the log file entirely");
-                // temp_file automatically deleted when it goes out of scope
-                // Delete the original log file
-                remove_log_file_if_present(&log_file.path)?;
-                return Ok((lines_processed, lines_removed, removed_before));
-            }
-
-            let temp_path = temp_file.into_temp_path();
-            let kept_path = temp_path.keep()?;
-            std::fs::rename(&kept_path, &log_file.path).with_context(|| {
-                format!(
-                    "failed to atomically publish rewritten log {}",
-                    log_file.path.display()
-                )
-            })?;
-
-            Ok((lines_processed, lines_removed, removed_before))
-        })();
-
-        // If this file failed, check if it's a permission error
-        match file_result {
-            Ok((lines_processed, lines_removed, removed_before)) => {
-                eprintln!("  Lines processed: {}", lines_processed);
-                eprintln!("  Lines removed: {}", lines_removed);
-
-                total_lines_processed += lines_processed;
-                total_lines_removed += lines_removed;
-                *series_offsets.entry(stem.clone()).or_insert(0) += lines_processed;
-                if lines_removed > 0 {
-                    *removed_by_stem.entry(stem.clone()).or_insert(0) += lines_removed;
-                    *removed_before_by_stem.entry(stem.clone()).or_insert(0) += removed_before;
-                }
-            }
-            Err(e) => {
-                // Check if this is a permission error
-                let error_str = e.to_string();
-                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
-                    permission_errors += 1;
-                    eprintln!(
-                        "ERROR: Permission denied for file {}: {}",
-                        log_file.path.display(),
-                        e
-                    );
-                } else {
-                    eprintln!(
-                        "WARNING: Skipping corrupted file {}: {}",
-                        log_file.path.display(),
-                        e
-                    );
-                }
-                eprintln!("  Continuing with remaining files...");
-                continue;
-            }
-        }
-    }
 
     let elapsed = start_time.elapsed();
 
@@ -2164,7 +1817,11 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use lancache_processor::service_utils::line_matches_service;
     use std::cell::Cell;
+    use std::io::Write;
 
     // The publication variables are process-wide, so the tests that run a service removal take turns.
     static PUBLICATION_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
