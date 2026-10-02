@@ -1169,8 +1169,31 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             _currentRunId = runId;
             _nativeRevision = 0;
             _runSources[runId] = new Dictionary<string, string>(sources, StringComparer.OrdinalIgnoreCase);
-            // Cleared before the new child reports, so its first rows meet a clock that has caught up.
-            _childStoppedForStep = false;
+            if (_childStoppedForStep)
+            {
+                // The step's time does not count against a row's window: a download the stopped
+                // child last saw keeps the rest of its window, so the new child can report it before
+                // the gate reads the cache as quiet and the scans held during the step start.
+                var paused = UtcNow() - _agingUtc;
+                if (paused > TimeSpan.Zero)
+                {
+                    var entries = CurrentEntriesLocked();
+                    foreach (var entry in entries)
+                    {
+                        entry.Source.MeasuredUntilUtc += paused;
+                        entry.Source.ActiveUntilUtc += paused;
+                    }
+
+                    _revision++;
+                    RebuildLocked(entries, _currentSnapshot.TimestampUtc, _currentSnapshot.IsAvailable);
+                }
+
+                _childStoppedForStep = false;
+                if (_ageWake.CurrentCount == 0)
+                {
+                    _ageWake.Release();
+                }
+            }
         }
 
         return Task.CompletedTask;
@@ -1213,21 +1236,25 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             DateTime? boundary;
             lock (_snapshotLock)
             {
-                boundary = _currentSnapshot.GameSpeeds
-                    .SelectMany(game => game.Sources)
-                    .SelectMany(source =>
-                    {
-                        if (source.BytesPerSecond == 0 && source.TotalBytes == 0 && source.RequestCount == 0 &&
-                            source.CacheHitBytes == 0 && source.CacheMissBytes == 0)
+                // A stopped child cannot extend a row, and frozen aging cannot expire one, so there is
+                // no boundary to wait for until the next child starts and BeginRunAsync wakes this loop.
+                boundary = _childStoppedForStep
+                    ? null
+                    : _currentSnapshot.GameSpeeds
+                        .SelectMany(game => game.Sources)
+                        .SelectMany(source =>
                         {
-                            return new[] { source.ActiveUntilUtc };
-                        }
+                            if (source.BytesPerSecond == 0 && source.TotalBytes == 0 && source.RequestCount == 0 &&
+                                source.CacheHitBytes == 0 && source.CacheMissBytes == 0)
+                            {
+                                return new[] { source.ActiveUntilUtc };
+                            }
 
-                        return new[] { source.MeasuredUntilUtc, source.ActiveUntilUtc };
-                    })
-                    .Where(value => value != default)
-                    .Cast<DateTime?>()
-                    .Min();
+                            return new[] { source.MeasuredUntilUtc, source.ActiveUntilUtc };
+                        })
+                        .Where(value => value != default)
+                        .Cast<DateTime?>()
+                        .Min();
             }
 
             if (boundary is null)

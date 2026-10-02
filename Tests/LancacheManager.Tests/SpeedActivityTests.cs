@@ -679,6 +679,11 @@ public sealed class SpeedActivityTests
         // Stand in for the first child's parsed snapshot: the tracker is publishing rows.
         var busy = new DownloadSpeedSnapshot();
         CacheScanGateHarness.MakeBusy(busy);
+        // Long enough for the step to be granted first, short enough to run out during it.
+        var busyGame = Assert.Single(busy.GameSpeeds);
+        busyGame.ActiveUntilUtc = busy.TimestampUtc.AddSeconds(3);
+        busyGame.Sources[0].MeasuredUntilUtc = busyGame.ActiveUntilUtc;
+        busyGame.Sources[0].ActiveUntilUtc = busyGame.ActiveUntilUtc;
         var snapshotLock = typeof(RustSpeedTrackerService).GetField(
             "_snapshotLock",
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
@@ -686,7 +691,10 @@ public sealed class SpeedActivityTests
         {
             CacheScanGateHarness.SetField(tracker, "_currentSnapshot", busy);
             CacheScanGateHarness.SetField(tracker, "_unreportedSinceUtc", null);
+            CacheScanGateHarness.SetField(tracker, "_agingUtc", busy.TimestampUtc);
         }
+
+        var gate = CacheScanGateHarness.GateOver(tracker);
 
         // The step is granted only once the tracker has stopped its child and said so.
         var stepLock = await harness.Owner
@@ -699,6 +707,11 @@ public sealed class SpeedActivityTests
         Assert.True(duringStep.Snapshot.IsAvailable);
         Assert.NotEmpty(duringStep.Snapshot.GameSpeeds);
 
+        // The row's own window has run out, but the stopped child cannot report a download that is
+        // still running, so the gate stays shut while the step holds the logs.
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        Assert.NotNull(gate.CheckDownloadInProgress());
+
         await stepLock.DisposeAsync();
         Assert.True(SpinWait.SpinUntil(
             () => Child() is { } next && next.Id != first.Id,
@@ -708,6 +721,8 @@ public sealed class SpeedActivityTests
         Assert.True(restarted.Snapshot.IsAvailable);
         // No failure was counted, so no restart delay was applied.
         Assert.DoesNotContain(logger.Entries, entry => entry.Level >= LogLevel.Warning);
+        // The new child reports nothing, so aging resumes and the row runs out.
+        Assert.True(SpinWait.SpinUntil(() => gate.CheckDownloadInProgress() is null, TimeSpan.FromSeconds(10)));
 
         await stop.CancelAsync();
         await loop.WaitAsync(TimeSpan.FromSeconds(20));

@@ -161,7 +161,7 @@ public sealed class CacheScanGateTests
     }
 
     [Fact]
-    public void ADownloadActiveWhenAStepStoppedTheTrackerKeepsTheGateShut()
+    public async Task ADownloadActiveWhenAStepStoppedTheTrackerKeepsTheGateShut()
     {
         var snapshot = new DownloadSpeedSnapshot();
         MakeBusy(snapshot);
@@ -175,9 +175,48 @@ public sealed class CacheScanGateTests
         clock.Advance(TimeSpan.FromSeconds(30));
         Assert.NotNull(gate.CheckDownloadInProgress());
 
-        SetField(tracker, "_childStoppedForStep", false);
+        // The step's time does not count against the row's window when the next child starts, so the
+        // row keeps what was left of it for that child to report the download.
+        var begin = typeof(RustSpeedTrackerService).GetMethod("BeginRunAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        await (Task)begin.Invoke(tracker,
+            [Guid.NewGuid(), new Dictionary<string, string>(), clock.GetUtcNow().UtcDateTime, CancellationToken.None])!;
         clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.NotNull(gate.CheckDownloadInProgress());
+
+        clock.Advance(TimeSpan.FromSeconds(15));
         Assert.Null(gate.CheckDownloadInProgress());
+    }
+
+    /// <summary>
+    /// While a step has the child stopped, aging is held, so a row whose window has already passed
+    /// cannot expire. The aging loop has to wait for the next child then, rather than read the
+    /// clock against the same past boundary for the whole step.
+    /// </summary>
+    [Fact]
+    public async Task AgingWaitsWhileAStepHasTheTrackerStoppedAsync()
+    {
+        var snapshot = new DownloadSpeedSnapshot();
+        MakeBusy(snapshot);
+        // Five seconds on, the row's measured window has passed.
+        var clock = new CountingClock(snapshot.TimestampUtc.AddSeconds(5));
+        var tracker = TrackerWith(snapshot, [], clock);
+        SetField(tracker, "_childStoppedForStep", true);
+        var age = typeof(RustSpeedTrackerService).GetMethod("AgeSnapshotsAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        using var stop = new CancellationTokenSource();
+        var loop = Task.Run(() => (Task)age.Invoke(tracker, [stop.Token])!);
+        try
+        {
+            await Task.Delay(200);
+            var before = Interlocked.Read(ref clock.Calls);
+            await Task.Delay(1000);
+            Assert.InRange(Interlocked.Read(ref clock.Calls) - before, 0L, 99L);
+        }
+        finally
+        {
+            await stop.CancelAsync();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop);
     }
 
     [Fact]
@@ -940,6 +979,17 @@ public sealed class CacheScanGateTests
     {
         var proxy = DispatchProxy.Create<IUnifiedOperationTracker, EmptyOperationTracker>();
         return proxy;
+    }
+
+    private sealed class CountingClock(DateTimeOffset now) : TimeProvider
+    {
+        public long Calls;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            Interlocked.Increment(ref Calls);
+            return now;
+        }
     }
 
     private class EmptyOperationTracker : DispatchProxy
