@@ -210,17 +210,21 @@ export const finalizeBulkRemovalNotification = ({
     return;
   }
 
+  // Some items removed and some failed is an amber card that stays until closed; every item failed
+  // is a red one.
   if (failed > 0) {
-    updateNotification(id, {
-      status: 'failed',
+    updateNotification(id, (card) => ({
+      status: succeeded > 0 ? 'completed' : 'failed',
       progress: FULL_PROGRESS_PERCENT,
       message: t(text.partialFailureKey, {
         count: succeeded,
         failed,
         total,
         defaultValue: text.partialFailureDefaultValue
-      })
-    });
+      }),
+      details:
+        succeeded > 0 ? { ...card.details, notificationType: 'warning' as const } : card.details
+    }));
     return;
   }
 

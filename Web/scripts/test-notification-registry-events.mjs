@@ -270,6 +270,7 @@ const liftLocalCards = ({ keepVisible = false } = {}) => {
     autoDismissTimersRef: { current: new Map() },
     localRef,
     isTerminalNotificationStatus,
+    isKeptBulkCard: modules.isKeptBulkCard,
     fadeLocal,
     AUTO_DISMISS_DELAY_MS
   });
@@ -691,6 +692,37 @@ test('a canceled batch leaves, and an item failure the server kept shows as its 
     mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
     assert.deepEqual(cards.removing, ['bulk']);
     assert.deepEqual(drawn(), ['I1:failed']);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a finished batch with some failed items is an amber card that stays until closed', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const cards = liftLocalCards();
+    cards.localRef.current = [bulkRemovalCard({ itemOperationIds: [] })];
+    bindLifted(
+      liftConstArrow(
+        'src/components/features/management/game-detection/cacheRemovalHelpers.ts',
+        'finalizeBulkRemovalNotification'
+      ),
+      { FULL_PROGRESS_PERCENT: modules.FULL_PROGRESS_PERCENT }
+    )({
+      id: 'bulk',
+      succeeded: 2,
+      failed: 1,
+      total: 3,
+      cancelled: false,
+      t: (key) => key,
+      updateNotification: cards.updateNotification,
+      text: { partialFailureKey: 'partialFailure', completeKey: 'complete' }
+    });
+    mock.timers.tick(10 * 60 * 1000);
+    assert.deepEqual(cards.removing, [], 'an amber batch card does not leave on its own');
+    const [card] = cards.localRef.current;
+    assert.equal(card.status, 'completed');
+    assert.equal(card.details.notificationType, 'warning');
   } finally {
     mock.timers.reset();
   }

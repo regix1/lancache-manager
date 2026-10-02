@@ -37,6 +37,7 @@ import {
   locateRun,
   markConnectionRecovering,
   nextGeneration,
+  isKeptBulkCard,
   readOperationRun,
   readOperationRunsSnapshot,
   releaseKeptSuccess,
@@ -194,13 +195,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         setTimeout(() => {
           timers.delete(notificationId);
           const card = localRef.current.find((n) => n.id === notificationId);
-          // A bulk card ends by the ending rules: a failed one stays until closed. Keep
+          // A bulk card ends by the ending rules: a red or amber one stays until closed. Keep
           // Notifications Visible turned on during the wait keeps the card.
           if (
             card &&
             shouldAutoDismiss() &&
             isTerminalNotificationStatus(card.status) &&
-            !(card.type === 'bulk_removal' && card.status === 'failed')
+            !isKeptBulkCard(card)
           )
             fadeLocal(notificationId);
         }, AUTO_DISMISS_DELAY_MS)

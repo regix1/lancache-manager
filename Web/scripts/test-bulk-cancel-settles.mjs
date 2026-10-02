@@ -314,7 +314,7 @@ test('a kept failure stays folded inside a batch that is then canceled', async (
   assert.deepEqual(drawn[0].details.closeOperationIds, ['op-a']);
 });
 
-test('an item that failed before the server answered keeps its failed batch card', async () => {
+test('an item that failed before the server answered keeps its amber batch card', async () => {
   const { hook, notificationsModule } = await loadQueueHook('failed-without-run');
   const { notifications, updateNotification } = notificationsModule;
   const { run } = hook.useBatchQueue();
@@ -331,7 +331,8 @@ test('an item that failed before the server answered keeps its failed batch card
   });
 
   const card = notifications.find((n) => n.id === 'bulk');
-  assert.equal(card.status, 'failed');
+  assert.equal(card.status, 'completed');
+  assert.equal(card.details.notificationType, 'warning');
   assert.equal(card.details.failedWithoutRun, true);
   assert.deepEqual(card.details.itemOperationIds, ['op-b']);
 
@@ -341,4 +342,39 @@ test('an item that failed before the server answered keeps its failed batch card
     [],
     'no other screen can close that failure, so the batch card waits to be closed here'
   );
+});
+
+test('a batch whose every item failed ends red', async () => {
+  const { hook, notificationsModule } = await loadQueueHook('all-failed');
+  const { notifications, updateNotification } = notificationsModule;
+  const { run } = hook.useBatchQueue();
+
+  await run({
+    items: ['a', 'b'],
+    openNotification: openBatchCard(notifications),
+    processItem: (item) => Promise.reject(new Error(`request refused for ${item}`)),
+    finalize: finalizeWith(updateNotification)
+  });
+
+  const card = notifications.find((n) => n.id === 'bulk');
+  assert.equal(card.status, 'failed');
+  assert.equal(card.details.notificationType, undefined);
+});
+
+test('an amber batch card leaves once the failure folded under it was closed elsewhere', () => {
+  const amber = [
+    {
+      id: 'bulk',
+      type: 'bulk_removal',
+      status: 'completed',
+      message: '',
+      details: {
+        itemTypes: ['game_removal'],
+        itemOperationIds: ['op-a'],
+        notificationType: 'warning'
+      }
+    }
+  ];
+  const state = { ...createRunStoreState(), keptBatches: new Set(['bulk']) };
+  assert.deepEqual(settleBulkCards(state, amber).release, ['bulk']);
 });

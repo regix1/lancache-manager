@@ -996,7 +996,18 @@ export function hideRun(state: RunStoreState, cardId: string): RunStoreState {
 }
 
 /**
- * A failed batch card leaves once the last kept failure folded under it was closed somewhere else,
+ * A bulk card that stays until closed: red when every item failed or the batch failed, amber when
+ * some items failed and at least one was removed.
+ */
+export function isKeptBulkCard(card: UnifiedNotification): boolean {
+  return (
+    card.type === 'bulk_removal' &&
+    (card.status === 'failed' || card.details?.notificationType === 'warning')
+  );
+}
+
+/**
+ * A kept batch card leaves once the last kept failure folded under it was closed somewhere else,
  * checked whenever a kept run leaves and whenever the batch ends. A batch that never owned a kept
  * run, or one with a failure that never reached the server, stays until closed here.
  */
@@ -1022,8 +1033,7 @@ export function settleBulkCards(
   const release = localCards
     .filter(
       (card) =>
-        card.type === 'bulk_removal' &&
-        card.status === 'failed' &&
+        isKeptBulkCard(card) &&
         next.keptBatches.has(card.id) &&
         !holding.has(card.id) &&
         card.details?.failedWithoutRun !== true
