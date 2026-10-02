@@ -7,6 +7,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
@@ -545,7 +546,8 @@ public sealed class LogsControllerRustFileOperationsTests
         long ExpectedTotal,
         int ReplacementLines = 0,
         long StaleRecords = 0,
-        (string From, string To)[]? Renames = null);
+        (string From, string To)[]? Renames = null,
+        string[]? Appended = null);
 
     public static TheoryData<LogDeleteCase> LogDeleteCases => new()
     {
@@ -677,7 +679,17 @@ public sealed class LogsControllerRustFileOperationsTests
             false,
             new Dictionary<string, long> { ["access.log"] = 4 },
             4,
-            Renames: new[] { ("access.log.1", "access.log.2") })
+            Renames: new[] { ("access.log.1", "access.log.2") }),
+        new LogDeleteCase(
+            "monolithic success, a rotation whose bytes changed during the delete is not counted as read",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long> { ["access.log"] = 7 },
+            0,
+            new[] { "access.log" },
+            false,
+            new Dictionary<string, long> { ["access.log"] = 0 },
+            0,
+            Appended: new[] { "access.log.1" })
     };
 
     [Theory]
@@ -747,6 +759,10 @@ public sealed class LogsControllerRustFileOperationsTests
             foreach (var (from, to) in deleteCase.Renames ?? Array.Empty<(string From, string To)>())
             {
                 File.Move(Path.Combine(fixture.AlphaLogPath, from), Path.Combine(fixture.AlphaLogPath, to));
+            }
+            foreach (var file in deleteCase.Appended ?? Array.Empty<string>())
+            {
+                File.AppendAllText(Path.Combine(fixture.AlphaLogPath, file), "x\n");
             }
             if (deleteCase.ReplacementLines > 0)
             {
@@ -854,10 +870,36 @@ public sealed class LogsControllerRustFileOperationsTests
             return Task.FromResult(new LogLineCountResult(0, 0, new Dictionary<string, long>()));
         };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
 
         Assert.Empty(fixture.RustHelper.DeleteRequests);
         Assert.True(File.Exists(current));
+        Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_ALogrotateBeforeTheUnlinkIsReportedAsync()
+    {
+        using var fixture = new ControllerFixture();
+        var rotated = Path.Combine(fixture.AlphaLogPath, "access.log.1");
+        var current = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(rotated, string.Concat(Enumerable.Repeat("x\n", 4)));
+        await File.WriteAllTextAsync(current, string.Concat(Enumerable.Repeat("x\n", 3)));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 7 });
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            // logrotate runs after the last check and before the unlink: the chosen file moves aside,
+            // nginx opens a new one, and the unlink by path removes the new file.
+            File.Move(rotated, Path.Combine(fixture.AlphaLogPath, "access.log.2"));
+            File.Move(current, rotated);
+            File.WriteAllText(current, "x\n");
+            File.Delete(path);
+            return Task.FromResult(new LogFileDeletionResult(2));
+        };
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Equal(3, File.ReadAllText(rotated).Count(c => c == '\n'));
         Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
     }
 

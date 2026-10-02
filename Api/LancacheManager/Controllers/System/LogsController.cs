@@ -5,6 +5,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -708,14 +709,54 @@ public class LogsController : ControllerBase
         // Listed after the lock: a logrotate run during the wait renames and removes files.
         var logFiles = NginxLogRotationService.GetAffectedLogPaths(datasource);
         var affectedPaths = hasPerServiceSources ? logFiles : new[] { accessLogPath };
+        // The delete proves no writer holds a file before it removes it, and a file this app cannot open
+        // cannot be checked, so the delete is refused with that file's name rather than removing it unchecked.
+        foreach (var path in affectedPaths)
+        {
+            try
+            {
+                NginxWriterProbe.ReadIdentity(path);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new ConflictException(
+                    $"This app cannot open the log file {path}, so it cannot check that nothing is writing to it. Nothing was deleted.")
+                {
+                    StageKey = "errors.logs.fileUnreadable",
+                    Context = new Dictionary<string, object?> { ["path"] = path }
+                };
+            }
+            catch (IOException)
+            {
+                // Removed by logrotate since the listing; the reopen check below skips a missing file too.
+            }
+        }
         await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
             new[] { datasource },
             affectedPaths,
             expectsPublication: false,
             cancellationToken);
 
-        _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
-        var positions = _stateRepository.GetLogSourcePositions(datasourceName);
+        // logrotate moved or replaced a chosen file since the check was prepared: the delete is refused
+        // before anything is deleted, with a reason the user can act on.
+        void RefuseIfFilesChanged()
+        {
+            try
+            {
+                _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+            }
+            catch (InvalidOperationException changed)
+            {
+                throw new ConflictException(
+                    $"The log files changed while the delete was getting ready. Nothing was deleted. {changed.Message}")
+                {
+                    StageKey = "errors.logs.filesChanged"
+                };
+            }
+        }
+
+        RefuseIfFilesChanged();
+        var positions =_stateRepository.GetLogSourcePositions(datasourceName);
         if (positions.Count == 0 && _stateRepository.GetLogPosition(datasourceName) is > 0 and var legacyPosition)
         {
             // The importer reads a datasource that has only a legacy total as that many lines of access.log.
@@ -725,12 +766,15 @@ public class LogsController : ControllerBase
         // Counted before anything is deleted, so a count that fails leaves every file and position as
         // it was. Each file is remembered by identity: after the delete, a file that is gone, or a
         // current file nginx re-created on a reopen, holds none of the lines read before.
-        var filesBefore = new Dictionary<string, NginxFileIdentity>();
+        // Length and last write time are remembered too: logrotate can hand a deleted rotation's inode to a new file.
+        var filesBefore = new Dictionary<string, (NginxFileIdentity Identity, long Length, DateTime Written)>();
         foreach (var path in logFiles)
         {
             try
             {
-                filesBefore[path] = NginxWriterProbe.ReadIdentity(path);
+                var identity = NginxWriterProbe.ReadIdentity(path);
+                var file = new FileInfo(path);
+                filesBefore[path] = (identity, file.Length, file.LastWriteTimeUtc);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -745,7 +789,7 @@ public class LogsController : ControllerBase
             _rustLogProcessorService.ResumePath(datasourceName));
         // Checked again after the count: a logrotate run during a long count moves the files the user
         // chose, and the delete must not remove the new file nginx opened in their place.
-        _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+        RefuseIfFilesChanged();
 
         LogFileDeletionResult? deletion = null;
         ExceptionDispatchInfo? deleteFailure = null;
@@ -759,6 +803,7 @@ public class LogsController : ControllerBase
             deleteFailure = ExceptionDispatchInfo.Capture(error);
         }
 
+        var chosenFileKept = false;
         LogRotationResult reopen;
         try
         {
@@ -772,14 +817,17 @@ public class LogsController : ControllerBase
             // that cannot be written followed by a restart, leaves the old position on a series that lost
             // its current file, so the next import skips that many lines, less its older files' lines, of
             // the new file.
-            // A file survives wherever logrotate moved it: its lines are still in the series. Only a file
-            // that is gone, or replaced by a new file under its name, loses its read lines.
-            var identitiesNow = new HashSet<NginxFileIdentity>();
+            // A file survives wherever logrotate moved it while its identity, length and last write time
+            // all match: its lines are still in the series. A file that is gone, replaced under its name,
+            // or whose inode a new file took, loses its read lines.
+            var identitiesNow = new HashSet<(NginxFileIdentity Identity, long Length, DateTime Written)>();
             foreach (var path in NginxLogRotationService.GetAffectedLogPaths(datasource))
             {
                 try
                 {
-                    identitiesNow.Add(NginxWriterProbe.ReadIdentity(path));
+                    var identity = NginxWriterProbe.ReadIdentity(path);
+                    var file = new FileInfo(path);
+                    identitiesNow.Add((identity, file.Length, file.LastWriteTimeUtc));
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
@@ -791,6 +839,9 @@ public class LogsController : ControllerBase
                 .Where(pair => identitiesNow.Contains(pair.Value))
                 .Select(pair => pair.Key)
                 .ToList();
+            // logrotate can move the chosen access.log after the last check and before the unlink by path,
+            // which then removes the new file nginx opened in its place.
+            chosenFileKept = !hasPerServiceSources && surviving.Contains(Path.GetFullPath(accessLogPath));
             if (surviving.Count < filesBefore.Count)
             {
                 long LinesIn(string path) => counted.FileLineCounts.GetValueOrDefault(Path.GetFileName(path));
@@ -857,6 +908,14 @@ public class LogsController : ControllerBase
         if (!reopen.Success)
         {
             throw new IOException(reopen.ErrorMessage!);
+        }
+        if (chosenFileKept)
+        {
+            throw new ConflictException(
+                "logrotate moved access.log while it was being deleted, so the new access.log nginx had just opened was deleted instead. The file you chose was kept as a rotated file.")
+            {
+                StageKey = "errors.logs.fileMovedDuringDelete"
+            };
         }
 
         _logger.LogInformation(
