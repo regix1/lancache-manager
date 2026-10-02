@@ -109,19 +109,17 @@ public class LogPositionPurgeAdjustmentTests : IDisposable
         // fix into a green-tested no-op, which is exactly what this pins against.
         const string reportJson = """
             {
-              "game_app_id": 4000,
-              "game_name": "Garry's Mod",
-              "cache_files_deleted": 2,
-              "total_bytes_freed": 963302,
-              "empty_dirs_removed": 0,
-              "log_entries_removed": 41,
+              "success": true,
+              "lines_removed": 41,
               "log_lines_removed_by_source": { "access.log": 41 },
               "log_lines_removed_before_position_by_source": { "access.log": 30 },
-              "depot_ids": [4000]
+              "permission_errors": 0,
+              "url_count": 2,
+              "depot_count": 1
             }
             """;
 
-        var report = JsonSerializer.Deserialize<CacheManagementService.GameCacheRemovalReport>(reportJson)!;
+        var report = JsonSerializer.Deserialize<PurgeLogEntriesReport>(reportJson)!;
 
         Assert.Equal(41, report.LogLinesRemovedBySource["access.log"]);
         Assert.Equal(30, report.LogLinesRemovedBeforePositionBySource["access.log"]);

@@ -273,7 +273,8 @@ public sealed partial class OperationTerminalContractTests
             Clear = clear = new CacheClearingService(Logger<CacheClearingService>(), notifications, configuration, paths, State,
                 rust, sources, forwarded, capability, OperationState);
             Detection = detection = new CorruptionDetectionService(Logger<CorruptionDetectionService>(), configuration, paths, rust,
-                notifications, sources, Contexts, OperationState, forwarded, capability, CacheScanGateHarness.Idle());
+                notifications, sources, Contexts, OperationState, forwarded, capability, CacheScanGateHarness.Idle(),
+                nginxLogRotationService: null!, stateService: null!);
             reconciliation = new TerminalReconciliation(
                 _services,
                 configuration,

@@ -94,25 +94,25 @@ public sealed class CorruptionRemovalContractTests
         var json = JsonSerializer.Deserialize<Dictionary<string, object?>>(
             "{\"logLines\":41,\"logLinesBySource\":{\"access.log\":40,\"steam-access.log\":1},\"logLinesBeforePositionBySource\":{\"access.log\":39}}")!;
 
-        var counts = CacheController.ReadContextStemCounts(json, "logLinesBySource");
+        var counts = CorruptionDetectionService.ReadContextStemCounts(json, "logLinesBySource");
 
         Assert.Equal(2, counts.Count);
         Assert.Equal(40, counts["access.log"]);
         Assert.Equal(1, counts["steam-access.log"]);
 
-        var before = CacheController.ReadContextStemCounts(json, "logLinesBeforePositionBySource");
+        var before = CorruptionDetectionService.ReadContextStemCounts(json, "logLinesBeforePositionBySource");
         Assert.Equal(39, before["access.log"]);
     }
 
     [Fact]
     public void ReadContextStemCounts_is_empty_for_a_missing_or_malformed_map()
     {
-        Assert.Empty(CacheController.ReadContextStemCounts(null, "logLinesBySource"));
-        Assert.Empty(CacheController.ReadContextStemCounts(
+        Assert.Empty(CorruptionDetectionService.ReadContextStemCounts(null, "logLinesBySource"));
+        Assert.Empty(CorruptionDetectionService.ReadContextStemCounts(
             new Dictionary<string, object?>(), "logLinesBySource"));
         var notAMap = JsonSerializer.Deserialize<Dictionary<string, object?>>(
             "{\"logLinesBySource\":\"41\"}")!;
-        Assert.Empty(CacheController.ReadContextStemCounts(notAMap, "logLinesBySource"));
+        Assert.Empty(CorruptionDetectionService.ReadContextStemCounts(notAMap, "logLinesBySource"));
     }
 
     [Fact]
@@ -522,7 +522,7 @@ public sealed class CorruptionRemovalContractTests
                 cancelled: outcome == OperationStatus.Cancelled);
         };
         var core = typeof(CacheController).GetMethod("RunCorruptionRemovalCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var run = (Task<bool>)core.Invoke(fixture.Controller, [selection, fixture.Datasources, registered, bulk, null])!;
+        var run = (Task<bool>)core.Invoke(fixture.Controller, [selection, fixture.Datasources, registered, bulk])!;
         await reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(run.IsCompleted);
         Assert.Equal(0, bulkType.GetField("SucceededServices")!.GetValue(bulk));
@@ -609,7 +609,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal("steam", first.Service);
         Assert.Equal(method.ToWireString(), first.DetectionMethod);
         Assert.Equal(3, Assert.IsType<RemovalMetrics>(fixture.Tracker.GetOperation(first.OperationId)!.Metadata).FilesProcessed);
-        await fixture.Pipe.SendAsync(Completion(method, second: false), 0);
+        await CompleteDatasourceAsync(fixture.Pipe, method, second: false);
         evidence = await fixture.Pipe.ConnectAsync();
         Assert.Equal("secondary", evidence.Datasource);
         await fixture.Pipe.SendAsync(Live("second", 40, 8, 30));
@@ -618,7 +618,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(first.OperationId, second.OperationId);
         Assert.Equal(8, second.FilesProcessed);
         Assert.Equal(30, second.TotalFiles);
-        await fixture.Pipe.SendAsync(Completion(method, second: true), 0);
+        await CompleteDatasourceAsync(fixture.Pipe, method, second: true);
         Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         var complete = Assert.Single(fixture.Messages.Completions);
         Assert.True(complete.Success);
@@ -690,7 +690,7 @@ public sealed class CorruptionRemovalContractTests
         bulkType.GetField("ServiceIndex")!.SetValue(bulk, 1);
         var run = fixture.RunAsync(bulk: bulk);
         await fixture.Pipe!.ConnectAsync();
-        await fixture.Pipe.SendAsync(Completion(method, second: false), 0);
+        await CompleteDatasourceAsync(fixture.Pipe, method, second: false);
         await fixture.Pipe.ConnectAsync();
         await fixture.Pipe.SendAsync(Live("accepted", 40, 8, 30));
         var accepted = await fixture.Messages.WaitProgressAsync("accepted");
@@ -704,7 +704,10 @@ public sealed class CorruptionRemovalContractTests
         var completedAt = operation.CompletedAt;
         var message = operation.Message;
         bulkType.GetField("ServiceIndex")!.SetValue(bulk, 2);
-        await fixture.Pipe.SendAsync(completedCheckpoint ? Completion(method, second: true) : Live("late", 90, 99, 100), 0);
+        if (completedCheckpoint)
+            await CompleteDatasourceAsync(fixture.Pipe, method, second: true);
+        else
+            await fixture.Pipe.SendAsync(Live("late", 90, 99, 100), 0);
         if (outcome == OperationStatus.Cancelled)
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
         else
@@ -751,11 +754,11 @@ public sealed class CorruptionRemovalContractTests
             lastId = progress.OperationId;
             Assert.Equal(serviceIndex, progress.Context!["serviceIndex"]);
             Assert.Equal(2, progress.Context["serviceCount"]);
-            await fixture.Pipe.SendAsync(Completion(method, second: false), 0);
+            await CompleteDatasourceAsync(fixture.Pipe, method, second: false);
             await fixture.Pipe.ConnectAsync();
             if (failSecond && serviceIndex == 2)
                 fixture.Tracker.CompleteOperation(lastId, false, error: "external failure");
-            await fixture.Pipe.SendAsync(Completion(method, second: true), 0);
+            await CompleteDatasourceAsync(fixture.Pipe, method, second: true);
         }
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Single(fixture.Messages.Completions);
@@ -789,21 +792,138 @@ public sealed class CorruptionRemovalContractTests
         fixture.Tracker.CompleteOperation(next, false, cancelled: true);
     }
 
-    [Fact]
-    public async Task RunningProcess_CancellationStopsTheChildAndCompletesOnce()
+    [Theory]
+    [InlineData(CorruptionDetectionMethod.Structural)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
+    public async Task RunningProcess_CancellationStopsTheChildAndCompletesOnce(CorruptionDetectionMethod method)
     {
-        await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, transport: true);
+        await using var fixture = new RemovalRun(method, transport: true);
         var run = fixture.RunAsync();
         await fixture.Pipe!.ConnectAsync();
+        // The cache step holds no log lock and prepares no reopen for the logs it never touches.
+        await Assert.ThrowsAsync<TimeoutException>(() => fixture.States
+            .WaitForLogStepAsync(active: true, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.Empty(Directory.EnumerateFiles(fixture.OperationsDirectory, "nginx_log_check_*"));
         await fixture.Pipe.SendAsync(Live("running", 25, 3, 20));
         var progress = await fixture.Messages.WaitProgressAsync("running");
         fixture.Tracker.CancelOperation(progress.OperationId);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
         var complete = Assert.Single(fixture.Messages.Completions);
         Assert.True(complete.Cancelled);
+        Assert.Null(complete.Error);
         Assert.Equal(progress.OperationId, complete.OperationId);
         Assert.Single(fixture.Messages.Progress);
         await fixture.Pipe.WaitForExitAsync();
+        var repair = await fixture.WaitForCompletedRepairAsync(progress.OperationId);
+        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        var source = Assert.Single(repair.Sources);
+        Assert.False(source.LogRewriteStarted);
+        Assert.False(source.LogPositionsKept);
+    }
+
+    [Fact]
+    public async Task RepeatedMissLogStep_WaitsBehindAnotherStepThenRewritesUnderTheLock()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.RepeatedMiss, transport: true);
+        var other = fixture.Tracker.RegisterOperation(
+            OperationType.EvictionRemoval,
+            "Other removal",
+            new CancellationTokenSource());
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        Assert.Equal("remove", fixture.Pipe.Command);
+        var operationId = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval)).Id;
+        var held = await fixture.States.LockLogFilesAsync(
+            other,
+            OperationType.EvictionRemoval,
+            LogFileLockKind.Rewrite,
+            CancellationToken.None);
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.RepeatedMiss, second: false), 0);
+
+        // The log step waits for the other job's step and names it on the card.
+        await WaitUntilAsync(() => fixture.Tracker.GetOperation(operationId)?.BlockedByName == "Other removal");
+        await held.DisposeAsync();
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+        await fixture.States.WaitForLogStepAsync(active: true, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await fixture.Pipe.SendAsync(LogCompletion(second: false), 0);
+
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var complete = Assert.Single(fixture.Messages.Completions);
+        Assert.Equal(3L, complete.Context!["logLines"]);
+        Assert.Equal(5L, complete.Context["logEntries"]);
+        var repair = await fixture.WaitForCompletedRepairAsync(operationId);
+        var source = Assert.Single(repair.Sources);
+        Assert.True(source.NativeCompletionAccepted);
+        Assert.True(source.LogRewriteStarted);
+        Assert.True(source.LogPositionsKept);
+        Assert.Equal(2L, source.CorruptionCounts!.FilesDeleted);
+        Assert.Equal(3L, source.CorruptionCounts.LogLinesRemoved);
+        Assert.Equal(4L, source.CorruptionCounts.DownloadsDeleted);
+        Assert.Equal(5L, source.CorruptionCounts.LogEntriesDeleted);
+        Assert.Equal(5UL, repair.Removal!.LogEntriesRemoved);
+        Assert.False(File.Exists(CorruptionDetectionService.EvidenceFilePath(
+            fixture.OperationsDirectory, operationId, "default")));
+        fixture.Tracker.CompleteOperation(other, true);
+    }
+
+    [Fact]
+    public async Task ForceStopInsideTheLogStep_IsRedoneFromTheKeptEvidence()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.RepeatedMiss, transport: true);
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval)).Id;
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.RepeatedMiss, second: false), 0);
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+
+        fixture.Tracker.ForceKillOperation(operationId);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // The repair finishes the step that started, from the same evidence file.
+        var evidence = await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+        Assert.Equal("default", evidence.Datasource);
+        await fixture.Pipe.SendAsync(LogCompletion(second: false), 0);
+        var repair = await fixture.WaitForCompletedRepairAsync(operationId);
+        var source = Assert.Single(repair.Sources);
+        Assert.True(source.LogRewriteStarted);
+        Assert.True(source.LogPositionsKept);
+        Assert.Equal(3L, source.CorruptionCounts!.LogLinesRemoved);
+        Assert.Equal(5UL, repair.Removal!.LogEntriesRemoved);
+        Assert.False(File.Exists(CorruptionDetectionService.EvidenceFilePath(
+            fixture.OperationsDirectory, operationId, "default")));
+    }
+
+    [Fact]
+    public async Task FailureAfterTheCacheStep_RollsTheLogStepForwardOnce()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.RepeatedMiss, transport: true);
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval)).Id;
+        // The acceptance write fails, so the job fails after `remove` and before its log step.
+        fixture.State.FailNextRepairWrite = true;
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.RepeatedMiss, second: false), 0);
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal("remove-logs", fixture.Pipe.Command);
+        await fixture.Pipe.SendAsync(LogCompletion(second: false), 0);
+        var repair = await fixture.WaitForCompletedRepairAsync(operationId);
+        Assert.Equal(OperationStatus.Failed, repair.Outcome);
+        var source = Assert.Single(repair.Sources);
+        Assert.True(source.NativeCompletionAccepted);
+        Assert.True(source.LogRewriteStarted);
+        Assert.True(source.LogPositionsKept);
+        Assert.Equal(1L, source.CorruptionCounts!.UrlsRemoved);
+        Assert.Equal(2L, source.CorruptionCounts.FilesDeleted);
+        Assert.Equal(3L, source.CorruptionCounts.LogLinesRemoved);
+        Assert.Equal(5UL, repair.Removal!.LogEntriesRemoved);
+        Assert.Equal("signalr.corruptionRemove.failed.generic", repair.Removal.StageKey);
     }
 
     [Theory]
@@ -833,8 +953,34 @@ public sealed class CorruptionRemovalContractTests
             ? """{"status":"completed","percentComplete":100,"context":{"detectionMethod":"structural","count":1,"files":1,"alreadyMissing":0,"healed":0,"keyVerificationSkipped":0,"bytesFreed":4096}}"""
             : """{"status":"completed","percentComplete":100,"context":{"detectionMethod":"structural","count":1,"files":1,"alreadyMissing":0,"healed":0,"keyVerificationSkipped":0,"bytesFreed":1024}}"""
         : second
-            ? """{"status":"completed","percentComplete":100,"context":{"count":1,"files":7,"logLines":11,"downloads":13,"logEntries":17,"logLinesBySource":{"access.log":10,"steam-access.log":1},"logLinesBeforePositionBySource":{"access.log":10,"steam-access.log":0}}}"""
-            : """{"status":"completed","percentComplete":100,"context":{"count":1,"files":2,"logLines":3,"downloads":4,"logEntries":5,"logLinesBySource":{"access.log":2,"steam-access.log":1},"logLinesBeforePositionBySource":{"access.log":2,"steam-access.log":0}}}""";
+            ? """{"status":"completed","percentComplete":100,"context":{"count":1,"files":7}}"""
+            : """{"status":"completed","percentComplete":100,"context":{"count":1,"files":2}}""";
+
+    // The final checkpoint of `remove-logs`: the log counts and the removed lines per stem.
+    private static string LogCompletion(bool second) => second
+        ? """{"status":"completed","percentComplete":100,"context":{"logLines":11,"downloads":13,"logEntries":17,"logLinesBySource":{"access.log":10,"steam-access.log":1},"logLinesBeforePositionBySource":{"access.log":10,"steam-access.log":0}}}"""
+        : """{"status":"completed","percentComplete":100,"context":{"logLines":3,"downloads":4,"logEntries":5,"logLinesBySource":{"access.log":2,"steam-access.log":1},"logLinesBeforePositionBySource":{"access.log":2,"steam-access.log":0}}}""";
+
+    // Ends one datasource: its `remove` and, for a repeated-miss removal, the `remove-logs` after it.
+    private static async Task CompleteDatasourceAsync(RemovalPipe pipe, CorruptionDetectionMethod method, bool second)
+    {
+        await pipe.SendAsync(Completion(method, second), 0);
+        if (method == CorruptionDetectionMethod.RepeatedMiss)
+        {
+            await pipe.ConnectAsync();
+            Assert.Equal("remove-logs", pipe.Command);
+            await pipe.SendAsync(LogCompletion(second), 0);
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 400 && !condition(); attempt++)
+        {
+            await Task.Delay(25);
+        }
+        Assert.True(condition());
+    }
 
     private sealed class RemovalRun : IDisposable, IAsyncDisposable
     {
@@ -845,7 +991,8 @@ public sealed class CorruptionRemovalContractTests
         public CacheController Controller { get; }
         public RemovalMessages Messages { get; }
         public OperationStateService States => _operationStateService;
-        public StateService State { get; }
+        public OperationRepairTests.FailingStateService State { get; }
+        public string OperationsDirectory => Path.Combine(_root, "GetOperationsDirectory");
         public List<ResolvedDatasource> Datasources { get; }
         public RemovalPipe? Pipe { get; }
         private readonly List<Task> _runs = [];
@@ -954,7 +1101,7 @@ public sealed class CorruptionRemovalContractTests
             Messages = (RemovalMessages)(object)notifications;
             Messages.Tracker = Tracker;
             var rust = new RustProcessHelper(NullLogger<RustProcessHelper>.Instance, processManager, paths, Tracker);
-            State = StateTestMethods.CreateStateService(_root);
+            State = OperationRepairTests.CreateFailingStateService(_root);
             _services = new ServiceCollection().BuildServiceProvider();
             var operationStateService = new CorruptionRepairOwner(
                 NullLogger<OperationStateService>.Instance,
@@ -966,11 +1113,12 @@ public sealed class CorruptionRemovalContractTests
                 Tracker);
             _operationStateService = operationStateService;
             _operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
-            Detection = new CorruptionDetectionService(NullLogger<CorruptionDetectionService>.Instance,
-                configuration, paths, rust, notifications, sources, contexts, _operationStateService, Tracker, capability, CacheScanGateHarness.Idle());
-            operationStateService.Service = Detection;
             var nginx = new NginxLogRotationService(NullLogger<NginxLogRotationService>.Instance,
                 configuration, processManager, paths);
+            Detection = new CorruptionDetectionService(NullLogger<CorruptionDetectionService>.Instance,
+                configuration, paths, rust, notifications, sources, contexts, _operationStateService, Tracker, capability, CacheScanGateHarness.Idle(),
+                nginx, State);
+            operationStateService.Service = Detection;
             var cache = new CacheManagementService(configuration, NullLogger<CacheManagementService>.Instance,
                 paths, rust, nginx, sources, State, contexts, null!, Tracker, notifications,
                 DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
@@ -978,16 +1126,30 @@ public sealed class CorruptionRemovalContractTests
                 _operationStateService);
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, State, CacheScanGateHarness.Idle(), null!);
+                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, CacheScanGateHarness.Idle(), null!);
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)
         {
             var selection = await Detection.GetRemovalSelectionAsync(ScanId, service);
             var core = typeof(CacheController).GetMethod("RunCorruptionRemovalCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var run = (Task<bool>)core.Invoke(Controller, [selection, Datasources, null, bulk, null])!;
+            var run = (Task<bool>)core.Invoke(Controller, [selection, Datasources, null, bulk])!;
             _runs.Add(run);
             return await run;
+        }
+
+        public async Task<OperationRepair> WaitForCompletedRepairAsync(Guid operationId)
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                var repair = State.LoadOperationRepairs().SingleOrDefault(repair => repair.Id == operationId);
+                if (repair?.Phase == OperationRepairPhase.Completed)
+                {
+                    return repair;
+                }
+                await Task.Delay(25);
+            }
+            throw new TimeoutException($"Corruption removal repair {operationId} did not complete.");
         }
 
         public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -1130,6 +1292,9 @@ public sealed class CorruptionRemovalContractTests
             _pipe = new NamedPipeServerStream(_name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         }
 
+        /// <summary>The command of the child that connected last.</summary>
+        public string? Command { get; private set; }
+
         public async Task<CorruptionRemovalEvidence> ConnectAsync()
         {
             if (_reader != null)
@@ -1144,6 +1309,7 @@ public sealed class CorruptionRemovalContractTests
             _writer = new StreamWriter(_pipe, leaveOpen: true) { AutoFlush = true };
             var line = await _reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
             using var connection = JsonDocument.Parse(line!);
+            Command = connection.RootElement.GetProperty("command").GetString();
             var process = Process.GetProcessById(connection.RootElement.GetProperty("processId").GetInt32());
             _ = process.Handle;
             _processes.Add(process);

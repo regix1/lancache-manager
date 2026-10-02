@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
@@ -33,13 +34,49 @@ public partial class CacheManagementService
         return Task.CompletedTask;
     }
 
-    public Task ResumeRepairAsync(
+    public async Task ResumeRepairAsync(
         OperationRepair repair,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateRemovalRepair(repair);
-        return Task.CompletedTask;
+
+        // The job builds its selection from sanitized names; the target keeps the names as given.
+        var target = repair.Target!;
+        var selection = repair.Type == OperationType.ServiceRemoval
+            ? new RemovalSelection(
+                [],
+                RemovalKind.Service,
+                Service: RustProcessHelper.SanitizeProcessArgument(target.Service!).ToLowerInvariant())
+            : target.SteamAppId is { } steamAppId
+                ? new RemovalSelection([], RemovalKind.Steam, GameAppId: steamAppId)
+                : target.EpicGame is { } epicGame
+                    ? new RemovalSelection(
+                        [],
+                        RemovalKind.Epic,
+                        GameName: RustProcessHelper.SanitizeProcessArgument(epicGame))
+                    : new RemovalSelection(
+                        [],
+                        RemovalKind.Named,
+                        GameName: RustProcessHelper.SanitizeProcessArgument(target.GameName!),
+                        Service: RustProcessHelper.SanitizeProcessArgument(target.Service!).ToLowerInvariant());
+
+        // A log step that started is finished (the dispatch already reset its positions); a crash
+        // or failure after a cache step rolls its log step forward, a cancel leaves the history.
+        foreach (var source in repair.Sources.Where(source =>
+                     source.LogRewriteStarted && !source.LogPositionsKept
+                     || source.NativeCompletionAccepted
+                         && !source.LogRewriteStarted
+                         && repair.Outcome != OperationStatus.Cancelled))
+        {
+            await RunRemovalLogStepAsync(
+                repair.Id,
+                _datasourceService.GetDatasource(source.Datasource)!,
+                selection with { DatasourceNames = [source.Datasource] },
+                [],
+                onProgress: null,
+                cancellationToken);
+        }
     }
 
     private Task EmitRestoredRemovalAsync(
@@ -178,7 +215,7 @@ public partial class CacheManagementService
         string datasource,
         int filesDeleted,
         long bytesFreed,
-        ulong logEntriesRemoved)
+        IReadOnlyCollection<uint> steamDepotIds)
     {
         if (!operationId.HasValue)
         {
@@ -201,9 +238,88 @@ public partial class CacheManagementService
                         $"Operation repair {operationId.Value} has no removal metrics.");
                 metrics.FilesDeleted = filesDeleted;
                 metrics.BytesFreed = bytesFreed;
-                metrics.LogEntriesRemoved = logEntriesRemoved;
+
+                // The record takes the set once, so every later log step and the repair purge by
+                // the set the first log step used.
+                if (repair.Target!.SteamDepotIds.Count == 0)
+                {
+                    repair.Target.SteamDepotIds = steamDepotIds.ToList();
+                }
             },
             CancellationToken.None);
+    }
+
+    /// <summary>
+    /// One datasource's log step under the Rewrite log lock: removes the target's access.log lines
+    /// (the binary's URLs, the URLs of the rows still there and the stored Steam depots), then
+    /// deletes those rows, and keeps the positions with the count in one save. Rows the live import
+    /// added while the cache step ran are read under the same lock, so their lines go with them.
+    /// </summary>
+    private async Task<ulong> RunRemovalLogStepAsync(
+        Guid operationId,
+        ResolvedDatasource datasource,
+        RemovalSelection selection,
+        IReadOnlyCollection<string> reportUrls,
+        Func<PurgeLogProgressData, Task>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        var repair = _operationStateService.GetPendingRepairs().Single(pending => pending.Id == operationId);
+        await using var logLock = await _operationStateService.LockLogFilesAsync(
+            operationId,
+            repair.Type,
+            LogFileLockKind.Rewrite,
+            cancellationToken);
+
+        // A Steam line's depot is parsed from its own URL, so a stored depot already covers the
+        // lines of its rows and their URLs are left out of the input.
+        var depotIds = repair.Target!.SteamDepotIds.Select(depotId => (long)depotId).ToList();
+        List<string> rowUrls;
+        await using (var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            var downloadIds = SelectRemovalDownloads(context, selection).Select(download => download.Id);
+            rowUrls = await context.LogEntries
+                .Where(logEntry => logEntry.DownloadId != null && downloadIds.Contains(logEntry.DownloadId.Value))
+                .Where(logEntry => logEntry.Download!.DepotId == null || !depotIds.Contains(logEntry.Download.DepotId.Value))
+                .Select(logEntry => logEntry.Url)
+                .Where(url => url != string.Empty)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+        }
+        var targets = new LogPurgeTargets(
+            reportUrls.Union(rowUrls, StringComparer.Ordinal).ToList(),
+            depotIds,
+            selection.Kind == RemovalKind.Service ? selection.Service : null);
+
+        // A cancel before this line leaves the log untouched; one after it is finished by the repair.
+        cancellationToken.ThrowIfCancellationRequested();
+        await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
+        var report = await new LogPurgeRunner(
+                _pathResolver,
+                _rustProcessHelper,
+                _nginxLogRotationService,
+                _stateService,
+                _logger)
+            .RunAsync(operationId, datasource, targets, onProgress, cancellationToken);
+        await CleanupRemovalAsync(selection, cancellationToken);
+
+        var linesRemoved = checked((ulong)report.LinesRemoved);
+        await _operationStateService.SaveRepairAsync(
+            operationId,
+            current =>
+            {
+                current.Sources.Single(candidate =>
+                        string.Equals(
+                            candidate.Datasource,
+                            datasource.Name,
+                            StringComparison.OrdinalIgnoreCase))
+                    .LogPositionsKept = true;
+                var metrics = current.Removal
+                    ?? throw new InvalidDataException(
+                        $"Operation repair {operationId} has no removal metrics.");
+                metrics.LogEntriesRemoved = checked(metrics.LogEntriesRemoved + linesRemoved);
+            },
+            CancellationToken.None);
+        return linesRemoved;
     }
 
     private static RemovalRepair CopyRemovalRepair(RemovalMetrics metrics)

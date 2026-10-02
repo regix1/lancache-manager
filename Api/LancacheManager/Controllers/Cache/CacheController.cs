@@ -46,7 +46,6 @@ public class CacheController : ControllerBase
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
-    private readonly IStateService _stateService;
     private readonly CacheScanGate _cacheScanGate;
     private readonly CacheSizeScanScheduledService _cacheSizeScan;
 
@@ -66,12 +65,10 @@ public class CacheController : ControllerBase
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
         DatasourceCapabilityService capabilityService,
-        IStateService stateService,
         CacheScanGate cacheScanGate,
         CacheSizeScanScheduledService cacheSizeScan)
     {
         _capabilityService = capabilityService;
-        _stateService = stateService;
         _cacheScanGate = cacheScanGate;
         _cacheSizeScan = cacheSizeScan;
         _cacheService = cacheService;
@@ -847,35 +844,19 @@ public class CacheController : ControllerBase
             var operationIdReady = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
             _ = Task.Run(async () =>
             {
-                var pauseLogs = RequiresLogMutation([selection]);
                 try
                 {
-                    if (pauseLogs)
-                    {
-                        await LiveLogMonitorService.PauseAsync();
-                        _logger.LogInformation("Paused LiveLogMonitorService for repeated-MISS corruption removal");
-                    }
-
-                    try
-                    {
-                        await RunCorruptionRemovalCoreAsync(
-                            selection,
-                            currentDatasources,
-                            onRegistered: id => operationIdReady.TrySetResult(id));
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // The core already completed the operation as cancelled.
-                    }
+                    await RunCorruptionRemovalCoreAsync(
+                        selection,
+                        currentDatasources,
+                        onRegistered: id => operationIdReady.TrySetResult(id));
+                }
+                catch (OperationCanceledException)
+                {
+                    // The core already completed the operation as cancelled.
                 }
                 finally
                 {
-                    if (pauseLogs)
-                    {
-                        await LiveLogMonitorService.ResumeAsync();
-                        _logger.LogInformation("Resumed LiveLogMonitorService after repeated-MISS corruption removal");
-                    }
-
                     operationIdReady.TrySetResult(Guid.Empty);
                 }
             });
@@ -1032,29 +1013,10 @@ public class CacheController : ControllerBase
                 string.Join(", ", selections.Select(selection => selection.Service)));
             _cacheService.InvalidateCachedScan();
 
-            var logDatasources = selections
-                .Where(selection => selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
-                .SelectMany(selection => ResolveDatasourcesForSelection(selection, currentDatasources))
-                .DistinctBy(datasource => datasource.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var preparedReopenChecks = logDatasources.Count > 0
-                ? await _nginxLogRotationService.PrepareReopenChecksAsync(
-                    logDatasources,
-                    expectsPublication: true,
-                    CancellationToken.None)
-                : null;
-
             _ = Task.Run(async () =>
             {
-                await using var batchReopenChecks = preparedReopenChecks;
-                var pauseLogs = RequiresLogMutation(selections);
                 try
                 {
-                    if (pauseLogs)
-                    {
-                        await LiveLogMonitorService.PauseAsync();
-                        _logger.LogInformation("Paused LiveLogMonitorService for all-services repeated-MISS corruption removal");
-                    }
                     var bulkState = new BulkCorruptionRemovalState { ServiceCount = selections.Count };
                     var cancelled = false;
 
@@ -1068,8 +1030,7 @@ public class CacheController : ControllerBase
                             await RunCorruptionRemovalCoreAsync(
                                 selection,
                                 serviceDatasources,
-                                bulk: bulkState,
-                                preparedReopenChecks: batchReopenChecks);
+                                bulk: bulkState);
                         }
                         catch (OperationCanceledException)
                         {
@@ -1128,14 +1089,6 @@ public class CacheController : ControllerBase
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Unhandled error during all-services corruption removal");
-                }
-                finally
-                {
-                    if (pauseLogs)
-                    {
-                        await LiveLogMonitorService.ResumeAsync();
-                        _logger.LogInformation("Resumed LiveLogMonitorService after all-services repeated-MISS corruption removal");
-                    }
                 }
             });
 
@@ -1411,54 +1364,6 @@ public class CacheController : ControllerBase
         public CorruptionRemovalCounts Totals { get; } = new();
     }
 
-    /// <summary>
-    /// Reads a numeric value out of a Rust progress-checkpoint context, which deserializes
-    /// as JsonElement values inside the object dictionary.
-    /// </summary>
-    private static long ReadContextCount(Dictionary<string, object?>? context, string key)
-    {
-        if (context == null || !context.TryGetValue(key, out var value) || value == null)
-        {
-            return 0;
-        }
-
-        return value switch
-        {
-            System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.Number => je.GetInt64(),
-            long l => l,
-            int i => i,
-            _ => long.TryParse(value.ToString(), out var parsed) ? parsed : 0
-        };
-    }
-
-    /// <summary>
-    /// Reads a per-stem count map (e.g. <c>logLinesBySource</c>) out of a Rust progress-checkpoint
-    /// context. The context round-trips through JSON, so the map arrives as a JsonElement object;
-    /// anything absent or malformed reads as empty, which makes the position adjustment a no-op.
-    /// </summary>
-    internal static Dictionary<string, long> ReadContextStemCounts(
-        Dictionary<string, object?>? context, string key)
-    {
-        var counts = new Dictionary<string, long>();
-        if (context == null || !context.TryGetValue(key, out var value) ||
-            value is not System.Text.Json.JsonElement element ||
-            element.ValueKind != System.Text.Json.JsonValueKind.Object)
-        {
-            return counts;
-        }
-
-        foreach (var property in element.EnumerateObject())
-        {
-            if (property.Value.ValueKind == System.Text.Json.JsonValueKind.Number &&
-                property.Value.TryGetInt64(out var removed))
-            {
-                counts[property.Name] = removed;
-            }
-        }
-
-        return counts;
-    }
-
     internal static StructuralRemovalCompletion ValidateStructuralRemovalCompletion(
         Dictionary<string, object?> context,
         int expectedCandidateCount)
@@ -1544,11 +1449,10 @@ public class CacheController : ControllerBase
     /// <summary>
     /// Shared per-service corruption-removal core: registers a tracked operation, emits the
     /// start notification, runs the corruption-remove Rust binary across every datasource with
-    /// progress monitoring, and completes the operation. Caller responsibilities (NOT done here):
-    /// conflict/permission checks,
-    /// LiveLogMonitorService Pause/Resume (the all-services path pauses ONCE around its loop),
-    /// and the HTTP response. On cancellation the operation is completed as cancelled and an
-    /// <see cref="OperationCanceledException"/> is rethrown so the all-services loop can break;
+    /// progress monitoring, and completes the operation. A repeated-miss removal rewrites the logs
+    /// only in each datasource's own locked log step. Caller responsibilities (NOT done here):
+    /// conflict/permission checks and the HTTP response. On cancellation the operation is
+    /// completed as cancelled and an <see cref="OperationCanceledException"/> is rethrown so the all-services loop can break;
     /// non-cancellation failures complete the operation as failed and are swallowed so the
     /// all-services loop continues with the next service. <paramref name="onRegistered"/> fires
     /// synchronously with the operationId the moment the operation is registered.
@@ -1562,8 +1466,7 @@ public class CacheController : ControllerBase
         CorruptionRemovalSelection selection,
         List<ResolvedDatasource> datasources,
         Action<Guid>? onRegistered = null,
-        BulkCorruptionRemovalState? bulk = null,
-        NginxReopenChecks? preparedReopenChecks = null)
+        BulkCorruptionRemovalState? bulk = null)
     {
         // Execution-time revalidation: this core can run from queue promotion long after
         // the endpoint's check, and it deletes cache files located via the key recipe.
@@ -1747,13 +1650,6 @@ public class CacheController : ControllerBase
             bool allSucceeded = true;
             string? lastError = null;
             var rewritesLogs = selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss;
-            await using var localReopenChecks = rewritesLogs && preparedReopenChecks is null
-                ? await _nginxLogRotationService.PrepareReopenChecksAsync(
-                    datasources,
-                    expectsPublication: true,
-                    cancellationToken)
-                : null;
-            var reopenChecks = preparedReopenChecks ?? localReopenChecks;
 
             var datasourceCount = datasources.Count;
             for (var datasourceIndex = 0; datasourceIndex < datasourceCount; datasourceIndex++)
@@ -1769,36 +1665,28 @@ public class CacheController : ControllerBase
                 var cachePath = datasource.CachePath;
                 var progressFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
                     $"corruption_removal_{operationId}_{datasource.Name}.json");
-                var evidenceFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
-                    $"corruption_evidence_{operationId}_{datasource.Name}.json");
+                var evidenceFilePath = CorruptionDetectionService.EvidenceFilePath(
+                    _pathResolver.GetOperationsDirectory(),
+                    operationId,
+                    datasource.Name);
 
                 _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
                     datasource.Name, logsPath, cachePath);
 
-                string? stemPositionsPath = null;
+                // `remove` deletes cache files only, so a repeated-miss removal has no reopen check
+                // here; its log step prepares its own under the log lock.
                 NginxReopenCheck? reopenCheck = null;
                 var childStarted = false;
                 var reopenCompleted = false;
                 try
                 {
-                    var affectedLogPaths = rewritesLogs
-                        ? NginxLogRotationService.GetAffectedLogPaths(datasource)
-                        : Array.Empty<string>();
-                    reopenCheck = rewritesLogs && reopenChecks is not null
-                        ? reopenChecks.Take(datasource.Name) ??
-                            await _nginxLogRotationService.PrepareReopenCheckAsync(
-                                new[] { datasource },
-                                affectedLogPaths,
-                                expectsPublication: true,
-                                cancellationToken)
-                        : await _nginxLogRotationService.PrepareReopenCheckAsync(
+                    if (!rewritesLogs)
+                    {
+                        reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
                             new[] { datasource },
-                            affectedLogPaths,
+                            Array.Empty<string>(),
                             expectsPublication: false,
                             cancellationToken);
-                    if (rewritesLogs)
-                    {
-                        _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
                     }
 
                     var evidence = new CorruptionRemovalEvidence
@@ -1821,36 +1709,87 @@ public class CacheController : ControllerBase
                             })
                             .ToList()
                     };
-                    Directory.CreateDirectory(_pathResolver.GetOperationsDirectory());
-                    await System.IO.File.WriteAllTextAsync(
-                        evidenceFilePath,
-                        JsonSerializer.Serialize(evidence),
-                        cancellationToken);
-
-                    // Hybrid transport (mirrors CacheClearingService): the stdout progress event
-                    // from corruption_manager is a zero-latency wake-up that triggers exactly one
-                    // read of the (Rust-side-unchanged) progress file, replacing the previous
-                    // standalone Task.Run poll-every-500ms loop.
-                    // Structural removal never touches logs, so it gets no positions file.
-                    stemPositionsPath = selection.DetectionMethod == CorruptionDetectionMethod.Structural
-                        ? null
-                        : await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
 
                     await _corruptionDetectionService.StartWorkAsync(
                         operationId,
                         datasource.Name,
                         cancellationToken);
+                    // Written only once the source is authorized, so a cancel while StartWorkAsync
+                    // waits leaves no file; the repair deletes it after it no longer needs it.
+                    Directory.CreateDirectory(_pathResolver.GetOperationsDirectory());
+                    await System.IO.File.WriteAllTextAsync(
+                        evidenceFilePath,
+                        JsonSerializer.Serialize(evidence),
+                        cancellationToken);
                     childStarted = true;
+
+                    async Task RelayProgressAsync(CorruptionRemovalProgressData progress)
+                    {
+                        // "completed" checkpoints are DATA for the terminal emit, not live
+                        // progress: relaying them fired once per datasource and per service,
+                        // flipping the notification card to completed while work was still
+                        // running - the reason completions never displayed reliably. The
+                        // tracker's CompleteOperation / the bulk loop own the completion.
+                        // "failed" checkpoints still relay: they carry the rich errorDetail
+                        // (error.fatal) that the generic terminal failure message lacks.
+                        if (progress.Status == "completed")
+                        {
+                            return;
+                        }
+
+                        // One continuous 0-100 across all datasources instead of the bar
+                        // snapping back to zero when the next datasource starts.
+                        var overallPercent = (dsIndex * 100.0 + progress.PercentComplete) / datasourceCount;
+
+                        // Every progress context names the service (the Rust stage contexts
+                        // don't), plus the run position during an all-services removal.
+                        var context = progress.Context == null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(progress.Context);
+                        context["service"] = service;
+                        context["detectionMethod"] = detectionMethod.ToWireString();
+                        if (bulk != null)
+                        {
+                            context["serviceIndex"] = serviceIndex;
+                            context["serviceCount"] = serviceCount;
+                        }
+
+                        var accepted = false;
+                        var filesProcessed = progress.FilesProcessed;
+                        var totalFiles = progress.TotalFiles;
+                        _operationTracker.UpdateProgress(operationId, overallPercent, progress.StageKey ?? "",
+                            onProgress: _ =>
+                            {
+                                metadata.FilesProcessed = filesProcessed;
+                                metadata.TotalFiles = totalFiles;
+                                accepted = true;
+                            });
+                        if (!accepted) return;
+
+                        // Send progress notification via SignalR
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
+                            new CorruptionRemovalProgress(
+                                service,
+                                operationId,
+                                progress.Status,
+                                progress.StageKey ?? string.Empty,
+                                DateTime.UtcNow,
+                                progress.FilesProcessed,
+                                progress.TotalFiles,
+                                overallPercent,
+                                context,
+                                detectionMethod.ToWireString()));
+                    }
+
+                    // Hybrid transport (mirrors CacheClearingService): the stdout progress event
+                    // from corruption_manager is a zero-latency wake-up that triggers exactly one
+                    // read of the (Rust-side-unchanged) progress file, replacing the previous
+                    // standalone Task.Run poll-every-500ms loop.
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
-                        selection.DetectionMethod == CorruptionDetectionMethod.Structural
-                            ? "remove-structural"
-                            : "remove",
+                        rewritesLogs ? "remove" : "remove-structural",
                         logsPath,
                         cachePath,
                         service: service,
                         evidenceFile: evidenceFilePath,
                         progressFile: progressFilePath,
-                        stemPositionsFile: stemPositionsPath,
                         keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
                         cancellationToken: cancellationToken,
                         operationId: operationId,
@@ -1862,65 +1801,15 @@ public class CacheController : ControllerBase
                                 return;
                             }
 
-                            // "completed" checkpoints are DATA for the terminal emit, not live
-                            // progress: relaying them fired once per datasource and per service,
-                            // flipping the notification card to completed while work was still
-                            // running - the reason completions never displayed reliably. The
-                            // tracker's CompleteOperation / the bulk loop own the completion.
-                            // "failed" checkpoints still relay: they carry the rich errorDetail
-                            // (error.fatal) that the generic terminal failure message lacks.
-                            if (progress.Status == "completed")
-                            {
-                                return;
-                            }
-
-                            // One continuous 0-100 across all datasources instead of the bar
-                            // snapping back to zero when the next datasource starts.
-                            var overallPercent = (dsIndex * 100.0 + progress.PercentComplete) / datasourceCount;
-
-                            // Every progress context names the service (the Rust stage contexts
-                            // don't), plus the run position during an all-services removal.
-                            var context = progress.Context == null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(progress.Context);
-                            context["service"] = service;
-                            context["detectionMethod"] = detectionMethod.ToWireString();
-                            if (bulk != null)
-                            {
-                                context["serviceIndex"] = serviceIndex;
-                                context["serviceCount"] = serviceCount;
-                            }
-
-                            var accepted = false;
-                            var filesProcessed = progress.FilesProcessed;
-                            var totalFiles = progress.TotalFiles;
-                            _operationTracker.UpdateProgress(operationId, overallPercent, progress.StageKey ?? "",
-                                onProgress: _ =>
-                                {
-                                    metadata.FilesProcessed = filesProcessed;
-                                    metadata.TotalFiles = totalFiles;
-                                    accepted = true;
-                                });
-                            if (!accepted) return;
-
-                            // Send progress notification via SignalR
-                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
-                                new CorruptionRemovalProgress(
-                                    service,
-                                    operationId,
-                                    progress.Status,
-                                    progress.StageKey ?? string.Empty,
-                                    DateTime.UtcNow,
-                                    progress.FilesProcessed,
-                                    progress.TotalFiles,
-                                    overallPercent,
-                                    context,
-                                    detectionMethod.ToWireString()));
+                            await RelayProgressAsync(progress);
                         },
-                        configureProcess: process =>
-                            NginxLogRotationService.AttachPublicationCheck(reopenCheck, process));
+                        configureProcess: reopenCheck is null
+                            ? null
+                            : process => NginxLogRotationService.AttachPublicationCheck(reopenCheck, process));
 
                     // Harvest this datasource's outcome numbers from the final checkpoint
                     // before the finally below deletes the file. Both Rust remove flows persist
-                    // {count, files, logLines, downloads, logEntries} in their 100% checkpoint.
+                    // {count, files} in their 100% checkpoint.
                     if (result.Success)
                     {
                         var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
@@ -1930,22 +1819,19 @@ public class CacheController : ControllerBase
                                 "Corruption removal exited without a completed outcome checkpoint");
                         }
 
-                        var logLinesRemoved = selection.DetectionMethod == CorruptionDetectionMethod.Structural
-                            ? 0
-                            : ReadContextCount(finalProgress.Context, "logLines");
-                        var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                            reopenCheck,
-                            logLinesRemoved > 0,
-                            cancellationToken);
-                        reopenCompleted = true;
-                        if (!reopenResult.Success)
-                        {
-                            throw new IOException(reopenResult.ErrorMessage!);
-                        }
-
                         var acceptedCounts = new CorruptionRemovalCounts();
-                        if (selection.DetectionMethod == CorruptionDetectionMethod.Structural)
+                        if (!rewritesLogs)
                         {
+                            var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                                reopenCheck!,
+                                physicalChange: false,
+                                cancellationToken);
+                            reopenCompleted = true;
+                            if (!reopenResult.Success)
+                            {
+                                throw new IOException(reopenResult.ErrorMessage!);
+                            }
+
                             var outcome = ValidateStructuralRemovalCompletion(
                                 finalProgress.Context,
                                 selection.CandidatesByDatasource[datasource.Name].Count);
@@ -1957,17 +1843,12 @@ public class CacheController : ControllerBase
                         }
                         else
                         {
-                            acceptedCounts.UrlsRemoved = ReadContextCount(finalProgress.Context, "count");
-                            acceptedCounts.FilesDeleted = ReadContextCount(finalProgress.Context, "files");
-                            acceptedCounts.LogLinesRemoved = logLinesRemoved;
-                            acceptedCounts.DownloadsDeleted = ReadContextCount(finalProgress.Context, "downloads");
-                            acceptedCounts.LogEntriesDeleted = ReadContextCount(finalProgress.Context, "logEntries");
-                            _stateService.ReduceLogPositionsAfterPurge(
-                                datasource.Name,
-                                ReadContextStemCounts(finalProgress.Context, "logLinesBeforePositionBySource"),
-                                ReadContextStemCounts(finalProgress.Context, "logLinesBySource"));
+                            acceptedCounts.UrlsRemoved = CorruptionDetectionService.ReadContextCount(finalProgress.Context, "count");
+                            acceptedCounts.FilesDeleted = CorruptionDetectionService.ReadContextCount(finalProgress.Context, "files");
                         }
 
+                        // Accepted before the log step, so a failure after `remove` rolls the log
+                        // step forward in the repair.
                         await _corruptionDetectionService.SaveRemovalSourceAsync(
                             operationId,
                             datasource.Name,
@@ -1977,6 +1858,17 @@ public class CacheController : ControllerBase
                             acceptedCounts,
                             CancellationToken.None);
                         AddRemovalCounts(totals, acceptedCounts);
+
+                        if (rewritesLogs)
+                        {
+                            AddRemovalCounts(totals, await _corruptionDetectionService.RunCorruptionLogStepAsync(
+                                operationId,
+                                datasource,
+                                service,
+                                evidenceFilePath,
+                                RelayProgressAsync,
+                                cancellationToken));
+                        }
                     }
 
                     var currentTotals = CopyRemovalCounts(totals);
@@ -1994,16 +1886,19 @@ public class CacheController : ControllerBase
                     }
                     else
                     {
-                        var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                            reopenCheck,
-                            selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss,
-                            CancellationToken.None);
-                        reopenCompleted = true;
-                        if (!reopenResult.Success)
+                        if (reopenCheck is not null)
                         {
-                            throw new AggregateException(
-                                new InvalidOperationException(result.Error),
-                                new IOException(reopenResult.ErrorMessage!));
+                            var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                                reopenCheck,
+                                physicalChange: false,
+                                CancellationToken.None);
+                            reopenCompleted = true;
+                            if (!reopenResult.Success)
+                            {
+                                throw new AggregateException(
+                                    new InvalidOperationException(result.Error),
+                                    new IOException(reopenResult.ErrorMessage!));
+                            }
                         }
 
                         _logger.LogError("[CorruptionRemoval] Failed for service {Service} on datasource '{Datasource}': {Error}",
@@ -2019,7 +1914,7 @@ public class CacheController : ControllerBase
                     {
                         var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
                             reopenCheck,
-                            selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss,
+                            physicalChange: false,
                             CancellationToken.None);
                         reopenCompleted = true;
                         if (!reopenResult.Success)
@@ -2038,11 +1933,6 @@ public class CacheController : ControllerBase
                         await reopenCheck.DisposeAsync();
                     }
                     await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
-                    await _rustProcessHelper.DeleteTempFileAsync(evidenceFilePath);
-                    if (stemPositionsPath != null)
-                    {
-                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
-                    }
                 }
             }
 

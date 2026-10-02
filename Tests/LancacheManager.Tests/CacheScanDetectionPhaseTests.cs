@@ -304,7 +304,9 @@ public sealed class CacheScanDetectionPhaseTests
             operationState,
             tracker,
             capability,
-            gate);
+            gate,
+            nginxLogRotationService: null!,
+            stateService: null!);
         cacheManagement = new CacheManagementService(
             configuration,
             NullLogger<CacheManagementService>.Instance,
@@ -2390,7 +2392,9 @@ public sealed class CacheScanDetectionPhaseTests
                 operationStateService: null!,
                 operationTracker: null!,
                 capabilityService: null!,
-                Idle()));
+                Idle(),
+                nginxLogRotationService: null!,
+                stateService: null!));
             registrations.AddSingleton(
                 (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService)));
             _services = registrations.BuildServiceProvider();

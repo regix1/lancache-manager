@@ -8,7 +8,7 @@ internal static class Program
             var command = args[0];
             var progressIndex = command switch
             {
-                "remove" => 4,
+                "remove" or "remove-logs" => 4,
                 "remove-structural" or "structural-summary" => 2,
                 "summary" => 3,
                 _ => throw new ArgumentException("A supported corruption command is required")
@@ -21,6 +21,7 @@ internal static class Program
             {
                 "summary" => new HashSet<string> { "--lookback-days", "--scan-started-utc", "--key-scheme" },
                 "structural-summary" => new HashSet<string> { "--scan-started-utc", "--scan-mode", "--state-scope", "--key-scheme" },
+                "remove-logs" => new HashSet<string> { "--evidence-file", "--progress", "--key-scheme" },
                 _ => new HashSet<string>
                 {
                     "--evidence-file",
@@ -34,7 +35,7 @@ internal static class Program
             for (var index = optionIndex; index < args.Length; index++)
             {
                 var option = args[index];
-                var optional = command == "remove" && option == "--stem-positions";
+                var optional = command is "remove" or "remove-logs" && option == "--stem-positions";
                 if ((!required.Contains(option) && !optional) || !seen.Add(option))
                     throw new ArgumentException("An unsupported or repeated corruption option was supplied");
                 if (option == "--progress") continue;

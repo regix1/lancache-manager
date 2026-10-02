@@ -74,7 +74,6 @@ public sealed class CacheSizeQueueTests
             conflictChecker: null!,
             operationQueue: queue,
             capabilityService: null!,
-            stateService: null!,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: cacheSizeScan);
     }

@@ -215,7 +215,6 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             conflictChecker: null!,
             operationQueue: null!,
             capabilityService: null!,
-            stateService: null!,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: null!);
 
@@ -620,8 +619,15 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             .AddSingleton<CacheManagementService>(_ => manager!)
             .AddSingleton(datasources)
             .AddSingleton(capability);
+        if (producerType.HasValue)
+        {
+            // A log step deletes rows with set-based deletes, which need a relational database.
+            // Built through the provider, so disposing the harness drops its schema.
+            var database = await TestDatabase.CreateAsync();
+            registrations.AddSingleton(_ => database);
+        }
         var services = registrations.BuildServiceProvider();
-        var state = StateTestMethods.CreateStateService(Path.Combine(root, "retained"));
+        var state = OperationRepairTests.CreateFailingStateService(Path.Combine(root, "retained"));
         state.SetSetupCompleted(true);
         var lifetime = new Lifetime();
         var owner = new OperationStateService(
@@ -637,15 +643,15 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         {
             File.WriteAllText(paths.GetRustSteamRemoverPath(), string.Empty);
             File.WriteAllText(paths.GetRustServiceRemoverPath(), string.Empty);
+            var contexts = services.GetRequiredService<TestDatabase>().Factory;
             rust = new RemovalRustProcessHelper(
                 root,
                 producerType.Value,
                 paths,
-                tracker);
-            var contexts = new TestDbContextFactory(
-                new DbContextOptionsBuilder<AppDbContext>()
-                    .UseInMemoryDatabase("removal-producer-" + Guid.NewGuid().ToString("N"))
-                    .Options);
+                tracker,
+                owner,
+                state,
+                contexts);
             manager = new CacheManagementService(
                 configuration,
                 NullLogger<CacheManagementService>.Instance,
@@ -750,7 +756,11 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         await (Task)method.Invoke(
             Manager,
-            [operationId, datasource, filesDeleted, bytesFreed, 0UL])!;
+            [operationId, datasource, filesDeleted, bytesFreed, Array.Empty<uint>()])!;
+        // A source's log step runs right after its cache step is accepted, so a source this
+        // harness accepts has finished both and owes the repair no log step.
+        await Owner.MarkLogRewriteStartedAsync(operationId, datasource);
+        await Owner.MarkLogPositionsKeptAsync(operationId, datasource);
     }
 
     internal OperationRepair ReadRepair(Guid operationId)
@@ -780,6 +790,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
     internal string BetaStage => _rust!.BetaStage;
     internal int RawFilesProcessed => _rust!.RawFilesProcessed;
     internal int RustCalls => _rust!.Runs;
+    internal RemovalRustProcessHelper Rust => _rust!;
 
     internal Task WaitForBetaProgressAsync()
     {
@@ -921,14 +932,16 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             Cancelled: cancelled);
     }
 
-    private sealed class RemovalRustProcessHelper : RustProcessHelper
+    internal sealed class RemovalRustProcessHelper : RustProcessHelper
     {
         private readonly string _root;
         private readonly string _alphaLogs;
         private readonly string _betaLogs;
         private readonly string _expectedBinary;
         private readonly string _expectedLabel;
+        private readonly string _purgeBinary;
         private readonly OperationType _type;
+        private readonly OperationStateService _owner;
         private readonly TaskCompletionSource _betaProgress =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _release =
@@ -936,12 +949,16 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         private readonly TaskCompletionSource _betaExit =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _runs;
+        private int _purges;
 
         internal RemovalRustProcessHelper(
             string root,
             OperationType type,
             IPathResolver paths,
-            IUnifiedOperationTracker tracker)
+            IUnifiedOperationTracker tracker,
+            OperationStateService owner,
+            OperationRepairTests.FailingStateService state,
+            TestDbContextFactory contexts)
             : base(
                 NullLogger<RustProcessHelper>.Instance,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -957,7 +974,11 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             _expectedLabel = type == OperationType.GameRemoval
                 ? "game_cache_remover"
                 : "service_remover";
+            _purgeBinary = paths.GetRustLogPurgePath();
             _type = type;
+            _owner = owner;
+            State = state;
+            Contexts = contexts;
             BetaStage = type == OperationType.GameRemoval
                 ? "tests.gameRemove.betaRaw"
                 : "tests.serviceRemove.betaRaw";
@@ -968,6 +989,22 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         internal int Runs => Volatile.Read(ref _runs);
         internal Task BetaProgress => _betaProgress.Task;
         internal Task BetaExit => _betaExit.Task;
+        internal OperationRepairTests.FailingStateService State { get; }
+        internal TestDbContextFactory Contexts { get; }
+
+        /// <summary>Beta's cache step succeeds instead of reporting progress and failing on release.</summary>
+        internal bool BetaSucceeds { get; set; }
+
+        /// <summary>Runs inside each remover launch, after its arguments are checked.</summary>
+        internal Func<int, Task>? OnRemoverRun { get; set; }
+
+        internal List<string> ReportUrls { get; } = [];
+        internal List<uint> ReportDepotIds { get; } = [];
+
+        /// <summary>The first this many purge launches exit with a failure.</summary>
+        internal int FailingPurges { get; set; }
+        internal long PurgeLinesRemoved { get; set; }
+        internal System.Collections.Concurrent.ConcurrentQueue<RemovalLaunch> Launches { get; } = new();
 
         internal void Release()
         {
@@ -983,9 +1020,30 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             Assert.NotNull(operationId);
+            bool stepHeld;
+            try
+            {
+                await _owner.WaitForLogStepAsync(active: true, CancellationToken.None)
+                    .WaitAsync(TimeSpan.FromMilliseconds(200));
+                stepHeld = true;
+            }
+            catch (TimeoutException)
+            {
+                stepHeld = false;
+            }
+            if (start.FileName == _purgeBinary)
+            {
+                Assert.Equal("cache_purge_log_entries", processLabel);
+                return await PurgeAsync(start, stepHeld, cancellationToken);
+            }
+
             Assert.Equal(_expectedBinary, start.FileName);
             AssertOwnedPath(start.FileName);
             Assert.Equal(_expectedLabel, processLabel);
+            // The cache step neither rewrites a log nor publishes a replaced one.
+            Assert.DoesNotContain("--stem-positions", start.Arguments, StringComparison.Ordinal);
+            Assert.False(start.Environment.ContainsKey("LANCACHE_LOG_CHECK"));
+            Launches.Enqueue(new RemovalLaunch(Purge: false, stepHeld, PurgeInput: null));
             var run = Interlocked.Increment(ref _runs);
             Assert.InRange(run, 1, 2);
             try
@@ -998,22 +1056,18 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                 {
                     AssertOwnedPath(path);
                 }
-                var stemPositions = Regex.Match(
-                    start.Arguments,
-                    "--stem-positions \\\"([^\\\"]+)\\\"");
-                if (stemPositions.Success)
-                {
-                    AssertOwnedPath(stemPositions.Groups[1].Value);
-                }
 
                 var logRoot = Path.GetFullPath(quoted[0]);
                 Assert.Equal(run == 1 ? _alphaLogs : _betaLogs, logRoot);
                 Assert.Equal(
                     _type == OperationType.GameRemoval ? "570" : "steam",
                     quoted[2]);
-                await WritePublicationAsync(start, cancellationToken);
+                if (OnRemoverRun != null)
+                {
+                    await OnRemoverRun(run);
+                }
 
-                if (run == 1)
+                if (run == 1 || BetaSucceeds)
                 {
                     await WriteReportAsync(quoted[3], 9, 200, cancellationToken);
                     return new ProcessExecutionResult { ExitCode = 0 };
@@ -1065,6 +1119,33 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                     _betaExit.TrySetResult();
                 }
             }
+        }
+
+        private async Task<ProcessExecutionResult> PurgeAsync(
+            ProcessStartInfo start,
+            bool stepHeld,
+            CancellationToken cancellationToken)
+        {
+            var quoted = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
+                .Select(match => match.Groups[1].Value)
+                .ToArray();
+            foreach (var path in quoted)
+            {
+                AssertOwnedPath(path);
+            }
+            using var input = JsonDocument.Parse(await File.ReadAllTextAsync(quoted[1], cancellationToken));
+            Launches.Enqueue(new RemovalLaunch(Purge: true, stepHeld, input.RootElement.Clone()));
+            await WritePublicationAsync(start, cancellationToken);
+            if (Interlocked.Increment(ref _purges) <= FailingPurges)
+            {
+                return new ProcessExecutionResult { ExitCode = 3, Error = "Injected purge failure." };
+            }
+
+            await File.WriteAllTextAsync(
+                quoted[2],
+                JsonSerializer.Serialize(new { success = true, lines_removed = PurgeLinesRemoved }),
+                cancellationToken);
+            return new ProcessExecutionResult { ExitCode = 0 };
         }
 
         private void AssertOwnedPath(string path)
@@ -1127,7 +1208,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                     GameAppId = 570,
                     GameName = "Dota 2",
                     CacheFilesDeleted = filesDeleted,
-                    TotalBytesFreed = checked((ulong)bytesFreed)
+                    TotalBytesFreed = checked((ulong)bytesFreed),
+                    PurgeUrls = ReportUrls,
+                    PurgeDepotIds = ReportDepotIds
                 });
             }
             else
@@ -1136,11 +1219,15 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                 {
                     ServiceName = "steam",
                     CacheFilesDeleted = filesDeleted,
-                    TotalBytesFreed = checked((ulong)bytesFreed)
+                    TotalBytesFreed = checked((ulong)bytesFreed),
+                    PurgeUrls = ReportUrls
                 });
             }
             await File.WriteAllTextAsync(path, contents, cancellationToken);
         }
+
+        /// <summary>One child launch: the purge or the remover, and whether a log step held the logs.</summary>
+        internal sealed record RemovalLaunch(bool Purge, bool StepHeld, JsonElement? PurgeInput);
     }
 
     private sealed class Lifetime : IHostApplicationLifetime

@@ -94,14 +94,20 @@ public partial class CacheManagementService
         [JsonPropertyName("log_entries_removed")]
         public ulong LogEntriesRemoved { get; set; }
 
-        [JsonPropertyName("log_lines_removed_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
-
-        [JsonPropertyName("log_lines_removed_before_position_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
-
         [JsonPropertyName("depot_ids")]
         public List<long> DepotIds { get; set; } = new();
+
+        /// <summary>
+        /// URLs whose access.log lines the host removes in its own locked log step.
+        /// </summary>
+        [JsonPropertyName("purge_urls")]
+        public List<string> PurgeUrls { get; set; } = new();
+
+        /// <summary>
+        /// Steam only: the depots that belong to this game alone, so their lines are removed by depot.
+        /// </summary>
+        [JsonPropertyName("purge_depot_ids")]
+        public List<uint> PurgeDepotIds { get; set; } = new();
     }
 
     public class ServiceCacheRemovalReport
@@ -118,14 +124,14 @@ public partial class CacheManagementService
         [JsonPropertyName("log_entries_removed")]
         public ulong LogEntriesRemoved { get; set; }
 
-        [JsonPropertyName("log_lines_removed_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
-
-        [JsonPropertyName("log_lines_removed_before_position_by_source")]
-        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
-
         [JsonPropertyName("database_entries_deleted")]
         public int DatabaseEntriesDeleted { get; set; }
+
+        /// <summary>
+        /// URLs whose access.log lines of this service the host removes in its own locked log step.
+        /// </summary>
+        [JsonPropertyName("purge_urls")]
+        public List<string> PurgeUrls { get; set; } = new();
     }
 
     private sealed record RemovalDatasourceContext(

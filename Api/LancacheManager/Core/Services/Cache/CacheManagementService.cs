@@ -1036,15 +1036,6 @@ public partial class CacheManagementService
         // before ProcessStartInfo is handed to the process helper.
         var startInfo = createStartInfo();
 
-        // Per-stem read positions for the purge's exact-subtraction split. A missing file
-        // makes the binary treat every removed line as already read, which over-subtracts
-        // and replays lines the ingestion dedupe discards - the safe fallback direction.
-        var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(execution.Datasource.Name);
-        if (stemPositionsPath != null)
-        {
-            startInfo.Arguments += $" --stem-positions \"{stemPositionsPath}\"";
-        }
-
         var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
             startInfo,
             operationId,
@@ -1067,11 +1058,6 @@ public partial class CacheManagementService
                     await onProgress(progressData);
                 },
             failedProcessDescription);
-
-        if (stemPositionsPath != null)
-        {
-            await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
-        }
 
         _logger.LogInformation(
             "{LogPrefix} Process exit code for datasource '{DatasourceName}': {Code}",
@@ -1107,11 +1093,8 @@ public partial class CacheManagementService
                 result.Error);
         }
 
-        // The report is read BEFORE the exit code is enforced: the removal binaries write it
-        // even on their permission-abort paths, and it carries the purged-line counts the
-        // caller's report handler uses to pull the saved log positions back. Enforcing the
-        // exit code first threw past the read, which left the positions pointing into a log
-        // the purge had already shortened - the skip-unread-lines bug on every failed removal.
+        // The removal binaries write a report on their failure exits too; the exit code is
+        // enforced right after, so an unreadable report on a failed run is only logged.
         TReport? report = default;
         Exception? reportError = null;
         try
@@ -1132,8 +1115,7 @@ public partial class CacheManagementService
             }
 
             _logger.LogWarning(ex,
-                "{LogPrefix} Report unreadable after nonzero exit for datasource '{DatasourceName}'; " +
-                "any log purge this run performed could not adjust the saved log positions",
+                "{LogPrefix} Report unreadable after nonzero exit for datasource '{DatasourceName}'",
                 logPrefix,
                 execution.Datasource.Name);
         }

@@ -43,6 +43,8 @@ public class CorruptionDetectionService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly CacheScanGate _cacheScanGate;
+    private readonly NginxLogRotationService _nginxLogRotationService;
+    private readonly IStateService _stateService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public CorruptionDetectionService(
@@ -56,10 +58,14 @@ public class CorruptionDetectionService
         OperationStateService operationStateService,
         IUnifiedOperationTracker operationTracker,
         DatasourceCapabilityService capabilityService,
-        CacheScanGate cacheScanGate)
+        CacheScanGate cacheScanGate,
+        NginxLogRotationService nginxLogRotationService,
+        IStateService stateService)
     {
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
+        _nginxLogRotationService = nginxLogRotationService;
+        _stateService = stateService;
         _logger = logger;
         _configuration = configuration;
         _pathResolver = pathResolver;
@@ -1707,6 +1713,160 @@ public class CorruptionDetectionService
             },
             cancellationToken);
 
+    /// <summary>
+    /// The removal's evidence for one datasource. It outlives the job, so the repair can redo the
+    /// log step from it.
+    /// </summary>
+    internal static string EvidenceFilePath(string operationsDirectory, Guid operationId, string datasource) =>
+        Path.Combine(operationsDirectory, $"corruption_evidence_{operationId}_{datasource}.json");
+
+    /// <summary>
+    /// One datasource's repeated-miss log step under the Rewrite log lock: `remove-logs` removes
+    /// the evidence's access.log lines and their rows, nginx reopens right after it exits, the
+    /// saved positions come back by the removed lines, and one save keeps the positions with the
+    /// three log counts.
+    /// </summary>
+    internal async Task<CorruptionRemovalCounts> RunCorruptionLogStepAsync(
+        Guid operationId,
+        ResolvedDatasource datasource,
+        string service,
+        string evidenceFilePath,
+        Func<CorruptionRemovalProgressData, Task>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        await using var logLock = await _operationStateService.LockLogFilesAsync(
+            operationId,
+            OperationType.CorruptionRemoval,
+            LogFileLockKind.Rewrite,
+            cancellationToken);
+        var progressFilePath = Path.Combine(
+            _pathResolver.GetOperationsDirectory(),
+            $"corruption_removal_logs_{operationId}_{datasource.Name}.json");
+        string? stemPositionsPath = null;
+        try
+        {
+            // Prepared under the lock, so it binds the log files as they are after any step that ran first.
+            await using var reopenCheck = await _nginxLogRotationService.PrepareReopenCheckAsync(
+                new[] { datasource },
+                NginxLogRotationService.GetAffectedLogPaths(datasource),
+                expectsPublication: true,
+                cancellationToken);
+            _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
+            stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
+
+            // A cancel before this line leaves the log untouched; one after it is finished by the repair.
+            cancellationToken.ThrowIfCancellationRequested();
+            await _operationStateService.MarkLogRewriteStartedAsync(operationId, datasource.Name);
+            RustExecutionResult result;
+            try
+            {
+                result = await _rustProcessHelper.RunCorruptionManagerAsync(
+                    "remove-logs",
+                    datasource.LogPath,
+                    datasource.CachePath,
+                    service: service,
+                    evidenceFile: evidenceFilePath,
+                    progressFile: progressFilePath,
+                    stemPositionsFile: stemPositionsPath,
+                    keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
+                    cancellationToken: cancellationToken,
+                    operationId: operationId,
+                    onProgressEvent: onProgress == null
+                        ? null
+                        : async _ =>
+                        {
+                            var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                            if (progress != null)
+                            {
+                                await onProgress(progress);
+                            }
+                        },
+                    configureProcess: process => NginxLogRotationService.AttachPublicationCheck(reopenCheck, process));
+            }
+            catch (Exception error)
+            {
+                // The child may have replaced a log file before it stopped.
+                var failedReopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                    reopenCheck,
+                    physicalChange: true,
+                    CancellationToken.None);
+                if (!failedReopen.Success)
+                {
+                    throw new AggregateException(error, new IOException(failedReopen.ErrorMessage!));
+                }
+                throw;
+            }
+
+            // nginx reopens before the checkpoint is read, so it stops writing into a replaced file
+            // as early as possible.
+            var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
+                reopenCheck,
+                physicalChange: true,
+                CancellationToken.None);
+            if (!result.Success)
+            {
+                if (!reopenResult.Success)
+                {
+                    throw new AggregateException(
+                        new InvalidOperationException(result.Error),
+                        new IOException(reopenResult.ErrorMessage!));
+                }
+                throw new InvalidOperationException(result.Error);
+            }
+
+            var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+            if (finalProgress is not { Status: "completed", Context: not null })
+            {
+                throw new InvalidDataException(
+                    "Corruption log removal exited without a completed outcome checkpoint");
+            }
+            _stateService.ReduceLogPositionsAfterPurge(
+                datasource.Name,
+                ReadContextStemCounts(finalProgress.Context, "logLinesBeforePositionBySource"),
+                ReadContextStemCounts(finalProgress.Context, "logLinesBySource"));
+            if (!reopenResult.Success)
+            {
+                throw new IOException(reopenResult.ErrorMessage!);
+            }
+
+            var logCounts = new CorruptionRemovalCounts
+            {
+                LogLinesRemoved = ReadContextCount(finalProgress.Context, "logLines"),
+                DownloadsDeleted = ReadContextCount(finalProgress.Context, "downloads"),
+                LogEntriesDeleted = ReadContextCount(finalProgress.Context, "logEntries")
+            };
+            // The log counts are written once, with the kept positions.
+            await _operationStateService.SaveRepairAsync(
+                operationId,
+                repair =>
+                {
+                    var source = repair.Sources.Single(candidate => string.Equals(
+                        candidate.Datasource,
+                        datasource.Name,
+                        StringComparison.OrdinalIgnoreCase));
+                    source.LogPositionsKept = true;
+                    source.CorruptionCounts!.LogLinesRemoved = logCounts.LogLinesRemoved;
+                    source.CorruptionCounts.DownloadsDeleted = logCounts.DownloadsDeleted;
+                    source.CorruptionCounts.LogEntriesDeleted = logCounts.LogEntriesDeleted;
+
+                    var removal = repair.Removal
+                        ?? throw new InvalidDataException(
+                            $"Corruption removal repair {operationId} omitted removal metrics");
+                    removal.LogEntriesRemoved = checked((ulong)AggregateRemovalCounts(repair.Sources).LogEntriesDeleted);
+                },
+                CancellationToken.None);
+            return logCounts;
+        }
+        finally
+        {
+            await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
+            if (stemPositionsPath != null)
+            {
+                await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+            }
+        }
+    }
+
     public Task FinishRepairAsync(
         Guid operationId,
         bool success,
@@ -1854,6 +2014,33 @@ public class CorruptionDetectionService
                 $"Operation repair {repair.Id} is not a corruption removal repair");
         }
 
+        // A log step that started is finished (the dispatch already reset its positions); a crash
+        // or failure after `remove` rolls its log step forward, a cancel leaves the history.
+        var operationsDirectory = _pathResolver.GetOperationsDirectory();
+        if (captured.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
+        {
+            foreach (var source in repair.Sources.Where(source =>
+                         source.LogRewriteStarted && !source.LogPositionsKept
+                         || source.NativeCompletionAccepted
+                             && !source.LogRewriteStarted
+                             && repair.Outcome != OperationStatus.Cancelled))
+            {
+                await RunCorruptionLogStepAsync(
+                    repair.Id,
+                    _datasourceService.GetDatasource(source.Datasource)!,
+                    captured.Service,
+                    EvidenceFilePath(operationsDirectory, repair.Id, source.Datasource),
+                    onProgress: null,
+                    cancellationToken);
+            }
+        }
+        // No source needs its evidence any more.
+        foreach (var source in repair.Sources)
+        {
+            await _rustProcessHelper.DeleteTempFileAsync(
+                EvidenceFilePath(operationsDirectory, repair.Id, source.Datasource));
+        }
+
         var acceptedIds = repair.Sources
             .Where(source => source.NativeCompletionAccepted && source.ApplyCorruptionCandidates)
             .SelectMany(source => source.CorruptionCandidateIds)
@@ -1864,11 +2051,12 @@ public class CorruptionDetectionService
             await ApplyRemovalSuccessAsync(captured, acceptedIds, cancellationToken);
         }
 
-        var counts = AggregateRemovalCounts(repair.Sources);
         await _operationStateService.SaveRepairAsync(
             repair.Id,
             current =>
             {
+                // The stored sources, so the counts a log step redone above wrote are included.
+                var counts = AggregateRemovalCounts(current.Sources);
                 var removal = current.Removal
                     ?? throw new InvalidDataException(
                         $"Corruption removal repair {repair.Id} omitted removal metrics");
@@ -1983,6 +2171,54 @@ public class CorruptionDetectionService
         || counts.AlreadyMissing > 0
         || counts.Healed > 0
         || counts.BytesFreed > 0;
+
+    /// <summary>
+    /// Reads a numeric value out of a Rust progress-checkpoint context, which deserializes
+    /// as JsonElement values inside the object dictionary.
+    /// </summary>
+    internal static long ReadContextCount(Dictionary<string, object?>? context, string key)
+    {
+        if (context == null || !context.TryGetValue(key, out var value) || value == null)
+        {
+            return 0;
+        }
+
+        return value switch
+        {
+            JsonElement je when je.ValueKind == JsonValueKind.Number => je.GetInt64(),
+            long l => l,
+            int i => i,
+            _ => long.TryParse(value.ToString(), out var parsed) ? parsed : 0
+        };
+    }
+
+    /// <summary>
+    /// Reads a per-stem count map (e.g. <c>logLinesBySource</c>) out of a Rust progress-checkpoint
+    /// context. The context round-trips through JSON, so the map arrives as a JsonElement object;
+    /// anything absent or malformed reads as empty, which makes the position adjustment a no-op.
+    /// </summary>
+    internal static Dictionary<string, long> ReadContextStemCounts(
+        Dictionary<string, object?>? context, string key)
+    {
+        var counts = new Dictionary<string, long>();
+        if (context == null || !context.TryGetValue(key, out var value) ||
+            value is not JsonElement element ||
+            element.ValueKind != JsonValueKind.Object)
+        {
+            return counts;
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.Value.ValueKind == JsonValueKind.Number &&
+                property.Value.TryGetInt64(out var removed))
+            {
+                counts[property.Name] = removed;
+            }
+        }
+
+        return counts;
+    }
 
     private Task EmitRemovalTerminalAsync(OperationRepair repair, OperationTerminalInfo terminal)
     {

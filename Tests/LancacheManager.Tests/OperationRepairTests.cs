@@ -3513,14 +3513,20 @@ public sealed class OperationRepairTests : IDisposable
                 NullLogger<CorruptionDetectionService>.Instance,
                 Configuration,
                 Paths,
-                rustProcessHelper: null!,
+                new RustProcessHelper(
+                    NullLogger<RustProcessHelper>.Instance,
+                    new ProcessManager(NullLogger<ProcessManager>.Instance),
+                    Paths,
+                    operationTracker: null!),
                 Notifications,
                 Datasources,
                 CorruptionContexts,
                 Owner,
                 operationTracker: null!,
                 capabilityService: null!,
-                CacheScanGateHarness.Idle()));
+                CacheScanGateHarness.Idle(),
+                nginxLogRotationService: null!,
+                stateService: null!));
             services.AddSingleton<CacheReconciliationService>(resolver => new CountingReconciliation(this, resolver));
         }
 

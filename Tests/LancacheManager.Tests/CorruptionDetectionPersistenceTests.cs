@@ -1498,7 +1498,9 @@ public sealed class CorruptionDetectionPersistenceTests
             operationStateService: null!,
             operationTracker: null!,
             capabilityService: null!,
-            cacheScanGate: CacheScanGateHarness.Idle());
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            nginxLogRotationService: null!,
+            stateService: null!);
 
     private sealed class TestableCorruptionScanHistoryMigration : AddCorruptionScanHistory
     {

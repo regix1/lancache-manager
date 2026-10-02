@@ -1,5 +1,4 @@
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -59,10 +58,6 @@ public partial class CacheManagementService
                 RemovalKind.Service,
                 Service: serviceName.ToLowerInvariant());
             await ValidateRemovalSelectionAsync(removalSelection, cancellationToken);
-            await using var reopenChecks = await _nginxLogRotationService.PrepareReopenChecksAsync(
-                executionPlan.RunnableDatasources.Select(execution => execution.Datasource).ToList(),
-                expectsPublication: true,
-                cancellationToken);
             var aggregatedReport = new ServiceCacheRemovalReport
             {
                 ServiceName = serviceName
@@ -72,26 +67,16 @@ public partial class CacheManagementService
             foreach (var execution in executionPlan.RunnableDatasources)
             {
                 var datasource = execution.Datasource;
-                await using var reopenCheck = reopenChecks.Take(datasource.Name) ??
-                    await _nginxLogRotationService.PrepareReopenCheckAsync(
-                        new[] { datasource },
-                        NginxLogRotationService.GetAffectedLogPaths(datasource),
-                        expectsPublication: true,
-                        cancellationToken);
-                _nginxLogRotationService.ValidateReopenCheck(reopenCheck);
-
-                ServiceCacheRemovalReport dsReport;
-                try
+                if (operationId.HasValue)
                 {
-                    if (operationId.HasValue)
-                    {
-                        await _operationStateService.StartWorkAsync(
-                            operationId.Value,
-                            datasource.Name,
-                            cancellationToken);
-                    }
+                    await _operationStateService.StartWorkAsync(
+                        operationId.Value,
+                        datasource.Name,
+                        cancellationToken);
+                }
 
-                    dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgress, ServiceCacheRemovalReport>(
+                // The binary only deletes cache files; the log lines go in this datasource's log step.
+                var dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgress, ServiceCacheRemovalReport>(
                     "[ServiceRemoval]",
                     execution,
                     () =>
@@ -102,7 +87,6 @@ public partial class CacheManagementService
                         var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
                             $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
-                        NginxLogRotationService.AttachPublicationCheck(reopenCheck, startInfo);
                         _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                             datasource.Name, rustBinaryPath, startInfo.Arguments);
                         return startInfo;
@@ -124,22 +108,14 @@ public partial class CacheManagementService
                     },
                     async result =>
                     {
-                        // The success report JSON is authoritative - only it carries the per-stem
-                        // purge counts the log-position adjustment needs. The stderr parse remains
-                        // as the fallback for a run that died before writing the report.
+                        // The report JSON carries the cache counts and the URLs for the log step; the
+                        // stderr parse is the fallback for a run that died before writing it, whose
+                        // URLs the log step still reads from the rows it deletes.
                         try
                         {
-                            var report = await _rustProcessHelper.ReadOutputJsonAsync<ServiceCacheRemovalReport>(
+                            return await _rustProcessHelper.ReadOutputJsonAsync<ServiceCacheRemovalReport>(
                                 result.OutputJsonPath,
                                 "ServiceRemoval");
-                            // Runs on failed exits too: the binary writes its report on the
-                            // permission-abort path, and the purge behind it already
-                            // shortened the log.
-                            _stateService.ReduceLogPositionsAfterPurge(
-                                datasource.Name,
-                                report.LogLinesRemovedBeforePositionBySource,
-                                report.LogLinesRemovedBySource);
-                            return report;
                         }
                         catch (Exception readEx)
                         {
@@ -155,43 +131,48 @@ public partial class CacheManagementService
                             return report;
                         }
                     });
-                }
-                catch (Exception error)
-                {
-                    await _nginxLogRotationService.InvalidateReopenCheckAsync(reopenCheck, CancellationToken.None);
-                    var reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                        reopenCheck,
-                        physicalChange: true,
-                        CancellationToken.None);
-                    if (!reopen.Success)
-                    {
-                        throw new AggregateException(error, new IOException(reopen.ErrorMessage!));
-                    }
-                    throw;
-                }
 
-                var reopenResult = await _nginxLogRotationService.CompleteReopenCheckAsync(
-                    reopenCheck,
-                    dsReport.LogEntriesRemoved > 0,
-                    cancellationToken);
-                if (!reopenResult.Success)
-                {
-                    throw new IOException(reopenResult.ErrorMessage!);
-                }
+                // Accepted before anything else can throw, so a failure after the cache step rolls
+                // this datasource's log step forward in the repair.
+                await SaveRemovalSourceAsync(
+                    operationId,
+                    datasource.Name,
+                    aggregatedReport.CacheFilesDeleted + dsReport.CacheFilesDeleted,
+                    checked((long)(aggregatedReport.TotalBytesFreed + dsReport.TotalBytesFreed)),
+                    []);
 
                 // Aggregate results from this datasource
                 aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
                 aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
-                aggregatedReport.LogEntriesRemoved += dsReport.LogEntriesRemoved;
                 aggregatedReport.DatabaseEntriesDeleted += dsReport.DatabaseEntriesDeleted;
 
+                if (operationId.HasValue)
+                {
+                    await _operationStateService.StartWorkAsync(
+                        operationId.Value,
+                        datasource: null,
+                        cancellationToken);
+                    aggregatedReport.LogEntriesRemoved += await RunRemovalLogStepAsync(
+                        operationId.Value,
+                        datasource,
+                        removalSelection with { DatasourceNames = [datasource.Name] },
+                        dsReport.PurgeUrls,
+                        async purgeProgress =>
+                        {
+                            if (onProgress != null)
+                            {
+                                await onProgress(
+                                    purgeProgress.PercentComplete,
+                                    "signalr.serviceRemove.logs.removing",
+                                    null,
+                                    aggregatedReport.CacheFilesDeleted,
+                                    checked((long)aggregatedReport.TotalBytesFreed));
+                            }
+                        },
+                        cancellationToken);
+                }
+
                 datasourcesProcessed++;
-                await SaveRemovalSourceAsync(
-                    operationId,
-                    datasource.Name,
-                    aggregatedReport.CacheFilesDeleted,
-                    checked((long)aggregatedReport.TotalBytesFreed),
-                    aggregatedReport.LogEntriesRemoved);
 
                 if (onProgress != null)
                 {
@@ -211,16 +192,6 @@ public partial class CacheManagementService
                 // Clean up progress file for this datasource
                 await _rustProcessHelper.DeleteTempFileAsync(execution.ProgressJsonPath);
             }
-
-            if (operationId.HasValue)
-            {
-                await _operationStateService.StartWorkAsync(
-                    operationId.Value,
-                    datasource: null,
-                    cancellationToken);
-            }
-            var cleanup = await CleanupRemovalAsync(removalSelection, cancellationToken);
-            aggregatedReport.DatabaseEntriesDeleted = cleanup.DownloadsDeleted + cleanup.LogEntriesDeleted;
 
             _logger.LogInformation(
                 "[ServiceRemoval] Completed for service '{Service}': {Processed} datasource(s) processed, {Skipped} skipped. " +
@@ -298,13 +269,6 @@ public partial class CacheManagementService
             report.TotalBytesFreed = unit == "GB"
                 ? (ulong)(bytes * 1_073_741_824.0)
                 : (ulong)(bytes * 1_048_576.0);
-        }
-
-        // Format: "Log entries removed: 456"
-        var logEntriesMatch = System.Text.RegularExpressions.Regex.Match(stderr, @"Log entries removed:\s*(\d+)");
-        if (logEntriesMatch.Success && ulong.TryParse(logEntriesMatch.Groups[1].Value, out var logEntries))
-        {
-            report.LogEntriesRemoved = logEntries;
         }
 
         // Format: "Database entries deleted: 789"

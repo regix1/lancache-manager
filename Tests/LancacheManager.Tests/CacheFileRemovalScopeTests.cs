@@ -31,7 +31,6 @@ public sealed partial class CacheFileRemovalScopeTests
         conflictChecker: null!,
         operationQueue: null!,
         capabilityService: null!,
-        stateService: null!,
         cacheScanGate: CacheScanGateHarness.Idle(),
         cacheSizeScan: null!);
 
