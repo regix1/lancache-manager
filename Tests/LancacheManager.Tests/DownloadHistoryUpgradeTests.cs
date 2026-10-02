@@ -2714,11 +2714,14 @@ public class DownloadHistoryUpgradeTests
         IReadOnlyCollection<Download> rows)
     {
         var name = $"import_{Guid.NewGuid():N}";
+        // CREATE DATABASE waits for a checkpoint. In the full suite that wait was measured at 24.6 s
+        // against Npgsql's 30 s default, so the command gets four times the measured worst case.
         var admin = new NpgsqlConnectionStringBuilder(targetConnection)
         {
             Database = "postgres",
             SearchPath = string.Empty,
-            Pooling = false
+            Pooling = false,
+            CommandTimeout = 120
         };
         await using (var connection = new NpgsqlConnection(admin.ConnectionString))
         {

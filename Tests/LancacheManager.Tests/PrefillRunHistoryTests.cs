@@ -119,11 +119,14 @@ public sealed class PrefillRunHistoryTests
     {
         await using var fixture = await TestDatabase.CreateAsync();
         await using var existing = new AppDbContext(fixture.Options);
+        // MigrateAsync creates this database, and CREATE DATABASE waits for a checkpoint. In the full suite
+        // that wait was measured at 28.4 s against Npgsql's 30 s default, so commands get 120 s.
         var connection = new NpgsqlConnectionStringBuilder(existing.Database.GetConnectionString())
         {
             Database = $"lancache_migration_tests_{Guid.NewGuid():N}",
             SearchPath = "public",
-            Pooling = false
+            Pooling = false,
+            CommandTimeout = 120
         };
         await using var context = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(connection.ConnectionString, options =>
