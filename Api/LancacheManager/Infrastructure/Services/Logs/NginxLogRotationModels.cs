@@ -186,53 +186,6 @@ public sealed class NginxReopenCheck : IAsyncDisposable
     }
 }
 
-public sealed class NginxReopenChecks : IAsyncDisposable
-{
-    private readonly Dictionary<string, NginxReopenCheck?> _checks;
-    private int _disposed;
-
-    internal NginxReopenChecks(IEnumerable<KeyValuePair<string, NginxReopenCheck>> checks)
-    {
-        _checks = checks.ToDictionary(pair => pair.Key, pair => (NginxReopenCheck?)pair.Value,
-            StringComparer.OrdinalIgnoreCase);
-    }
-
-    public NginxReopenCheck? Take(string datasourceName)
-    {
-        if (!_checks.TryGetValue(datasourceName, out var check))
-        {
-            throw new KeyNotFoundException($"Datasource '{datasourceName}' was not selected for log publication");
-        }
-        _checks[datasourceName] = null;
-        return check;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-        {
-            return;
-        }
-
-        Exception? cleanupError = null;
-        foreach (var check in _checks.Values.Where(check => check is not null))
-        {
-            try
-            {
-                await check!.DisposeAsync();
-            }
-            catch (Exception error)
-            {
-                cleanupError ??= error;
-            }
-        }
-        if (cleanupError is not null)
-        {
-            throw cleanupError;
-        }
-    }
-}
-
 /// <summary>
 /// Current nginx reopen availability and the applicable remedy when unavailable.
 /// </summary>

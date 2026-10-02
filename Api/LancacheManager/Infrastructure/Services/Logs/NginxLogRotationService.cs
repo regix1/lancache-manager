@@ -514,35 +514,6 @@ public class NginxLogRotationService
         }
     }
 
-    public async Task<NginxReopenChecks> PrepareReopenChecksAsync(
-        IReadOnlyList<ResolvedDatasource> datasources,
-        bool expectsPublication,
-        CancellationToken cancellationToken = default)
-    {
-        var prepared = new List<KeyValuePair<string, NginxReopenCheck>>();
-        try
-        {
-            foreach (var datasource in datasources)
-            {
-                var check = await PrepareReopenCheckAsync(
-                    new[] { datasource },
-                    GetAffectedLogPaths(datasource),
-                    expectsPublication,
-                    cancellationToken);
-                prepared.Add(KeyValuePair.Create(datasource.Name, check));
-            }
-            return new NginxReopenChecks(prepared);
-        }
-        catch
-        {
-            foreach (var pair in prepared)
-            {
-                await pair.Value.DisposeAsync();
-            }
-            throw;
-        }
-    }
-
     public void ValidateReopenCheck(NginxReopenCheck check)
     {
         foreach (var proof in check.Proofs)
