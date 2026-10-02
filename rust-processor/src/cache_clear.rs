@@ -74,6 +74,11 @@ struct ProgressData {
     #[serde(rename = "activeCount")]
     active_count: usize,
     timestamp: String,
+    /// Files the clear could not delete; it cleared everything else.
+    undeleted_files: u64,
+    /// The first file the clear could not delete; none when it deleted everything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_undeleted: Option<String>,
 }
 
 impl ProgressData {
@@ -104,6 +109,8 @@ impl ProgressData {
             active_directories,
             active_count,
             timestamp: progress_utils::current_timestamp(),
+            undeleted_files: 0,
+            first_undeleted: None,
         }
     }
 }
@@ -140,6 +147,29 @@ fn delete_directory_contents(
     )
 }
 
+/// Cache files one folder's clear could not delete. The rest of the folder is still cleared, so the
+/// clear completes and names them instead of failing.
+#[derive(Debug)]
+struct UndeletedFiles {
+    count: u64,
+    first_path: std::path::PathBuf,
+    first_error: io::Error,
+}
+
+impl std::fmt::Display for UndeletedFiles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} cache file(s) could not be deleted: failed to delete cache file {}: {}",
+            self.count,
+            self.first_path.display(),
+            self.first_error
+        )
+    }
+}
+
+impl std::error::Error for UndeletedFiles {}
+
 fn delete_directory_contents_with<I, F, D>(
     dir_path: &Path,
     files_counter: &AtomicU64,
@@ -172,7 +202,7 @@ where
         inspect: &I,
         remove_file: &F,
         remove_dir: &D,
-        failed_deletes: &mut Option<(u64, anyhow::Error)>,
+        failed_deletes: &mut Option<UndeletedFiles>,
     ) -> Result<()>
     where
         I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
@@ -257,19 +287,16 @@ where
                     Err(error) if error.kind() == ErrorKind::NotFound => {}
                     // One file that cannot be deleted must not leave the rest of the cache in
                     // place; the count and the first failure are reported once at the end.
-                    Err(error) => {
-                        failed_deletes
-                            .get_or_insert_with(|| {
-                                (
-                                    0,
-                                    anyhow::Error::new(error).context(format!(
-                                        "failed to delete cache file {}",
-                                        path.display()
-                                    )),
-                                )
-                            })
-                            .0 += 1;
-                    }
+                    Err(error) => match failed_deletes {
+                        Some(failed) => failed.count += 1,
+                        None => {
+                            *failed_deletes = Some(UndeletedFiles {
+                                count: 1,
+                                first_path: path.clone(),
+                                first_error: error,
+                            });
+                        }
+                    },
                 }
             }
         }
@@ -288,11 +315,8 @@ where
         &mut failed_deletes,
     )?;
 
-    if let Some((count, first_failure)) = failed_deletes {
-        return Err(first_failure.context(format!(
-            "{count} cache file(s) could not be deleted under {}",
-            root.display()
-        )));
+    if let Some(failed) = failed_deletes {
+        return Err(failed.into());
     }
     Ok(())
 }
@@ -859,11 +883,16 @@ where
                 .retain(|d| d != &dir_name_str);
 
             if let Err(error) = result {
+                // A folder that only left files it could not delete is still cleared; it counts as
+                // processed and its files are named at the end.
+                let undeleted = error.is::<UndeletedFiles>();
                 failures
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .push(error);
-                return;
+                if !undeleted {
+                    return;
+                }
             }
             let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
             eprintln!(
@@ -876,8 +905,22 @@ where
     let failures = failures
         .into_inner()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let failed_dirs = failures.len();
-    let deletion_result = match failures.into_iter().next() {
+    // Files a folder could not delete leave the rest of the cache cleared, so the clear completes
+    // and names them; any other failure left a folder uncleared and fails the clear.
+    let mut undeleted_files = 0_u64;
+    let mut first_undeleted = None;
+    let mut other_failures = Vec::new();
+    for failure in failures {
+        match failure.downcast::<UndeletedFiles>() {
+            Ok(undeleted) => {
+                undeleted_files += undeleted.count;
+                first_undeleted.get_or_insert_with(|| undeleted.first_path.display().to_string());
+            }
+            Err(failure) => other_failures.push(failure),
+        }
+    }
+    let failed_dirs = other_failures.len();
+    let deletion_result = match other_failures.into_iter().next() {
         Some(first_failure) => Err(first_failure.context(format!(
             "{failed_dirs} of {total_dirs} cache directories could not be fully cleared"
         ))),
@@ -968,9 +1011,12 @@ where
         final_bytes as f64 / 1_073_741_824.0
     );
     eprintln!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    if undeleted_files > 0 {
+        eprintln!("  Files that could not be deleted: {}", undeleted_files);
+    }
 
     // Final progress
-    let progress = ProgressData::new(
+    let mut progress = ProgressData::new(
         false,
         100.0,
         "completed".to_string(),
@@ -982,6 +1028,8 @@ where
         final_files,
         Vec::new(),
     );
+    progress.undeleted_files = undeleted_files;
+    progress.first_undeleted = first_undeleted;
     write_progress(progress_path, &progress)?;
 
     Ok((final_dirs, total_dirs))
@@ -1228,6 +1276,12 @@ mod tests {
             .filter_map(|(path, length)| (!path.exists()).then_some(length))
             .sum::<u64>();
         let message = format!("{error:#}");
+        assert_eq!(
+            error
+                .downcast_ref::<UndeletedFiles>()
+                .map(|failed| failed.count),
+            Some(1)
+        );
         assert!(message.contains("1 cache file(s) could not be deleted"));
         assert!(message.contains("failed to delete cache file"));
         assert_eq!(files.load(Ordering::SeqCst), 1);
@@ -1273,12 +1327,41 @@ mod tests {
 
         let failed_path = failed_path.into_inner().unwrap();
         let message = format!("{error:#}");
+        assert_eq!(
+            error
+                .downcast_ref::<UndeletedFiles>()
+                .map(|failed| failed.count),
+            Some(1)
+        );
         assert!(failed_path.exists());
         assert_eq!(paths.iter().filter(|path| path.exists()).count(), 1);
         assert_eq!(files.load(Ordering::SeqCst), 2);
         assert_eq!(bytes.load(Ordering::SeqCst), 10);
         assert!(message.contains("1 cache file(s) could not be deleted"));
         assert!(message.contains(&failed_path.display().to_string()));
+    }
+
+    #[test]
+    fn the_final_progress_names_the_files_a_clear_could_not_delete() {
+        let mut progress = ProgressData::new(
+            false,
+            100.0,
+            "completed".to_string(),
+            "signalr.cacheClear.progress".to_string(),
+            json!({ "processed": 1, "totalDirs": 1, "activeCount": 0 }),
+            1,
+            1,
+            0,
+            0,
+            Vec::new(),
+        );
+        progress.undeleted_files = 2;
+        progress.first_undeleted = Some("/cache/00/ab/first".to_string());
+
+        let value = serde_json::to_value(&progress).unwrap();
+
+        assert_eq!(value["undeletedFiles"], 2);
+        assert_eq!(value["firstUndeleted"], "/cache/00/ab/first");
     }
 
     #[cfg(unix)]
