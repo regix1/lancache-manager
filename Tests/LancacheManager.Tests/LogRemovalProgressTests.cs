@@ -338,6 +338,22 @@ public class LogRemovalProgressTests
         Assert.Equal((1, 3L), (repair.LogRemoval!.FilesProcessed, repair.LogRemoval.LinesProcessed));
     }
 
+    [Fact]
+    public async Task LogRemoval_AFailedChildNamesTheServiceAndDatasourceAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        harness.Rust.ExitCode = 1;
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.False(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Failed, ended.Status);
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal("Failed to remove steam entries from default (exit code 1)", repair.Error);
+    }
+
     /// <summary>
     /// A per-datasource log removal against a real repair owner, log lock and nginx reopen check,
     /// with a recording child in place of log_service_manager.
@@ -494,6 +510,9 @@ public class LogRemovalProgressTests
         /// <summary>The first this many launches run until the cancel and write nothing, as a killed child does.</summary>
         public int HeldLaunches { get; set; }
 
+        /// <summary>The exit code each launch returns.</summary>
+        public int ExitCode { get; set; }
+
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
             Guid? operationId,
@@ -525,7 +544,29 @@ public class LogRemovalProgressTests
                     LinesProcessed = 3
                 }),
                 cancellationToken);
-            return new ProcessExecutionResult { ExitCode = 0 };
+            if (ExitCode != 0)
+            {
+                // A child that exits nonzero still reports the log identities it left unchanged.
+                var check = JsonSerializer.Deserialize<NginxPublicationCheckFile>(
+                    await File.ReadAllTextAsync(start.Environment["LANCACHE_LOG_CHECK"]!, cancellationToken),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                await File.WriteAllTextAsync(
+                    start.Environment["LANCACHE_LOG_RESULT"]!,
+                    JsonSerializer.Serialize(
+                        new NginxPublicationResult(
+                            check.Valid,
+                            check.Files.Select(file => new NginxPublicationRecord(
+                                file.TargetPath,
+                                file.OriginalIdentity,
+                                null,
+                                file.OriginalIdentity,
+                                Changed: false,
+                                Deleted: false)).ToList()),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                    cancellationToken);
+            }
+
+            return new ProcessExecutionResult { ExitCode = ExitCode };
         }
     }
 

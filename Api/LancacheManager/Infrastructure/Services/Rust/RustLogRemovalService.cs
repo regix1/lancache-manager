@@ -585,7 +585,7 @@ public class RustLogRemovalService
 
                     _logger.LogError("Log removal failed for {Service} in datasource {Datasource} with exit code {ExitCode}",
                         service, datasourceName, exitCode);
-                    completionError = $"Exit code {exitCode}";
+                    completionError = $"Failed to remove {service} entries from {datasourceName} (exit code {exitCode})";
                     return false;
                 }
             }, cancellationToken);
