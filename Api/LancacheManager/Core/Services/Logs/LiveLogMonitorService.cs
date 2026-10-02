@@ -116,10 +116,20 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 ds.RefreshLogSources();
                 foreach (var filePath in ds.LogFilePaths)
                 {
-                    var fileInfo = new FileInfo(filePath);
-                    _lastFileSizes[WatermarkKey(ds.Name, Path.GetFileName(filePath))] = fileInfo.Length;
+                    long size;
+                    try
+                    {
+                        size = new FileInfo(filePath).Length;
+                    }
+                    catch (IOException)
+                    {
+                        // logrotate renamed or removed the file since the listing; the main loop reads its
+                        // size on its first tick, and the seed below still counts the whole series.
+                        continue;
+                    }
+                    _lastFileSizes[WatermarkKey(ds.Name, Path.GetFileName(filePath))] = size;
                     _logger.LogInformation("Datasource '{Name}': Initial {Stem} size: {Size:N0} bytes",
-                        ds.Name, Path.GetFileName(filePath), fileInfo.Length);
+                        ds.Name, Path.GetFileName(filePath), size);
                 }
 
                 // Only a datasource still pending from the install's first start is set to the end of its
