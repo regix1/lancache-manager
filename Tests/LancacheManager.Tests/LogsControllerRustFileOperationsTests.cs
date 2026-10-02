@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using LancacheManager.Controllers;
@@ -415,6 +416,32 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
+    public async Task DeleteLogFile_AbortedRequestStillResetsThePositionsAsync()
+    {
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "sixsix");
+        fixture.State.SetLogPosition("alpha", 9);
+        fixture.State.SetLogTotalLines("alpha", 9);
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            var bytes = new FileInfo(path).Length;
+            File.Delete(path);
+            return Task.FromResult(new LogFileDeletionResult(bytes));
+        };
+        using var request = new CancellationTokenSource();
+
+        var delete = fixture.Controller.DeleteLogFileAsync("alpha", request.Token);
+        await nginx!.ReopenReached.Task.WaitAsync(_wait);
+        await request.CancelAsync();
+        nginx.ReleaseReopen.SetResult();
+
+        Assert.IsType<OkObjectResult>(await delete.WaitAsync(_wait));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
+    }
+
+    [Fact]
     public async Task DeleteLogFile_WaitsForAStepThenHoldsTheLogsWhileDeletingAsync()
     {
         using var fixture = new ControllerFixture();
@@ -493,7 +520,7 @@ public sealed class LogsControllerRustFileOperationsTests
         private readonly ServiceProvider _services;
         private readonly OperationStateService _repairOwner;
 
-        public ControllerFixture()
+        public ControllerFixture(Func<IPathResolver, NginxLogRotationService>? nginx = null)
         {
             _root = Path.Combine(Path.GetTempPath(), $"logs-controller-rust-{Guid.NewGuid():N}");
             Directory.CreateDirectory(_root);
@@ -563,7 +590,7 @@ public sealed class LogsControllerRustFileOperationsTests
                 RustHelper,
                 Datasources,
                 Tracker);
-            var nginxRotation = new NginxLogRotationService(
+            var nginxRotation = nginx?.Invoke(pathResolver) ?? new NginxLogRotationService(
                 NullLogger<NginxLogRotationService>.Instance,
                 configuration,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -679,6 +706,44 @@ public sealed class LogsControllerRustFileOperationsTests
         {
             DeleteRequests.Add(filePath);
             return DeleteHandler(filePath, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// One host nginx writer over the test logs. Its reopen completes <see cref="ReopenReached"/>
+    /// and then waits for <see cref="ReleaseReopen"/>.
+    /// </summary>
+    private sealed class ReopenWaitingNginx : NginxLogRotationService
+    {
+        public ReopenWaitingNginx(IPathResolver pathResolver)
+            : base(
+                NullLogger<NginxLogRotationService>.Instance,
+                new ConfigurationBuilder().Build(),
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                pathResolver)
+        {
+        }
+
+        public TaskCompletionSource ReopenReached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseReopen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override bool CanProbeHostWriters => true;
+
+        protected override async Task<ProcessCommandResult> RunProcessAsync(
+            ProcessStartInfo start,
+            string label,
+            CancellationToken cancellationToken = default)
+        {
+            switch (label)
+            {
+                case "host nginx writer identity":
+                    return new ProcessCommandResult { ExitCode = 0, Output = "4242|waiting\n" };
+                case "host nginx verified reopen":
+                    ReopenReached.SetResult();
+                    await ReleaseReopen.Task.WaitAsync(cancellationToken);
+                    return new ProcessCommandResult { ExitCode = 0 };
+                default:
+                    throw new InvalidOperationException($"Unexpected nginx command: {label}");
+            }
         }
     }
 
