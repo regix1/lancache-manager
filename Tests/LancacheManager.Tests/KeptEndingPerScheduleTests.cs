@@ -465,6 +465,34 @@ public sealed class KeptEndingPerScheduleTests
         Assert.Contains(SentRows(recorder), row => row.OperationId == first.Id && row.Closed);
     }
 
+    // The case above calls the handler itself; here the registry's own subscription to the tracker
+    // must carry the ended repair to it, so the card closes with no call from the test.
+    [Fact]
+    public async Task AnEndedRepairClosesItsReplacedCardThroughTheTrackerEventAsync()
+    {
+        var (tracker, _, handle) = Create(detachBlockerCleared: false);
+        var first = Fail(tracker);
+        handle(first);
+        tracker.BeginRepair(first.Id);
+
+        var second = Fail(tracker);
+        handle(second);
+
+        var repairing = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == first.Id);
+        Assert.False(repairing.Closed);
+        Assert.True(repairing.Repairing);
+
+        tracker.EndRepair(first.Id, null);
+
+        // The tracker raises the event off the caller's stack.
+        for (var attempt = 0; attempt < 100 && tracker.GetRuns().Runs.Any(run => run.OperationId == first.Id && !run.Closed); attempt++)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.DoesNotContain(tracker.GetRuns().Runs, run => run.OperationId == first.Id && !run.Closed);
+    }
+
     private static IEnumerable<int[]> Orders(int count)
     {
         if (count == 0)
@@ -484,10 +512,11 @@ public sealed class KeptEndingPerScheduleTests
 
     /// <summary>
     /// A registry over a tracker that records every row it sends, with the registry's terminal and
-    /// blocker-cleared handlers detached so each test calls them in the order it names.
+    /// blocker-cleared handlers detached so each test calls them in the order it names. A test that
+    /// keeps the blocker-cleared handler attached gets it through the tracker's event instead.
     /// </summary>
     private static (UnifiedOperationTracker Tracker, RecordingNotificationProxy Recorder, Action<OperationInfo> Handle) Create(
-        CacheScanGate? gate = null)
+        CacheScanGate? gate = null, bool detachBlockerCleared = true)
     {
         var recorder = (RecordingNotificationProxy)(object)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -512,7 +541,10 @@ public sealed class KeptEndingPerScheduleTests
 
         var handle = (Action<OperationInfo>)Delegate.CreateDelegate(typeof(Action<OperationInfo>), schedules, TerminalHandler);
         tracker.OperationTerminal -= handle;
-        tracker.BlockerCleared -= (Action)Delegate.CreateDelegate(typeof(Action), schedules, BlockerClearedHandler);
+        if (detachBlockerCleared)
+        {
+            tracker.BlockerCleared -= (Action)Delegate.CreateDelegate(typeof(Action), schedules, BlockerClearedHandler);
+        }
         return (tracker, recorder, handle);
     }
 
