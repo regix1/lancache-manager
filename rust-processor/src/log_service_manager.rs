@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tempfile::NamedTempFile;
 
@@ -16,6 +16,7 @@ use lancache_processor::log_discovery;
 use lancache_processor::log_layout;
 use lancache_processor::log_purge;
 use lancache_processor::log_reader;
+use lancache_processor::log_resume;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
 use lancache_processor::service_utils::line_matches_service;
@@ -26,6 +27,12 @@ use log_discovery::{discover_log_files, LogFile};
 use log_layout::{discover_log_sources, kind_for_stem, LogSource, SourceKind};
 use log_reader::LogFileReader;
 use progress_events::ProgressReporter;
+
+#[derive(Serialize, Clone)]
+struct StaleReadRecords {
+    position: u64,
+    records: u64,
+}
 
 #[derive(Serialize, Clone)]
 struct ProgressData {
@@ -43,6 +50,14 @@ struct ProgressData {
     /// The host uses these to seed per-stem positions on reset-to-end.
     #[serde(skip_serializing_if = "Option::is_none")]
     source_line_counts: Option<HashMap<String, u64>>,
+    /// Complete-record counts per file name (count-lines only). A log delete keeps the read lines of
+    /// the files it leaves, so it needs them per file, not per series.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_line_counts: Option<HashMap<String, u64>>,
+    /// Per stem with an importer resume record (count-lines with --resume only): the saved position
+    /// that record belongs to and the read records in it whose files logrotate removed since.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stale_read_records: Option<HashMap<String, StaleReadRecords>>,
     /// Lines in the fallback-access.log series. Reported separately, never as a service.
     #[serde(skip_serializing_if = "Option::is_none")]
     fallback_lines: Option<u64>,
@@ -93,6 +108,8 @@ impl ProgressData {
             bytes_deleted: 0,
             service_counts,
             source_line_counts: None,
+            file_line_counts: None,
+            stale_read_records: None,
             lines_removed_by_stem: None,
             lines_removed_before_position_by_stem: None,
             fallback_lines: None,
@@ -115,6 +132,16 @@ impl ProgressData {
 
     fn with_source_line_counts(mut self, counts: HashMap<String, u64>) -> Self {
         self.source_line_counts = Some(counts);
+        self
+    }
+
+    fn with_file_line_counts(mut self, counts: HashMap<String, u64>) -> Self {
+        self.file_line_counts = Some(counts);
+        self
+    }
+
+    fn with_stale_read_records(mut self, stale: HashMap<String, StaleReadRecords>) -> Self {
+        self.stale_read_records = Some(stale);
         self
     }
 
@@ -447,6 +474,7 @@ fn source_counts_through_current(
     counts
 }
 
+#[cfg(test)]
 fn count_log_lines<F>(
     log_path: &str,
     progress_path: &Path,
@@ -464,6 +492,7 @@ where
         datasource_name,
         is_cancelled,
         count_complete_records_in_file,
+        None,
     )
 }
 
@@ -474,6 +503,7 @@ fn count_log_lines_with<F, C>(
     datasource_name: Option<&str>,
     is_cancelled: F,
     count_file: C,
+    resume_path: Option<&Path>,
 ) -> Result<LineCountOutcome>
 where
     F: Fn() -> bool,
@@ -511,6 +541,8 @@ where
             datasource_name.map(str::to_string),
         )
         .with_source_line_counts(HashMap::new())
+        .with_file_line_counts(HashMap::new())
+        .with_stale_read_records(HashMap::new())
         .with_stage_key("signalr.logService.complete");
         write_progress(progress_path, reporter, &progress)?;
 
@@ -535,6 +567,27 @@ where
     let mut bytes_processed = 0u64;
     let mut last_progress_update = Instant::now();
     let mut source_line_counts: HashMap<String, u64> = HashMap::new();
+    let mut file_line_counts: HashMap<String, u64> = HashMap::new();
+    let mut stale_read_records: HashMap<String, StaleReadRecords> = HashMap::new();
+    if let Some(resume_path) = resume_path {
+        let resume = log_resume::load(resume_path);
+        for source in &sources {
+            if let Some(entry) = resume.stems.get(&source.stem) {
+                let paths: Vec<PathBuf> = source
+                    .files
+                    .iter()
+                    .map(|log_file| log_file.path.clone())
+                    .collect();
+                stale_read_records.insert(
+                    source.stem.clone(),
+                    StaleReadRecords {
+                        position: entry.position,
+                        records: log_resume::deleted_prefix_records(entry, &paths),
+                    },
+                );
+            }
+        }
+    }
 
     for source in &sources {
         let mut source_lines = 0u64;
@@ -610,6 +663,15 @@ where
             }
 
             files_processed += 1;
+            file_line_counts.insert(
+                log_file
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                count.lines,
+            );
             if let Some(problem) = count.problem {
                 files_with_errors += 1;
                 eprintln!(
@@ -639,6 +701,8 @@ where
         datasource_name.map(str::to_string),
     )
     .with_source_line_counts(source_line_counts.clone())
+    .with_file_line_counts(file_line_counts)
+    .with_stale_read_records(stale_read_records)
     .with_files_with_errors(files_with_errors)
     .with_stage_key("signalr.logService.complete");
     write_progress(progress_path, reporter, &progress)?;
@@ -722,6 +786,29 @@ where
             })?;
             bytes_deleted += size;
             files_deleted += 1;
+
+            // logrotate's half-written compressed copy of a plain rotation is hidden by discovery
+            // while the plain file exists, and would outlive the delete with the same lines.
+            if log_file.rotation_number.is_some() && !log_file.is_compressed {
+                for extension in ["gz", "zst"] {
+                    let mut twin = log_file.path.clone().into_os_string();
+                    twin.push(format!(".{extension}"));
+                    let twin = PathBuf::from(twin);
+                    let size = fs::metadata(&twin).map(|m| m.len()).unwrap_or(0);
+                    match fs::remove_file(&twin) {
+                        Ok(()) => {
+                            bytes_deleted += size;
+                            files_deleted += 1;
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(error) => {
+                            return Err(error).with_context(|| {
+                                format!("Failed to delete log file: {}", twin.display())
+                            })
+                        }
+                    }
+                }
+            }
         }
 
         let progress = ProgressData::new(
@@ -1737,6 +1824,7 @@ fn run(
     args: &[String],
     reporter: &ProgressReporter,
     stem_positions: Option<&HashMap<String, u64>>,
+    resume_path: Option<&Path>,
 ) -> Result<()> {
     if args.len() < 4 {
         eprintln!("Usage:");
@@ -1744,7 +1832,7 @@ fn run(
             "  log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]"
         );
         eprintln!(
-            "  log_manager count-lines <log_path_or_directory> <progress_json_path> [datasource_name]"
+            "  log_manager count-lines <log_path_or_directory> <progress_json_path> [datasource_name] [--resume <resume_json_path>]"
         );
         eprintln!(
             "  log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]"
@@ -1813,7 +1901,7 @@ fn run(
         "count-lines" => {
             if args.len() < 4 || args.len() > 5 {
                 eprintln!(
-                    "Usage: log_manager count-lines <log_path_or_directory> <progress_json_path> [datasource_name]"
+                    "Usage: log_manager count-lines <log_path_or_directory> <progress_json_path> [datasource_name] [--resume <resume_json_path>]"
                 );
                 anyhow::bail!("invalid arguments for count-lines");
             }
@@ -1838,12 +1926,14 @@ fn run(
                 serde_json::json!({ "datasourceName": datasource_name }),
             );
 
-            if let Err(error) = count_log_lines(
+            if let Err(error) = count_log_lines_with(
                 log_path,
                 progress_path,
                 reporter,
                 datasource_name,
                 cancel::is_cancelled,
+                count_complete_records_in_file,
+                resume_path,
             ) {
                 let error = error.context("Line counting failed");
                 write_error_progress(progress_path, format!("{error:#}"), datasource_name);
@@ -2021,6 +2111,18 @@ fn main() -> anyhow::Result<()> {
         } else {
             None
         };
+    let resume_path: Option<PathBuf> =
+        if let Some(position) = args.iter().position(|arg| arg == "--resume") {
+            args.remove(position);
+            if position < args.len() {
+                Some(PathBuf::from(args.remove(position)))
+            } else {
+                eprintln!("Warning: --resume given without a path; ignoring");
+                None
+            }
+        } else {
+            None
+        };
     let reporter = ProgressReporter::new(progress_enabled);
     let failure_stage_key = match args.get(1).map(String::as_str) {
         Some("remove") => "signalr.logRemoval.error.fatal",
@@ -2030,7 +2132,12 @@ fn main() -> anyhow::Result<()> {
     };
 
     progress_events::run_or_exit(&reporter, failure_stage_key, || {
-        run(&args, &reporter, stem_positions.as_ref())
+        run(
+            &args,
+            &reporter,
+            stem_positions.as_ref(),
+            resume_path.as_deref(),
+        )
     });
     Ok(())
 }
@@ -2163,6 +2270,81 @@ mod tests {
         assert_eq!(progress["files_processed"], 4);
         assert_eq!(progress["source_line_counts"]["access.log"], 5);
         assert!(progress.get("service_counts").is_none());
+    }
+
+    #[test]
+    fn count_log_lines_reports_lines_per_file() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("access.log.1"), b"a\nb\n").expect("write rotated log");
+        fs::write(directory.path().join("access.log"), b"c\n").expect("write current log");
+        let progress_path = directory.path().join("progress.json");
+
+        count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+        )
+        .expect("count lines");
+
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["file_line_counts"]["access.log.1"], 2);
+        assert_eq!(progress["file_line_counts"]["access.log"], 1);
+        assert_eq!(
+            progress["file_line_counts"].as_object().map(|m| m.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn count_log_lines_reports_read_records_of_removed_files() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let oldest = directory.path().join("access.log.2");
+        let rotated = directory.path().join("access.log.1");
+        let current = directory.path().join("access.log");
+        fs::write(&oldest, b"1\n2\n3\n").expect("write oldest rotation");
+        fs::write(&rotated, b"4\n5\n").expect("write rotation");
+        fs::write(&current, b"6\n").expect("write current log");
+        let mark = |path: &Path, records: u64| log_resume::FileMark {
+            identity: log_purge::file_identity(path).expect("read identity"),
+            len: fs::metadata(path).expect("read length").len(),
+            records,
+            offset: None,
+            tail_crc: None,
+        };
+        let current_length = fs::metadata(&current).expect("read length").len();
+        let mut resume = log_resume::ResumeFile::default();
+        resume.stems.insert(
+            "access.log".to_string(),
+            log_resume::StemResume {
+                position: 6,
+                older_files: vec![mark(&oldest, 3), mark(&rotated, 2)],
+                file_identity: log_purge::file_identity(&current).expect("read identity"),
+                offset: current_length,
+                file_records: 1,
+                tail_crc: log_resume::tail_crc(&current, current_length).expect("hash tail"),
+            },
+        );
+        let resume_path = directory.path().join("resume.json");
+        log_resume::save(&resume_path, &resume).expect("save resume record");
+        fs::remove_file(&oldest).expect("remove the oldest rotation");
+        let progress_path = directory.path().join("progress.json");
+
+        count_log_lines_with(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &ProgressReporter::new(false),
+            None,
+            || false,
+            count_complete_records_in_file,
+            Some(&resume_path),
+        )
+        .expect("count lines");
+
+        let stale = &read_progress(&progress_path)["stale_read_records"]["access.log"];
+        assert_eq!(stale["position"], 6);
+        assert_eq!(stale["records"], 3);
     }
 
     #[test]
@@ -2345,6 +2527,7 @@ mod tests {
                     count_complete_records_in_file(path, bytes_processed, is_cancelled, tick)
                 }
             },
+            None,
         )
         .expect("count after rotated read failure");
 
@@ -2374,6 +2557,7 @@ mod tests {
                     count_complete_records_in_file(path, bytes_processed, is_cancelled, tick)
                 }
             },
+            None,
         )
         .expect("count current read failure");
 
@@ -2608,6 +2792,28 @@ mod tests {
         assert!(result.cancelled);
         assert!(!directory.path().join("steam-access.log").exists());
         assert!(directory.path().join("steam-access.log.1").exists());
+    }
+
+    #[test]
+    fn delete_log_file_directory_removes_a_compressed_twin() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("steam-access.log"), b"3\n").expect("write");
+        fs::write(directory.path().join("steam-access.log.1"), b"2\n").expect("write");
+        fs::write(
+            directory.path().join("steam-access.log.1.gz"),
+            b"half-written",
+        )
+        .expect("write");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let result = delete_log_file(directory.path(), &progress_path, &reporter, None, || false)
+            .expect("delete all log files");
+
+        assert!(!result.cancelled);
+        assert!(!directory.path().join("steam-access.log").exists());
+        assert!(!directory.path().join("steam-access.log.1").exists());
+        assert!(!directory.path().join("steam-access.log.1.gz").exists());
     }
 
     #[test]
