@@ -297,6 +297,7 @@ where
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn checked_file_totals<I>(dir_path: &Path, inspect: &I) -> Result<(u64, u64)>
 where
     I: Fn(&fs::DirEntry) -> io::Result<(fs::FileType, u64)>,
