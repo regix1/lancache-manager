@@ -628,7 +628,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             or OperationType.CorruptionRemoval
             or OperationType.EvictionRemoval;
 
-    private static bool IsGlobal(OperationType type) =>
+    internal static bool IsGlobal(OperationType type) =>
         type is OperationType.DatabaseReset
             or OperationType.CacheClearing
             or OperationType.DownloadHistoryUpgrade;

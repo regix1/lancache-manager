@@ -18,8 +18,8 @@ public partial class OperationStateService
     // A repair program that prints no progress and uses no CPU time is blocked on one call. Every
     // database statement the app runs is bounded at 30 minutes (CacheManagementService.Removal.cs)
     // except the download history upgrade's index rebuild (DownloadHistoryUpgradeService.cs), which
-    // cannot overlap a repair: a pending repair keeps the upgrade queued. Log rewrites and cache
-    // walks use CPU, so they never look silent.
+    // cannot overlap a repair: a pending repair keeps the upgrade queued, and a retried repair waits
+    // for a running one. Log rewrites and cache walks use CPU, so they never look silent.
     private readonly TimeSpan _repairSilenceLimit = TimeSpan.FromMinutes(30);
 
     private readonly IServiceScopeFactory _scopes;
@@ -916,17 +916,30 @@ public partial class OperationStateService
             await _admissionGate.WaitAsync(stoppingToken);
             try
             {
+                // A retried repair skips job admission, and a failed-out repair let queued jobs start,
+                // so it waits here for a running global job (a history upgrade or database reset) the
+                // way a new job waits for one. A cache clear is ordered by its own repair record
+                // instead: while it runs, the check below holds this wait, and before it starts work it
+                // waits for this repair, so also waiting for its row would leave the two waiting on
+                // each other.
+                var globalRunning = _operationTracker.GetActiveOperations(null)
+                    .Any(operation => OperationConflictChecker.IsGlobal(operation.Type)
+                        && !_repairs.ContainsKey(operation.Id));
                 // A force-stopped job may still be finishing its own writes, so its repair waits for
                 // the job's FinishRepairAsync. A running log pass never holds a repair back: the log
                 // file lock keeps the repair's log steps apart from it.
-                if (!_forceStoppedOwners.ContainsKey(operationId)
+                if (!globalRunning
+                    && !_forceStoppedOwners.ContainsKey(operationId)
                     && !_repairs.Values.Any(repair => repair.Id != operationId
                         && repair.Phase == OperationRepairPhase.Running
                         && repair.Type != OperationType.LogProcessing))
                 {
                     return;
                 }
-                workChanged = _workChanged.Task;
+                // A global job that ends signals no repair work, so the wait looks again each second.
+                workChanged = globalRunning
+                    ? Task.WhenAny(_workChanged.Task, Task.Delay(TimeSpan.FromSeconds(1), stoppingToken))
+                    : _workChanged.Task;
             }
             finally
             {
@@ -1918,8 +1931,20 @@ public partial class OperationStateService
             // failed changed the counts the Log Removal panel shows.
             if (launchedSources.Any(source => source.ResetLogPositions))
             {
-                await services.GetRequiredService<CacheManagementService>()
-                    .InvalidateServiceCountsAsync();
+                // The count program recounts once a log file is newer than its saved counts, so failing
+                // to clear them must not replace the repair's own error.
+                try
+                {
+                    await services.GetRequiredService<CacheManagementService>()
+                        .InvalidateServiceCountsAsync();
+                }
+                catch (Exception countsException)
+                {
+                    _logger.LogError(
+                        countsException,
+                        "Failed to invalidate the service counts after the repair of operation {OperationId}",
+                        repair.Id);
+                }
             }
         }
 

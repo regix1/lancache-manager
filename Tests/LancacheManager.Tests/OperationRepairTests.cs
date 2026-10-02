@@ -357,6 +357,41 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task ARetriedRepairWaitsForARunningGlobalOperationAsync()
+    {
+        var root = Path.Combine(_root, "full-repair-retry-beside-upgrade");
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var path = RepairFilePath(Path.Combine(root, "state"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "not-json");
+        harness.FailScans = 3;
+
+        await harness.Owner.StartAsync(CancellationToken.None);
+        var fullRepair = Assert.Single(harness.Owner.GetPendingRepairs());
+        await WaitForAsync(() => harness.Repairs.Tracker.GetRuns().Runs
+            .SingleOrDefault(run => run.OperationId == fullRepair.Id)?.RepairError is not null);
+
+        var failed = harness.Repairs.Tracker.GetRuns().Runs.Single(run => run.OperationId == fullRepair.Id);
+        Assert.False(failed.Repairing);
+        Assert.True(failed.FullRepair);
+        Assert.Equal("Injected cache scan failure.", failed.RepairError);
+        Assert.Null(harness.Owner.GetBlockingRepair());
+
+        // A failed-out repair no longer holds the queue, so the history upgrade started.
+        var upgrade = harness.Repairs.Tracker.RegisterOperation(
+            OperationType.DownloadHistoryUpgrade,
+            "Download history upgrade",
+            new CancellationTokenSource());
+        Assert.True(await harness.Owner.RetryRepairAsync(fullRepair.Id));
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.Equal(3, harness.Scans);
+
+        harness.Repairs.Tracker.CompleteOperation(upgrade, success: true);
+        await harness.WaitForCompletedAsync(fullRepair.Id);
+        Assert.Equal(4, harness.Scans);
+    }
+
+    [Fact]
     public async Task OlderFileWithOnlyCompletedRowsStartsWithoutAFullRepairAsync()
     {
         var path = RepairFilePath(_root);
