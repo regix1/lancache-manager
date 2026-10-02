@@ -8133,7 +8133,8 @@
       "processingActive": "Log processing is running. Try again when it finishes.",
       "fileUnreadable": "This app cannot open the log file {{path}}, so it cannot check that nothing is writing to it. Nothing was deleted. Give the app's user read access to the file, or delete it by hand, then try again.",
       "filesChanged": "The log files changed while the delete was getting ready, most likely because logrotate ran. Nothing was deleted. Try again.",
-      "fileMovedDuringDelete": "logrotate moved access.log while it was being deleted, so the new access.log nginx had just opened was deleted instead. The file you chose was kept as a rotated file, where its entries can still be processed."
+      "fileMovedDuringDelete": "logrotate moved access.log while it was being deleted, so the new access.log nginx had just opened was deleted instead. The file you chose was kept as a rotated file, where its entries can still be processed.",
+      "writerCheckFailed": "The delete could not check that no other program is writing to the log files, so nothing was deleted. If logrotate is compressing or copying a log, try again when it finishes. Details: {{reason}}"
     },
     "migration": {
       "notConfigured": "Server database connection is not configured"

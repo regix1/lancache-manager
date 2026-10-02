@@ -547,7 +547,8 @@ public sealed class LogsControllerRustFileOperationsTests
         int ReplacementLines = 0,
         long StaleRecords = 0,
         (string From, string To)[]? Renames = null,
-        string[]? Appended = null);
+        string[]? Appended = null,
+        bool NginxWrites = false);
 
     public static TheoryData<LogDeleteCase> LogDeleteCases => new()
     {
@@ -681,22 +682,49 @@ public sealed class LogsControllerRustFileOperationsTests
             4,
             Renames: new[] { ("access.log.1", "access.log.2") }),
         new LogDeleteCase(
-            "monolithic success, a rotation whose bytes changed during the delete is not counted as read",
+            "monolithic success, a rotation nginx still appends to keeps its read lines",
             new[] { ("access.log.1", 4), ("access.log", 3) },
             new Dictionary<string, long> { ["access.log"] = 7 },
             0,
             new[] { "access.log" },
             false,
-            new Dictionary<string, long> { ["access.log"] = 0 },
+            new Dictionary<string, long> { ["access.log"] = 4 },
+            4,
+            Appended: new[] { "access.log.1" }),
+        new LogDeleteCase(
+            "monolithic failure before the unlink while nginx appends to access.log keeps its position",
+            new[] { ("access.log.1", 4), ("access.log", 3) },
+            new Dictionary<string, long> { ["access.log"] = 7 },
             0,
-            Appended: new[] { "access.log.1" })
+            Array.Empty<string>(),
+            true,
+            new Dictionary<string, long> { ["access.log"] = 7 },
+            7,
+            Appended: new[] { "access.log" },
+            NginxWrites: true),
+        new LogDeleteCase(
+            "per-service failure after a whole series while nginx appends to another series keeps that series' position",
+            new[] { ("steam-access.log.1", 4), ("steam-access.log", 3), ("epicgames-access.log", 2) },
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 2 },
+            0,
+            new[] { "epicgames-access.log" },
+            true,
+            new Dictionary<string, long> { ["steam-access.log"] = 7, ["epicgames-access.log"] = 0 },
+            7,
+            Appended: new[] { "steam-access.log" },
+            NginxWrites: true)
     };
 
     [Theory]
     [MemberData(nameof(LogDeleteCases))]
     public async Task DeleteLogFile_KeepsTheReadLinesStillOnDiskAsync(LogDeleteCase deleteCase)
     {
-        using var fixture = new ControllerFixture();
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = deleteCase.NginxWrites
+            ? new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths))
+            : new ControllerFixture();
+        // nginx holds the files it writes, so the delete takes no lease on them; its reopen answers at once.
+        nginx?.ReleaseReopen.SetResult();
         foreach (var (file, lines) in deleteCase.Files)
         {
             await File.WriteAllTextAsync(
@@ -880,16 +908,19 @@ public sealed class LogsControllerRustFileOperationsTests
     [Fact]
     public async Task DeleteLogFile_ALogrotateBeforeTheUnlinkIsReportedAsync()
     {
-        using var fixture = new ControllerFixture();
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
         var rotated = Path.Combine(fixture.AlphaLogPath, "access.log.1");
         var current = Path.Combine(fixture.AlphaLogPath, "access.log");
         await File.WriteAllTextAsync(rotated, string.Concat(Enumerable.Repeat("x\n", 4)));
         await File.WriteAllTextAsync(current, string.Concat(Enumerable.Repeat("x\n", 3)));
         fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 7 });
+        nginx!.ReleaseReopen.SetResult();
         fixture.RustHelper.DeleteHandler = (path, _) =>
         {
-            // logrotate runs after the last check and before the unlink: the chosen file moves aside,
-            // nginx opens a new one, and the unlink by path removes the new file.
+            // nginx logs a request, then logrotate runs after the last check and before the unlink: the chosen
+            // file moves aside, nginx opens a new one, and the unlink by path removes the new file.
+            File.AppendAllText(current, "x\n");
             File.Move(rotated, Path.Combine(fixture.AlphaLogPath, "access.log.2"));
             File.Move(current, rotated);
             File.WriteAllText(current, "x\n");
@@ -899,8 +930,26 @@ public sealed class LogsControllerRustFileOperationsTests
 
         await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
 
-        Assert.Equal(3, File.ReadAllText(rotated).Count(c => c == '\n'));
+        Assert.Equal(4, File.ReadAllText(rotated).Count(c => c == '\n'));
         Assert.Equal(7, fixture.State.GetLogPosition("alpha"));
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_ALogrotateDuringTheWriterSearchDeletesNothingAsync()
+    {
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
+        var current = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(current, string.Concat(Enumerable.Repeat("x\n", 3)));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 3 });
+        // logrotate moves the chosen file while the delete looks for its writer.
+        nginx!.DuringWriterSearch = () => File.Move(current, Path.Combine(fixture.AlphaLogPath, "access.log.1"));
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Equal("errors.logs.writerCheckFailed", refusal.StageKey);
+        Assert.Empty(fixture.RustHelper.DeleteRequests);
+        Assert.Equal(3, fixture.State.GetLogPosition("alpha"));
     }
 
     [Fact]
@@ -1514,6 +1563,8 @@ public sealed class LogsControllerRustFileOperationsTests
 
         public TaskCompletionSource ReopenReached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseReopen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Runs while the delete looks for the log files' writer.</summary>
+        public Action? DuringWriterSearch { get; set; }
         protected override bool CanProbeHostWriters => true;
 
         protected override async Task<ProcessCommandResult> RunProcessAsync(
@@ -1524,6 +1575,7 @@ public sealed class LogsControllerRustFileOperationsTests
             switch (label)
             {
                 case "host nginx writer identity":
+                    DuringWriterSearch?.Invoke();
                     return new ProcessCommandResult { ExitCode = 0, Output = "4242|waiting\n" };
                 case "host nginx verified reopen":
                     ReopenReached.SetResult();

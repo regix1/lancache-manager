@@ -430,6 +430,7 @@ test('new datasource strings exist with matching placeholders in both locales', 
     ['errors', 'logs', 'fileUnreadable'],
     ['errors', 'logs', 'filesChanged'],
     ['errors', 'logs', 'fileMovedDuringDelete'],
+    ['errors', 'logs', 'writerCheckFailed'],
     ['signalr', 'cacheClear', 'forDatasource'],
     ['signalr', 'logProcessing', 'progressSource']
   ];

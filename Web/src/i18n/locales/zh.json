@@ -8099,7 +8099,8 @@
       "processingActive": "日志处理正在运行。请在其完成后重试。",
       "fileUnreadable": "此应用无法打开日志文件 {{path}}，因此无法确认没有程序正在写入它。未删除任何内容。请为此应用的用户授予该文件的读取权限，或手动删除它，然后重试。",
       "filesChanged": "删除准备期间日志文件发生了变化，很可能是 logrotate 运行了。未删除任何内容。请重试。",
-      "fileMovedDuringDelete": "删除过程中 logrotate 移动了 access.log，因此被删除的是 nginx 刚刚新建的 access.log。你选择的文件已作为轮转文件保留，其中的条目仍可处理。"
+      "fileMovedDuringDelete": "删除过程中 logrotate 移动了 access.log，因此被删除的是 nginx 刚刚新建的 access.log。你选择的文件已作为轮转文件保留，其中的条目仍可处理。",
+      "writerCheckFailed": "删除无法确认没有其他程序正在写入日志文件，因此未删除任何内容。如果 logrotate 正在压缩或复制日志，请在其完成后重试。详细信息：{{reason}}"
     },
     "migration": {
       "notConfigured": "服务器数据库连接未配置"
