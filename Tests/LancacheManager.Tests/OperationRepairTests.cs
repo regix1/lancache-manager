@@ -1140,8 +1140,8 @@ public sealed class OperationRepairTests : IDisposable
             error: "requested cancellation").WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForAsync(() => state.LoadOperationRepairs().Single().Phase == OperationRepairPhase.Completed);
 
-        // The changed, missing or mixed-evidence datasource abstains: nothing of it is touched, nothing fails
-        // and nothing waits for a retry.
+        // The changed or missing datasource abstains, and a mixed-evidence one only leaves the cache scan; this
+        // cancelled job left no log step to finish, so nothing of it is touched, nothing fails and nothing waits.
         var stored = Assert.Single(state.LoadOperationRepairs());
         Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
         Assert.Null(stored.RetryAtUtc);
@@ -1156,6 +1156,61 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Equal(91, state.GetLogPosition("beta"));
         Assert.Equal("captured", File.ReadAllText(capturedSentinel));
         Assert.Equal("foreign", File.ReadAllText(foreignSentinel));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovalWhoseLogLayoutTurnedMixedStillFinishesItsLogStepAsync(bool insideLogStep)
+    {
+        var root = Path.Combine(_root, "mixed-log-step-" + insideLogStep);
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var alpha = harness.Datasources.GetDatasource("alpha")!;
+        // Read from the log files, as a datasource with no configured scheme is: access.log alone reads monolithic.
+        alpha.SchemeOverride = DatasourceSchemeOverride.Auto;
+        var removal = CleanRemoval(harness, OperationType.GameRemoval);
+        // The app stopped after the native step deleted the game's files, before or inside its log step.
+        removal.Phase = OperationRepairPhase.Running;
+        var source = removal.Sources.Single();
+        source.NativeLaunchAuthorized = true;
+        source.NativeCompletionAccepted = true;
+        source.LogRewriteStarted = insideLogStep;
+        harness.State.SaveOperationRepairs([removal]);
+        harness.State.SetLogPosition("alpha", 73);
+        await using (var seed = harness.CreateContext())
+        {
+            seed.Downloads.Add(new Download
+            {
+                Service = "steam",
+                ClientIp = "10.0.0.5",
+                Datasource = "alpha",
+                GameAppId = 570,
+                StartTimeUtc = harness.Now.AddHours(-2),
+                EndTimeUtc = harness.Now.AddHours(-1),
+                CacheHitBytes = 4096
+            });
+            await seed.SaveChangesAsync();
+        }
+        // Before the restart a per-service log appeared beside access.log, so the folder holds both layouts.
+        File.WriteAllText(Path.Combine(alpha.LogPath, "steam-access.log"), string.Empty);
+
+        await harness.Owner.StartAsync(CancellationToken.None);
+        var completed = await harness.WaitForCompletedAsync(removal.Id);
+
+        // The log step and its row cleanup ran for the datasource; only the cache scan left it out.
+        var stored = completed.Sources.Single();
+        Assert.True(stored.LogRewriteStarted);
+        Assert.True(stored.LogPositionsKept);
+        await using var check = harness.CreateContext();
+        Assert.False(await check.Downloads.AnyAsync(download => download.GameAppId == 570));
+        Assert.Equal(insideLogStep ? 0 : 73, harness.State.GetLogPosition("alpha"));
+        Assert.Equal(0, harness.Scans);
+        Assert.True(harness.DetectionRefreshes > 0);
+        Assert.Contains(
+            harness.Log.Entries,
+            entry => entry.Level == LogLevel.Warning
+                && entry.Message.Contains("alpha", StringComparison.Ordinal)
+                && entry.Message.Contains(removal.Id.ToString(), StringComparison.Ordinal));
     }
 
     [Fact]

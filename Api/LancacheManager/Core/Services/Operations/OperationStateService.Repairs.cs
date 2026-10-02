@@ -1822,21 +1822,30 @@ public partial class OperationStateService
                     || (source.LogRoot is not null
                         && !string.Equals(source.LogRoot, current.LogPath, pathComparison))
                     || (source.CacheRoot is not null
-                        && !string.Equals(source.CacheRoot, current.CachePath, pathComparison))
-                    || (source.KeyScheme is not null
-                        && !string.Equals(
-                            source.KeyScheme,
-                            DatasourceCapabilityService.GetSchemeWireValue(capabilityService.GetCapabilities(current)),
-                            StringComparison.Ordinal)))
+                        && !string.Equals(source.CacheRoot, current.CachePath, pathComparison)))
                 {
-                    // Repairing it now would touch another datasource's files or log, or rebuild keys with a
-                    // recipe its mixed or unknown log evidence no longer proves, so it abstains and nothing
-                    // else waits for it.
+                    // Repairing it now would touch another datasource's files or log, so it abstains and
+                    // nothing else waits for it.
                     _logger.LogWarning(
                         "Skipped datasource {Datasource} in operation repair {OperationId} because it was removed or changed after the repair was prepared",
                         source.Datasource,
                         repair.Id);
                     applied.Sources.Remove(source);
+                }
+                else if (source.KeyScheme is not null
+                    && !string.Equals(
+                        source.KeyScheme,
+                        DatasourceCapabilityService.GetSchemeWireValue(capabilityService.GetCapabilities(current)),
+                        StringComparison.Ordinal))
+                {
+                    // Its log files no longer prove the key recipe it launched with (mixed or unknown
+                    // evidence), so the cache scan leaves it out and the next eviction scan rechecks it. The
+                    // log step, the row cleanup and the position reset use no key recipe and still run.
+                    _logger.LogWarning(
+                        "Skipped the cache scan of datasource {Datasource} in operation repair {OperationId} because its log layout changed after the repair was prepared",
+                        source.Datasource,
+                        repair.Id);
+                    source.KeyScheme = null;
                 }
             }
         }
