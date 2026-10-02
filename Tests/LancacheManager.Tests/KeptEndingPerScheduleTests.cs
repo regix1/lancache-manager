@@ -401,6 +401,31 @@ public sealed class KeptEndingPerScheduleTests
         Assert.Equal(0, Assert.Single(kept, run => run.IntegrationLogin).ConsecutiveFailures);
     }
 
+    // Retry clears the repair's error, so only its running repair tells a later failure of the
+    // schedule that this card still has to show how the repair ends.
+    [Fact]
+    public void ARetriedRepairKeepsItsCardWhenALaterRunOfItsScheduleFails()
+    {
+        var (tracker, _, handle) = Create();
+        var first = Fail(tracker);
+        handle(first);
+        tracker.BeginRepair(first.Id);
+        tracker.EndRepair(first.Id, "disk gone");
+        tracker.BeginRepair(first.Id);
+
+        var second = Fail(tracker);
+        handle(second);
+
+        var retried = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == first.Id);
+        Assert.False(retried.Closed);
+        Assert.True(retried.Repairing);
+
+        tracker.EndRepair(first.Id, "disk gone");
+        var kept = Kept(tracker);
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), kept.Select(run => run.OperationId).Order());
+        Assert.Equal("disk gone", Assert.Single(kept, run => run.OperationId == first.Id).RepairError);
+    }
+
     private static IEnumerable<int[]> Orders(int count)
     {
         if (count == 0)

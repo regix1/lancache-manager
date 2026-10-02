@@ -2589,6 +2589,31 @@ test('a later failed run of the same schedule leaves an older red repair card an
   assert.deepEqual(control.drawn(), ['F:eviction_scan:failed']);
 });
 
+test('a retried repair keeps its card when a later run of its schedule fails', () => {
+  globalThis.sessionStorage = new MemoryStorage();
+  const browser = new Browser();
+  browser.push(row('C'));
+  const firstEnding = repairingRow('C', { status: 'failed', error: 'Boom', retained: true });
+  browser.push(firstEnding);
+  // Every later row of C is the same kept failure, ordered by its first ending.
+  const ending = {
+    status: 'failed',
+    error: 'Boom',
+    retained: true,
+    completedRevision: firstEnding.revision
+  };
+  browser.push(failedOutRow('C', ending));
+  // Retry clears the repair's error and runs the repair again under the same id.
+  browser.push(repairingRow('C', ending));
+  browser.push(row('D'));
+  browser.push(kept('D', { status: 'failed', error: 'Boom' }));
+  assert.deepEqual(browser.drawn(), ['C:eviction_scan:repairing', 'D:eviction_scan:failed']);
+
+  browser.push(failedOutRow('C', ending));
+  assert.deepEqual(browser.drawn(), ['C:eviction_scan:failed', 'D:eviction_scan:failed']);
+  assert.equal(browser.card('C').details.repairFailed, true);
+});
+
 test('every run whose repair still runs is listed, folded and Hidden ones included', () => {
   globalThis.sessionStorage = new MemoryStorage();
   const bulk = bulkRemovalCard({ currentOperationId: 'I1', itemOperationIds: ['I1'] });

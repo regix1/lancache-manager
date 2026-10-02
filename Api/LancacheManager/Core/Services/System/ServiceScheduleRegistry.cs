@@ -365,9 +365,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     // is the same whatever order the handlers run in.
                     if (wasKept)
                     {
-                        // A failed-out repair's card holds its Retry until the user closes it.
+                        // A failed-out repair's card holds its Retry until the user closes it, and a
+                        // repair still running, a retried one included, keeps its card until it ends.
                         foreach (var older in endings.Where(run => run.CompletedRevision < completedRevision
-                            && run.Status == statusWire && run.RepairError is null))
+                            && run.Status == statusWire && run.RepairError is null && !run.Repairing))
                         {
                             tracker.CloseRun(older.OperationId);
                         }

@@ -626,14 +626,15 @@ export function applyRun(
     // One kept ending of each kind per schedule, replaced in this same apply so two failure cards
     // (or two skips or warnings) of one schedule are never on screen together. An ending
     // never replaces one of another kind; the server keeps the same set. The removed ending
-    // resolved its waiters when it ended. A failed-out repair keeps its own card and Retry
-    // whichever run of the schedule failed later.
+    // resolved its waiters when it ended. A failed-out repair keeps its own card and Retry, and a
+    // repair still running its card, whichever run of the schedule failed later.
     const identity = row.retained && !repairFailed ? scheduleIdentity(row) : undefined;
     for (const other of identity ? [...next.entries.values()] : []) {
       if (
         other.run.operationId === id ||
         !other.run.retained ||
         other.run.status !== row.status ||
+        other.run.repairing === true ||
         typeof other.run.repairError === 'string'
       )
         continue;
