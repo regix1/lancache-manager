@@ -117,6 +117,7 @@ public class CacheSizeScanNotificationFlagTests
         SetField(service, "_notifications", CreateProxy<ISignalRNotificationService>((method, _) =>
             method.ReturnType == typeof(Task) ? Task.CompletedTask : null));
         SetField(service, "_conflictChecker", OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance));
+        SetField(service, "_operationStateService", OperationConflictTestServices.Owner);
         SetField(service, "_cacheScanGate", Idle());
         SetField(service, "_datasourceService", sources);
         SetField(service, "_pathResolver", paths);

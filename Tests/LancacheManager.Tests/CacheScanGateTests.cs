@@ -53,6 +53,7 @@ public sealed class CacheScanGateTests
         SetField(service, "_notifications", notifications);
         SetField(service, "_conflictChecker", OperationConflictTestServices.Create(tracker,
             NullLogger<OperationConflictChecker>.Instance));
+        SetField(service, "_operationStateService", OperationConflictTestServices.Owner);
         var run = typeof(CacheManagementService).GetMethod("RunFullScanAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
         await (Task)run.Invoke(service, [new List<string>(), CancellationToken.None, null, notice])!;
         var started = Assert.IsType<CacheSizeScanStarted>(await recorder.FirstPayload.WaitAsync(TimeSpan.FromSeconds(5)));
