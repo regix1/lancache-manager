@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -401,12 +401,28 @@ const FILE_COUNT_PROGRESS_INTERVAL: usize = 25_000;
 
 pub(super) fn collect_files_on_disk<F>(
     datasources: &[DatasourceConfig],
-    mut on_file_count: F,
-) -> FilesOnDisk
+    on_file_count: F,
+) -> (FilesOnDisk, Vec<String>)
 where
     F: FnMut(usize),
 {
+    collect_files_on_disk_with(datasources, on_file_count, cache_utils::walk_cache_root)
+}
+
+/// `collect_files_on_disk` with the folder walk passed in, so a test can report a folder that
+/// could not be read. Returns the index and, sorted, every cache folder the scan did not check:
+/// missing, holding no cache file, or with a folder of the cache layout that could not be read.
+fn collect_files_on_disk_with<F, W>(
+    datasources: &[DatasourceConfig],
+    mut on_file_count: F,
+    mut walk_root: W,
+) -> (FilesOnDisk, Vec<String>)
+where
+    F: FnMut(usize),
+    W: FnMut(&Path, &mut dyn FnMut(&str)) -> bool,
+{
     let mut digests_by_root: HashMap<PathBuf, HashSet<u128>> = HashMap::new();
+    let mut unchecked_roots = BTreeSet::new();
     let mut total_files = 0usize;
     let mut files_since_last_report = 0usize;
     let mut non_hash_names = 0usize;
@@ -418,19 +434,14 @@ where
                 "[EvictionScan] Cache directory does not exist for datasource '{}': {}",
                 ds.name, ds.cache_path
             );
+            unchecked_roots.insert(ds.cache_path.clone());
             continue;
         }
 
-        let root_digests = digests_by_root
-            .entry(PathBuf::from(&ds.cache_path))
-            .or_default();
-
-        for entry in cache_utils::walk_cache_root(cache_dir) {
-            match entry
-                .file_name()
-                .to_str()
-                .and_then(cache_utils::parse_cache_file_digest)
-            {
+        let root = PathBuf::from(&ds.cache_path);
+        let mut root_digests = digests_by_root.remove(&root).unwrap_or_default();
+        let fully_checked = walk_root(cache_dir, &mut |name: &str| {
+            match cache_utils::parse_cache_file_digest(name) {
                 Some(digest) => {
                     if root_digests.insert(digest) {
                         total_files += 1;
@@ -445,6 +456,17 @@ where
                 on_file_count(total_files);
                 files_since_last_report = 0;
             }
+        });
+
+        // A folder of the cache layout that could not be read hides the files in it, and a missing
+        // file reads as an eviction, so the whole root abstains, as the repair walk does.
+        if !fully_checked {
+            eprintln!(
+                "[EvictionScan] Cache directory for datasource '{}' has folders that could not be read: {} - absence cannot be verified under this root, so its downloads will not be marked evicted",
+                ds.name, ds.cache_path
+            );
+            unchecked_roots.insert(ds.cache_path.clone());
+            continue;
         }
 
         // A directory that exists but yields zero hash-named cache files is indistinguishable
@@ -455,7 +477,9 @@ where
                 "[EvictionScan] Cache directory for datasource '{}' exists but contains no cache files: {} - absence cannot be verified under this root, so its downloads will not be marked evicted",
                 ds.name, ds.cache_path
             );
+            unchecked_roots.insert(ds.cache_path.clone());
         }
+        digests_by_root.insert(root, root_digests);
     }
 
     if non_hash_names > 0 {
@@ -469,7 +493,10 @@ where
         on_file_count(total_files);
     }
 
-    FilesOnDisk { digests_by_root }
+    (
+        FilesOnDisk { digests_by_root },
+        unchecked_roots.into_iter().collect(),
+    )
 }
 
 pub(super) fn collect_files_for_repair<F>(
@@ -705,6 +732,54 @@ mod tests {
         assert!(repair.intersects(Some("default"), &[]));
         assert!(repair.origins_can_verify_absence(Some("default"), &[]));
         assert!(repair.origins_are_trusted_empty(Some("default"), &[]));
+    }
+
+    #[test]
+    fn a_cache_root_with_a_folder_that_could_not_be_read_abstains_and_is_named() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let datasources = [datasource("default", root.path(), "monolithic")];
+
+        // The walk visits every file it can read and reports a folder of the layout it could not.
+        let (files, unchecked) = collect_files_on_disk_with(
+            &datasources,
+            |_| {},
+            |path, visit_file| {
+                cache_utils::walk_cache_root(path, visit_file);
+                false
+            },
+        );
+
+        assert!(files.digests_for_root(root.path()).is_none());
+        assert!(files.is_empty());
+        assert_eq!(unchecked, vec![root.path().to_string_lossy().into_owned()]);
+    }
+
+    #[test]
+    fn a_missing_or_empty_cache_root_is_named_as_unchecked() {
+        let parent = tempfile::tempdir().unwrap();
+        let empty = parent.path().join("empty");
+        let missing = parent.path().join("missing");
+        let populated = parent.path().join("populated");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(&populated).unwrap();
+        create_cache_file(&populated);
+        let datasources = [
+            datasource("empty", &empty, "monolithic"),
+            datasource("missing", &missing, "monolithic"),
+            datasource("populated", &populated, "monolithic"),
+        ];
+
+        let (files, unchecked) = collect_files_on_disk(&datasources, |_| {});
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            unchecked,
+            vec![
+                empty.to_string_lossy().into_owned(),
+                missing.to_string_lossy().into_owned()
+            ]
+        );
     }
 
     #[test]

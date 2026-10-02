@@ -211,6 +211,10 @@ struct ScanResult {
     files_on_disk: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Cache folders the scan did not check (missing, empty, or with a folder of the cache layout
+    /// that could not be read); none of their downloads was marked evicted.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unchecked_folders: Vec<String>,
 }
 
 /// What to do after every probe missed but the key set cannot safely prove absence.
@@ -469,6 +473,7 @@ async fn run_scan_and_report(
                 un_evicted: 0,
                 files_on_disk: 0,
                 error: Some(error_detail),
+                unchecked_folders: Vec::new(),
             };
             let json = serde_json::to_string(&result)?;
             println!("{}", json);
@@ -510,6 +515,7 @@ async fn run_scan(
             un_evicted: 0,
             files_on_disk: 0,
             error: None,
+            unchecked_folders: Vec::new(),
         });
     }
 
@@ -584,11 +590,15 @@ async fn run_scan(
         .or(normal_roots.as_ref())
         .context("eviction scan datasource roots are unavailable")?;
     let normal_files;
+    let unchecked_folders;
     let files_on_disk = if let Some(repair) = repair_index.as_ref() {
+        unchecked_folders = Vec::new();
         &repair.files
     } else {
-        normal_files =
+        let (files, unchecked) =
             cache_eviction_paths::collect_files_on_disk(&datasources, &mut report_file_count);
+        normal_files = files;
+        unchecked_folders = unchecked;
         &normal_files
     };
 
@@ -601,6 +611,7 @@ async fn run_scan(
             un_evicted: 0,
             files_on_disk: 0,
             error: None,
+            unchecked_folders,
         });
     }
 
@@ -625,6 +636,7 @@ async fn run_scan(
             un_evicted: 0,
             files_on_disk: 0,
             error: None,
+            unchecked_folders,
         });
     }
 
@@ -1060,6 +1072,7 @@ async fn run_scan(
         un_evicted: total_un_evicted,
         files_on_disk: total_files,
         error: None,
+        unchecked_folders,
     })
 }
 

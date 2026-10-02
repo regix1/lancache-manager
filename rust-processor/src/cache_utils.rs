@@ -400,18 +400,41 @@ pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
-/// Yields every regular file under one cache root.
+/// Visits the name of every regular file under one cache root and returns false when a folder of
+/// nginx's `levels=2:2` layout below it (or the root itself) could not be read, so a name missing
+/// from the visit proves nothing about this root.
 ///
 /// The digest parser stays with the caller on purpose. The eviction index matches file NAMES
 /// case-insensitively, so a foreign name can never mask a probe candidate and be read as an
 /// eviction; a scan that deletes needs the `levels=2:2` directory shape verified first. Those
 /// are different questions, and only the traversal is shared.
-pub fn walk_cache_root(root: &Path) -> impl Iterator<Item = jwalk::DirEntry<((), ())>> {
-    jwalk::WalkDir::new(root)
-        .min_depth(1)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file())
+pub fn walk_cache_root(root: &Path, visit_file: &mut dyn FnMut(&str)) -> bool {
+    let mut fully_checked = true;
+    for entry in jwalk::WalkDir::new(root).min_depth(1) {
+        match entry {
+            Ok(entry) if entry.file_type().is_file() => {
+                visit_file(&entry.file_name().to_string_lossy());
+            }
+            Ok(_) => {}
+            // Only the root and its 2-hex/2-hex folders can hold a cache file a probe looks for, so an
+            // unreadable folder elsewhere (lost+found, a NAS snapshot folder) hides nothing.
+            Err(error) => {
+                let in_cache_layout = error.path().is_none_or(|path| {
+                    path.strip_prefix(root).map_or(true, |relative| {
+                        relative.components().take(2).all(|part| {
+                            part.as_os_str().to_str().is_some_and(|name| {
+                                name.len() == 2 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+                            })
+                        })
+                    })
+                });
+                if in_cache_layout {
+                    fully_checked = false;
+                }
+            }
+        }
+    }
+    fully_checked
 }
 
 /// Reproduce nginx's `$uri` from a stored `LogEntries.Url`.
