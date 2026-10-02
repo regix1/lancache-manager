@@ -251,8 +251,8 @@ public sealed class OperationRunPublishingTests
             if (operation.Metadata is Dictionary<string, object?> values) values["context"] = context;
         });
 
-        Assert.Equal("signalr.gameDetect.error.fatal", Run(tracker, scan).Warning);
-        Assert.Null(Run(tracker, plain).Warning);
+        Assert.Equal("signalr.gameDetect.error.fatal", Assert.Single(Run(tracker, scan).Warnings).Context["errorDetail"]);
+        Assert.Empty(Run(tracker, plain).Warnings);
         Assert.Same(context, UnifiedOperationTracker.ReadContext(tracker.GetOperation(scan)!.Metadata));
 
         tracker.CompleteOperation(scan, success: true);
@@ -260,9 +260,55 @@ public sealed class OperationRunPublishingTests
 
         var ended = Run(tracker, scan);
         Assert.Equal("completed", ended.Status);
-        Assert.Equal("signalr.gameDetect.error.fatal", ended.Warning);
+        Assert.Equal("signalr.gameDetect.error.fatal", Assert.Single(ended.Warnings).Context["errorDetail"]);
         Assert.True(ended.Retained);
         Assert.False(Run(tracker, plain).Retained);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASetWarningKeepsAnEndedRunAndReplacesOneWithTheSameKey(bool cancelled)
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+        tracker.SetWarning(id, new RunWarning(
+            "common.notifications.warnings.cacheFilesKept",
+            new Dictionary<string, object?> { ["fileCount"] = 1, ["path"] = "/cache/aa/bb/first" }));
+        tracker.SetWarning(id, new RunWarning(
+            "common.notifications.warnings.cacheFilesKept",
+            new Dictionary<string, object?> { ["fileCount"] = 2, ["path"] = "/cache/aa/bb/first" }));
+
+        tracker.CompleteOperation(id, success: !cancelled, cancelled: cancelled);
+
+        var ended = Run(tracker, id);
+        Assert.Equal(cancelled ? "cancelled" : "completed", ended.Status);
+        var warning = Assert.Single(ended.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFilesKept", warning.StageKey);
+        Assert.Equal(2, warning.Context["fileCount"]);
+        Assert.True(ended.Retained);
+    }
+
+    [Fact]
+    public void AWarningAddedAfterTheRunEndedIsNotReaped()
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.GameRemoval, "Game Removal", new CancellationTokenSource());
+        tracker.CompleteOperation(id, success: true);
+        Assert.False(Run(tracker, id).Retained);
+
+        // A repair that ran after the run ended found a datasource it had to leave out.
+        tracker.SetWarning(id, new RunWarning(
+            "common.notifications.warnings.datasourcesNotRepaired",
+            new Dictionary<string, object?> { ["datasources"] = "alpha" }));
+        typeof(UnifiedOperationTracker)
+            .GetMethod("ReapOperation", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(tracker, [id]);
+
+        Assert.NotNull(tracker.GetOperation(id));
+        Assert.True(Run(tracker, id).Retained);
+        Assert.True(tracker.CloseRun(id));
+        Assert.Null(tracker.GetOperation(id));
     }
 
     [Fact]

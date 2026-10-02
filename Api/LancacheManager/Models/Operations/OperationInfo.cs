@@ -74,6 +74,10 @@ public class OperationInfo
     [System.Text.Json.Serialization.JsonIgnore]
     public string? RepairError { get; set; }
 
+    /// <summary>What the run left undone, one per locale key; read and written under the operation's lock.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<RunWarning> Warnings { get; } = new();
+
     /// <summary>Failures in a row for the schedule this kept ending belongs to; written by the schedule registry.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public int ConsecutiveFailures { get; set; }

@@ -409,7 +409,9 @@ public class LogRemovalProgressTests
         Assert.Equal(OperationStatus.Completed, ended.Status);
         // The amber card names the other log and stays until someone closes it.
         var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
-        Assert.Equal("blizzard-access.log", row.Warning);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("signalr.logRemoval.otherLogsGone", warning.StageKey);
+        Assert.Equal("blizzard-access.log", warning.Context["fileNames"]);
         Assert.True(row.Retained);
         // The removed series and the vanished one start again at line 1; the untouched one keeps its place.
         Assert.Equal(

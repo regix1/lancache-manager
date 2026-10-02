@@ -27,7 +27,8 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// <param name="NextOperationId">The final operation doing this run's work after it handed it on (the end
 /// of the handoff chain), the same meaning as <see cref="OperationStatusResponse.NextOperationId"/>; null
 /// when nothing took over.</param>
-/// <param name="Warning">The raw detection error of a run that succeeded with a warning; null otherwise.</param>
+/// <param name="Warnings">What the run left undone, each a locale key and the values its text names;
+/// empty when it did everything. A completed or canceled run with one is drawn as a kept amber card.</param>
 /// <param name="Retained">True for an ending that stays until someone closes its card.</param>
 /// <param name="Closed">True on the one row sent when a kept ending is closed.</param>
 /// <param name="Repairing">True while a repair the run owes is running; the row stays until it ends.</param>
@@ -44,7 +45,7 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 public sealed record OperationRun(
     Guid OperationId, string OperationType, string Name, string Status, RunVisibility Visibility,
     double PercentComplete, string Message, string? Error, string? BlockedByName,
-    Guid? PreviousOperationId, Guid? ParentOperationId, Guid? NextOperationId, string? Warning,
+    Guid? PreviousOperationId, Guid? ParentOperationId, Guid? NextOperationId, IReadOnlyList<RunWarning> Warnings,
     bool Retained, bool Closed, bool Repairing, string? RepairError, bool FullRepair, int ConsecutiveFailures,
     bool LatestRunSucceeded, Guid? ScheduleId,
     PrefillPlatform? ServiceId, bool LiveIngest, bool IntegrationLogin, Guid? OwnerSessionId,
@@ -55,3 +56,9 @@ public sealed record OperationRun(
 /// missing from the list only when it has seen nothing newer about it.
 /// </summary>
 public sealed record OperationRunsSnapshot(IReadOnlyList<OperationRun> Runs, long Revision);
+
+/// <summary>
+/// One thing a run left undone, as the browser words it: a locale key and the values its text
+/// names (a folder, a file count, a list of datasources).
+/// </summary>
+public sealed record RunWarning(string StageKey, IReadOnlyDictionary<string, object?> Context);

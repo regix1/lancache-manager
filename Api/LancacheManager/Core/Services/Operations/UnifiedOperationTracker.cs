@@ -584,6 +584,19 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         NotifyBlockerCleared();
     }
 
+    public void SetWarning(Guid operationId, RunWarning warning)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return;
+        lock (operation)
+        {
+            operation.Warnings.RemoveAll(existing => existing.StageKey == warning.StageKey);
+            operation.Warnings.Add(warning);
+            Publish(operation);
+        }
+
+        _ = DrainRunsAsync();
+    }
+
     public void NotifyBlockerCleared()
     {
         // Fire-and-forget off the caller's stack, like OperationTerminal; handler faults are contained.
@@ -809,11 +822,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         var stale = links.Where(link => ResolveHandoff(link.Key) == operationId).ToArray();
         lock (operation)
         {
-            // A repairing row stays until EndRepair, which schedules the reaper again. A row whose
-            // repair failed out stays until it is closed, also when the reaper scheduled at
-            // completion fires after the failure.
+            // A repairing row stays until EndRepair, which schedules the reaper again. A row kept until
+            // it is closed (a failed-out repair, or a warning set after the run ended) stays until it is
+            // closed, also when the reaper scheduled at completion fires after that.
             if (operation.CompletedFlag == 0 || !operation.Status.IsTerminal() || operation.Repairing
-                || (operation.RepairError is not null && !operation.Closed)) return;
+                || (KeepsUntilClosed(operation) && !operation.Closed)) return;
             ((ICollection<KeyValuePair<Guid, OperationInfo>>)_operations).Remove(new(operationId, operation));
         }
         foreach (var entry in _entityKeyIndex.Where(entry => entry.Value == operationId).ToArray())
@@ -914,7 +927,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.PreviousOperationId,
             operation.ParentOperationId,
             nextId,
-            ReadWarning(operation.Metadata),
+            ReadWarnings(operation),
             KeepsUntilClosed(operation),
             operation.Closed,
             operation.Repairing,
@@ -946,8 +959,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     /// <summary>
     /// True for an ending the browser draws as a red or amber card that stays until someone closes
-    /// it: a failure, a success with a warning, or a skip that showed a full card. A cancel and a
-    /// plain success are not kept; the browser lets them leave on their own unless Keep
+    /// it: a failure, a success or a cancel with a warning, or a skip that showed a full card. A
+    /// plain cancel and a plain success are not kept; the browser lets them leave on their own unless Keep
     /// Notifications Visible holds them. Phases (operations with a parent) are not kept, except a
     /// per-platform scheduled prefill run, which owns its card even when restored under its
     /// run-level container. A run whose repair failed out is always kept, a phase included, so its
@@ -961,7 +974,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             && operation.Status switch
             {
                 OperationStatus.Failed => true,
-                OperationStatus.Completed => ReadWarning(operation.Metadata) != null,
+                OperationStatus.Completed or OperationStatus.Cancelled => ReadWarnings(operation).Count > 0,
                 OperationStatus.Skipped => ReadVisibility(operation) == RunVisibility.Card,
                 _ => false
             });
@@ -991,13 +1004,27 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return own < operation.VisibilityFloor ? own : operation.VisibilityFloor;
     }
 
-    // A run that succeeded with a warning: the eviction scan whose game detection phase failed, which
-    // writes the raw error into its progress context, or a log removal that found logs of another
-    // series deleted outside the app, which names them. The browser words each by the run's type.
-    private static string? ReadWarning(object? state) =>
-        state is RemovalMetrics { OtherLogsGone: { Length: > 0 } otherLogs }
-            ? otherLogs
-            : ReadContext(state)?.GetValueOrDefault("detectionError") is string { Length: > 0 } warning ? warning : null;
+    // What a run left undone, in the order found: the eviction scan's failed game detection, which
+    // its progress context carries; a log removal's logs of other series deleted outside the app,
+    // which its metadata names; then every warning the job or its repair set.
+    private static List<RunWarning> ReadWarnings(OperationInfo operation)
+    {
+        var warnings = new List<RunWarning>();
+        if (ReadContext(operation.Metadata)?.GetValueOrDefault("detectionError") is string { Length: > 0 } detectionError)
+        {
+            warnings.Add(new RunWarning(
+                "signalr.gameDetect.error.fatal",
+                new Dictionary<string, object?> { ["errorDetail"] = detectionError }));
+        }
+        if (operation.Metadata is RemovalMetrics { OtherLogsGone: { Length: > 0 } otherLogs })
+        {
+            warnings.Add(new RunWarning(
+                "signalr.logRemoval.otherLogsGone",
+                new Dictionary<string, object?> { ["fileNames"] = otherLogs }));
+        }
+        warnings.AddRange(operation.Warnings);
+        return warnings;
+    }
 
     // The reporter mirrors each run's latest interpolation context into the operation metadata under
     // "context" so a mid-run page refresh can rehydrate the card with its {{processed}}/{{total}}

@@ -930,7 +930,7 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal("Cache index could not be read", terminal.Context!["detectionError"]);
         // The silent run still ends as a kept warning, so the failed detection is not lost.
         var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id);
-        Assert.Equal("Cache index could not be read", row.Warning);
+        Assert.Equal("Cache index could not be read", Assert.Single(row.Warnings).Context["errorDetail"]);
         Assert.True(row.Retained);
         var percent = tracker.GetOperation(id)!.PercentComplete;
         await ctx.ReportProgressAsync(id);
@@ -961,7 +961,7 @@ public sealed class CacheScanDetectionPhaseTests
         tracker.CompleteOperation(id, success: true);
 
         var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id);
-        Assert.Equal(detectionFailed ? "Cache index could not be read" : null, row.Warning);
+        Assert.Equal(detectionFailed ? "Cache index could not be read" : null, row.Warnings.SingleOrDefault()?.Context["errorDetail"]);
         Assert.Equal(detectionFailed, row.Retained);
     }
 

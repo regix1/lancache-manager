@@ -190,6 +190,14 @@ public interface IUnifiedOperationTracker
     void EndRepair(Guid operationId, string? error);
 
     /// <summary>
+    /// Records what the run left undone and sends its row. A completed or canceled run that carries a
+    /// warning ends as an amber card kept until someone closes it, also when the warning comes from its
+    /// repair after it ended. A later warning with the same locale key replaces the earlier one. Does
+    /// nothing for an unknown operation.
+    /// </summary>
+    void SetWarning(Guid operationId, RunWarning warning);
+
+    /// <summary>
     /// Raises <see cref="BlockerCleared"/> for something other than an operation ending that may let
     /// a queued operation start.
     /// </summary>
