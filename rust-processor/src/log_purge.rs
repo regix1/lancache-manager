@@ -241,7 +241,8 @@ fn write_publication_result(records: Vec<PublicationRecord>, success: bool) -> R
 /// bound: the records a rewrite already published stay, each deleted file is added as deleted,
 /// and every other checked file as unchanged, which holds only while its identity still matches.
 /// A checked file of `service` that is already gone counts as deleted once no file of its series
-/// is left beside it.
+/// is left beside it. A checked file of another series that is gone stays recorded unchanged and
+/// does not fail the publication; the host reads that series again.
 pub fn publish_deleted_files(
     deleted: &[FileIdentity],
     deletes_succeeded: bool,
@@ -280,19 +281,22 @@ pub fn publish_deleted_files(
         {
             continue;
         }
+        let gone = matches!(
+            std::fs::symlink_metadata(&expected.target_path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        );
+        let of_removed_service = expected
+            .target_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(logical_stem)
+            .is_some_and(|stem| kind_for_stem(&stem) == removed_service);
         // A file of the removed service that something outside the app deleted first: with no file of
         // that series left beside it, its lines are gone too. A rotation that renamed or compressed it
         // leaves a series member that still holds its lines, so that run keeps failing.
         let was_deleted = deleted.contains(&expected.original_identity)
-            || (matches!(
-                std::fs::symlink_metadata(&expected.target_path),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound
-            ) && expected
-                .target_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .and_then(logical_stem)
-                .is_some_and(|stem| kind_for_stem(&stem) == removed_service)
+            || (gone
+                && of_removed_service
                 && !discover_log_sources(
                     expected
                         .target_path
@@ -302,7 +306,10 @@ pub fn publish_deleted_files(
                 .sources
                 .iter()
                 .any(|source| source.kind == removed_service));
-        if !was_deleted {
+        // A file of another series that something outside the app deleted was never this removal's to
+        // delete: it stays recorded unchanged without failing the removal, and the host reads that
+        // series again from its first line.
+        if !was_deleted && (!gone || of_removed_service) {
             success &= file_identity(&expected.target_path).ok().as_ref()
                 == Some(&expected.original_identity);
         }
