@@ -187,6 +187,34 @@ public sealed class CacheScanGateTests
         Assert.Null(gate.CheckDownloadInProgress());
     }
 
+    [Fact]
+    public async Task ASecondStepBeforeAgingAddsOnlyItsOwnTime()
+    {
+        var snapshot = new DownloadSpeedSnapshot();
+        MakeBusy(snapshot);
+        var clock = new CacheStatusClock(snapshot.TimestampUtc);
+        var tracker = TrackerWith(snapshot, [], clock);
+        var gate = GateOver(tracker);
+        var begin = typeof(RustSpeedTrackerService).GetMethod("BeginRunAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        SetField(tracker, "_childStoppedForStep", true);
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await (Task)begin.Invoke(tracker,
+            [Guid.NewGuid(), new Dictionary<string, string>(), clock.GetUtcNow().UtcDateTime, CancellationToken.None])!;
+
+        // The next step stops the child again before anything reads the gate, so nothing ages
+        // between the two restarts. The second restart must add only the second step's time.
+        SetField(tracker, "_childStoppedForStep", true);
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await (Task)begin.Invoke(tracker,
+            [Guid.NewGuid(), new Dictionary<string, string>(), clock.GetUtcNow().UtcDateTime, CancellationToken.None])!;
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.NotNull(gate.CheckDownloadInProgress());
+
+        clock.Advance(TimeSpan.FromSeconds(15));
+        Assert.Null(gate.CheckDownloadInProgress());
+    }
+
     /// <summary>
     /// While a step has the child stopped, aging is held, so a row whose window has already passed
     /// cannot expire. The aging loop has to wait for the next child then, rather than read the

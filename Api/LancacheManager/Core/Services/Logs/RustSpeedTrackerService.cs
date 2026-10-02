@@ -1174,7 +1174,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 // The step's time does not count against a row's window: a download the stopped
                 // child last saw keeps the rest of its window, so the new child can report it before
                 // the gate reads the cache as quiet and the scans held during the step start.
-                var paused = UtcNow() - _agingUtc;
+                var now = UtcNow();
+                var paused = now - _agingUtc;
                 if (paused > TimeSpan.Zero)
                 {
                     var entries = CurrentEntriesLocked();
@@ -1184,6 +1185,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         entry.Source.ActiveUntilUtc += paused;
                     }
 
+                    // The rows now count from this moment, so a step that starts before the next
+                    // aging pass does not add this one again.
+                    _agingUtc = now;
                     _revision++;
                     RebuildLocked(entries, _currentSnapshot.TimestampUtc, _currentSnapshot.IsAvailable);
                 }
