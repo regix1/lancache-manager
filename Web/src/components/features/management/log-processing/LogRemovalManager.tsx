@@ -147,7 +147,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { runs, isAnyRemovalRunning } = useNotifications();
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const { on, off, isConnected } = useSignalR();
-  const { config } = useConfig();
+  const { config, refreshConfig } = useConfig();
 
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
@@ -711,7 +711,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                 color="destructive"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setPendingLogFileDeletion(ds.datasource);
+                                  // The delete removes what is on disk now, so the dialog names it from
+                                  // a config fetched now.
+                                  void refreshConfig().then(() =>
+                                    setPendingLogFileDeletion(ds.datasource)
+                                  );
                                 }}
                                 awaitPermissions
                                 loading={deletingLogFile === ds.datasource}

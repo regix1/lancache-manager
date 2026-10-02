@@ -218,6 +218,15 @@ test('a failed log file delete still reloads the counts', async () => {
   assert.deepEqual(state.errors, ['management.logRemoval.errors.deleteFailed']);
 });
 
+test('the delete dialog text reads a layout fetched when the dialog opens', () => {
+  const source = parseSource(LOG_REMOVAL).text.replace(/\s+/g, '');
+  assert.ok(
+    source.includes('voidrefreshConfig().then(()=>setPendingLogFileDeletion(ds.datasource))'),
+    'the delete button fetches the config before it opens the dialog'
+  );
+  assert.equal(source.split('setPendingLogFileDeletion(ds.datasource)').length - 1, 1);
+});
+
 test('the positions panel reloads when the log files change', () => {
   const subscribed = [];
   const unsubscribed = [];
