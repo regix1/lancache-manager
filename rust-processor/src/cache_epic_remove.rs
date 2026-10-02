@@ -239,6 +239,8 @@ async fn main() -> Result<()> {
     // Whole removal routed through the single failure funnel; the permission-error abort
     // below now just `bail!`s with context instead of also hand-emitting `failed`, so
     // finish_or_exit is the ONE place this bin's failures get emitted.
+    // The block body predates rustfmt; formatting it would re-indent every line of it.
+    #[rustfmt::skip]
     let result: Result<()> = async {
     eprintln!("Epic Game Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
