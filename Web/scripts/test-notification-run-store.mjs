@@ -25,7 +25,7 @@ import {
 const TEMPLATES = {
   'common.errors.signInFailed': 'Failed to sign in to {{platform}}',
   'common.notifications.failedTimesInRow': 'Failed {{formattedCount}} times in a row.',
-  'common.notifications.latestRunSucceeded': 'The latest run succeeded.',
+  'common.notifications.latestRunSucceeded': 'The latest run completed.',
   'common.notifications.operationWaitingNamed': '{{name}} is waiting',
   'common.notifications.operationWaitingOn': 'Waiting for {{blocker}} to finish...',
   'common.notifications.operationWaitingOnNamed': '{{name}} is waiting for {{blocker}}',
@@ -586,7 +586,7 @@ test('one kept card per schedule: the older ending is gone in the same apply', (
     assert.deepEqual(browser.drawn(), ['B:game_detection:failed']);
     assert.equal(
       browser.card('B').detailMessage,
-      'Failed 2 times in a row. The latest run succeeded.'
+      'Failed 2 times in a row. The latest run completed.'
     );
   } finally {
     mock.timers.reset();

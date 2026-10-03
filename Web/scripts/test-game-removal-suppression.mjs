@@ -207,7 +207,7 @@ test('a Storage eviction scan opens no card of its own and is busy only while it
 
 test('all maintenance runs map to their card type and registry cancel contract', () => {
   const expected = {
-    logRotation: ['log_rotation', 'none'],
+    logRotation: ['log_rotation', 'serverOp'],
     gameImageFetch: ['game_image_fetch', 'serverOp'],
     cacheSnapshot: ['cache_snapshot', 'serverOp'],
     operationHistoryCleanup: ['operation_history_cleanup', 'serverOp'],

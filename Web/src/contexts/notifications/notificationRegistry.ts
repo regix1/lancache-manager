@@ -1299,7 +1299,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Scheduled service runs (standard, built by factory) ==========
   buildScheduledRunEntry({
     type: 'log_rotation',
-    cancellable: false,
+    cancellable: true,
     serviceKey: 'logRotation',
     eventPrefix: 'LogRotation',
     i18nBase: 'signalr.scheduledRun.logRotation',
