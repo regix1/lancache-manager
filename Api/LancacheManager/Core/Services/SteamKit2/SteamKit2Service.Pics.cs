@@ -906,6 +906,11 @@ public partial class SteamKit2Service
                 var appList = allApps.OrderBy(id => id).ToList();
                 return appList;
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // The person canceled the run (X or force stop); wrapping the cancel would end the card red.
+                throw;
+            }
             catch (Exception webApiEx)
             {
                 _logger.LogError(webApiEx, "Failed to enumerate via Web API for full scan");
@@ -1115,7 +1120,8 @@ public partial class SteamKit2Service
             }
 
             _manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(50));
-            if (linkedCts.Token.IsCancellationRequested)
+            // A job Steam answered in the same turn its limit fired was answered; the loop returns it.
+            if (linkedCts.Token.IsCancellationRequested && !tcs.Task.IsCompleted)
             {
                 ct.ThrowIfCancellationRequested();
                 // The limit ran out, not the run: Steam never answered this job, which is a failure, not a cancel.
@@ -1172,7 +1178,8 @@ public partial class SteamKit2Service
             await Task.Yield();
         }
 
-        if (linkedCts.Token.IsCancellationRequested)
+        // A job Steam answered in the same turn its limit fired was answered; the loop returns it.
+        if (!isCompleted && linkedCts.Token.IsCancellationRequested)
         {
             ct.ThrowIfCancellationRequested();
             // The limit ran out, not the run: Steam never answered this job, which is a failure, not a cancel.

@@ -114,33 +114,7 @@ public partial class SteamKit2Service
         {
             throw;
         }
-        catch (TimeoutException tex)
-        {
-            _logger.LogWarning(tex, "Steam connection timed out while checking incremental viability");
-
-            // Clean up connection state on timeout to prevent stale connections
-            if (_steamClient?.IsConnected == true)
-            {
-                _intentionalDisconnect = true;
-                _steamClient.Disconnect();
-            }
-            _isLoggedOn = false;
-
-            var changeNumberForError = await TryGetLastChangeNumberAsync() ?? 0;
-
-            // If we can't check viability, assume full scan is required for safety
-            return new IncrementalViabilityCheck
-            {
-                IsViable = false,
-                LastChangeNumber = changeNumberForError,
-                CurrentChangeNumber = 0,
-                ChangeGap = 0,
-                IsLargeGap = true,
-                WillTriggerFullScan = true,
-                EstimatedAppsToScan = 270000,
-                Error = tex.Message
-            };
-        }
+        // A request Steam did not answer is a connection failure too: Steam never asked for a full scan.
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to check incremental viability - connection or network error");

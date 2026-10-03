@@ -199,6 +199,39 @@ public sealed class DepotImportTests
             && stageKey.GetString() == "signalr.depotMapping.skippedSteamUnreachable");
     }
 
+    [Fact]
+    public async Task AViabilityCheckSteamDidNotAnswerReadsAsUnreachableAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.LastViabilityCheck = null);
+        fixture.CheckChanges = (_, _) => throw new TimeoutException("Steam did not answer the PICS request within 5 minutes");
+
+        var result = await fixture.Service.CheckViabilityAsync(CancellationToken.None);
+
+        Assert.False(result.WillTriggerFullScan);
+        Assert.False(result.IsLargeGap);
+        Assert.Equal("errors.steam.connectionFailed", result.StageKey);
+        Assert.False(string.IsNullOrEmpty(result.Error));
+    }
+
+    [Fact]
+    public async Task ADepotScanCanceledDuringItsWebApiListingStopsAsACancelAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Source = """{"applist":{"apps":[{"appid":10,"name":"Counter-Strike"}]}}""";
+        using var run = new CancellationTokenSource();
+        fixture.Download = _ =>
+        {
+            run.Cancel();
+            return Task.FromResult(fixture.Source);
+        };
+        Set(fixture.Service, "_steamApps", new SteamKit2.SteamClient().GetHandler<SteamKit2.SteamApps>()!);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => (Task)Invoke(fixture.Service, "GetAppIdsViaPicsAsync", run.Token, false)!);
+    }
+
     // The crawl fails at its started event, so it never connects to Steam; its operation is already
     // registered by then.
     private static async Task StartRebuildAndStopBeforeConnectingAsync(Fixture fixture, Func<bool> start)
