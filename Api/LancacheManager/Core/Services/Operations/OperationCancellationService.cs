@@ -119,10 +119,10 @@ public class OperationCancellationService
         }
 
         // Force stop ends the job but never its repair: the outcome is recorded first, so the card
-        // turns to repairing (or ends when nothing is owed) at once. A job that saved its own outcome before
-        // this force stop completes its run itself, a few statements after that save.
-        if (_operationStateService.OwnsRepair(operationId)
-            && await _operationStateService.RecordForceStopAsync(operationId))
+        // turns to repairing (or ends when nothing is owed) at once. A job that saved its final outcome before
+        // this force stop completes its run itself, a few statements after that save; a job whose run goes on after
+        // its save ends here.
+        if (await _operationStateService.RecordForceStopAsync(operationId))
         {
             return true;
         }

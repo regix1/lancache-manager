@@ -44,6 +44,16 @@ public sealed class OperationRepair
     /// remove step); a run restored after a restart ends canceled as it did.
     /// </summary>
     public bool RunCancelled { get; set; }
+    /// <summary>
+    /// The job saved its outcome before more work on the same run (an eviction scan's remove step and tail); the run's
+    /// last save clears it. A record restored with it still set was stopped by a restart before that save.
+    /// </summary>
+    public bool RunContinues { get; set; }
+    /// <summary>
+    /// Why the run failed after its job saved a successful outcome (an eviction scan whose tail failed); a run restored
+    /// after a restart ends failed with it, as it did.
+    /// </summary>
+    public string? RunError { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

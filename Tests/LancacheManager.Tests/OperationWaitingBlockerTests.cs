@@ -786,6 +786,156 @@ public sealed class OperationWaitingBlockerTests : IDisposable
     }
 
     [Fact]
+    public async Task AForceStopAfterALogPassSavedItsOutcomeLeavesTheEndingToTheOwnerAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            registrations: services => services.AddSingleton<ISignalRNotificationService>(
+                new ScheduledRunReporterTests.CapturingNotificationService()));
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var ended = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var id = harness.Tracker.RegisterOperation(OperationType.LogProcessing, "Log Processing", new CancellationTokenSource(),
+            onTerminalEmit: terminal =>
+            {
+                ended.TrySetResult(terminal);
+                return Task.CompletedTask;
+            },
+            ownerCompletes: true);
+        // The record a log pass prepares: a downloads refresh is all it owes, so its own save drops the record.
+        await harness.Owner.PrepareRepairAsync(new OperationRepair
+        {
+            Id = id,
+            Type = OperationType.LogProcessing,
+            Name = "Log processing",
+            StartedAt = DateTime.UtcNow,
+            Sources =
+            [
+                new OperationRepairSource
+                {
+                    Datasource = "alpha",
+                    LogRoot = "logs/alpha",
+                    CacheRoot = "cache/alpha",
+                    KeyScheme = "steam",
+                    RefreshDownloads = true
+                }
+            ],
+            LogProcessing = new LogProcessingRepair()
+        }, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null);
+        Assert.False(harness.Owner.OwnsRepair(id));
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+
+        // The pass's owner still completes the run with its own counts.
+        Assert.Equal(0, harness.Tracker.GetOperation(id)!.CompletedFlag);
+        harness.Tracker.CompleteOperation(id, success: true);
+
+        Assert.Equal(OperationStatus.Completed, harness.Tracker.GetOperation(id)!.Status);
+        var emitted = await ended.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(emitted.Success);
+        Assert.False(emitted.Cancelled);
+    }
+
+    [Fact]
+    public async Task AForceStopWhileTheJobsRunGoesOnAfterItsSaveEndsTheRunAtOnceAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        // The scan's early save, before its remove step and checkpoint tail.
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        Assert.True(await cancellation.ForceKillAsync(id).WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var operation = harness.Tracker.GetOperation(id)!;
+        Assert.Equal(1, operation.CompletedFlag);
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.Equal(OperationStatus.Completed, stored.Outcome);
+        Assert.True(stored.RunCancelled);
+        Assert.True(stored.RunContinues);
+
+        // The scan's last save after the stop records how the run ended.
+        await harness.Owner.FinishRepairAsync(id, success: false, cancelled: true, error: null);
+
+        stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.False(stored.RunContinues);
+        Assert.True(stored.RunCancelled);
+    }
+
+    [Fact]
+    public async Task XWhileTheJobsRunGoesOnAfterItsSaveIsSavedAtOnceAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var controller = new OperationsController(harness.Tracker, cancellation, harness.Owner)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    RequestServices = new ServiceCollection()
+                        .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+                        .BuildServiceProvider()
+                }
+            }
+        };
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        await controller.CancelOperation(id);
+
+        // X leaves the ending to the scan, but the stop is saved already for a restart before the scan's last save.
+        Assert.Equal(0, harness.Tracker.GetOperation(id)!.CompletedFlag);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.True(stored.RunCancelled);
+        Assert.True(stored.RunContinues);
+
+        // The scan passed its last token check, so its last save reports a clean run.
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null);
+
+        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
+        stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.False(stored.RunContinues);
+        Assert.True(stored.RunCancelled);
+    }
+
+    private static OperationRepair NewScanRepair(Guid id) => new()
+    {
+        Id = id,
+        Type = OperationType.EvictionScan,
+        Name = "Eviction scan",
+        StartedAt = DateTime.UtcNow,
+        Sources =
+        [
+            new OperationRepairSource
+            {
+                Datasource = "alpha",
+                LogRoot = "logs/alpha",
+                CacheRoot = "cache/alpha",
+                KeyScheme = "steam",
+                RefreshDownloads = true
+            }
+        ],
+        EvictionScan = new EvictionScanRepair()
+    };
+
+    [Fact]
     public async Task AJobThatEndsAfterAForceStopSavedItsCancelEndsCanceledAsync()
     {
         await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);

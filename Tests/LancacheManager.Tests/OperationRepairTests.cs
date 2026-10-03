@@ -2512,6 +2512,104 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task AJobsLastSaveAfterAFailedTailKeepsTheFailureForTheRestartAsync()
+    {
+        await using var harness = await RepairHarness.CreateAsync(_root);
+        var scan = NewScanRepair();
+        scan.Id = harness.Tracker.RegisterOperation(
+            OperationType.EvictionScan,
+            scan.Name,
+            new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(scan, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(scan.Id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(
+            scan.Id,
+            success: true,
+            cancelled: false,
+            error: null,
+            update: repair => repair.RunContinues = true);
+
+        // The checkpoint tail failed after the scan's results were saved.
+        await harness.Owner.FinishRepairAsync(scan.Id, success: false, cancelled: false, error: "Database unavailable");
+
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == scan.Id);
+        Assert.Equal(OperationStatus.Completed, stored.Outcome);
+        Assert.False(stored.RunContinues);
+        Assert.Equal("Database unavailable", stored.RunError);
+    }
+
+    [Fact]
+    public async Task ARestoredScanARestartCutAfterItsSaveEndsFailedAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewScanRepair();
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Completed;
+        repair.RunContinues = true;
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("failed", row.Status);
+        Assert.Equal("Operation interrupted by application restart", row.Error);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Fact]
+    public async Task ARestoredScanWhoseTailFailedEndsFailedWithItsErrorAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewScanRepair();
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Completed;
+        repair.RunError = "Database unavailable";
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("failed", row.Status);
+        Assert.Equal("Database unavailable", row.Error);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    private static OperationRepair NewScanRepair() => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = OperationType.EvictionScan,
+        Name = "Eviction scan",
+        StartedAt = DateTime.UtcNow,
+        Sources = [Source("alpha")],
+        EvictionScan = new EvictionScanRepair()
+    };
+
+    [Fact]
     public async Task ARestoredLogRemovalWhoseReopenFailedStaysCompletedWithItsWarningAsync()
     {
         var state = CreateStateService(_root);

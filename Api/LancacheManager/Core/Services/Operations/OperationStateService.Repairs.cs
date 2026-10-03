@@ -255,10 +255,12 @@ public partial class OperationStateService
         var stoppingToken = _applicationLifetime.ApplicationStopping;
         await WaitForRecoveryOwnershipAsync(stoppingToken);
         await RecordOutcomeAsync(operationId, success, cancelled, error, update, forceStop: false, stoppingToken);
-        // A force stop that saved its cancel first owns the ending, live as after a restart, so the run ends
-        // canceled before this job's own completion can show another one.
+        // A stop that saved its cancel first owns the ending, live as after a restart: a force stop's saved outcome, or
+        // X or a force stop while the job's run went on after its outcome save. The run ends canceled before this
+        // job's own completion can show another one.
         if (!cancelled &&
-            _repairs.TryGetValue(operationId, out var saved) && saved.Outcome == OperationStatus.Cancelled &&
+            _repairs.TryGetValue(operationId, out var saved) &&
+            (saved.Outcome == OperationStatus.Cancelled || saved.RunCancelled) &&
             _operationTracker.GetOperation(operationId) is { CompletedFlag: 0 })
         {
             CompleteRunFromRecord(saved);
@@ -267,13 +269,20 @@ public partial class OperationStateService
 
     // Force stop records the outcome in one call that never waits for a repair or a failed save, so
     // the request returns at once; the owner's own FinishRepairAsync still follows it. Returns true when the
-    // job had already saved its own outcome: its owner then completes the run with its own completion events,
-    // the same ending a restart restores, so the force stop must not complete it.
+    // job had already saved its final outcome (a log pass may have dropped its record already): its owner then
+    // completes the run a few statements later with its own completion events, the same ending a restart restores,
+    // so the force stop must not complete it. A job whose run goes on after its save gets the stop recorded and
+    // false back, so the force stop ends the card at once.
     public async Task<bool> RecordForceStopAsync(Guid operationId)
     {
+        if (!_repairs.ContainsKey(operationId) && !_completedRepairs.ContainsKey(operationId))
+        {
+            return false;
+        }
+
         var stoppingToken = _applicationLifetime.ApplicationStopping;
         await WaitForRecoveryOwnershipAsync(stoppingToken);
-        await RecordOutcomeAsync(
+        return await RecordOutcomeAsync(
             operationId,
             success: false,
             cancelled: true,
@@ -281,11 +290,37 @@ public partial class OperationStateService
             update: null,
             forceStop: true,
             stoppingToken);
-        return _repairs.TryGetValue(operationId, out var saved) &&
-            saved.Outcome is { } outcome && outcome != OperationStatus.Cancelled;
     }
 
-    private async Task RecordOutcomeAsync(
+    // X while a job's run goes on after its outcome save (an eviction scan's remove step) is saved at once, so an app
+    // stop before the job's last save still restores the canceled card. Any other X is the owner's to record.
+    public async Task RecordCancelAsync(Guid operationId)
+    {
+        if (!_repairs.TryGetValue(operationId, out var repair) || !repair.RunContinues)
+        {
+            return;
+        }
+
+        var stoppingToken = _applicationLifetime.ApplicationStopping;
+        await _admissionGate.WaitAsync(stoppingToken);
+        try
+        {
+            if (_repairs.TryGetValue(operationId, out var current) && current.RunContinues)
+            {
+                await SaveRepairCoreAsync(current, next => next.RunCancelled = true, stoppingToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Could not save the cancel of operation {OperationId}", operationId);
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
+    }
+
+    private async Task<bool> RecordOutcomeAsync(
         Guid operationId,
         bool success,
         bool cancelled,
@@ -307,6 +342,38 @@ public partial class OperationStateService
                 : GetRequiredRepair(operationId).Phase;
             if (phase is OperationRepairPhase.Repairing or OperationRepairPhase.Completed)
             {
+                // A job that saved its outcome before more work on the same run (an eviction scan's remove step and
+                // tail) is still running: a stop is recorded at once, and the owner's last call records how the run
+                // ended, so a restart restores the ending the session showed.
+                var continuing = _repairs.TryGetValue(operationId, out var stored) && stored.RunContinues;
+                if (continuing)
+                {
+                    try
+                    {
+                        await SaveRepairCoreAsync(
+                            stored!,
+                            next =>
+                            {
+                                if (forceStop)
+                                {
+                                    next.RunCancelled = true;
+                                    return;
+                                }
+                                next.RunContinues = false;
+                                next.RunCancelled |= cancelled;
+                                next.RunError = success || cancelled ? null : error;
+                            },
+                            stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not save how the run of operation {OperationId} ended", operationId);
+                    }
+                }
                 // A force stop that landed first saved no metrics, so the owner's final ones are saved
                 // before the barrier opens and the repair reads them; a failed save still opens it.
                 if (phase == OperationRepairPhase.Repairing && !forceStop && update is not null)
@@ -335,7 +402,7 @@ public partial class OperationStateService
                 {
                     _ = ClaimRepairTask(operationId, _startupRepairs.ContainsKey(operationId));
                 }
-                return;
+                return !continuing;
             }
 
             // A prepared record never started its work, so it owes no repair; a log pass that owes
@@ -498,7 +565,7 @@ public partial class OperationStateService
         }
         if (saveFailed)
         {
-            return;
+            return false;
         }
 
         if (nextPhase == OperationRepairPhase.Completed)
@@ -514,7 +581,7 @@ public partial class OperationStateService
         }
         if (forceStop)
         {
-            return;
+            return false;
         }
 
         // The owner's landed outcome also settles a stored retry (a force stop whose save failed, or
@@ -543,6 +610,7 @@ public partial class OperationStateService
                 _operationTracker.EndRepair(operationId, null);
             }
         }
+        return false;
     }
 
     public async Task WaitForRecoveryOwnershipAsync(CancellationToken cancellationToken)
@@ -2169,11 +2237,17 @@ public partial class OperationStateService
         // A force stop the person asked for stays canceled even when the owner's later save marked the job's
         // own work as done.
         var cancelled = repair.Outcome == OperationStatus.Cancelled || repair.RunCancelled;
-        var success = !cancelled && (repair.Outcome == OperationStatus.Completed || repair.RunCompleted);
-        _operationTracker.CompleteOperation(
-            repair.Id,
-            success,
-            success ? null : repair.Error,
-            cancelled);
+        // A run that went on after its job saved its outcome ends failed when that later work failed, or when a restart
+        // stopped it before its last save: the app stopped it, so it is not the saved success.
+        var runError = repair.RunContinues ? InterruptedByRestartError : repair.RunError;
+        var success = !cancelled && runError is null
+            && (repair.Outcome == OperationStatus.Completed || repair.RunCompleted);
+        string? error = null;
+        if (!success)
+        {
+            // A canceled run keeps the record's own error, as before; only a failed run shows the run's error.
+            error = cancelled || runError is null ? repair.Error : runError;
+        }
+        _operationTracker.CompleteOperation(repair.Id, success, error, cancelled);
     }
 }

@@ -147,6 +147,10 @@ public class OperationsController : ControllerBase
         try
         {
             var result = _cancellationService.Cancel(operation.Id, caller);
+            if (result == OperationCancelResult.Requested)
+            {
+                await _operationStateService.RecordCancelAsync(operation.Id);
+            }
             // The answer describes the operation the cancel reached, which a handoff may have moved.
             var target = _operationTracker.GetOperation(operation.Id, followHandoff: true) ?? operation;
             switch (result)
