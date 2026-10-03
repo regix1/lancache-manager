@@ -196,6 +196,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       }
 
       // Success case
+      setNotice(null);
       setProgress({
         isProcessing: false,
         progress: 100,
@@ -417,12 +418,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         return;
       }
 
+      // The completion event that follows a force stop says how the pass ended; a pass that saved its success just
+      // before the stop still completes, so the notice comes from that event, not from this click.
       await ApiService.forceKillOperation(operationId);
       setProcessing(false);
-      setNotice({
-        tone: 'info',
-        message: t('initialization.logProcessing.cancelled')
-      });
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
