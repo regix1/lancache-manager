@@ -111,6 +111,45 @@ public sealed class IntegrationCancellationTests
     }
 
     [Fact]
+    public async Task AnEpicSignInWhoseWindowRunsOutBeforeTheAccountIsSavedEndsRedAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler { HangCatalog = true });
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        using var service = NewEpicService(fixture, http, services, tracker);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        var login = fixture.Epic.ContinueIntegrationLogin(fixture.Owner, start.AttemptId);
+        fixture.Epic.SetIntegrationLoginExpiry(login, DateTime.UtcNow.AddSeconds(2));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
+                .WaitAsync(TimeSpan.FromSeconds(20)));
+
+        var run = Assert.Single(tracker.GetRuns().Runs);
+        Assert.Equal("failed", run.Status);
+        Assert.Equal("errors.integration.attemptExpired", run.Error);
+    }
+
+    [Fact]
+    public async Task AnEpicSignInWhoseCatalogReadTimesOutEndsRedAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler { HangCatalog = true }) { Timeout = TimeSpan.FromSeconds(1) };
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        using var service = NewEpicService(fixture, http, services, tracker);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
+                .WaitAsync(TimeSpan.FromSeconds(20)));
+
+        var run = Assert.Single(tracker.GetRuns().Runs);
+        Assert.Equal("failed", run.Status);
+    }
+
+    [Fact]
     public async Task EpicRefreshRunsRegisterTheNoticeTheyWereAdmittedWith()
     {
         using var fixture = new IntegrationFixture();
@@ -181,16 +220,22 @@ public sealed class IntegrationCancellationTests
         }
     }
 
-    // The code exchange answers tokens, and every catalog read answers an empty list.
+    // The code exchange answers tokens, and every catalog read answers an empty list. With HangCatalog a
+    // read never answers, so it ends only when the caller's token or the client's timeout cancels it.
     private sealed class EpicSignInHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        public bool HangCatalog { get; init; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (HangCatalog && request.Method != HttpMethod.Post) await Task.Delay(Timeout.Infinite, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(request.Method == HttpMethod.Post
                     ? """{"access_token":"access","refresh_token":"refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}"""
                     : "[]", Encoding.UTF8, "application/json")
-            });
+            };
+        }
     }
 
     private class HandoffTracker : DispatchProxy

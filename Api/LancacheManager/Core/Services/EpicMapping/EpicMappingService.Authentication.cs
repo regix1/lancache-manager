@@ -149,6 +149,7 @@ public partial class EpicMappingService
         var gamesDiscovered = 0;
         var newGames = 0;
         var updatedGames = 0;
+        var saved = false;
         try
         {
             _currentStatus = EpicMappingStatus.Authenticating;
@@ -218,7 +219,7 @@ public partial class EpicMappingService
                     await MergeCdnPatternsAsync(cdnInfos, reporter.Token);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
             {
                 _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
             }
@@ -244,6 +245,10 @@ public partial class EpicMappingService
                 _lastRefreshTime = DateTime.UtcNow;
                 _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
             })) throw new OperationCanceledException();
+            // The window bounds the sign-in, not the downloads step after it: the account is saved, so only a person's
+            // cancel or a shutdown stops what follows.
+            authCts.CancelAfter(Timeout.InfiniteTimeSpan);
+            saved = true;
 
             await reporter.ReportAsync(
                 85,
@@ -273,7 +278,8 @@ public partial class EpicMappingService
                 tokens.DisplayName,
                 _gamesDiscovered);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException &&
+                                                    (saved || DateTime.UtcNow < login.ExpiresAtUtc))
         {
             _logger.LogInformation("Epic mapping auth or collection cancelled");
             if (reporter is not null)
@@ -281,6 +287,20 @@ public partial class EpicMappingService
                 await reporter.CompleteAsync(
                     success: false,
                     cancelled: true,
+                    context: CreateEpicContext());
+            }
+            throw;
+        }
+        catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
+        {
+            // The sign-in window ran out before the account was saved: the app's limit, so the run ends red.
+            _logger.LogInformation("Epic mapping sign-in window ran out before the account was saved");
+            if (reporter is not null)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "errors.integration.attemptExpired",
+                    stageKey: "errors.integration.attemptExpired",
                     context: CreateEpicContext());
             }
             throw;
