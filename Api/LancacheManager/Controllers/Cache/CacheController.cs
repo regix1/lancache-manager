@@ -1962,6 +1962,15 @@ public class CacheController : ControllerBase
                         reopenCompleted = true;
                         if (!reopenResult.Success)
                         {
+                            // A failed reopen after the person's stop is logged and the run still ends as the cancel the
+                            // person asked for, as the log step's does.
+                            if (error is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                            {
+                                _logger.LogWarning(
+                                    "[CorruptionRemoval] Could not reopen nginx after a canceled removal: {Error}",
+                                    reopenResult.ErrorMessage);
+                                throw;
+                            }
                             throw new AggregateException(
                                 error,
                                 new IOException(reopenResult.ErrorMessage!));
@@ -2012,9 +2021,9 @@ public class CacheController : ControllerBase
             await FinishAndCompleteAsync(success: false, cancelled: false, error: ex.Message);
         }
         var terminal = await terminalCompletion.Task;
-        // X or a force stop on this service stops Remove all even when the service finished after it: a successful
-        // ending reports no cancel, so the person's stop is read from the run's own cancel mark.
-        if (terminal.Cancelled || _operationTracker.GetOperation(operationId)?.Cancelled == true)
+        // X or a force stop on this service stops Remove all whatever the service's ending: a successful ending reports no
+        // cancel and a failure clears the run's cancel mark, so the person's stop is read from the token it canceled.
+        if (terminal.Cancelled || cancellationToken.IsCancellationRequested)
             throw new OperationCanceledException(cancellationToken);
         return terminal.Success;
 

@@ -603,6 +603,28 @@ public sealed class CorruptionRemovalContractTests
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
+    public async Task AllServices_XThatTheCurrentServiceFailsAfterStopsTheRemainingServicesAsync(CorruptionDetectionMethod method)
+    {
+        using var fixture = new RemovalRun(method);
+        // X, then the service ends red (a failed nginx reopen): the tracker clears the cancel mark on a failure.
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+            {
+                fixture.Tracker.CancelOperation(id);
+                fixture.Tracker.CompleteOperation(id, success: false, error: "Could not reopen nginx", cancelled: false);
+            }
+        };
+        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(aggregate.Cancelled);
+        Assert.Single(fixture.Messages.Started);
+        fixture.Messages.Resume.TrySetResult();
+    }
+
+    [Theory]
+    [InlineData(CorruptionDetectionMethod.Structural)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
     public async Task ProcessCompletion_AccumulatesBothDatasourcesAndPublishesAcceptedProgress(CorruptionDetectionMethod method)
     {
         await using var fixture = new RemovalRun(method, transport: true, datasourceCount: 2);

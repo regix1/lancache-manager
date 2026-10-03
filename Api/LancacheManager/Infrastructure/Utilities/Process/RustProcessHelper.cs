@@ -1300,6 +1300,9 @@ public partial class RustProcessHelper
                 };
             }
 
+            // A child the person's stop killed exits non-zero once its output ends; on Windows that read does not see the
+            // cancel, so the stop is reported as the cancel it is, as RustProcessResults.EnsureSuccess does.
+            cancellationToken.ThrowIfCancellationRequested();
             return new RustExecutionResult
             {
                 Success = false,
