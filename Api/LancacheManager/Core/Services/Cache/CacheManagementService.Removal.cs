@@ -312,9 +312,10 @@ public partial class CacheManagementService
             // their rows back, so the card names each such datasource.
             if (report.PermissionErrors > 0)
             {
+                // A value restored after a restart is a JSON element, so read its text.
                 var kept = _operationTracker.GetOperation(operationId)?.Warnings
                     .FirstOrDefault(warning => warning.StageKey == "common.notifications.warnings.logLinesKept")
-                    ?.Context["datasources"] as string;
+                    ?.Context["datasources"]?.ToString();
                 await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
                     "common.notifications.warnings.logLinesKept",
                     new Dictionary<string, object?> { ["datasources"] = kept is null ? datasource.Name : $"{kept}, {datasource.Name}" }));

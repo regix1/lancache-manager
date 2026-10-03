@@ -1,9 +1,12 @@
+using System.Reflection;
 using System.Text.Json;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -619,6 +622,191 @@ public sealed class RemovalLogStepTests
         Assert.Equal("common.notifications.warnings.logLinesKept", warning.StageKey);
         Assert.Equal("alpha, beta", warning.Context["datasources"]);
         Assert.Equal("common.notifications.warnings.logLinesKept", Assert.Single(repair.Warnings!).StageKey);
+    }
+
+    [Theory]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.ServiceRemoval)]
+    public async Task ARemovalCanceledAfterADatasourceFailedNamesItOnItsGrayCardAsync(OperationType type)
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), type);
+        var rust = harness.Rust;
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            AddRow(seed, "beta", "steam", GameAppId, depotId: 2, "/depot/2/beta");
+            await seed.SaveChangesAsync();
+        }
+        // Alpha's remover cannot be launched, so its datasource fails; beta's remover then reports
+        // progress and waits until the cancel.
+        rust.OnRemoverRun = run => run == 1
+            ? throw new InvalidOperationException("Injected alpha launch failure.")
+            : Task.CompletedTask;
+        var config = harness.CreateConfig(type, Metrics(type), async (operationId, cancellationToken, report) =>
+        {
+            if (type == OperationType.GameRemoval)
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            }
+
+            var service = await harness.Manager.RemoveServiceFromCacheAsync(
+                "steam",
+                cancellationToken,
+                Progress(report),
+                operationId);
+            return (service.CacheFilesDeleted, checked((long)service.TotalBytesFreed));
+        });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        try
+        {
+            await harness.WaitForBetaProgressAsync();
+            Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+            var terminal = await harness.WaitForTerminalAsync(operationId);
+            var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+            Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+            var warning = Assert.Single(terminal.Warnings);
+            Assert.Equal("common.notifications.warnings.datasourcesFailed", warning.StageKey);
+            Assert.Equal("alpha", warning.Context["datasources"]);
+            Assert.Equal(
+                "common.notifications.warnings.datasourcesFailed",
+                Assert.Single(repair.Warnings!).StageKey);
+        }
+        finally
+        {
+            harness.ReleaseRust();
+            await harness.WaitForTerminalAsync(operationId);
+        }
+    }
+
+    [Fact]
+    public async Task ARestoredKeptLinesWarningStillNamesItsDatasourceAfterAnotherPermissionErrorAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = true;
+        rust.PurgeLinesRemoved = 5;
+        rust.PurgePermissionErrors = 1;
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            foreach (var datasource in new[] { "alpha", "beta" })
+            {
+                AddRow(seed, datasource, "steam", GameAppId, depotId: 2, "/depot/2/" + datasource);
+            }
+            await seed.SaveChangesAsync();
+        }
+        var runId = Guid.Empty;
+        // A warning restored after a restart holds its context values as JSON elements. Beta's remover
+        // runs after alpha's purge named alpha, so this puts alpha's name back in the restored form.
+        rust.OnRemoverRun = async run =>
+        {
+            if (run == 2)
+            {
+                await harness.Owner.SetRunWarningAsync(runId, new RunWarning(
+                    "common.notifications.warnings.logLinesKept",
+                    new Dictionary<string, object?> { ["datasources"] = JsonDocument.Parse("\"alpha\"").RootElement }));
+            }
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                runId = operationId;
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var warning = Assert.Single(terminal.Warnings);
+        Assert.Equal("common.notifications.warnings.logLinesKept", warning.StageKey);
+        Assert.Equal("alpha, beta", warning.Context["datasources"]);
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 1)]
+    public async Task AGameRemovalThatFailedOnOneDatasourceKeepsItsDetectionRowThroughTheControllerAsync(
+        bool betaSucceeds,
+        int expectedDetectionRemovals)
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        // Beta's cache step fails at once unless it succeeds: the fake writes its report and exits 17.
+        rust.BetaSucceeds = betaSucceeds;
+        harness.ReleaseRust();
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            AddRow(seed, "beta", "steam", GameAppId, depotId: 2, "/depot/2/beta");
+            await seed.SaveChangesAsync();
+        }
+        var controller = new GamesController(
+            gameCacheDetectionService: null!,
+            gameDetectionService: null!,
+            cacheManagementService: harness.Manager,
+            notifications: harness.NotificationService,
+            logger: NullLogger<GamesController>.Instance,
+            pathResolver: null!,
+            operationTracker: harness.Tracker,
+            conflictChecker: null!,
+            operationQueue: null!,
+            capabilityService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle());
+        var detectionRemovals = new List<long>();
+        Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>,
+            Task<CacheManagementService.GameCacheRemovalReport>> removeFunc =
+            (operationId, cancellationToken, onProgress) => harness.Manager.RemoveGameFromCacheAsync(
+                GameAppId,
+                cancellationToken,
+                onProgress,
+                operationId);
+        Func<long, Task> onSuccess = appId =>
+        {
+            detectionRemovals.Add(appId);
+            return Task.CompletedTask;
+        };
+
+        var operationId = await (Task<Guid>)typeof(GamesController)
+            .GetMethod("StartRemovalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(
+                controller,
+                [GameAppId.ToString(), "Dota 2", "Game Removal: Dota 2", GameAppId, "steam", null, null, removeFunc, onSuccess])!;
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        // The controller's own config names the complete event after the SignalR event, not "complete".
+        SignalRNotifications.GameRemovalComplete? complete = null;
+        for (var attempt = 0; attempt < 400 && complete is null; attempt++)
+        {
+            complete = harness.ReadMessages()
+                .Select(message => message.Value)
+                .OfType<SignalRNotifications.GameRemovalComplete>()
+                .SingleOrDefault();
+            await Task.Delay(25);
+        }
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.Equal(!betaSucceeds, Assert.IsType<SignalRNotifications.GameRemovalComplete>(complete).EntityKept);
+        Assert.Equal(expectedDetectionRemovals, detectionRemovals.Count);
     }
 
     private static string Root() =>

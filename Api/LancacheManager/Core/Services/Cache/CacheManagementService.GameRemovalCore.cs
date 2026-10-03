@@ -208,6 +208,14 @@ public partial class CacheManagementService
                 failedDatasources.Add(datasource.Name);
                 firstFailure ??= failure;
             }
+            catch (OperationCanceledException) when (failedDatasources.Count > 0 && operationId.HasValue)
+            {
+                // A datasource that already failed keeps its files and history; the canceled card names it.
+                await _operationStateService.SetRunWarningAsync(operationId.Value, new RunWarning(
+                    "common.notifications.warnings.datasourcesFailed",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+                throw;
+            }
         }
 
         // Nothing finished anywhere: the run fails with the first error, as it did before.
