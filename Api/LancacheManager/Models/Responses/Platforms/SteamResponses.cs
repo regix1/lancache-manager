@@ -13,6 +13,12 @@ public class SteamAuthStatusResponse
     public string? OwnershipReason { get; set; }
     public Guid? AttemptId { get; set; }
     public DateTime? LoginExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// The ending of the sign-in the caller asked about by its attempt id, once it ended. A browser that lost the
+    /// sign-in's answer reads how its own sign-in ended here.
+    /// </summary>
+    public IntegrationLoginEnding? LoginEnding { get; set; }
     public string Mode { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public bool IsAuthenticated { get; set; }

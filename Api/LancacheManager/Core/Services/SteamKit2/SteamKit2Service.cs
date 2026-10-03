@@ -151,6 +151,8 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     }
 
     public IntegrationAccess GetIntegrationAccess(IntegrationCaller caller) => _steamAuthRepository.GetIntegrationAccess(caller);
+    public IntegrationLoginEnding? GetIntegrationLoginEnding(IntegrationCaller caller, Guid attemptId)
+        => _steamAuthRepository.GetIntegrationLoginEnding(caller, attemptId);
 
     public Task SetModeAsync(IntegrationCaller caller, SteamAuthMode mode)
         => _steamAuthRepository.RunIntegrationActionAsync(caller, () =>

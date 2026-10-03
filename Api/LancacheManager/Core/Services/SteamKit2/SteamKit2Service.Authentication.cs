@@ -96,7 +96,12 @@ public partial class SteamKit2Service
                 keepPendingLoginOwner = pollResult.Result.RequiresTwoFactor
                     || pollResult.Result.RequiresEmailCode
                     || pollResult.Result.RequiresMobileConfirmation;
-                return await CompleteLoginAsync(login, pollResult.Result);
+                // A code prompt keeps the attempt for the code. The only other unsuccessful poll is Steam's
+                // phone-approval window running out, which ends it.
+                return keepPendingLoginOwner
+                    ? await CompleteLoginAsync(login, pollResult.Result)
+                    : await EndLoginAsync(login, OperationStatus.Failed,
+                        "modals.steamAuth.errors.mobileConfirmationTimedOut", pollResult.Result);
             }
 
             await _sessionGate.WaitAsync(lifetime.Token);
@@ -136,6 +141,10 @@ public partial class SteamKit2Service
                         _sessionReplaced = false;
                         _sessionCredential = anonymous ? null : (login.AccountId, pollResult.RefreshToken!);
                         _sessionAuthVersion = _steamAuthRepository.GetIntegrationSnapshot().Version;
+                        // Recorded with the save, under the same lock, so no status read finds the attempt over without it.
+                        _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                            login.AttemptId, OperationStatus.Completed, "modals.steamAuth.success.authenticatedAs",
+                            new Dictionary<string, object?> { ["username"] = pollResult.AccountName }));
                     })) throw new OperationCanceledException();
                 }
             }
@@ -150,19 +159,18 @@ public partial class SteamKit2Service
         {
             // The sign-in window ran out, not a person: say it expired, as a late code is told.
             _logger.LogInformation("Steam sign-in expired");
-            return await CompleteLoginAsync(login, new AuthenticationResult
+            return await EndLoginAsync(login, OperationStatus.Failed, "errors.integration.attemptExpired", new AuthenticationResult
             {
                 Success = false,
-                Message = "This sign-in has ended or expired. Start a new sign-in.",
-                StageKey = "errors.integration.attemptExpired"
+                Message = "This sign-in has ended or expired. Start a new sign-in."
             });
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Steam sign-in cancelled");
-            return await CompleteLoginAsync(login, new AuthenticationResult
+            return await EndLoginAsync(login, OperationStatus.Cancelled, "errors.steam.signInCancelled", new AuthenticationResult
             {
-                Success = false, Message = "Sign-in was cancelled.", StageKey = "errors.steam.signInCancelled"
+                Success = false, Message = "Sign-in was cancelled."
             });
         }
         catch (LancacheManager.Middleware.ApiException)
@@ -172,24 +180,23 @@ public partial class SteamKit2Service
         catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
         {
             _logger.LogWarning(ex, "Steam authentication could not reach a usable connection");
-            return await CompleteLoginAsync(login, new AuthenticationResult
+            return await EndLoginAsync(login, OperationStatus.Failed, "errors.steam.serversBusy", new AuthenticationResult
             {
-                Success = false, Message = "Steam's servers are busy right now. Please try again.",
-                StageKey = "errors.steam.serversBusy"
+                Success = false, Message = "Steam's servers are busy right now. Please try again."
             });
         }
         catch (SteamLogonException ex)
         {
             if (_steamAuthRepository.IsIntegrationLoginCurrent(login)) NotifySessionError(ex);
-            return await CompleteLoginAsync(login, new AuthenticationResult
+            return await EndLoginAsync(login, OperationStatus.Failed, ex.StageKey, new AuthenticationResult
             {
-                Success = false, Message = ex.Message, StageKey = ex.StageKey
+                Success = false, Message = ex.Message
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Steam authentication failed");
-            return await CompleteLoginAsync(login, new AuthenticationResult
+            return await EndLoginAsync(login, OperationStatus.Failed, "modals.steamAuth.errors.authenticationFailed", new AuthenticationResult
             {
                 Success = false, Message = "Steam sign-in could not be completed. Please try again."
             });
@@ -250,6 +257,19 @@ public partial class SteamKit2Service
         result.AttemptId = login.AttemptId;
         result.ExpiresAtUtc = login.ExpiresAtUtc;
         return Task.FromResult(result);
+    }
+
+    /// <summary>
+    /// Ends the attempt with <paramref name="result"/>. How it ended is recorded by its attempt id before
+    /// <see cref="AuthenticateAsync"/>'s finally stops counting it as running, so a browser that lost this answer reads
+    /// the ending; the outcome is then stamped as <see cref="CompleteLoginAsync"/> does.
+    /// </summary>
+    private Task<AuthenticationResult> EndLoginAsync(
+        IntegrationLogin login, OperationStatus status, string stageKey, AuthenticationResult result)
+    {
+        result.StageKey = stageKey;
+        _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(login.AttemptId, status, stageKey));
+        return CompleteLoginAsync(login, result);
     }
 
     /// <summary>

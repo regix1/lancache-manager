@@ -37,6 +37,12 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.False(result.Success);
         Assert.Null(result.OperationId);
         Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
+
+        var ending = service.GetIntegrationLoginEnding(new IntegrationCaller(null, null, false), Assert.IsType<Guid>(result.AttemptId));
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("modals.steamAuth.errors.authenticationFailed", ending.StageKey);
+        Assert.Equal(ending.StageKey, result.StageKey);
     }
 
     [Fact]
@@ -79,6 +85,11 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.Equal("Sign-in was cancelled.", result.Message);
         Assert.Null(result.OperationId);
         Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
+
+        var ending = service.GetIntegrationLoginEnding(new IntegrationCaller(null, null, false), Assert.IsType<Guid>(result.AttemptId));
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal("errors.steam.signInCancelled", ending.StageKey);
     }
 
     /// <summary>

@@ -36,11 +36,12 @@ public class SteamAuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// This is a public endpoint, needed for SteamAuthContext before authentication.
+    /// With <c>attemptId</c>, also returns how that sign-in ended once it ended.
     /// </remarks>
     [HttpGet("status")]
     [ProducesResponseType(typeof(SteamAuthStatusResponse), StatusCodes.Status200OK)]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
-    public async Task<ActionResult<SteamAuthStatusResponse>> GetStatus()
+    public async Task<ActionResult<SteamAuthStatusResponse>> GetStatus([FromQuery] Guid? attemptId = null)
     {
         var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
         var access = _steamKit2Service.GetIntegrationAccess(caller);
@@ -60,6 +61,7 @@ public class SteamAuthController : ControllerBase
             OwnershipReason = access.OwnershipReason,
             AttemptId = access.AttemptId,
             LoginExpiresAtUtc = access.LoginExpiresAtUtc,
+            LoginEnding = attemptId is null ? null : _steamKit2Service.GetIntegrationLoginEnding(caller, attemptId.Value),
             Mode = authModeWire,
             Username = username ?? string.Empty,
             IsAuthenticated = isAuthenticated,
