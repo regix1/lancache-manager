@@ -1178,6 +1178,7 @@ fn remove_service_from_logs(
     // binds none): nginx keeps writing into a file it created after the check, so deleting one would
     // lose its lines until the next reopen. The removal stops before it deletes anything. A listed file
     // that is already gone has nothing to check; the delete loop and the publication handle it.
+    let mut bound_files: Vec<&Path> = Vec::new();
     for source in &delete_sources {
         for log_file in &source.files {
             if matches!(
@@ -1186,9 +1187,10 @@ fn remove_service_from_logs(
             ) {
                 continue;
             }
-            log_purge::publication_expectation(&log_file.path)?;
+            bound_files.push(log_file.path.as_path());
         }
     }
+    log_purge::check_publication_targets(&bound_files)?;
 
     let mut total_lines_processed: u64 = 0;
     let mut total_lines_removed: u64 = 0;
@@ -1223,17 +1225,14 @@ fn remove_service_from_logs(
             // Count complete records first so the removal report matches the counts the
             // service-count UI showed for this source.
             let mut bytes_sink = 0u64;
-            let lines_in_file = match count_complete_records_in_file(
+            let lines_in_file = count_complete_records_in_file(
                 &log_file.path,
                 &mut bytes_sink,
                 &|| false,
                 &mut |_, _| Ok(()),
             )
             .and_then(CompleteRecordCount::into_lines)
-            {
-                Ok(lines) => lines,
-                Err(_) => 0,
-            };
+            .unwrap_or_default();
 
             // Read before the delete: the host's check matches a deleted file by this identity.
             let identity = log_purge::file_identity(&log_file.path);
@@ -2805,6 +2804,112 @@ mod tests {
         let error = removal.expect_err("an unchecked log file stops the removal");
         assert!(format!("{error:#}").contains("log publication check did not include"));
         assert!(logs.join("steam-access.log").exists());
+    }
+
+    #[test]
+    fn remove_service_checks_many_bound_rotations_and_deletes_them_all() {
+        let _env = PUBLICATION_ENV
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let logs = directory.path().join("logs");
+        fs::create_dir(&logs).expect("create log folder");
+        fs::write(logs.join("steam-access.log"), b"s0\n").expect("write");
+        for rotation in 1..50 {
+            fs::write(logs.join(format!("steam-access.log.{rotation}")), b"s\n").expect("write");
+        }
+        // The check the host writes: every log file it bound, with its identity.
+        let files: Vec<serde_json::Value> = fs::read_dir(&logs)
+            .expect("list log folder")
+            .map(|entry| {
+                let path = entry.expect("log folder entry").path();
+                let identity = log_purge::file_identity(&path).expect("read identity");
+                serde_json::json!({ "targetPath": path, "originalIdentity": identity })
+            })
+            .collect();
+        let check_path = directory.path().join("check.json");
+        fs::write(
+            &check_path,
+            serde_json::to_vec(&serde_json::json!({ "valid": true, "files": files }))
+                .expect("serialize check"),
+        )
+        .expect("write check");
+        let result_path = directory.path().join("result.json");
+        std::env::set_var("LANCACHE_LOG_CHECK", &check_path);
+        std::env::set_var("LANCACHE_LOG_RESULT", &result_path);
+        let removal = remove_service_from_logs(
+            logs.to_str().expect("UTF-8 fixture path"),
+            "steam",
+            &directory.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            None,
+            None,
+        );
+        std::env::remove_var("LANCACHE_LOG_CHECK");
+        std::env::remove_var("LANCACHE_LOG_RESULT");
+        removal.expect("remove steam");
+
+        let left: Vec<_> = fs::read_dir(&logs)
+            .expect("list log folder")
+            .map(|entry| entry.expect("log folder entry").file_name())
+            .collect();
+        assert!(left.is_empty(), "files left: {left:?}");
+    }
+
+    #[test]
+    fn remove_service_stops_before_deleting_when_a_bound_rotation_changed() {
+        let _env = PUBLICATION_ENV
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let logs = directory.path().join("logs");
+        fs::create_dir(&logs).expect("create log folder");
+        fs::write(logs.join("steam-access.log"), b"s0\n").expect("write");
+        for rotation in 1..5 {
+            fs::write(logs.join(format!("steam-access.log.{rotation}")), b"s\n").expect("write");
+        }
+        let files: Vec<serde_json::Value> = fs::read_dir(&logs)
+            .expect("list log folder")
+            .map(|entry| {
+                let path = entry.expect("log folder entry").path();
+                let identity = log_purge::file_identity(&path).expect("read identity");
+                serde_json::json!({ "targetPath": path, "originalIdentity": identity })
+            })
+            .collect();
+        let check_path = directory.path().join("check.json");
+        fs::write(
+            &check_path,
+            serde_json::to_vec(&serde_json::json!({ "valid": true, "files": files }))
+                .expect("serialize check"),
+        )
+        .expect("write check");
+        // A different file under a bound name has a different identity on every file system.
+        let replacement = directory.path().join("replacement.log");
+        fs::write(&replacement, b"other\n").expect("write replacement");
+        fs::rename(&replacement, logs.join("steam-access.log.3")).expect("replace rotation");
+        let result_path = directory.path().join("result.json");
+        std::env::set_var("LANCACHE_LOG_CHECK", &check_path);
+        std::env::set_var("LANCACHE_LOG_RESULT", &result_path);
+        let removal = remove_service_from_logs(
+            logs.to_str().expect("UTF-8 fixture path"),
+            "steam",
+            &directory.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            None,
+            None,
+        );
+        std::env::remove_var("LANCACHE_LOG_CHECK");
+        std::env::remove_var("LANCACHE_LOG_RESULT");
+
+        let error = removal.expect_err("a changed bound file stops the removal");
+        assert!(
+            format!("{error:#}").contains("log target identity changed before publication"),
+            "{error:#}"
+        );
+        assert!(logs.join("steam-access.log").exists());
+        for rotation in 1..5 {
+            assert!(logs.join(format!("steam-access.log.{rotation}")).exists());
+        }
     }
 
     #[test]

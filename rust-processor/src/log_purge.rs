@@ -168,7 +168,7 @@ pub fn file_identity_of(_file: &File) -> Result<FileIdentity> {
     anyhow::bail!("file identity is unsupported on this platform")
 }
 
-pub fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectation>> {
+fn read_publication_check() -> Result<Option<PublicationCheck>> {
     let Some(check_path) = std::env::var_os(LOG_CHECK_ENV) else {
         return Ok(None);
     };
@@ -183,6 +183,13 @@ pub fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectat
     if !check.valid {
         anyhow::bail!("log publication check was invalidated")
     }
+    Ok(Some(check))
+}
+
+pub fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectation>> {
+    let Some(check) = read_publication_check()? else {
+        return Ok(None);
+    };
 
     let canonical = path
         .canonicalize()
@@ -210,6 +217,43 @@ pub fn publication_expectation(path: &Path) -> Result<Option<PublicationExpectat
         )
     }
     Ok(Some(expected))
+}
+
+/// Checks that the host's check bound every one of `paths` with its current identity. The check is read and its
+/// entries canonicalized once; a per-file `publication_expectation` re-reads the whole check for each file, which
+/// grows with the square of a series' rotation count. With no paths nothing is read, as with no per-file call.
+pub fn check_publication_targets(paths: &[&Path]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let Some(check) = read_publication_check()? else {
+        return Ok(());
+    };
+    // The first entry for a target wins, as the per-file lookup's `find` does.
+    let mut bound: HashMap<PathBuf, FileIdentity> = HashMap::new();
+    for file in check.files {
+        if let Ok(target) = file.target_path.canonicalize() {
+            bound.entry(target).or_insert(file.original_identity);
+        }
+    }
+    for path in paths {
+        let canonical = path
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize log target {}", path.display()))?;
+        let expected = bound.get(&canonical).with_context(|| {
+            format!(
+                "log publication check did not include {}",
+                canonical.display()
+            )
+        })?;
+        if file_identity(path)? != *expected {
+            anyhow::bail!(
+                "log target identity changed before publication: {}",
+                path.display()
+            )
+        }
+    }
+    Ok(())
 }
 
 fn write_publication_result(records: Vec<PublicationRecord>, success: bool) -> Result<()> {
