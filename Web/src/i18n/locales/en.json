@@ -7164,7 +7164,7 @@
       "complete": "Log processing complete! Click Continue to proceed.",
       "skipForNow": "Skip for Now",
       "continue": "Continue",
-      "failedToProcess": "Failed to start log processing",
+      "failedToProcess": "Log processing failed",
       "failedToProcessDatasource": "Failed to start processing",
       "cancel": "Cancel processing",
       "cancelling": "Cancelling...",
@@ -7583,6 +7583,8 @@
       "allCompleteStructural": "Invalid cache-file removal completed across {{serviceCount}} services: {{files}} files deleted, {{alreadyMissing}} already missing, {{healed}} now valid",
       "allCompleteWithFailures": "Suspect cache file removal completed with {{failedCount}} of {{serviceCount}} services failing. Removed {{count}} suspect files ({{files}} cache files, {{logLines}} log lines)",
       "allCompleteWithFailuresStructural": "Invalid cache-file removal completed with {{failedCount}} of {{serviceCount}} services failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
+      "allStoppedWithFailures": "Suspect cache file removal stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Removed {{count}} suspect files ({{files}} cache files, {{logLines}} log lines)",
+      "allStoppedWithFailuresStructural": "Invalid cache-file removal stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
       "allCancelled": "Suspect cache file removal cancelled after {{completedCount}} of {{serviceCount}} services",
       "allCancelledStructural": "Invalid cache-file removal cancelled after {{completedCount}} of {{serviceCount}} services",
       "error": {

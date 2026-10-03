@@ -1090,11 +1090,18 @@ public class CacheController : ControllerBase
                                     ["serviceCount"] = bulkState.ServiceCount
                                 }));
                         }
+                        // Stopped by X after the current service failed: the services after it never ran, so the summary says
+                        // where the removal stopped.
+                        if (cancelled) context["completedCount"] = processedCount;
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
-                                StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
-                                    ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
-                                    : "signalr.corruptionRemove.allCompleteWithFailures",
+                                StageKey: (cancelled, cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural) switch
+                                {
+                                    (true, true) => "signalr.corruptionRemove.allStoppedWithFailuresStructural",
+                                    (true, false) => "signalr.corruptionRemove.allStoppedWithFailures",
+                                    (false, true) => "signalr.corruptionRemove.allCompleteWithFailuresStructural",
+                                    (false, false) => "signalr.corruptionRemove.allCompleteWithFailures"
+                                },
                                 OperationId: lastOperationId,
                                 Context: context,
                                 DetectionMethod: cachedDetection.DetectionMethod.ToWireString()));

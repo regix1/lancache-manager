@@ -620,9 +620,11 @@ public sealed class CorruptionRemovalContractTests
         Assert.False(aggregate.Cancelled);
         Assert.False(aggregate.Success);
         Assert.Equal(method == CorruptionDetectionMethod.Structural
-            ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
-            : "signalr.corruptionRemove.allCompleteWithFailures", aggregate.StageKey);
+            ? "signalr.corruptionRemove.allStoppedWithFailuresStructural"
+            : "signalr.corruptionRemove.allStoppedWithFailures", aggregate.StageKey);
         Assert.Equal(1, aggregate.Context!["failedCount"]);
+        Assert.Equal(1, aggregate.Context!["completedCount"]);
+        Assert.Equal(2, aggregate.Context!["serviceCount"]);
         Assert.Single(fixture.Messages.Started);
         fixture.Messages.Resume.TrySetResult();
     }
