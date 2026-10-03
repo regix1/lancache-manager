@@ -803,16 +803,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             foreach (var status in daemon!.GetRuns(session.Id).Where(run => run.ScheduleId.HasValue))
             {
                 var scheduleId = status.ScheduleId!.Value;
+                var run = daemon.GetRun(session.Id, status.RunId);
                 if (status.CompletedAtUtc.HasValue)
                 {
-                    if (status.Snapshot.State == "completed"
+                    // The rule a watched run ends by: some game done is a run, failed games or not.
+                    if ((status.Snapshot.State == "completed" || run is not null && EndedWithSomeGamesFailed(run))
                         && status.Snapshot.CompletedApps + status.Snapshot.CachedApps > 0
-                        && status.Snapshot.FailedApps == 0
                         && config.GetSchedulesInRunOrder().Any(schedule => schedule.ScheduleId == scheduleId))
                         _stateService.SetScheduledPrefillServiceLastActualRun(scheduleId.ToString("N"), status.CompletedAtUtc.Value);
                     continue;
                 }
-                var run = daemon.GetRun(session.Id, status.RunId);
                 var claimId = Guid.NewGuid();
                 ScheduledPrefillServiceConfigDto? savedSchedule;
                 lock (_scheduleLock)
@@ -1531,14 +1531,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         serviceRun.State.CompletedAtUtc = terminal.CompletedAtUtc ?? terminal.Snapshot.UpdatedAt.UtcDateTime;
         var summary = terminal.Snapshot;
         // Some games failed while others downloaded or were already cached: the run completes and its
-        // card names how many failed. Every game failed is a failed run.
+        // card names how many failed. Every game failed, or a run that stopped early, is a failed run.
+        var someGamesFailed = EndedWithSomeGamesFailed(run);
         var outcome = summary.State == "cancelled" ? ScheduledPrefillServiceRunResult.Cancelled
-            : summary.State != "completed"
-                || summary.FailedApps > 0 && summary.CompletedApps + summary.CachedApps == 0
-                ? ScheduledPrefillServiceRunResult.Failed
+            : summary.State != "completed" && !someGamesFailed ? ScheduledPrefillServiceRunResult.Failed
             : summary.CompletedApps + summary.CachedApps == 0 ? ScheduledPrefillServiceRunResult.Skipped
             : ScheduledPrefillServiceRunResult.Ran;
-        if (outcome == ScheduledPrefillServiceRunResult.Ran && summary.FailedApps > 0)
+        if (someGamesFailed)
         {
             serviceRun.State.Warning = new RunWarning(
                 "signalr.scheduledPrefill.failedApps",
@@ -1575,6 +1574,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             percent: 100, stageKey: stageKey, stageContext: outcome == ScheduledPrefillServiceRunResult.Ran ? completion.Context : null);
         return outcome;
     }
+
+    // The prefill daemons end a run in which any game failed as "failed", and Battle.net adds the same
+    // "download-failed" reason its crashes carry, so neither the state nor the reason tells a run that lost
+    // some games from one that stopped. The games do: a run that stopped early (a crash, a stall, the time
+    // limit, sign-in lost, a daemon restart) leaves games that never finished, which the daemon ends as
+    // "cancelled" or as "skipped" with its reason, or which keep no result at all.
+    private static bool EndedWithSomeGamesFailed(DaemonRun run)
+        => run.Snapshot is { State: "failed", FailedApps: > 0 } snapshot
+            && snapshot.CompletedApps + snapshot.CachedApps > 0
+            && run.Items.Count > 0
+            && run.Items.Values.All(item => item.Result is "success" or "already_cached" or "failed"
+                || item.Reason == "skippedOverlap");
 
     /// <summary>
     /// Turns the daemon's live progress PUSH into this run's universal-notification events.

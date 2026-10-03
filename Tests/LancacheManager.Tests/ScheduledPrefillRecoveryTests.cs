@@ -540,6 +540,103 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(succeeded ? run.CompletedAtUtc : null, ((ScheduleState)(object)state).LastActualRun);
     }
 
+    /// <summary>
+    /// The daemons call a run in which any game failed "failed" (Battle.net with a reason). It completes
+    /// amber when every game ended with its own result and one landed; all failed, or games left unrun by
+    /// a lost sign-in or a crash, stays red.
+    /// </summary>
+    [Theory]
+    [InlineData(PrefillPlatform.Steam, null, "success,failed", true)]
+    [InlineData(PrefillPlatform.Steam, null, "already_cached,failed", true)]
+    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed", true)]
+    [InlineData(PrefillPlatform.Steam, null, "failed,failed", false)]
+    [InlineData(PrefillPlatform.Steam, "auth-lost", "success,failed,skipped", false)]
+    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,skipped", false)]
+    public async Task ARunWithSomeFailedGamesEndsAmberOnlyWhenEveryGameEndedAndOneLandedAsync(
+        PrefillPlatform platform, string? reason, string results, bool ran)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var daemon = CreateDaemon(fixture, platform);
+        var serviceType = platform == PrefillPlatform.Steam ? typeof(SteamDaemonService) : typeof(BattleNetDaemonService);
+        using var services = new ServiceCollection().AddSingleton(serviceType, daemon).BuildServiceProvider();
+        var state = DispatchProxy.Create<IStateService, ScheduleState>();
+        using var scheduler = CreateScheduler(services, state);
+        var games = results.Split(',');
+        var serviceRun = MakeRun("20", ScheduledPrefillConfigFactory.GetDefaultScheduleId(platform), platform);
+        foreach (var app in new[] { "30", "40" }.Take(games.Length - 1))
+            serviceRun.ServiceConfig.SelectedAppIds.Add(app);
+        var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [serviceRun, DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
+                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), CancellationToken.None, true])!;
+        await daemon.RefreshRunsAsync(fixture.Session.Id);
+        var run = daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
+
+        FinishFailedRun(fixture, run, reason, games);
+        await daemon.RefreshRunsAsync(fixture.Session.Id);
+
+        Assert.Equal(ran ? ScheduledPrefillServiceRunResult.Ran : ScheduledPrefillServiceRunResult.Failed,
+            await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ran ? run.CompletedAtUtc : null, ((ScheduleState)(object)state).LastActualRun);
+        Assert.Equal(ran ? "signalr.scheduledPrefill.failedApps" : null, serviceRun.State.Warning?.StageKey);
+        Assert.Equal(ran ? 1 : (int?)null, (int?)serviceRun.State.Warning?.Context["failed"]);
+        Assert.Equal(ran ? games.Length : (int?)null, (int?)serviceRun.State.Warning?.Context["total"]);
+    }
+
+    [Fact]
+    public async Task ARunThatFinishedWhileTheAppWasDownWithSomeFailedGamesStampsItsLastRunAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        var started = await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["20", "30"], scheduleId: id,
+            scheduleName: "Named schedule", notificationMode: "silent");
+        await fixture.RefreshAsync();
+        var daemonRun = fixture.Daemon.GetRun(fixture.Session.Id, started.RunId!.Value)!;
+        FinishFailedRun(fixture, daemonRun, null, ["success", "failed"]);
+        await fixture.RefreshAsync();
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var state = DispatchProxy.Create<IStateService, ScheduleState>();
+        ((ScheduleState)(object)state).Config = config;
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services, state);
+
+        Restore(scheduler, config);
+
+        Assert.Equal("failed", daemonRun.Snapshot.State);
+        Assert.NotNull(daemonRun.CompletedAtUtc);
+        Assert.Equal(daemonRun.CompletedAtUtc, ((ScheduleState)(object)state).LastActualRun);
+    }
+
+    [Fact]
+    public async Task ARestoredRunThatEndsWithSomeFailedGamesEndsAmberAndStampsItsLastRunAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        var started = await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["20", "30"], scheduleId: id,
+            scheduleName: "Named schedule", notificationMode: "silent");
+        await fixture.RefreshAsync();
+        var daemonRun = fixture.Daemon.GetRun(fixture.Session.Id, started.RunId!.Value)!;
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var state = DispatchProxy.Create<IStateService, ScheduleState>();
+        ((ScheduleState)(object)state).Config = config;
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon)
+            .AddSingleton<IUnifiedOperationTracker>(tracker)
+            .AddSingleton(Notifications()).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services, state);
+        Restore(scheduler, config);
+        var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(daemonRun.PrefillRunId));
+
+        FinishFailedRun(fixture, daemonRun, null, ["success", "failed"]);
+        await fixture.RefreshAsync();
+        await WaitUntilAsync(() => operation.Status is OperationStatus.Completed or OperationStatus.Failed);
+
+        var row = Assert.Single(tracker.GetRuns().Runs, item => item.OperationId == daemonRun.PrefillRunId);
+        Assert.Equal("completed", row.Status);
+        Assert.Equal("signalr.scheduledPrefill.failedApps", Assert.Single(row.Warnings).StageKey);
+        Assert.Equal(daemonRun.CompletedAtUtc, ((ScheduleState)(object)state).LastActualRun);
+    }
+
     [Fact]
     public async Task RestorationKeepsIdentityStartTimeVisibilityAndCancellationOwnershipAsync()
     {
@@ -794,6 +891,41 @@ public sealed class ScheduledPrefillRecoveryTests
         => (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("WatchRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [fixture.Daemon, fixture.Session, run, serviceRun, Notifications(), ScheduledPrefillConfigFactory.CreateDefault()])!;
+
+    // Ends a run the way the daemons' shared run library does (RunProgress.CompleteAsync): every game keeps its
+    // own result, a game that never ran reads "skipped" with the run's reason, the counters are counted from the
+    // games, and a run in which any game failed ends "failed".
+    private static void FinishFailedRun(RunFixture fixture, DaemonRun run, string? reason, string[] results)
+    {
+        var page = fixture.Client.Pages[run.PrefillRunId];
+        var sequence = page.Operation.Sequence + 1;
+        var items = run.Options.AppIds!.Select((appId, index) => new DaemonRunItem
+        {
+            AppId = appId,
+            State = "completed",
+            Result = results[index],
+            Reason = results[index] != "skipped" ? null : reason is null ? "notAttempted" : reason,
+            BytesTransferred = results[index] == "success" ? 100 : 0,
+            TotalBytes = 100,
+            Sequence = sequence
+        }).ToArray();
+        fixture.Client.Pages[run.PrefillRunId] = page with
+        {
+            Operation = page.Operation with
+            {
+                State = "failed",
+                Reason = reason,
+                Sequence = sequence,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                BytesTransferred = items.Sum(item => item.BytesTransferred),
+                CompletedApps = results.Count(result => result == "success"),
+                CachedApps = results.Count(result => result == "already_cached"),
+                FailedApps = results.Count(result => result == "failed"),
+                SkippedApps = results.Count(result => result == "skipped")
+            },
+            Items = items
+        };
+    }
 
     private static void Restore(ScheduledPrefillService scheduler, ScheduledPrefillConfigDto config)
         => typeof(ScheduledPrefillService).GetMethod("RestoreRuns", BindingFlags.Instance | BindingFlags.NonPublic)!
