@@ -1345,6 +1345,7 @@ public class NginxLogRotationService
                 writers.AddRange(hosts);
             }
 
+            var failures = new List<string>();
             foreach (var writer in writers)
             {
                 ProcessCommandResult signal;
@@ -1354,16 +1355,34 @@ public class NginxLogRotationService
                 }
                 if (signal.ExitCode != 0)
                 {
-                    return LogRotationResult.Failed(
-                        GetSignalError(writer, signal),
-                        detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
+                    failures.Add(GetSignalError(writer, signal));
                 }
+            }
+
+            if (failures.Count == writers.Count)
+            {
+                return LogRotationResult.Failed(
+                    string.Join("; ", failures),
+                    detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
             }
 
             lock (_bareMetalWarningLock)
             {
                 _lastBareMetalWarning = null;
             }
+
+            if (failures.Count > 0)
+            {
+                // Writers that reopened keep their new file; the card names the ones that could not be signaled.
+                return new LogRotationResult
+                {
+                    Success = true,
+                    ErrorMessage = string.Join("; ", failures),
+                    Requirement = NginxReopenRequirement.Required,
+                    Status = NginxReopenStatus.Succeeded
+                };
+            }
+
             return LogRotationResult.Succeeded();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

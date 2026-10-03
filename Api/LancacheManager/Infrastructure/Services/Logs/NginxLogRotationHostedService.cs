@@ -171,6 +171,13 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         if (result.Success)
         {
             _logger.LogInformation("Log rotation completed successfully (trigger: {Trigger})", trigger);
+            if (result.ErrorMessage is { } failedWriters)
+            {
+                reporter.SetWarning(new RunWarning(
+                    "common.notifications.warnings.logReopenPartlyFailed",
+                    new Dictionary<string, object?> { ["errors"] = failedWriters }));
+            }
+
             await reporter.CompleteAsync(success: true);
         }
         else

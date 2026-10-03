@@ -1980,6 +1980,71 @@ public sealed class NginxLogRotationServiceTests
     }
 
     [Fact]
+    public async Task ARotationInWhichOneOfTwoWritersFailedEndsAmberAsync()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["NginxLogRotation:Enabled"] = "true",
+            ["NginxLogRotation:ContainerName"] = "alpha,beta"
+        }).Build();
+        var service = new TestNginxLogRotationService(
+            new CapturingLogger<NginxLogRotationService>(),
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = false
+        };
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "2|20\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 1, Error = "kill: Operation not permitted" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains("Failed to reopen nginx writer 'alpha'", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("beta", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            service.Commands.Count(command => command.Label == "docker nginx verified reopen"));
+    }
+
+    [Fact]
+    public async Task ARotationInWhichEveryWriterFailedEndsRedAsync()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["NginxLogRotation:Enabled"] = "true",
+            ["NginxLogRotation:ContainerName"] = "alpha,beta"
+        }).Build();
+        var service = new TestNginxLogRotationService(
+            new CapturingLogger<NginxLogRotationService>(),
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = false
+        };
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "1|10\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "2|20\n" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 1, Error = "kill: Operation not permitted" });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 1, Error = "kill: Operation not permitted" });
+
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("'alpha'", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("'beta'", result.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetNginxReopenAvailabilityAsync_SoleLancacheSidecarHasNoNginx_ReportsUnavailableAsync()
     {
         // Bare-metal nginx runs on the host; the only "lancache"-named container on the socket
