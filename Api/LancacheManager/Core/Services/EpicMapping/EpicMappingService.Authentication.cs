@@ -150,6 +150,7 @@ public partial class EpicMappingService
         var newGames = 0;
         var updatedGames = 0;
         var saved = false;
+        var failedSteps = 0;
         try
         {
             _currentStatus = EpicMappingStatus.Authenticating;
@@ -221,6 +222,7 @@ public partial class EpicMappingService
             }
             catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
             {
+                failedSteps++;
                 _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
             }
 
@@ -260,6 +262,7 @@ public partial class EpicMappingService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                failedSteps++;
                 _logger.LogWarning(ex, "Failed to resolve Epic downloads after login");
             }
 
@@ -271,6 +274,14 @@ public partial class EpicMappingService
                 lastUpdatedUtc = DateTime.UtcNow,
                 source = "mapping-login"
             });
+            // A follow-up step that failed after the account was saved leaves the sign-in done with a warning, as the
+            // scheduled refresh counts it.
+            if (failedSteps > 0)
+            {
+                reporter.SetWarning(new RunWarning(
+                    "common.notifications.warnings.epicStepsFailed",
+                    new Dictionary<string, object?> { ["count"] = failedSteps }));
+            }
             await reporter.CompleteAsync(success: true, context: CreateEpicContext());
 
             _logger.LogInformation(
@@ -278,8 +289,10 @@ public partial class EpicMappingService
                 tokens.DisplayName,
                 _gamesDiscovered);
         }
+        // The window's timer counts whole milliseconds on a monotonic clock and was measured firing up to 0.8 ms before this
+        // wall-clock end on Linux, so a cancel within a second of the end counts as the window running out.
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException &&
-                                                    (saved || DateTime.UtcNow < login.ExpiresAtUtc))
+                                                    (saved || DateTime.UtcNow < login.ExpiresAtUtc - TimeSpan.FromSeconds(1)))
         {
             _logger.LogInformation("Epic mapping auth or collection cancelled");
             if (reporter is not null)
@@ -303,7 +316,8 @@ public partial class EpicMappingService
                     stageKey: "errors.integration.attemptExpired",
                     context: CreateEpicContext());
             }
-            throw;
+            // The sign-in dialog shows this refusal; a rethrown cancel would reach it as a silent aborted request.
+            IntegrationLease.Refuse("attempt-expired");
         }
         catch (Exception ex)
         {

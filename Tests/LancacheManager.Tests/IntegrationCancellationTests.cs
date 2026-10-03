@@ -122,13 +122,34 @@ public sealed class IntegrationCancellationTests
         var login = fixture.Epic.ContinueIntegrationLogin(fixture.Owner, start.AttemptId);
         fixture.Epic.SetIntegrationLoginExpiry(login, DateTime.UtcNow.AddSeconds(2));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+        var refused = await Assert.ThrowsAsync<ConflictException>(() =>
             service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
                 .WaitAsync(TimeSpan.FromSeconds(20)));
 
+        Assert.Equal("errors.integration.attemptExpired", refused.StageKey);
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("failed", run.Status);
         Assert.Equal("errors.integration.attemptExpired", run.Error);
+    }
+
+    [Fact]
+    public async Task AnEpicSignInWhoseCdnStepFailedEndsAmberAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler { FailCdn = true });
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        using var service = NewEpicService(fixture, http, services, tracker);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+
+        var run = Assert.Single(tracker.GetRuns().Runs);
+        Assert.Equal("completed", run.Status);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.epicStepsFailed", warning.StageKey);
+        // The service here has no database factory, so its downloads step fails too: two failed steps, the CDN step and that one.
+        Assert.Equal(2, warning.Context["count"]);
     }
 
     [Fact]
@@ -222,13 +243,23 @@ public sealed class IntegrationCancellationTests
 
     // The code exchange answers tokens, and every catalog read answers an empty list. With HangCatalog a
     // read never answers, so it ends only when the caller's token or the client's timeout cancels it.
+    // With FailCdn the second launcher-assets read (the first is the catalog read, the second the CDN step's)
+    // fails at the transport, as SocketsHttpHandler does when the server refuses the connection.
     private sealed class EpicSignInHandler : HttpMessageHandler
     {
+        private int _assetReads;
+
         public bool HangCatalog { get; init; }
+        public bool FailCdn { get; init; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (HangCatalog && request.Method != HttpMethod.Post) await Task.Delay(Timeout.Infinite, cancellationToken);
+            if (FailCdn && request.RequestUri!.AbsolutePath.EndsWith("/launcher/api/public/assets/Windows", StringComparison.Ordinal)
+                && Interlocked.Increment(ref _assetReads) == 2)
+            {
+                throw new HttpRequestException("Connection refused");
+            }
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(request.Method == HttpMethod.Post
