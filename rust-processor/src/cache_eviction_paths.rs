@@ -439,8 +439,11 @@ where
         }
 
         let root = PathBuf::from(&ds.cache_path);
-        // Two datasources can share one root; a walk of it that already succeeded checked it.
-        let walked_before = digests_by_root.contains_key(&root);
+        // Two datasources can share one root; a walk of it that found files checked it. An empty walk
+        // already left the root unchecked, so a later partial walk must not be kept as a full index.
+        let walked_before = digests_by_root
+            .get(&root)
+            .is_some_and(|digests| !digests.is_empty());
         let mut root_digests = digests_by_root.remove(&root).unwrap_or_default();
         let fully_checked = walk_root(cache_dir, &mut |name: &str| {
             match cache_utils::parse_cache_file_digest(name) {
@@ -901,6 +904,38 @@ mod tests {
             Some(1)
         );
         assert!(unchecked.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_root_two_datasources_share_abstains_when_its_first_walk_was_empty_and_a_later_walk_fails()
+    {
+        let root = tempfile::tempdir().unwrap();
+        let datasources = [
+            datasource("first", root.path(), "monolithic"),
+            datasource("second", root.path(), "monolithic"),
+        ];
+        let mut walks = 0;
+
+        // The first walk of the shared root finds nothing; a file appears, and the second walk
+        // reads part of the root and then meets a folder it cannot read.
+        let (files, unchecked) = collect_files_on_disk_with(
+            &datasources,
+            |_| {},
+            |path, visit_file| {
+                walks += 1;
+                if walks == 1 {
+                    return cache_utils::walk_cache_root(path, visit_file);
+                }
+                create_cache_file(path);
+                cache_utils::walk_cache_root(path, visit_file);
+                false
+            },
+        );
+
+        assert_eq!(walks, 2);
+        assert!(files.digests_for_root(root.path()).is_none());
+        assert!(unchecked.contains(&root.path().to_string_lossy().into_owned()));
     }
 
     #[test]

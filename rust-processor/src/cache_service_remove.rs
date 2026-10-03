@@ -896,6 +896,33 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_cache_file_whose_folder_is_a_file_is_counted_undeleted() {
+        let temp = tempfile::tempdir().unwrap();
+        let url = "/depot/1/chunk/abcdef";
+        let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), "steam", url);
+        // A regular file where the cache file's second-level folder should be: the presence check
+        // fails with "not a directory" instead of reporting the file missing.
+        let folder = cache_path.parent().unwrap();
+        fs::create_dir_all(folder.parent().unwrap()).unwrap();
+        fs::write(folder, b"not a folder").unwrap();
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+
+        let outcome = remove_cache_files_for_service(
+            temp.path(),
+            "steam",
+            &urls,
+            &temp.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
+        )
+        .unwrap();
+
+        assert_eq!(outcome, (0, 0, 0, 0, 1));
+        assert!(removal_core::ensure_cache_deletions_verified(outcome.3, outcome.4).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_cache_file_under_a_linked_cache_folder_is_deleted() {
         let temp = tempfile::tempdir().unwrap();
         let other_disk = tempfile::tempdir().unwrap();
