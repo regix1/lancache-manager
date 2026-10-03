@@ -195,13 +195,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         setTimeout(() => {
           timers.delete(notificationId);
           const card = localRef.current.find((n) => n.id === notificationId);
-          // A bulk card ends by the ending rules: a red or amber one stays until closed. Keep
+          // A bulk card ends by the ending rules: a red or amber one stays until closed. An amber
+          // local card stays until closed too, as every amber run card does. Keep
           // Notifications Visible turned on during the wait keeps the card.
           if (
             card &&
             shouldAutoDismiss() &&
             isTerminalNotificationStatus(card.status) &&
-            !isKeptBulkCard(card)
+            !isKeptBulkCard(card) &&
+            card.details?.notificationType !== 'warning'
           )
             fadeLocal(notificationId);
         }, AUTO_DISMISS_DELAY_MS)

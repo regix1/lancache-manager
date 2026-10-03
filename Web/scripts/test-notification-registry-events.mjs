@@ -316,6 +316,7 @@ const liftLocalCards = ({ keepVisible = false } = {}) => {
   return {
     localRef,
     removing,
+    addNotification,
     showAnnouncement,
     showToast: (detail) => listeners.get(APP_EVENTS.SHOW_TOAST)({ detail }),
     turnKeepVisibleOff: () => {
@@ -723,6 +724,30 @@ test('a finished batch with some failed items is an amber card that stays until 
     const [card] = cards.localRef.current;
     assert.equal(card.status, 'completed');
     assert.equal(card.details.notificationType, 'warning');
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a local amber card stays until closed, and a local green card leaves', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    for (const [notificationType, leaves] of [
+      ['warning', false],
+      ['success', true]
+    ]) {
+      const cards = liftLocalCards();
+      const id = cards.addNotification({
+        type: 'generic',
+        status: 'completed',
+        message: 'Deleted the log file',
+        details: { notificationType }
+      });
+      mock.timers.tick(AUTO_DISMISS_DELAY_MS);
+      mock.timers.tick(NOTIFICATION_ANIMATION_DURATION_MS);
+      assert.deepEqual(cards.removing, leaves ? [id] : [], notificationType);
+      assert.equal(cards.localRef.current.length, leaves ? 0 : 1, notificationType);
+    }
   } finally {
     mock.timers.reset();
   }

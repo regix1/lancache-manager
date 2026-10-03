@@ -36,7 +36,7 @@ export const FULL_PROGRESS_PERCENT = 100;`);
   const timeoutUrl = moduleUrl(`// ${nonce}
 export const useTimeoutCallback = () => () => {};`);
 
-  const detectionDataUrl = moduleUrl(`// ${nonce}
+  const detectionUrl = moduleUrl(`// ${nonce}
 export const pruneGamesByRemovalTarget = (prev) => prev;
 export const pruneServicesByRemovalTarget = (prev) => prev;`);
 
@@ -54,7 +54,7 @@ export const classifyGameFromCacheInfo = () => 'steam';`);
       '@contexts/notifications/constants': constantsUrl,
       '@contexts/SignalRContext/useSignalR': signalRUrl,
       '@/hooks/useTimeoutCallback': timeoutUrl,
-      './cacheDetectionData': detectionDataUrl,
+      './cacheDetectionData': detectionUrl,
       './cacheEntityFilters': filtersUrl,
       './gameRemovalEntity': entityUrl
     }

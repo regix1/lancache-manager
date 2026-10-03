@@ -2430,6 +2430,27 @@ test('the background controls segment is teal only when every compact control is
   }
 });
 
+test('a strip whose background rows all wait draws its segment in the waiting color', () => {
+  const control = (id, status) => ({
+    ...notice(id),
+    status,
+    controlOnly: true,
+    details: { operationId: id }
+  });
+  for (const [cards, variant] of [
+    [[control('a', 'waiting'), control('b', 'waiting')], 'waiting'],
+    [[control('a', 'waiting'), control('b', 'running')], 'info']
+  ]) {
+    const bar = makeBar(cards, {}, {}, { defaultMode: 'condensed' });
+    const strip = elements(bar.render()).find((node) => node.type === 'CondensedNotificationStrip');
+    assert.equal(
+      strip.props.segments.find((item) => item.key === 'background-controls').variant,
+      variant
+    );
+    bar.dispose();
+  }
+});
+
 test('a repairing card the user hid keeps only its compact strip segment', () => {
   const bar = makeBar([{ ...repairingCard, stripOnly: true }]);
   const tree = bar.render();
