@@ -709,8 +709,8 @@ where
         }
         // A hex folder can be a link to another disk; its target is cleared like a real folder.
         let is_dir = if file_type.is_symlink() {
-            match fs::metadata(&path) {
-                Ok(metadata) => metadata.is_dir(),
+            match cache_utils::linked_hex_folder_target(&path) {
+                Ok(target) => target.is_some(),
                 // A link whose target is gone has nothing to clear.
                 Err(error) if error.kind() == ErrorKind::NotFound => false,
                 Err(error) => {

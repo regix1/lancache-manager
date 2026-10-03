@@ -275,7 +275,7 @@ fn remove_cache_files_for_service(
 
         let cache_path = cache_utils::cache_path_for_digest(cache_dir, *digest);
         if cache_path.exists() {
-            match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
+            match cache_utils::safe_cache_path_under_root(cache_dir, &cache_path) {
                 Ok(_) => {
                     // Bare-metal deletion gate: the file must prove it holds the
                     // recipe-computed key. A missing expected key, unreadable header,
@@ -758,7 +758,13 @@ mod tests {
 
         assert!(cache_path.exists(), "unverified file must remain untouched");
         assert_eq!(
-            (deleted, bytes, permission_errors, verification_skips, undeleted_files),
+            (
+                deleted,
+                bytes,
+                permission_errors,
+                verification_skips,
+                undeleted_files
+            ),
             (0, 0, 0, 1, 0)
         );
         let progress: serde_json::Value =
@@ -826,7 +832,12 @@ mod tests {
             );
 
         assert_eq!(
-            (deleted, permission_errors, verification_skips, undeleted_files),
+            (
+                deleted,
+                permission_errors,
+                verification_skips,
+                undeleted_files
+            ),
             (counted, 0, 0, 0)
         );
         assert!(!no_range.exists());
@@ -855,6 +866,33 @@ mod tests {
         assert!(cache_path.exists());
         assert_eq!(outcome, (0, 0, 0, 0, 1));
         assert!(removal_core::ensure_cache_deletions_verified(outcome.3, outcome.4).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_under_a_linked_cache_folder_is_deleted() {
+        let temp = tempfile::tempdir().unwrap();
+        let other_disk = tempfile::tempdir().unwrap();
+        let url = "/depot/1/chunk/abcdef";
+        let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), "steam", url);
+        // The cache file's 2-hex folder is a link to another disk, as cache clear supports.
+        let hex_folder = cache_path.parent().unwrap().parent().unwrap().to_path_buf();
+        std::os::unix::fs::symlink(other_disk.path(), &hex_folder).unwrap();
+        write_cache_file(&cache_path, None);
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+
+        let outcome = remove_cache_files_for_service(
+            temp.path(),
+            "steam",
+            &urls,
+            &temp.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
+        );
+
+        assert!(!cache_path.exists());
+        assert_eq!((outcome.0, outcome.2, outcome.3, outcome.4), (1, 0, 0, 0));
+        assert!(removal_core::ensure_cache_deletions_verified(outcome.3, outcome.4).is_ok());
     }
 
     #[test]

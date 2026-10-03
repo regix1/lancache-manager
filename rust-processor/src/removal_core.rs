@@ -372,9 +372,10 @@ pub fn remove_cache_files(
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
         if path.exists() {
-            // Refuse to follow symlinks or delete anything outside the cache root. Such a file stays
-            // on disk, so the removal must not delete its history; one that vanished first is gone.
-            if let Err(e) = cache_utils::safe_path_under_root(cache_dir, path) {
+            // Refuse a file that is a link, or anything outside the cache root other than under a
+            // linked 2-hex cache folder. Such a file stays on disk, so the removal must not delete
+            // its history; one that vanished first is gone.
+            if let Err(e) = cache_utils::safe_cache_path_under_root(cache_dir, path) {
                 eprintln!("  skipping unsafe path {}: {}", path.display(), e);
                 if e.kind() != std::io::ErrorKind::NotFound {
                     undeleted_files.fetch_add(1, Ordering::Relaxed);
@@ -1019,6 +1020,50 @@ mod tests {
 
         assert!(elsewhere.exists());
         assert!(error.contains("1 cache file(s) could not be deleted"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_under_a_linked_cache_folder_is_deleted_and_its_history_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let other_disk = temp.path().join("other-disk");
+        let url = "/Builds/Org/o-abc/chunk.chunk";
+        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, "epicgames", url);
+        // The cache file's 2-hex folder is a link to another disk, as cache clear supports.
+        let hex_folder = cache_path.parent().unwrap().parent().unwrap().to_path_buf();
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::create_dir_all(&other_disk).unwrap();
+        std::os::unix::fs::symlink(&other_disk, &hex_folder).unwrap();
+        write_cache_file(&cache_path, None);
+
+        let urls = HashMap::from([(url.to_string(), ("epicgames".to_string(), 0_i64))]);
+        let tail = run_url_removal_steps(
+            &cache_dir,
+            &urls,
+            &temp.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            &TEST_STAGE_KEYS,
+            &RemovalLifecycleKeys {
+                cache_removing: "test.cache.removing",
+                dirs_cleaning: "test.dirs.cleaning",
+                db_deleting: "test.db.deleting",
+            },
+            ProgressCadence::OnPercentAdvance,
+            SliceReach::ForwardWalkIsComplete,
+            &|_| panic!("a removal through a linked cache folder writes no failure report"),
+        )
+        .unwrap()
+        .expect("no cancellation was requested");
+
+        assert!(!cache_path.exists());
+        assert_eq!(tail.deleted_files, 1);
+        assert_eq!(tail.purge_urls, vec![url.to_string()]);
+        assert!(fs::symlink_metadata(&hex_folder)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(other_disk.is_dir());
     }
 
     #[test]
