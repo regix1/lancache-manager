@@ -263,6 +263,27 @@ pub fn safe_cache_path_under_root(root: &Path, candidate: &Path) -> io::Result<P
     Err(refused)
 }
 
+/// Whether a cache file is on disk: `Ok(false)` only when it is provably gone. A file behind a folder
+/// the app cannot search is an error, and so is one under a linked 2-hex cache folder whose target
+/// cannot be resolved (its disk not mounted), where the file may still be.
+pub fn cache_file_presence(root: &Path, path: &Path) -> io::Result<bool> {
+    if path.try_exists()? {
+        return Ok(true);
+    }
+    let folder = path
+        .strip_prefix(root)
+        .ok()
+        .and_then(|relative| relative.components().next())
+        .map(|first| root.join(first));
+    match folder {
+        Some(folder) if folder.is_symlink() && !folder.exists() => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("the linked cache folder {} has no target", folder.display()),
+        )),
+        _ => Ok(false),
+    }
+}
+
 // Filesystem type magic numbers from statfs (Unix only)
 #[cfg(unix)]
 #[allow(dead_code)]
@@ -455,8 +476,58 @@ pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
 /// eviction; a scan that deletes needs the `levels=2:2` directory shape verified first. Those
 /// are different questions, and only the traversal is shared.
 pub fn walk_cache_root(root: &Path, visit_file: &mut dyn FnMut(&str)) -> bool {
-    // Only the root and its 2-hex/2-hex folders can hold a cache file a probe looks for, so an
-    // unreadable folder elsewhere (lost+found, a NAS snapshot folder) hides nothing.
+    walk_cache_root_with(root, visit_file, |_| {})
+}
+
+/// `walk_cache_root` with a hook that sees each folder once its entries are listed, so a test can
+/// remove a listed folder before the walk reads it.
+fn walk_cache_root_with<L>(root: &Path, visit_file: &mut dyn FnMut(&str), after_list: L) -> bool
+where
+    L: Fn(&Path) + Send + Sync + 'static,
+{
+    let mut fully_checked = true;
+    for item in cache_root_walk(root, after_list) {
+        if hides_cache_files(root, &item) {
+            fully_checked = false;
+        }
+        if let Ok(entry) = item {
+            if entry.file_type().is_file() {
+                visit_file(&entry.file_name().to_string_lossy());
+            }
+        }
+    }
+    fully_checked
+}
+
+/// A walk of one cache root below the root itself. A 2-hex folder directly under the root that is a
+/// link to a folder is read through its link; one whose target cannot be resolved is read anyway, so
+/// the failed read marks the walk (`hides_cache_files`). `after_list` sees each folder once its
+/// entries are listed.
+pub fn cache_root_walk<L>(root: &Path, after_list: L) -> jwalk::WalkDir
+where
+    L: Fn(&Path) + Send + Sync + 'static,
+{
+    jwalk::WalkDir::new(root)
+        .min_depth(1)
+        .process_read_dir(move |_, folder, _, children| {
+            after_list(folder);
+            for child in children.iter_mut().flatten() {
+                if child.depth == 1
+                    && child.file_type.is_symlink()
+                    && !matches!(linked_hex_folder_target(&child.path()), Ok(None))
+                {
+                    child.read_children_path = Some(child.path().into());
+                }
+            }
+        })
+}
+
+/// Whether one walk item leaves files of nginx's `levels=2:2` layout unread: the root or a folder of
+/// the layout that could not be listed, or a linked 2-hex folder whose target is gone. A real folder
+/// that vanished after the walk listed it (a removal's empty-folder cleanup deletes only empty ones)
+/// held no file. Only the root and its 2-hex/2-hex folders can hold a cache file, so an unreadable
+/// folder elsewhere (lost+found, a NAS snapshot folder) hides nothing.
+pub fn hides_cache_files(root: &Path, item: &jwalk::Result<jwalk::DirEntry<((), ())>>) -> bool {
     let in_cache_layout = |path: &Path| {
         path.strip_prefix(root).map_or(true, |relative| {
             relative.components().take(2).all(|part| {
@@ -466,41 +537,17 @@ pub fn walk_cache_root(root: &Path, visit_file: &mut dyn FnMut(&str)) -> bool {
             })
         })
     };
-    let walk = jwalk::WalkDir::new(root)
-        .min_depth(1)
-        .process_read_dir(|_, _, _, children| {
-            for child in children.iter_mut().flatten() {
-                // A linked 2-hex cache folder is read through its link. One whose target cannot be
-                // resolved is read anyway, so the failed read marks the root as not fully checked.
-                if child.depth == 1
-                    && child.file_type.is_symlink()
-                    && !matches!(linked_hex_folder_target(&child.path()), Ok(None))
-                {
-                    child.read_children_path = Some(child.path().into());
-                }
-            }
-        });
-    let mut fully_checked = true;
-    for entry in walk {
-        match entry {
-            Ok(entry) => {
-                if entry.file_type().is_file() {
-                    visit_file(&entry.file_name().to_string_lossy());
-                }
-                // jwalk reports a folder it could not list on that folder's own entry, not as an
-                // error item.
-                if entry.read_children_error.is_some() && in_cache_layout(&entry.path()) {
-                    fully_checked = false;
-                }
-            }
-            Err(error) => {
-                if error.path().is_none_or(in_cache_layout) {
-                    fully_checked = false;
-                }
-            }
-        }
+    match item {
+        // jwalk reports a folder it could not list on that folder's own entry, not as an error item.
+        Ok(entry) => entry.read_children_error.as_ref().is_some_and(|error| {
+            let vanished = entry.file_type().is_dir()
+                && error
+                    .io_error()
+                    .is_some_and(|io_error| io_error.kind() == io::ErrorKind::NotFound);
+            !vanished && in_cache_layout(&entry.path())
+        }),
+        Err(error) => error.path().is_none_or(in_cache_layout),
     }
-    fully_checked
 }
 
 /// Reproduce nginx's `$uri` from a stored `LogEntries.Url`.
@@ -1131,6 +1178,7 @@ where
 /// (service, url) plus, under bare-metal, the literal key each candidate must prove
 /// it holds before a caller may delete it. Monolithic candidates carry None and keep
 /// their shipped delete-without-header-read behavior.
+/// A file it cannot prove gone (see `cache_file_presence`) is a candidate too.
 #[allow(dead_code)]
 pub fn existing_keyed_paths_for_url_with_scheme(
     scheme: CacheKeyScheme,
@@ -1138,15 +1186,22 @@ pub fn existing_keyed_paths_for_url_with_scheme(
     service: &str,
     url: &str,
 ) -> Vec<(PathBuf, Option<String>)> {
+    // A removal must count a file it cannot prove gone, so only a provably missing file drops out.
+    let may_exist = |digest: u128| {
+        !matches!(
+            cache_file_presence(cache_dir, &cache_path_for_digest(cache_dir, digest)),
+            Ok(false)
+        )
+    };
     match scheme {
-        CacheKeyScheme::Monolithic => existing_cache_paths_for_url(cache_dir, service, url)
+        CacheKeyScheme::Monolithic => existing_cache_digests_for_url(service, url, may_exist)
             .into_iter()
-            .map(|path| (path, None))
+            .map(|digest| (cache_path_for_digest(cache_dir, digest), None))
             .collect(),
         CacheKeyScheme::BareMetal => {
-            existing_bare_metal_keyed_paths_for_url(cache_dir, service, url)
+            existing_bare_metal_keyed_digests_for_url(service, url, may_exist)
                 .into_iter()
-                .map(|candidate| (candidate.path, Some(candidate.key)))
+                .map(|(digest, key)| (cache_path_for_digest(cache_dir, digest), Some(key)))
                 .collect()
         }
     }
@@ -1561,7 +1616,7 @@ fn chunk_end(start: u64) -> u64 {
 }
 
 /// Removes empty directories from the given set, deepest-first, also pruning empty parents
-/// one level up (stopping at `cache_dir`). Uses `safe_path_under_root` as a guard before
+/// one level up (stopping at `cache_dir`). Uses `safe_cache_path_under_root` as a guard before
 /// any removal. Returns the count of directories successfully removed.
 #[allow(dead_code)]
 pub fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
@@ -1571,8 +1626,9 @@ pub fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBu
     sorted_dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
 
     for dir in sorted_dirs {
-        // Canonical-under-root guard: refuses symlinks, paths outside root.
-        if let Err(e) = safe_path_under_root(cache_dir, &dir) {
+        // Canonical-under-root guard: refuses links and paths outside the root, but reads a folder
+        // under a linked 2-hex cache folder.
+        if let Err(e) = safe_cache_path_under_root(cache_dir, &dir) {
             eprintln!("  skipping unsafe dir {}: {}", dir.display(), e);
             continue;
         }
@@ -1589,8 +1645,10 @@ pub fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBu
             removed_count += 1;
 
             if let Some(parent) = dir.parent() {
-                if parent != cache_dir {
-                    match safe_path_under_root(cache_dir, parent) {
+                // A linked 2-hex cache folder itself stays: the link is the configuration, not an
+                // emptied folder.
+                if parent != cache_dir && !parent.is_symlink() {
+                    match safe_cache_path_under_root(cache_dir, parent) {
                         Ok(_) => match std::fs::read_dir(parent) {
                             Ok(parent_entries) => {
                                 if parent_entries.count() == 0 {
@@ -1744,6 +1802,73 @@ mod tests {
         let file_link = root.join("ab").join("cd").join("file-link");
         std::os::unix::fs::symlink(&deeper_file, &file_link).unwrap();
         assert!(safe_cache_path_under_root(&root, &file_link).is_err());
+    }
+
+    #[test]
+    fn a_folder_removed_after_the_walk_listed_it_leaves_the_root_checked() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        let digest_name = "0123456789abcdef0123456789abcdef";
+        std::fs::create_dir_all(root.join("ab").join("cd")).unwrap();
+        std::fs::create_dir_all(root.join("ef").join("01")).unwrap();
+        std::fs::write(root.join("ef").join("01").join(digest_name), b"cache").unwrap();
+
+        // A removal's empty-folder cleanup deletes `ab/cd` between the walk listing it and reading it.
+        let listed = root.join("ab");
+        let emptied = root.join("ab").join("cd");
+        let mut visited = Vec::new();
+        let fully_checked = walk_cache_root_with(
+            &root,
+            &mut |name| visited.push(name.to_string()),
+            move |folder| {
+                if folder == listed {
+                    std::fs::remove_dir(&emptied).unwrap();
+                }
+            },
+        );
+
+        assert!(fully_checked);
+        assert_eq!(visited, vec![digest_name.to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_under_a_linked_cache_folder_whose_disk_is_gone_is_not_proven_gone() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        let name = "0123456789abcdef0123456789abcdef";
+        std::fs::create_dir_all(root.join("ef").join("01")).unwrap();
+        std::fs::write(root.join("ef").join("01").join(name), b"cache").unwrap();
+        std::os::unix::fs::symlink(parent.path().join("unmounted"), root.join("ab")).unwrap();
+
+        let behind_dead_link = root.join("ab").join("cd").join(name);
+        assert!(cache_file_presence(&root, &behind_dead_link).is_err());
+        let absent = root.join("ef").join("02").join(name);
+        assert!(!cache_file_presence(&root, &absent).unwrap());
+        let present = root.join("ef").join("01").join(name);
+        assert!(cache_file_presence(&root, &present).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn emptied_folders_under_a_linked_cache_folder_are_removed_and_the_link_kept() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        let other_disk = parent.path().join("other-disk");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(other_disk.join("cd")).unwrap();
+        std::os::unix::fs::symlink(&other_disk, root.join("ab")).unwrap();
+
+        let removed = cleanup_empty_directories(&root, HashSet::from([root.join("ab").join("cd")]));
+
+        assert_eq!(removed, 1);
+        assert!(!other_disk.join("cd").exists());
+        assert!(root
+            .join("ab")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]

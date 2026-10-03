@@ -153,7 +153,7 @@ pub fn collect_cache_paths(
     scheme: cache_utils::CacheKeyScheme,
     reach: SliceReach,
     progress: Option<&CollectionProgress<'_>>,
-) -> Vec<(PathBuf, Option<String>)> {
+) -> Result<Vec<(PathBuf, Option<String>)>> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -191,7 +191,7 @@ pub fn collect_cache_paths(
         .collect::<Vec<_>>();
 
     if reach == SliceReach::ForwardWalkIsComplete {
-        return walked;
+        return Ok(walked);
     }
 
     let claimed: HashSet<u128> = walked
@@ -207,7 +207,7 @@ pub fn collect_cache_paths(
 
     let mut paths = walked;
     paths.extend(
-        key_header_residue(cache_dir, &bases, &claimed)
+        key_header_residue(cache_dir, &bases, &claimed)?
             .into_iter()
             .map(|(digest, key)| {
                 (
@@ -216,7 +216,7 @@ pub fn collect_cache_paths(
                 )
             }),
     );
-    paths
+    Ok(paths)
 }
 
 /// The md5 digest of each (service, url)'s unsliced object key: what a cache file's own
@@ -242,21 +242,28 @@ pub fn object_key_bases<'a>(
 ///
 /// Costs one directory walk plus a header read per file the walk did not already claim, so the
 /// deleting pass pays it once rather than per URL. Files already claimed are skipped without
-/// being opened.
+/// being opened. A 2-hex folder linked to another disk is read like the eviction index reads it; a
+/// folder of the layout it cannot read is an error.
 pub fn key_header_residue(
     cache_dir: &Path,
     bases: &HashSet<u128>,
     claimed: &HashSet<u128>,
-) -> Vec<(u128, String)> {
+) -> Result<Vec<(u128, String)>> {
     use rayon::prelude::*;
 
     if bases.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
-    jwalk::WalkDir::new(cache_dir)
+    let hidden = std::sync::atomic::AtomicBool::new(false);
+    let residue: Vec<(u128, String)> = cache_utils::cache_root_walk(cache_dir, |_| {})
         .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
         .into_iter()
+        .inspect(|item| {
+            if cache_utils::hides_cache_files(cache_dir, item) {
+                hidden.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        })
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
         .par_bridge()
@@ -279,7 +286,16 @@ pub fn key_header_residue(
             let base = cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(&key));
             bases.contains(&base).then_some((digest, key))
         })
-        .collect()
+        .collect();
+    // A folder the walk could not read may hold slices behind an eviction hole, so the removal cannot
+    // prove it covers the whole object and stops before it deletes anything.
+    if hidden.load(std::sync::atomic::Ordering::Relaxed) {
+        anyhow::bail!(
+            "a cache folder under {} could not be read, so this removal cannot reach every cached slice",
+            cache_dir.display()
+        );
+    }
+    Ok(residue)
 }
 
 /// What a count run writes for the C# side to read. Deliberately not shaped like a removal
@@ -306,7 +322,7 @@ pub fn count_cache_files(
     progress: &CollectionProgress<'_>,
 ) -> Result<usize> {
     let cache_files_found =
-        collect_cache_paths(cache_dir, url_data, scheme, reach, Some(progress)).len();
+        collect_cache_paths(cache_dir, url_data, scheme, reach, Some(progress))?.len();
 
     fs::write(
         output_json,
@@ -353,7 +369,7 @@ pub fn remove_cache_files(
 
     // Re-walked from disk here, inside the deleting process, so the set deleted is the set
     // that exists now rather than one an earlier pass recorded.
-    let paths_to_check = collect_cache_paths(cache_dir, url_data, scheme, reach, None);
+    let paths_to_check = collect_cache_paths(cache_dir, url_data, scheme, reach, None)?;
 
     let total_paths = paths_to_check.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -371,7 +387,17 @@ pub fn remove_cache_files(
 
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
-        if path.exists() {
+        let present = match cache_utils::cache_file_presence(cache_dir, path) {
+            Ok(present) => present,
+            Err(e) => {
+                // Behind a folder the app cannot search, or under a linked cache folder whose disk is
+                // gone, the file may still be there, so the removal keeps the history.
+                eprintln!("  cannot check {}: {}", path.display(), e);
+                undeleted_files.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        };
+        if present {
             // Refuse a file that is a link, or anything outside the cache root other than under a
             // linked 2-hex cache folder. Such a file stays on disk, so the removal must not delete
             // its history; one that vanished first is gone.
@@ -1066,6 +1092,27 @@ mod tests {
         assert!(other_disk.is_dir());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_under_a_linked_cache_folder_whose_disk_is_gone_stops_the_removal() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let other_disk = temp.path().join("other-disk");
+        let url = "/Builds/Org/o-abc/chunk.chunk";
+        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, "epicgames", url);
+        let hex_folder = cache_path.parent().unwrap().parent().unwrap().to_path_buf();
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::create_dir_all(&other_disk).unwrap();
+        std::os::unix::fs::symlink(&other_disk, &hex_folder).unwrap();
+        write_cache_file(&cache_path, None);
+        // The disk behind the link is no longer mounted: the file may still be on it.
+        fs::remove_dir_all(&other_disk).unwrap();
+
+        let error = remove_and_expect_the_tail_stopped(&cache_dir, url, "epicgames");
+
+        assert!(error.contains("1 cache file(s) could not be deleted"));
+    }
+
     #[test]
     fn bare_metal_mismatch_or_unreadable_key_is_skipped_and_progress_completes() {
         for embedded_key in [Some("wrong-key"), None] {
@@ -1178,11 +1225,68 @@ mod tests {
             .collect();
         let claimed: HashSet<u128> = [reachable].into_iter().collect();
 
-        let residue = key_header_residue(&root, &bases, &claimed);
+        let residue = key_header_residue(&root, &bases, &claimed).unwrap();
 
         let (digest, key) = assert_single(residue);
         assert_eq!(digest, stranded);
         assert!(key.starts_with(base));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_key_header_pass_reads_a_linked_cache_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let other_disk = temp.path().join("other-disk");
+
+        let base = "wsus/filestreamingservice/files/object";
+        let key = format!("{base}bytes={}-{}", 400 * 1_048_576, 401 * 1_048_576 - 1);
+        // The stranded slice's 2-hex folder is a link to another disk, as cache clear supports.
+        let slice_path =
+            cache_utils::cache_path_for_digest(&root, cache_utils::calculate_md5_digest(&key));
+        let hex_folder = slice_path.parent().unwrap().parent().unwrap().to_path_buf();
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&other_disk).unwrap();
+        std::os::unix::fs::symlink(&other_disk, &hex_folder).unwrap();
+        let stranded = write_keyed_cache_file(&root, &key);
+
+        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)]
+            .into_iter()
+            .collect();
+
+        let residue = key_header_residue(&root, &bases, &HashSet::new()).unwrap();
+
+        let (digest, _) = assert_single(residue);
+        assert_eq!(digest, stranded);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_key_header_pass_stops_when_a_linked_cache_folder_has_no_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+
+        let base = "wsus/filestreamingservice/files/object";
+        let key = format!("{base}bytes=0-1048575");
+        let slice_folder =
+            cache_utils::cache_path_for_digest(&root, cache_utils::calculate_md5_digest(&key))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_owned();
+        write_keyed_cache_file(&root, &key);
+        // A 2-hex folder linked to a disk that is not mounted may hold more slices of the object.
+        let dangling = if slice_folder == "ab" { "cd" } else { "ab" };
+        std::os::unix::fs::symlink(temp.path().join("unmounted"), root.join(dangling)).unwrap();
+
+        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)]
+            .into_iter()
+            .collect();
+
+        assert!(key_header_residue(&root, &bases, &HashSet::new()).is_err());
     }
 
     #[test]
@@ -1198,7 +1302,9 @@ mod tests {
             .collect();
         let claimed: HashSet<u128> = [only_slice].into_iter().collect();
 
-        assert!(key_header_residue(&root, &bases, &claimed).is_empty());
+        assert!(key_header_residue(&root, &bases, &claimed)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

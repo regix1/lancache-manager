@@ -164,7 +164,7 @@ fn collect_cache_digests(
     urls: &HashMap<String, i64>,
     scheme: cache_utils::CacheKeyScheme,
     progress: Option<&removal_core::CollectionProgress<'_>>,
-) -> Vec<(u128, Option<String>)> {
+) -> Result<Vec<(u128, Option<String>)>> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -179,7 +179,13 @@ fn collect_cache_digests(
             let digests = match scheme {
                 cache_utils::CacheKeyScheme::Monolithic => {
                     cache_utils::existing_cache_digests_for_url(service, url, |digest| {
-                        cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+                        !matches!(
+                            cache_utils::cache_file_presence(
+                                cache_dir,
+                                &cache_utils::cache_path_for_digest(cache_dir, digest)
+                            ),
+                            Ok(false)
+                        )
                     })
                     .into_iter()
                     .map(|digest| (digest, None))
@@ -187,7 +193,13 @@ fn collect_cache_digests(
                 }
                 cache_utils::CacheKeyScheme::BareMetal => {
                     cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
-                        cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+                        !matches!(
+                            cache_utils::cache_file_presence(
+                                cache_dir,
+                                &cache_utils::cache_path_for_digest(cache_dir, digest)
+                            ),
+                            Ok(false)
+                        )
                     })
                     .into_iter()
                     .map(|(digest, key)| (digest, Some(key)))
@@ -225,11 +237,11 @@ fn collect_cache_digests(
 
     let mut digests = walked;
     digests.extend(
-        removal_core::key_header_residue(cache_dir, &bases, &claimed)
+        removal_core::key_header_residue(cache_dir, &bases, &claimed)?
             .into_iter()
             .map(|(digest, key)| (digest, Some(key))),
     );
-    digests
+    Ok(digests)
 }
 
 fn remove_cache_files_for_service(
@@ -239,7 +251,7 @@ fn remove_cache_files_for_service(
     progress_path: &Path,
     reporter: &ProgressReporter,
     scheme: cache_utils::CacheKeyScheme,
-) -> (usize, u64, usize, usize, usize) {
+) -> Result<(usize, u64, usize, usize, usize)> {
     // Returns (deleted_count, bytes_freed, permission_errors, verification_skips, undeleted_files).
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -249,7 +261,7 @@ fn remove_cache_files_for_service(
 
     // Re-walked from disk here, inside the deleting process, so the set deleted is the set
     // that exists now rather than one an earlier pass recorded.
-    let digests_to_delete = collect_cache_digests(cache_dir, service, urls, scheme, None);
+    let digests_to_delete = collect_cache_digests(cache_dir, service, urls, scheme, None)?;
 
     let total_paths = digests_to_delete.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -274,7 +286,17 @@ fn remove_cache_files_for_service(
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
         let cache_path = cache_utils::cache_path_for_digest(cache_dir, *digest);
-        if cache_path.exists() {
+        let present = match cache_utils::cache_file_presence(cache_dir, &cache_path) {
+            Ok(present) => present,
+            Err(e) => {
+                // Behind a folder the app cannot search, or under a linked cache folder whose disk is
+                // gone, the file may still be there, so the removal keeps the history.
+                eprintln!("  cannot check {}: {}", cache_path.display(), e);
+                undeleted_files.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        };
+        if present {
             match cache_utils::safe_cache_path_under_root(cache_dir, &cache_path) {
                 Ok(_) => {
                     // Bare-metal deletion gate: the file must prove it holds the
@@ -392,13 +414,13 @@ fn remove_cache_files_for_service(
         );
     }
 
-    (
+    Ok((
         final_deleted,
         final_bytes,
         final_permission_errors,
         final_verification_skips,
         final_undeleted_files,
-    )
+    ))
 }
 
 async fn delete_service_from_database(
@@ -544,7 +566,7 @@ async fn main() -> Result<()> {
             stage_key: "signalr.serviceRemove.counting.progress",
         };
         let cache_files_found =
-            collect_cache_digests(&cache_dir, service, &urls, key_scheme, Some(&collection_progress))
+            collect_cache_digests(&cache_dir, service, &urls, key_scheme, Some(&collection_progress))?
                 .len();
 
         fs::write(
@@ -593,7 +615,7 @@ async fn main() -> Result<()> {
         &progress_path,
         &reporter,
         key_scheme,
-    );
+    )?;
 
     // After cache removal: if cancellation arrived, flush partial progress and exit 0.
     // C# re-runs reconciliation/detection after a cancelled remove.
@@ -754,7 +776,8 @@ mod tests {
                 &progress_path,
                 &ProgressReporter::new(false),
                 cache_utils::CacheKeyScheme::BareMetal,
-            );
+            )
+            .unwrap();
 
         assert!(cache_path.exists(), "unverified file must remain untouched");
         assert_eq!(
@@ -815,6 +838,7 @@ mod tests {
             cache_utils::CacheKeyScheme::Monolithic,
             None,
         )
+        .unwrap()
         .len();
 
         assert_eq!(counted, 2);
@@ -829,7 +853,8 @@ mod tests {
                 &temp.path().join("progress.json"),
                 &ProgressReporter::new(false),
                 cache_utils::CacheKeyScheme::Monolithic,
-            );
+            )
+            .unwrap();
 
         assert_eq!(
             (
@@ -861,7 +886,8 @@ mod tests {
             &temp.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
-        );
+        )
+        .unwrap();
 
         assert!(cache_path.exists());
         assert_eq!(outcome, (0, 0, 0, 0, 1));
@@ -888,11 +914,40 @@ mod tests {
             &temp.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
-        );
+        )
+        .unwrap();
 
         assert!(!cache_path.exists());
         assert_eq!((outcome.0, outcome.2, outcome.3, outcome.4), (1, 0, 0, 0));
         assert!(removal_core::ensure_cache_deletions_verified(outcome.3, outcome.4).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_file_under_a_linked_cache_folder_whose_disk_is_gone_stops_the_service_removal() {
+        let temp = tempfile::tempdir().unwrap();
+        let other_disk = tempfile::tempdir().unwrap();
+        let url = "/depot/1/chunk/abcdef";
+        let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), "steam", url);
+        let hex_folder = cache_path.parent().unwrap().parent().unwrap().to_path_buf();
+        std::os::unix::fs::symlink(other_disk.path(), &hex_folder).unwrap();
+        write_cache_file(&cache_path, None);
+        // The disk behind the link is no longer mounted: the file may still be on it, and so may
+        // other slices of the object, so the key-header sweep stops the removal before any delete.
+        fs::remove_dir_all(other_disk.path()).unwrap();
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+
+        let error = remove_cache_files_for_service(
+            temp.path(),
+            "steam",
+            &urls,
+            &temp.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("could not be read"));
     }
 
     #[test]
@@ -905,6 +960,7 @@ mod tests {
             cache_utils::CacheKeyScheme::Monolithic,
             None,
         )
+        .unwrap()
         .len();
 
         assert_eq!(counted, 0);
