@@ -1554,7 +1554,7 @@ public sealed class NginxLogRotationServiceTests
         await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
         {
             var service = CreateService(new CapturingLogger<NginxLogRotationService>());
-            service.ReopenNeverReturns = true;
+            service.Hangs = command => command.Label == "docker nginx verified reopen";
             await using var check = CreateRequiredCheck("writer");
             using var caller = new CancellationTokenSource();
 
@@ -1730,7 +1730,7 @@ public sealed class NginxLogRotationServiceTests
             service.DetectionResult = ("lancache", null);
             service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
             service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
-            service.ReopenNeverReturns = true;
+            service.Hangs = command => command.Label == "docker nginx verified reopen";
             var rotation = new NginxLogRotationHostedService(
                 service,
                 new ConfigurationBuilder().AddInMemoryCollection().Build(),
@@ -1784,7 +1784,7 @@ public sealed class NginxLogRotationServiceTests
             service.DetectionResult = ("lancache", null);
             service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
             service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
-            service.ReopenNeverReturns = true;
+            service.Hangs = command => command.Label == "docker nginx verified reopen";
             var rotation = new NginxLogRotationHostedService(
                 service,
                 new ConfigurationBuilder().AddInMemoryCollection().Build(),
@@ -1830,6 +1830,216 @@ public sealed class NginxLogRotationServiceTests
             }
         }
         Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task AutoDetectionMovesPastAContainerThatDoesNotAnswerToTheHostWriterAsync()
+    {
+        var service = CreateRealDetectionService(
+            dockerSocketAvailable: true,
+            hungContainer: "battlenet-prefill-a",
+            hostWriterOutput: "4242|start\n",
+            probeHostWriters: true);
+        service.DockerPsOutput = "battlenet-prefill-a|ghcr.io/regix1/battlenet-prefill-daemon\nweb|nginx:alpine";
+        service.NginxCheckExitCode = 1;
+
+        // It waits the real 30 seconds for the container that does not answer.
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(45));
+
+        Assert.True(result.Success);
+        Assert.Null(result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ARotationWhoseSecondWriterDoesNotAnswerEndsAmberNamingItAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-rotation-second-writer-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = new TestNginxLogRotationService(
+                NullLogger<NginxLogRotationService>.Instance,
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["NginxLogRotation:Enabled"] = "true",
+                    ["NginxLogRotation:ContainerName"] = "one,two"
+                }).Build(),
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                new TestPathResolver(NullLogger.Instance),
+                TimeProvider.System)
+            {
+                OnCommand = command => command.Label == "docker nginx writer identity"
+                    ? new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" }
+                    : new ProcessCommandResult { ExitCode = 0 },
+                Hangs = command => command.Label == "docker nginx verified reopen"
+                    && command.Arguments.StartsWith("exec two ", StringComparison.Ordinal)
+            };
+            var rotation = new NginxLogRotationHostedService(
+                service,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                NullLogger<NginxLogRotationHostedService>.Instance,
+                new TestPathResolver(NullLogger.Instance),
+                harness.StateService,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                harness.Tracker,
+                harness.Owner);
+            var executeWork = typeof(NginxLogRotationHostedService).GetMethod(
+                "ExecuteWorkAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            var run = (Task)executeWork.Invoke(rotation, [CancellationToken.None])!;
+            OperationInfo? operation = null;
+            for (var attempt = 0; attempt < 200 && operation is null; attempt++)
+            {
+                operation = harness.Tracker.GetActiveOperations(OperationType.LogRotation).FirstOrDefault();
+                if (operation is null)
+                {
+                    await Task.Delay(25);
+                }
+            }
+            Assert.NotNull(operation);
+
+            // It waits the real 30 seconds for the second writer, as the hung reopen test above does.
+            await run.WaitAsync(TimeSpan.FromSeconds(45));
+
+            var ended = harness.Tracker.GetOperation(operation.Id)!;
+            Assert.Equal(OperationStatus.Completed, ended.Status);
+            var warning = Assert.Single(ended.Warnings);
+            Assert.Equal("common.notifications.warnings.logReopenPartlyFailed", warning.StageKey);
+            var errors = Assert.IsType<string>(warning.Context["errors"]);
+            Assert.Contains("'two'", errors, StringComparison.Ordinal);
+            Assert.Contains("30 seconds", errors, StringComparison.Ordinal);
+            Assert.Contains(service.Commands, command =>
+                command.Label == "docker nginx verified reopen"
+                && command.Arguments.StartsWith("exec one ", StringComparison.Ordinal));
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task AWriterLookupWhoseDockerInspectHangsFailsTheStepAfterItsLimitAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-writer-lookup-hang-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var target = Path.Combine(root, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true,
+            Hangs = command => command.Label == "docker nginx mount inspection"
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "lancache\n" },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[107]\n" },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, root, target);
+
+        // It waits the real 30 seconds for the inspection.
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true)
+                .WaitAsync(TimeSpan.FromSeconds(45)));
+
+        Assert.Contains("docker nginx mount inspection", error.Message, StringComparison.Ordinal);
+        Assert.Contains("30 seconds", error.Message, StringComparison.Ordinal);
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task XStopsAWriterLookupWhoseDockerInspectHangsAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-writer-lookup-cancel-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var target = Path.Combine(root, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = true,
+            ReplaceDockerLogs = true,
+            Hangs = command => command.Label == "docker nginx mount inspection"
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "lancache\n" },
+            "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[107]\n" },
+            "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, root, target);
+        using var cancel = new CancellationTokenSource();
+
+        var lookup = service.PrepareReopenCheckAsync(
+            new[] { source },
+            new[] { target },
+            expectsPublication: true,
+            cancel.Token);
+        for (var attempt = 0;
+             attempt < 200 && !service.Commands.Any(command => command.Label == "docker nginx mount inspection");
+             attempt++)
+        {
+            await Task.Delay(25);
+        }
+        Assert.Contains(service.Commands, command => command.Label == "docker nginx mount inspection");
+        cancel.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => lookup.WaitAsync(TimeSpan.FromSeconds(5)));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task XStopsAScheduledReopenWhoseHostWriterReadHangsAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProbeHostWriters = true;
+        service.Hangs = command => command.Label == "host nginx writer identity";
+        using var cancel = new CancellationTokenSource();
+
+        var reopen = service.ReopenNginxLogsAsync(cancel.Token);
+        for (var attempt = 0;
+             attempt < 200 && !service.Commands.Any(command => command.Label == "host nginx writer identity");
+             attempt++)
+        {
+            await Task.Delay(25);
+        }
+        Assert.Contains(service.Commands, command => command.Label == "host nginx writer identity");
+        cancel.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reopen.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task AScheduledReopenWhoseHostWriterReadHangsFailsAfterItsLimitAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProbeHostWriters = true;
+        service.Hangs = command => command.Label == "host nginx writer identity";
+
+        // It waits the real 30 seconds for the read.
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(45));
+
+        Assert.False(result.Success);
+        Assert.Contains("30 seconds", result.ErrorMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2077,7 +2287,11 @@ public sealed class NginxLogRotationServiceTests
         Assert.Equal(NginxReopenHint.None, result.Hint);
     }
 
-    private static RealDetectionNginxLogRotationService CreateRealDetectionService(bool dockerSocketAvailable)
+    private static RealDetectionNginxLogRotationService CreateRealDetectionService(
+        bool dockerSocketAvailable,
+        string? hungContainer = null,
+        string? hostWriterOutput = null,
+        bool? probeHostWriters = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -2095,7 +2309,12 @@ public sealed class NginxLogRotationServiceTests
             {
                 DockerSocketAvailable = dockerSocketAvailable
             },
-            TimeProvider.System);
+            TimeProvider.System)
+        {
+            HungContainer = hungContainer,
+            HostWriterOutput = hostWriterOutput,
+            ProbeHostWriters = probeHostWriters
+        };
     }
 
     private static TestNginxLogRotationService CreateService(
@@ -2185,7 +2404,7 @@ public sealed class NginxLogRotationServiceTests
         public Func<CommandInvocation, ProcessCommandResult>? OnCommand { get; set; }
         public bool ProbeHostWriters { get; set; } = true;
         public bool ReplaceDockerLogs { get; set; } = true;
-        public bool ReopenNeverReturns { get; set; }
+        public Func<CommandInvocation, bool>? Hangs { get; set; }
         protected override bool CanProbeHostWriters => ProbeHostWriters;
         protected override bool CanReplaceDockerLogs => ReplaceDockerLogs;
 
@@ -2209,8 +2428,9 @@ public sealed class NginxLogRotationServiceTests
                 startInfo.RedirectStandardError,
                 startInfo.UseShellExecute);
             Commands.Add(command);
-            if (ReopenNeverReturns && label == "docker nginx verified reopen")
+            if (Hangs?.Invoke(command) == true)
             {
+                // A docker client blocked on a stuck daemon returns only when it is killed on a cancel.
                 return new TaskCompletionSource<ProcessCommandResult>().Task.WaitAsync(cancellationToken);
             }
             return Task.FromResult(OnCommand?.Invoke(command) ?? ProcessResults.Dequeue());
@@ -2232,15 +2452,30 @@ public sealed class NginxLogRotationServiceTests
         public string DockerPsOutput { get; set; } = string.Empty;
         public int NginxCheckExitCode { get; set; } = 1;
         public int HostProbeExitCode { get; set; } = 3;
+        public string? HungContainer { get; init; }
+        public string? HostWriterOutput { get; init; }
+        public bool? ProbeHostWriters { get; init; }
+
+        protected override bool CanProbeHostWriters => ProbeHostWriters ?? base.CanProbeHostWriters;
 
         protected override Task<ProcessCommandResult> RunProcessAsync(
             ProcessStartInfo startInfo,
             string label,
             CancellationToken cancellationToken = default)
         {
+            if (HungContainer is not null &&
+                label == "docker exec nginx-check" &&
+                startInfo.Arguments.StartsWith($"exec {HungContainer} ", StringComparison.Ordinal))
+            {
+                // A docker client blocked on a stuck daemon returns only when it is killed on a cancel.
+                return new TaskCompletionSource<ProcessCommandResult>().Task.WaitAsync(cancellationToken);
+            }
+
             var result = label switch
             {
                 "docker ps" => new ProcessCommandResult { ExitCode = 0, Output = DockerPsOutput },
+                "host nginx writer identity" when HostWriterOutput is not null =>
+                    new ProcessCommandResult { ExitCode = 0, Output = HostWriterOutput },
                 "docker exec nginx-check" => new ProcessCommandResult { ExitCode = NginxCheckExitCode },
                 "host nginx signal probe" => new ProcessCommandResult { ExitCode = HostProbeExitCode },
                 _ => new ProcessCommandResult { ExitCode = 0 }
