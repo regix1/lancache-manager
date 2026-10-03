@@ -399,6 +399,7 @@ public class RustLogRemovalService
         Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
         var repairPrepared = false;
         string? completionError = null;
+        var reopenFailedAfterRemoval = false;
 
         try
         {
@@ -550,6 +551,9 @@ public class RustLogRemovalService
                         FailureMessage = step.Reopen.ErrorMessage!
                     };
                     completionError = step.Reopen.ErrorMessage;
+                    // The lines were removed; only the reopen failed. The repair keeps the failed outcome and
+                    // finishes the log step as today, while the card is amber.
+                    reopenFailedAfterRemoval = true;
                     return false;
                 }
 
@@ -619,6 +623,12 @@ public class RustLogRemovalService
                 }
             }, cancellationToken);
 
+            if (reopenFailedAfterRemoval)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId.Value, new RunWarning(
+                    "common.notifications.warnings.nginxReopenFailed",
+                    new Dictionary<string, object?> { ["error"] = completionError }));
+            }
             await FinishRepairAsync(
                 operationId.Value,
                 completionMetrics,
@@ -627,8 +637,8 @@ public class RustLogRemovalService
                 error: completionError);
             _operationTracker.CompleteOperation(
                 operationId.Value,
-                success: succeeded,
-                error: completionError,
+                success: succeeded || reopenFailedAfterRemoval,
+                error: reopenFailedAfterRemoval ? null : completionError,
                 onCompleting: _ =>
                 {
                     publishedMetrics = completionMetrics;

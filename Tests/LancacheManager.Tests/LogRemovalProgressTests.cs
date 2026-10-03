@@ -485,6 +485,30 @@ public class LogRemovalProgressTests
         Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
     }
 
+    [Fact]
+    public async Task LogRemoval_ARemovalWhoseReopenFailedEndsAmberNamingTheErrorAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync(reopenFails: true);
+        // The child removes lines and exits 0; only the nginx signal afterwards fails.
+        harness.Rust.DeletesWholeAccessLog = true;
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.False(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.nginxReopenFailed", warning.StageKey);
+        Assert.Equal("Failed to reopen nginx writer 'host' with exit code 1", warning.Context["error"]);
+        Assert.True(row.Retained);
+        // The repair still holds the failed outcome, so it reopens nginx again.
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(OperationStatus.Failed, repair.Outcome);
+        Assert.Equal("common.notifications.warnings.nginxReopenFailed", Assert.Single(repair.Warnings!).StageKey);
+    }
+
     /// <summary>
     /// A per-datasource log removal against a real repair owner, log lock and nginx reopen check,
     /// with a recording child in place of log_service_manager.
@@ -523,7 +547,7 @@ public class LogRemovalProgressTests
         public RecordingNotificationProxy CountsNotifications { get; }
         public RustLogRemovalService Removal { get; }
 
-        public static async Task<LogStepHarness> CreateAsync(string? recreatedByReopen = null)
+        public static async Task<LogStepHarness> CreateAsync(string? recreatedByReopen = null, bool reopenFails = false)
         {
             var root = Path.Combine(Path.GetTempPath(), "log-removal-step-" + Guid.NewGuid().ToString("N"));
             var logs = Path.Combine(root, "logs");
@@ -571,13 +595,15 @@ public class LogRemovalProgressTests
                 DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
                 cache,
                 rust,
-                recreatedByReopen is null
-                    ? new NginxLogRotationService(
-                        NullLogger<NginxLogRotationService>.Instance,
-                        configuration,
-                        new ProcessManager(NullLogger<ProcessManager>.Instance),
-                        paths)
-                    : new RecreatingNginx(configuration, paths, logs, recreatedByReopen),
+                reopenFails
+                    ? new RefusingNginx(configuration, paths)
+                    : recreatedByReopen is null
+                        ? new NginxLogRotationService(
+                            NullLogger<NginxLogRotationService>.Instance,
+                            configuration,
+                            new ProcessManager(NullLogger<ProcessManager>.Instance),
+                            paths)
+                        : new RecreatingNginx(configuration, paths, logs, recreatedByReopen),
                 null!,
                 datasources,
                 repairs.Tracker,
@@ -647,6 +673,37 @@ public class LogRemovalProgressTests
                 case "host nginx verified reopen":
                     File.WriteAllBytes(Path.Combine(logPath, recreatedName), []);
                     return Task.FromResult(new ProcessCommandResult { ExitCode = 0 });
+                default:
+                    throw new InvalidOperationException($"Unexpected nginx command: {label}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// One host nginx writer whose signal fails. NginxLogRotationService.SignalWriterAsync runs
+    /// `test "$start" = '...' && kill -USR1 pid` through sh, which exits 1 with no output when the
+    /// writer is gone.
+    /// </summary>
+    private sealed class RefusingNginx(IConfiguration configuration, IPathResolver paths)
+        : NginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            paths)
+    {
+        protected override bool CanProbeHostWriters => true;
+
+        protected override Task<ProcessCommandResult> RunProcessAsync(
+            ProcessStartInfo start,
+            string label,
+            CancellationToken cancellationToken = default)
+        {
+            switch (label)
+            {
+                case "host nginx writer identity":
+                    return Task.FromResult(new ProcessCommandResult { ExitCode = 0, Output = "4242|reopen\n" });
+                case "host nginx verified reopen":
+                    return Task.FromResult(new ProcessCommandResult { ExitCode = 1 });
                 default:
                     throw new InvalidOperationException($"Unexpected nginx command: {label}");
             }
