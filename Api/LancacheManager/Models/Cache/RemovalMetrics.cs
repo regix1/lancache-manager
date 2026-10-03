@@ -64,11 +64,4 @@ public class RemovalMetrics
     /// deleting evidence while the matching removal can still mutate cache files.
     /// </summary>
     public Guid? CorruptionScanId { get; set; }
-
-    /// <summary>
-    /// File names, comma-separated, of logs of other series that something outside the app deleted
-    /// while a log removal ran. The removal still completed, and those series are read again once.
-    /// Null for every other removal.
-    /// </summary>
-    public string? OtherLogsGone { get; set; }
 }

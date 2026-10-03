@@ -419,7 +419,33 @@ public class LogRemovalProgressTests
             harness.State.GetLogSourcePositions("default"));
         var repair = await harness.WaitForOutcomeAsync(ended.Id);
         Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.Equal("signalr.logRemoval.otherLogsGone", Assert.Single(repair.Warnings!).StageKey);
         Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
+    }
+
+    [Fact]
+    public async Task LogRemoval_AMonolithicLogTheRemovalDeletedIsNotNamedAndKeepsItsReducedPositionAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+        // access.log held only steam lines, so the child deletes it; access.log.1 holds three other lines.
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "access.log"), "steam1\nsteam2\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "access.log.1"), "o1\no2\no3\n");
+        harness.State.SetLogSourcePositions("default", new Dictionary<string, long> { ["access.log"] = 5 });
+        harness.Rust.DeletesWholeAccessLog = true;
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
+        Assert.Empty(row.Warnings);
+        Assert.False(row.Retained);
+        // The two removed lines were already read, so the saved position drops from 5 to 3.
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 3 },
+            harness.State.GetLogSourcePositions("default"));
     }
 
     [Fact]
@@ -666,6 +692,12 @@ public class LogRemovalProgressTests
         /// </summary>
         public string? GoneAtLaunch { get; set; }
 
+        /// <summary>
+        /// The child deletes the monolithic access.log itself because every line of it matched the removed
+        /// service, as remove_all_log_entries_for_service does.
+        /// </summary>
+        public bool DeletesWholeAccessLog { get; set; }
+
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
             Guid? operationId,
@@ -695,7 +727,51 @@ public class LogRemovalProgressTests
             var progressPath = arguments[5];
             // The real path resolver creates the operations directory each time it returns it; this one does not.
             Directory.CreateDirectory(Path.GetDirectoryName(progressPath)!);
-            if (ExitCode == 0 && GoneAtLaunch is not null)
+            if (ExitCode == 0 && DeletesWholeAccessLog)
+            {
+                // remove_all_log_entries_for_service on a monolithic access.log whose every line matched
+                // (log_purge.rs:671-692) deletes the file; publish_deleted_files (log_purge.rs:246-330) records
+                // it deleted, with no temporary or published identity, and every other checked file unchanged.
+                // The final progress carries the removed lines by stem.
+                File.Delete(Path.Combine(arguments[1], "access.log"));
+                await File.WriteAllTextAsync(
+                    start.Environment["LANCACHE_LOG_RESULT"]!,
+                    JsonSerializer.Serialize(
+                        new NginxPublicationResult(
+                            true,
+                            check!.Files.Select(file => Path.GetFileName(file.TargetPath) == "access.log"
+                                ? new NginxPublicationRecord(
+                                    file.TargetPath,
+                                    file.OriginalIdentity,
+                                    null,
+                                    null,
+                                    Changed: true,
+                                    Deleted: true)
+                                : new NginxPublicationRecord(
+                                    file.TargetPath,
+                                    file.OriginalIdentity,
+                                    null,
+                                    file.OriginalIdentity,
+                                    Changed: false,
+                                    Deleted: false)).ToList()),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                    cancellationToken);
+                await File.WriteAllTextAsync(
+                    progressPath,
+                    JsonSerializer.Serialize(new LogRemovalProgress
+                    {
+                        PercentComplete = 100,
+                        Status = "completed",
+                        StageKey = "signalr.logRemoval.complete",
+                        FilesProcessed = 2,
+                        LinesProcessed = 5,
+                        LinesRemoved = 2,
+                        LinesRemovedByStem = new Dictionary<string, long> { ["access.log"] = 2 },
+                        LinesRemovedBeforePositionByStem = new Dictionary<string, long> { ["access.log"] = 2 }
+                    }),
+                    cancellationToken);
+            }
+            else if (ExitCode == 0 && GoneAtLaunch is not null)
             {
                 // remove_service_from_logs on a folder holding steam-access.log: it deletes that file, and
                 // publish_deleted_files records it deleted and every other checked file unchanged, the one

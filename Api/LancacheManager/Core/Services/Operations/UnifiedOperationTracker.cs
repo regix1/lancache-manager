@@ -1022,8 +1022,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     // What a run left undone, in the order found: the eviction scan's failed game detection, which
-    // its progress context carries; a log removal's logs of other series deleted outside the app,
-    // which its metadata names; then every warning the job or its repair set.
+    // its progress context carries, then every warning the job or its repair set.
     private static List<RunWarning> ReadWarnings(OperationInfo operation)
     {
         var warnings = new List<RunWarning>();
@@ -1032,12 +1031,6 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             warnings.Add(new RunWarning(
                 "signalr.gameDetect.error.fatal",
                 new Dictionary<string, object?> { ["errorDetail"] = detectionError }));
-        }
-        if (operation.Metadata is RemovalMetrics { OtherLogsGone: { Length: > 0 } otherLogs })
-        {
-            warnings.Add(new RunWarning(
-                "signalr.logRemoval.otherLogsGone",
-                new Dictionary<string, object?> { ["fileNames"] = otherLogs }));
         }
         warnings.AddRange(operation.Warnings);
         return warnings;

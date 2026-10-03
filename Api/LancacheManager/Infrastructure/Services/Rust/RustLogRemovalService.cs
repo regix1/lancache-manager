@@ -577,10 +577,10 @@ public class RustLogRemovalService
                             service,
                             datasourceName,
                             otherLogs);
-                        // Set before CompleteOperation, whose ending row carries it as the warning.
-                        _operationTracker.UpdateMetadata(
-                            operationId!.Value,
-                            (object meta) => ((RemovalMetrics)meta).OtherLogsGone = otherLogs);
+                        // Set before CompleteOperation and kept on the repair record, so a restored run keeps it.
+                        await _operationStateService.SetRunWarningAsync(operationId!.Value, new RunWarning(
+                            "signalr.logRemoval.otherLogsGone",
+                            new Dictionary<string, object?> { ["fileNames"] = otherLogs }));
                     }
 
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
@@ -864,11 +864,20 @@ public class RustLogRemovalService
                 // deleted stems' checkpoints must not survive the files.
                 var serviceStems = LancacheManager.Core.Services.LogSourceLayout.StemsForService(service);
                 _stateService.ClearLogSourcePositions(datasource.Name, serviceStems);
+                // The child records each bound file it deleted itself (a monolithic access.log whose every line
+                // matched, a deleted series); only a file it did not delete went outside the app.
+                HashSet<string> deletedByChild = goneBeforeReopen.Count == 0
+                    ? []
+                    : (await NginxLogRotationService.ReadPublicationResultAsync(reopenCheck, CancellationToken.None)).Files
+                        .Where(record => record.Deleted)
+                        .Select(record => Path.GetFullPath(record.TargetPath))
+                        .ToHashSet();
                 // A bound log of another series that something outside the app deleted during the step was
                 // not this removal's to delete, and the child left it unchanged. A saved position counts
                 // lines across the whole series, so a vanished file shifts it past lines never read; that
                 // series is read again from its first line.
                 otherLogsGone = goneBeforeReopen
+                    .Where(path => !deletedByChild.Contains(path))
                     .Select(path => Path.GetFileName(path))
                     .Where(name => LancacheManager.Core.Services.LogSourceLayout.LogicalStem(name) is { } stem
                         && !serviceStems.Contains(stem))
