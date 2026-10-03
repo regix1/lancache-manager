@@ -26,7 +26,7 @@ import {
   type ServiceStat,
   type ProcessingStatus,
   type ClearCacheResponse,
-  type MessageResponse,
+  type LogFileDeleteResponse,
   type Config,
   type DashboardStats,
   type CachedCorruptionDetectionResponse,
@@ -1189,7 +1189,7 @@ class ApiService {
   }
 
   // Delete entire log file for a datasource (requires auth)
-  static async deleteLogFile(datasourceName: string): Promise<MessageResponse> {
+  static async deleteLogFile(datasourceName: string): Promise<LogFileDeleteResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/logs/datasources/${encodeURIComponent(datasourceName)}/file`,
@@ -1198,7 +1198,7 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      return await this.handleResponse<MessageResponse>(res);
+      return await this.handleResponse<LogFileDeleteResponse>(res);
     } catch (error: unknown) {
       console.error('deleteLogFile error:', error);
       throw error;

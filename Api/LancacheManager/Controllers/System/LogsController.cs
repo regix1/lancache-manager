@@ -663,7 +663,7 @@ public class LogsController : ControllerBase
     /// and keeps the read position of any older log file left on disk.
     /// </remarks>
     [HttpDelete("datasources/{datasourceName}/file")]
-    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LogFileDeleteResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> DeleteLogFileAsync(
         string datasourceName,
         CancellationToken cancellationToken = default)
@@ -927,10 +927,6 @@ public class LogsController : ControllerBase
             }
             deleteFailure.Throw();
         }
-        if (!reopen.Success)
-        {
-            throw new IOException(reopen.ErrorMessage!);
-        }
         if (chosenFileKept)
         {
             throw new ConflictException(
@@ -946,9 +942,11 @@ public class LogsController : ControllerBase
             deleteTarget,
             deletion!.BytesDeleted);
 
-        return Ok(new MessageResponse
+        // The file is gone either way; a failed reopen is named on an amber card rather than failing the request.
+        return Ok(new LogFileDeleteResponse
         {
-            Message = $"Log file deleted successfully for datasource '{datasourceName}'"
+            Message = $"Log file deleted successfully for datasource '{datasourceName}'",
+            ReopenError = reopen.Success ? null : reopen.ErrorMessage
         });
     }
 

@@ -30,6 +30,15 @@ public class MessageResponse
 }
 
 /// <summary>
+/// Response for a deleted log file
+/// </summary>
+public sealed class LogFileDeleteResponse : MessageResponse
+{
+    /// <summary>The nginx reopen error after the file was deleted; null when nginx reopened its logs.</summary>
+    public string? ReopenError { get; init; }
+}
+
+/// <summary>
 /// Response for not found errors
 /// </summary>
 public class NotFoundResponse

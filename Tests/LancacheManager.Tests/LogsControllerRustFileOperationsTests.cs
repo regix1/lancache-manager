@@ -419,6 +419,30 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
+    public async Task DeleteLogFile_ADeleteWhoseReopenFailedAnswersOkNamingTheErrorAsync()
+    {
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
+        var logPath = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(logPath, "sixsix");
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            var bytes = new FileInfo(path).Length;
+            File.Delete(path);
+            return Task.FromResult(new LogFileDeletionResult(bytes));
+        };
+        nginx!.ReopenExitCode = 1;
+        nginx.ReleaseReopen.SetResult();
+
+        var result = await fixture.Controller.DeleteLogFileAsync("alpha");
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<LogFileDeleteResponse>(ok.Value);
+        Assert.Contains("exit code 1", response.ReopenError);
+        Assert.False(File.Exists(logPath));
+    }
+
+    [Fact]
     public async Task DeleteLogFile_AbortedRequestStillResetsThePositionsAsync()
     {
         ReopenWaitingNginx? nginx = null;
@@ -1591,6 +1615,8 @@ public sealed class LogsControllerRustFileOperationsTests
         public TaskCompletionSource ReleaseReopen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <summary>Runs while the delete looks for the log files' writer.</summary>
         public Action? DuringWriterSearch { get; set; }
+        /// <summary>The exit code of the reopen signal; the real signal exits non-zero when the writer is gone.</summary>
+        public int ReopenExitCode { get; set; }
         protected override bool CanProbeHostWriters => true;
 
         protected override async Task<ProcessCommandResult> RunProcessAsync(
@@ -1606,7 +1632,7 @@ public sealed class LogsControllerRustFileOperationsTests
                 case "host nginx verified reopen":
                     ReopenReached.SetResult();
                     await ReleaseReopen.Task.WaitAsync(cancellationToken);
-                    return new ProcessCommandResult { ExitCode = 0 };
+                    return new ProcessCommandResult { ExitCode = ReopenExitCode };
                 default:
                     throw new InvalidOperationException($"Unexpected nginx command: {label}");
             }

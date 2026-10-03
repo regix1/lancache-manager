@@ -325,8 +325,12 @@ export interface ClearCacheResponse {
   alreadyRunning?: boolean;
 }
 
-export interface MessageResponse {
+interface MessageResponse {
   message: string;
+}
+
+export interface LogFileDeleteResponse extends MessageResponse {
+  reopenError?: string | null;
 }
 
 export type NginxReopenHint =

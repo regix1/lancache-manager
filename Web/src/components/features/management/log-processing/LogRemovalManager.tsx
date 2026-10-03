@@ -144,7 +144,7 @@ interface LogRemovalManagerProps {
 
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
-  const { runs, isAnyRemovalRunning } = useNotifications();
+  const { runs, isAnyRemovalRunning, addNotification } = useNotifications();
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
@@ -340,7 +340,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     setDeletingLogFile(datasourceName);
 
     try {
-      await ApiService.deleteLogFile(datasourceName);
+      const result = await ApiService.deleteLogFile(datasourceName);
+      if (result.reopenError) {
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: t('common.notifications.warnings.nginxReopenFailed', {
+            error: result.reopenError
+          }),
+          details: { notificationType: 'warning' }
+        });
+      }
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
       onError?.(
