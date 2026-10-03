@@ -206,7 +206,10 @@ public partial class GameCacheDetectionService : IDisposable
                             if (_currentTrackerOperationId == registeredId) _currentTrackerOperationId = null;
                         }
                     },
-                    onTerminalEmit: info => EmitTerminalAsync(registeredId, info, metadata),
+                    // The finished metrics reach the run as a copy in FinalizeDetectionAsync's onCompleting, so the emit
+                    // reads the run's metadata when it fires, not the object registered here.
+                    onTerminalEmit: info => EmitTerminalAsync(registeredId, info,
+                        (GameDetectionMetrics)_operationTracker.GetOperation(registeredId)!.Metadata!),
                     parentOperationId: parentOperationId,
                     startedAt: metadata.StartTime,
                     notice: notice,

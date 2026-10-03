@@ -387,6 +387,21 @@ public class GameDetectionVisibilityRaceTests
         Assert.Equal(570, Assert.Single(await context.CachedGameDetections.ToListAsync()).GameAppId);
     }
 
+    [Fact]
+    public async Task ASuccessfulDetectionSendsItsCompletionStageKeyAsync()
+    {
+        await using var run = await DetectionRun.CreateAsync();
+
+        var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
+        await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+
+        var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(
+            Assert.Single(run.Notifications.Events, e => e.Event == SignalREvents.GameDetectionComplete).Value);
+        Assert.True(complete.Success);
+        Assert.StartsWith("signalr.gameDetect.complete", complete.StageKey);
+        Assert.Equal(1, complete.TotalGamesDetected);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -454,6 +469,7 @@ public class GameDetectionVisibilityRaceTests
         public SemaphoreSlim RetryRelease { get; } = new(0);
         public Guid BlockedRepair { get; set; }
         public string OperationsDirectory { get; private set; } = null!;
+        public RecordingNotificationsProxy Notifications { get; private set; } = null!;
         public string? CancelAtStage { get; set; }
         public bool CancelOnFirstSave { get; set; }
 
@@ -487,6 +503,7 @@ public class GameDetectionVisibilityRaceTests
             File.WriteAllText(detector, string.Empty);
             var notifications = (RecordingNotificationsProxy)DispatchProxy
                 .Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+            run.Notifications = notifications;
             notifications.OnSend = (_, value) =>
             {
                 if (value?.GetType().GetProperty("StageKey")?.GetValue(value) is string stage
@@ -512,7 +529,7 @@ public class GameDetectionVisibilityRaceTests
                 contexts,
                 new GameCacheDetectionDataService(contexts, NullLogger<GameCacheDetectionDataService>.Instance),
                 evictedDetectionPreservationService: null!,
-                unknownGameResolutionService: null!,
+                unknownGameResolutionService: new UnknownGameResolutionService(contexts, NullLogger<UnknownGameResolutionService>.Instance),
                 new OneGameReport(paths, run.Repairs.Tracker, paths.GetOperationsDirectory()),
                 (ISignalRNotificationService)(object)notifications,
                 datasources,
@@ -745,13 +762,15 @@ public class GameDetectionVisibilityRaceTests
     /// Minimal <see cref="IUnifiedOperationTracker"/> stand-in. <c>RegisterOperation</c> mints an id,
     /// records the run's <c>onTerminalEmit</c> closure and adds an active row; <c>CompleteOperation</c>
     /// (used by the service's stale-cleanup pass) fires that run's own closure; <c>GetOperation</c>
-    /// returns null so the background scan exits immediately. Not sealed for DispatchProxy.Create.
+    /// returns null for a running run so the background scan exits immediately. Not sealed for DispatchProxy.Create.
     /// </summary>
     private class FakeTrackerProxy : DispatchProxy
     {
         private readonly object _sync = new();
         private readonly Dictionary<Guid, Func<OperationTerminalInfo, Task>> _emits = new();
         private readonly List<OperationInfo> _active = new();
+        // A run stays readable after it ends, as in the real tracker, so a terminal emit can read its final metadata.
+        private readonly Dictionary<Guid, OperationInfo> _finished = new();
         // Kept after a run ends, so a test can still read the notice a finished run carried.
         private readonly Dictionary<Guid, RunNotice?> _notices = new();
 
@@ -819,7 +838,10 @@ public class GameDetectionVisibilityRaceTests
                     }
                     return null;
                 case nameof(IUnifiedOperationTracker.GetOperation):
-                    return null;
+                    lock (_sync)
+                    {
+                        return _finished.GetValueOrDefault((Guid)args![0]!);
+                    }
                 default:
                     return DefaultReturnValue(targetMethod);
             }
@@ -839,6 +861,7 @@ public class GameDetectionVisibilityRaceTests
                 onCompleting?.Invoke(operation);
                 operation.Status = cancelled ? OperationStatus.Cancelled : success ? OperationStatus.Completed : OperationStatus.Failed;
                 _active.Remove(operation);
+                _finished[id] = operation;
                 _emits.Remove(id, out emit);
             }
 
