@@ -5,7 +5,11 @@ import { useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import { createUuid } from '@utils/uuid';
-import { getIntegrationReasonKey, type IntegrationAccess } from '../types';
+import {
+  getIntegrationReasonKey,
+  type IntegrationAccess,
+  type IntegrationLoginEnding
+} from '../types';
 import { STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
@@ -232,6 +236,49 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     attemptRef.current = submittedAttempt;
     setAttemptId(submittedAttempt);
 
+    // The answer was lost (this page's two-minute wait ran out, the connection dropped, or something in between
+    // answered in its own words) while the server can still finish this sign-in. Read how it ended by its attempt id
+    // every 5 s (the Xbox sign-in dialog's retry) until the server has an ending or no longer runs it.
+    const readLoginEnding = async (): Promise<boolean> => {
+      setLoginDeadline(null);
+      if (!submittedAttempt) return false;
+      while (current()) {
+        const status: (IntegrationAccess & { loginEnding?: IntegrationLoginEnding }) | null =
+          await fetch(
+            `/api/steam-auth/status?attemptId=${encodeURIComponent(submittedAttempt)}`,
+            ApiService.getFetchOptions()
+          )
+            .then((response) =>
+              ApiService.handleResponse<
+                IntegrationAccess & { loginEnding?: IntegrationLoginEnding }
+              >(response)
+            )
+            .catch(() => null);
+        if (!current()) return false;
+        const ending =
+          status?.loginEnding?.attemptId === submittedAttempt ? status.loginEnding : null;
+        if (ending?.status === 'completed') {
+          attemptRef.current = null;
+          cancelledAttemptRef.current = null;
+          onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username }));
+          resetAuthForm();
+          return true;
+        }
+        if (ending || (status && status.attemptId !== submittedAttempt)) {
+          // With no ending and no sign-in running, a restart ended it.
+          const message = ending
+            ? t(ending.stageKey, ending.context ?? {})
+            : t('errors.integration.attemptExpired');
+          resetAuthForm();
+          setError(message);
+          onError?.(message);
+          return false;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
+      return false;
+    };
+
     const controller = new AbortController();
     setAbortController(controller);
 
@@ -294,12 +341,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         result = await response.json();
         if (!current()) return false;
       } catch (_jsonError) {
-        const invalidResponse = t('modals.steamAuth.errors.invalidServerResponse');
-        setError(invalidResponse);
-        setLoading(false);
-        setWaitingForMobileConfirmation(false);
-        setLoginDeadline(null);
-        return false;
+        return await readLoginEnding();
       }
 
       if (response.ok) {
@@ -369,25 +411,11 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       return false;
     } catch (err: unknown) {
       if (!current()) return false;
-      if (!(err instanceof Error && err.name === 'AbortError')) {
-        setWaitingForMobileConfirmation(false);
-        setLoading(false);
-        const errorMessage =
-          err instanceof ApiError && err.body?.stageKey
-            ? t(err.body.stageKey, err.body.context ?? {})
-            : t('modals.steamAuth.errors.authenticationFailed');
-        resetAuthForm();
-        // Set after the reset, same as the refused-credentials path above.
-        setError(errorMessage);
-        onError?.(errorMessage);
-      } else if (timedOut) {
-        // Leave the phone-approval screen the same way a refusal does, or the panel keeps saying
-        // it is waiting for an approval that can no longer arrive, with the reason underneath it.
-        setWaitingForMobileConfirmation(false);
-        setLoginDeadline(null);
-        const timedOutMessage = t('modals.steamAuth.errors.attemptTimedOut');
-        setError(timedOutMessage);
-      }
+      // Closing the dialog or switching to a code moves the request on before it aborts, so an abort that is still
+      // current is this page's own two-minute wait; a dropped connection is the other way here. The server keeps the
+      // sign-in going in both.
+      if (!(err instanceof Error && err.name === 'AbortError') || timedOut)
+        return await readLoginEnding();
       return false;
     } finally {
       if (requestTimeout) {

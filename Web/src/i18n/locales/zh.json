@@ -5616,7 +5616,6 @@
       "errors": {
         "authenticationFailed": "认证失败",
         "invalidServerResponse": "服务器返回了此页面无法读取的内容。",
-        "attemptTimedOut": "登录尝试超时。",
         "failedToSwitchToAnonymous": "切换到匿名模式失败",
         "networkError": "网络错误 - 移除 API 密钥失败",
         "credentialsRequired": "请输入用户名和密码",

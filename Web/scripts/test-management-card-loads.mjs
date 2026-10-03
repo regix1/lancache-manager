@@ -605,11 +605,16 @@ const STEAM_LOGIN_FLOW = 'src/hooks/useSteamLoginFlow.ts';
  * popup behind it.
  */
 const liftSteamSignIn = (fetch) => {
-  const state = { popups: [], errors: [], deadlines: [] };
+  const state = { popups: [], errors: [], deadlines: [], successes: [] };
   const handleAuthenticate = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'handleAuthenticate'), {
     canAuthenticate: true,
     identityRef: { current: undefined },
-    integration: undefined,
+    integration: {
+      identity: undefined,
+      access: { canSignIn: true },
+      refresh: async () => undefined
+    },
+    createUuid: () => 'attempt-a',
     busyRef: { current: false },
     needsTwoFactor: false,
     needsEmailCode: false,
@@ -628,25 +633,78 @@ const liftSteamSignIn = (fetch) => {
     setLoginDeadline: (value) => state.deadlines.push(value),
     fetch,
     loginUrl: '/api/steam-auth/login',
-    ApiService: { getJsonFetchOptions: (_body, options) => options },
+    ApiService: {
+      getJsonFetchOptions: (_body, options) => options,
+      getFetchOptions: () => ({}),
+      handleResponse: async (response) => response.json()
+    },
     getExtraRequestBody: undefined,
     ApiError: class ApiError extends Error {},
     t: (key) => key,
     notifyLoginFailure: (message) => state.popups.push(message),
     resetAuthForm: () => undefined,
+    onSuccess: (message) => state.successes.push(message),
     onError: undefined
   });
   return { state, handleAuthenticate };
 };
 
-test('a failed Management Steam sign-in shows its reason in the dialog only', async () => {
-  const { state, handleAuthenticate } = liftSteamSignIn(async () => {
-    throw new TypeError('Failed to fetch');
+/** What GET /api/steam-auth/status answers: the caller's running attempt and the asked attempt's ending, nulls omitted. */
+const steamStatus = (body) => ({
+  ok: true,
+  json: async () =>
+    Object.fromEntries(
+      Object.entries(body).filter(([, value]) => value !== null && value !== undefined)
+    )
+});
+
+/** A fetch that answers the status read from a queue of reads and every other URL with `login`. */
+const steamFetch = (login, statusReads) => {
+  const statusUrls = [];
+  const fetch = (url, options) => {
+    if (!url.startsWith('/api/steam-auth/status')) return login(url, options);
+    statusUrls.push(url);
+    return statusReads.shift()();
+  };
+  return { fetch, statusUrls };
+};
+
+const abortsOnSignal = (_url, options) =>
+  new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () =>
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+    );
   });
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+const completedEnding = {
+  loginEnding: {
+    attemptId: 'attempt-a',
+    status: 'completed',
+    stageKey: 'modals.steamAuth.success.authenticatedAs'
+  }
+};
+
+test('a Steam sign-in whose connection dropped shows how it ended in the dialog only', async () => {
+  const { fetch, statusUrls } = steamFetch(async () => {
+    throw new TypeError('Failed to fetch');
+  }, [
+    async () =>
+      steamStatus({
+        loginEnding: {
+          attemptId: 'attempt-a',
+          status: 'failed',
+          stageKey: 'errors.steam.serversBusy'
+        }
+      })
+  ]);
+  const { state, handleAuthenticate } = liftSteamSignIn(fetch);
 
   await handleAuthenticate();
 
-  assert.equal(state.errors.at(-1), 'modals.steamAuth.errors.authenticationFailed');
+  assert.equal(state.errors.at(-1), 'errors.steam.serversBusy');
+  assert.deepEqual(statusUrls, ['/api/steam-auth/status?attemptId=attempt-a']);
   assert.deepEqual(
     state.popups,
     [],
@@ -654,30 +712,85 @@ test('a failed Management Steam sign-in shows its reason in the dialog only', as
   );
 });
 
-test('a Steam sign-in that times out ends its countdown', async (t) => {
+test('a Steam sign-in saved after the two-minute wait closes with success', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { state, handleAuthenticate } = liftSteamSignIn(
-    (_url, options) =>
-      new Promise((_resolve, reject) => {
-        options.signal.addEventListener('abort', () =>
-          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
-        );
-      })
+  const { fetch } = steamFetch(abortsOnSignal, [
+    async () => steamStatus({ attemptId: 'attempt-a' }),
+    async () => steamStatus(completedEnding)
+  ]);
+  const { state, handleAuthenticate } = liftSteamSignIn(fetch);
+
+  const signIn = handleAuthenticate();
+  t.mock.timers.tick(120000);
+  await settle();
+  assert.deepEqual(
+    state.successes,
+    [],
+    'the attempt is still running, so the dialog keeps waiting'
   );
+  t.mock.timers.tick(5000);
+  await signIn;
+
+  assert.deepEqual(state.successes, ['modals.steamAuth.success.authenticatedAs']);
+  assert.deepEqual(
+    state.errors.filter((message) => message !== null),
+    []
+  );
+  assert.equal(state.deadlines.at(-1), null, 'the countdown is over once the wait has ended');
+});
+
+test('a Steam sign-in that ends after the wait shows its own reason', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { fetch } = steamFetch(abortsOnSignal, [
+    async () =>
+      steamStatus({
+        loginEnding: {
+          attemptId: 'attempt-a',
+          status: 'cancelled',
+          stageKey: 'errors.steam.signInCancelled'
+        }
+      })
+  ]);
+  const { state, handleAuthenticate } = liftSteamSignIn(fetch);
 
   const signIn = handleAuthenticate();
   t.mock.timers.tick(120000);
   await signIn;
 
-  assert.equal(state.errors.at(-1), 'modals.steamAuth.errors.attemptTimedOut');
+  assert.equal(state.errors.at(-1), 'errors.steam.signInCancelled');
+  assert.deepEqual(state.successes, []);
   assert.equal(
     state.deadlines.at(-1),
     null,
-    'an expired countdown beside "timed out" says the same thing twice'
+    'an expired countdown beside the reason says the same thing twice'
   );
 });
 
-test('a Steam sign-in the server refuses or answers unreadably ends its countdown', async () => {
+test('a failed Steam status read is read again after 5 seconds', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { fetch, statusUrls } = steamFetch(abortsOnSignal, [
+    () => Promise.reject(new TypeError('Failed to fetch')),
+    async () => steamStatus(completedEnding)
+  ]);
+  const { state, handleAuthenticate } = liftSteamSignIn(fetch);
+
+  const signIn = handleAuthenticate();
+  t.mock.timers.tick(120000);
+  await settle();
+  assert.equal(statusUrls.length, 1);
+  assert.deepEqual(
+    state.errors.filter((message) => message !== null),
+    []
+  );
+  assert.deepEqual(state.successes, []);
+  t.mock.timers.tick(5000);
+  await signIn;
+
+  assert.equal(statusUrls.length, 2);
+  assert.deepEqual(state.successes, ['modals.steamAuth.success.authenticatedAs']);
+});
+
+test('a Steam sign-in the server refuses ends its countdown', async () => {
   const refused = liftSteamSignIn(async () => ({
     ok: true,
     json: async () => ({ success: false })
@@ -685,15 +798,21 @@ test('a Steam sign-in the server refuses or answers unreadably ends its countdow
   await refused.handleAuthenticate();
   assert.equal(refused.state.errors.at(-1), 'modals.steamAuth.errors.authenticationFailed');
   assert.equal(refused.state.deadlines.at(-1), null);
+});
 
-  const unreadable = liftSteamSignIn(async () => ({
-    ok: true,
-    json: async () => {
-      throw new SyntaxError('Unexpected token');
-    }
-  }));
+test('an unreadable Steam sign-in answer reads the ending of its own sign-in', async () => {
+  const { fetch } = steamFetch(
+    async () => ({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('Unexpected token');
+      }
+    }),
+    [async () => steamStatus({})]
+  );
+  const unreadable = liftSteamSignIn(fetch);
   await unreadable.handleAuthenticate();
-  assert.equal(unreadable.state.errors.at(-1), 'modals.steamAuth.errors.invalidServerResponse');
+  assert.equal(unreadable.state.errors.at(-1), 'errors.integration.attemptExpired');
   assert.equal(unreadable.state.deadlines.at(-1), null);
 });
 

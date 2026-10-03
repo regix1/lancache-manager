@@ -5616,7 +5616,6 @@
       "errors": {
         "authenticationFailed": "Authentication failed",
         "invalidServerResponse": "The server sent back something this page could not read.",
-        "attemptTimedOut": "The sign-in attempt ran out of time.",
         "failedToSwitchToAnonymous": "Failed to switch to anonymous mode",
         "networkError": "Network error - failed to remove API key",
         "credentialsRequired": "Please enter both username and password",
