@@ -219,9 +219,10 @@ pub fn safe_path_under_root(root: &Path, candidate: &Path) -> io::Result<PathBuf
 }
 
 /// The canonical target of `folder`, a 2-hex cache folder directly under the cache root, when it is a
-/// link to a folder: one cache folder can sit on another disk. Cache clear, game and service removal
-/// and both eviction walks follow such a link, and no other. `None` when `folder` is not a link, not
-/// 2-hex or its target is not a folder; an error when the target cannot be resolved (gone included).
+/// link to a folder: one cache folder can sit on another disk. Cache clear, game and service removal,
+/// game detection and both eviction walks follow such a link, and no other. `None` when `folder` is
+/// not a link, not 2-hex or its target is not a folder; an error when the target cannot be resolved
+/// (gone included).
 pub fn linked_hex_folder_target(folder: &Path) -> io::Result<Option<PathBuf>> {
     let hex_name = folder
         .file_name()

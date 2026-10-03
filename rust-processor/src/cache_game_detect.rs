@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use jwalk::WalkDir;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::json;
@@ -169,8 +168,8 @@ fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
     let counter = AtomicUsize::new(0);
     let non_hash_names = AtomicUsize::new(0);
 
-    // Use jwalk for parallel directory walking (4x faster than walkdir)
-    let cache_files: HashMap<u128, u64> = WalkDir::new(cache_dir)
+    // The shared cache walk: a 2-hex folder linked to another disk is read through its link, as removals and the eviction index read it.
+    let cache_files: HashMap<u128, u64> = cache_utils::cache_root_walk(cache_dir, |_| {})
         .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
         .into_iter()
         .filter_map(|entry| entry.ok())
@@ -1498,5 +1497,26 @@ mod tests {
         assert!(json.contains("\"total_size_bytes\":96"), "{json}");
         assert!(json.contains("\"indexed_cache_files\":2"), "{json}");
         assert!(!json.contains("cache_file_paths"), "{json}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_game_under_a_linked_cache_folder_is_counted() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let other_disk = temp.path().join("other-disk");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&other_disk).unwrap();
+        // Digest 0xab lands in the 2-hex folder "ab"; that folder is a link to another disk.
+        let digest = 0xabu128;
+        write_cache_file(&other_disk, digest, "steam/depot/1/chunk/a", "0123456789");
+        std::os::unix::fs::symlink(other_disk.join("ab"), root.join("ab")).unwrap();
+
+        let index = scan_cache_directory(&root);
+
+        assert_eq!(
+            index.get(&digest),
+            Some(&(b"KEY: steam/depot/1/chunk/a\n0123456789".len() as u64))
+        );
     }
 }
