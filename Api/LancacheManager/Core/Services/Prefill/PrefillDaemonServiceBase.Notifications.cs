@@ -999,7 +999,8 @@ public abstract partial class PrefillDaemonServiceBase
                 Options = options,
                 Snapshot = snapshot,
                 CancelRequested = row.CancelRequested,
-                CancelReason = row.CancelRequested && row.Reason is "stalled" or "auth-lost" ? row.Reason : null,
+                CancelReason = row.CancelRequested && row.Reason is "stalled" or "auth-lost" or "runtime-exceeded"
+                    ? row.Reason : null,
                 HistoryIncomplete = row.HistoryIncomplete,
                 CompletedAtUtc = row.CompletedAtUtc,
                 Recovering = !row.CompletedAtUtc.HasValue,

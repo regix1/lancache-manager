@@ -53,6 +53,25 @@ public sealed class PrefillRunRecoveryTests
     }
 
     [Fact]
+    public async Task SameInstanceRecoveryKeepsARuntimeLimitCancelAFailureAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var original = await fixture.StartAsync("10", Guid.NewGuid());
+        fixture.Client.Offline = true;
+        fixture.Session.Recovering = true;
+        await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, original.PrefillRunId, reason: "runtime-exceeded");
+        fixture.Session.Runs.Clear();
+        fixture.Client.Offline = false;
+        await fixture.RefreshAsync();
+        await fixture.RefreshAsync();
+        var restored = Assert.IsType<DaemonRun>(fixture.Daemon.GetRun(fixture.Session.Id, original.PrefillRunId));
+        Assert.Equal("runtime-exceeded", restored.CancelReason);
+        var terminal = (await restored.Completion.Task.WaitAsync(TimeSpan.FromSeconds(5))).Snapshot;
+        Assert.Equal("failed", terminal.State);
+        Assert.Equal("runtime-exceeded", terminal.Reason);
+    }
+
+    [Fact]
     public async Task NewInstanceInterruptionAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
