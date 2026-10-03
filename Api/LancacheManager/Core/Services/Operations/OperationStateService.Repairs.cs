@@ -255,6 +255,14 @@ public partial class OperationStateService
         var stoppingToken = _applicationLifetime.ApplicationStopping;
         await WaitForRecoveryOwnershipAsync(stoppingToken);
         await RecordOutcomeAsync(operationId, success, cancelled, error, update, forceStop: false, stoppingToken);
+        // A force stop that saved its cancel first owns the ending, live as after a restart, so the run ends
+        // canceled before this job's own completion can show another one.
+        if (!cancelled &&
+            _repairs.TryGetValue(operationId, out var saved) && saved.Outcome == OperationStatus.Cancelled &&
+            _operationTracker.GetOperation(operationId) is { CompletedFlag: 0 })
+        {
+            CompleteRunFromRecord(operationId);
+        }
     }
 
     // Force stop records the outcome in one call that never waits for a repair or a failed save, so
@@ -271,6 +279,14 @@ public partial class OperationStateService
             update: null,
             forceStop: true,
             stoppingToken);
+        // The job saved its own outcome before this force stop arrived: that outcome is the ending a restart
+        // restores, so the run ends with it now instead of showing a cancel the restart would undo.
+        if (_repairs.TryGetValue(operationId, out var saved) &&
+            saved.Outcome is { } outcome && outcome != OperationStatus.Cancelled &&
+            _operationTracker.GetOperation(operationId) is { CompletedFlag: 0 })
+        {
+            CompleteRunFromRecord(operationId);
+        }
     }
 
     private async Task RecordOutcomeAsync(
@@ -847,7 +863,7 @@ public partial class OperationStateService
                 {
                     _operationTracker.BeginRepair(operationId);
                 }
-                CompleteRestoredRepair(operationId);
+                CompleteRunFromRecord(operationId);
             }
 
             while (true)
@@ -2128,7 +2144,7 @@ public partial class OperationStateService
             && repair.Type != OperationType.EvictionScan;
     }
 
-    private void CompleteRestoredRepair(Guid operationId)
+    private void CompleteRunFromRecord(Guid operationId)
     {
         var repair = GetRequiredRepair(operationId);
         if (_operationTracker.GetOperation(operationId) is null)
@@ -2136,7 +2152,7 @@ public partial class OperationStateService
             return;
         }
 
-        // The restored run ends with the warnings and the ending it had before the restart: a run that
+        // The run ends with the warnings and the ending its record holds, the same ending a restart restores: a run that
         // completed amber stays completed even though the repair keeps a failed outcome.
         if (repair.Warnings is { } warnings)
         {

@@ -722,6 +722,50 @@ public sealed class OperationWaitingBlockerTests : IDisposable
     }
 
     [Fact]
+    public async Task AForceStopAfterTheJobSavedItsOutcomeEndsWithThatOutcomeAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        // One datasource cleared and another failed, as the cache clear's failure catch saves it.
+        await harness.Owner.SetRunWarningAsync(id, new RunWarning(
+            "common.notifications.warnings.datasourcesNotCleared",
+            new Dictionary<string, object?> { ["datasources"] = "beta" }));
+        await harness.Owner.FinishRepairAsync(id, success: false, cancelled: false, error: "Datasource beta failed",
+            update: repair => repair.RunCompleted = true);
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+
+        var operation = harness.Tracker.GetOperation(id)!;
+        Assert.Equal(OperationStatus.Completed, operation.Status);
+        Assert.Contains(operation.Warnings, warning =>
+            warning.StageKey == "common.notifications.warnings.datasourcesNotCleared");
+    }
+
+    [Fact]
+    public async Task AJobThatEndsAfterAForceStopSavedItsCancelEndsCanceledAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        // The force stop's save, which a thread switch can leave before the job's own final save.
+        await harness.Owner.RecordForceStopAsync(id);
+
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunCompleted = true);
+        harness.Tracker.CompleteOperation(id, success: true);
+
+        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
+    }
+
+    [Fact]
     public void ALaterScheduledFailureLeavesAFailedOutRepairCard()
     {
         var tracker = CreateTracker();
