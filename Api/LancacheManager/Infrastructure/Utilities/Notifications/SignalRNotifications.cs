@@ -58,7 +58,9 @@ public static class SignalRNotifications
         // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
         // shared IOperationComplete contract on the failure/cancel paths.
         string? Error = null,
-        bool Cancelled = false
+        bool Cancelled = false,
+        // The run completed but a failed datasource still holds the files, so the page keeps the entry listed.
+        bool EntityKept = false
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
@@ -105,7 +107,9 @@ public static class SignalRNotifications
         // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
         // shared IOperationComplete contract on the failure/cancel paths.
         string? Error = null,
-        bool Cancelled = false
+        bool Cancelled = false,
+        // The run completed but a failed datasource still holds the files, so the page keeps the entry listed.
+        bool EntityKept = false
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;

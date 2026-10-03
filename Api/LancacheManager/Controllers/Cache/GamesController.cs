@@ -480,7 +480,8 @@ public class GamesController : ControllerBase
                         epicAppId,
                         filesDeleted: report.CacheFilesDeleted,
                         bytesFreed: (long)report.TotalBytesFreed,
-                        logEntriesRemoved: report.LogEntriesRemoved)),
+                        logEntriesRemoved: report.LogEntriesRemoved),
+                    EntityKept: report.EntityKept),
                 BuildCancelled: id => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
@@ -539,9 +540,10 @@ public class GamesController : ControllerBase
                     metrics.FilesDeleted = report.CacheFilesDeleted;
                     metrics.BytesFreed = (long)report.TotalBytesFreed;
                 },
-                OnSuccessAsync: async _ =>
+                OnSuccessAsync: async report =>
                 {
-                    if (onSuccess != null && appId.HasValue)
+                    // A run that left files on a failed datasource keeps the game listed, so its detection row stays.
+                    if (onSuccess != null && appId.HasValue && !report.EntityKept)
                     {
                         await onSuccess(appId.Value);
                     }

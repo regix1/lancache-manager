@@ -173,9 +173,14 @@ public sealed class DatasourceRemovalTests
             var complete = Assert.IsType<SignalRNotifications.ServiceRemovalComplete>(
                 await harness.WaitForCompleteMessageAsync());
 
+            // Alpha finished and beta failed, so the run completes with a warning naming beta; a cancel
+            // stays a cancel.
             Assert.Equal(
-                cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+                cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
                 terminal.Status);
+            Assert.Equal(
+                !cancelled,
+                terminal.Warnings.Any(warning => warning.StageKey == "common.notifications.warnings.datasourcesFailed"));
             Assert.Equal(9, complete.FilesDeleted);
             Assert.Equal(200L, complete.BytesFreed);
             Assert.Equal(cancelled, complete.Cancelled);

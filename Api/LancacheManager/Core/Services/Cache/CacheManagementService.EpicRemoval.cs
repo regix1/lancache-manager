@@ -54,7 +54,11 @@ public partial class CacheManagementService
             // Epic detection rows carry EpicAppId != null; removal is keyed by GameName (mirrors the
             // Rust cache_epic_remove delete). Mirrors the Steam/named detection-row cleanup; without it
             // the Epic detection row only got pruned later by the Epic mapping loop's full re-detection.
-            await _gameCacheDetectionService.RemoveEpicGameFromCacheAsync(gameName);
+            // A datasource that failed still holds the game's files, so the game keeps its detection row.
+            if (!aggregatedReport.EntityKept)
+            {
+                await _gameCacheDetectionService.RemoveEpicGameFromCacheAsync(gameName);
+            }
             var removedApps = await dbContext.PrefillCachedApps
                 .Where(a => a.Platform == PrefillPlatform.Epic && (appIds.Contains(a.Id) || a.AppName == gameName))
                 .ExecuteDeleteAsync(cancellationToken);

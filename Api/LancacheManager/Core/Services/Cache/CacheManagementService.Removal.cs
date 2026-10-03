@@ -80,6 +80,9 @@ public partial class CacheManagementService
         RemovalRepair metrics,
         OperationTerminalInfo terminal)
     {
+        // A run that kept the entry carries the warning on its record, so the restored event says so too.
+        var entityKept = repair.Warnings is { } warnings
+            && warnings.Any(warning => warning.StageKey == "common.notifications.warnings.datasourcesFailed");
         var target = repair.Target!;
         if (repair.Type == OperationType.ServiceRemoval)
         {
@@ -100,7 +103,8 @@ public partial class CacheManagementService
                     metrics.LogEntriesRemoved,
                     new Dictionary<string, object?> { ["name"] = target.Service },
                     terminal.Error,
-                    terminal.Cancelled));
+                    terminal.Cancelled,
+                    EntityKept: entityKept));
         }
 
         var epic = target.EpicGame is not null;
@@ -137,7 +141,8 @@ public partial class CacheManagementService
                     ["service"] = target.Service
                 },
                 terminal.Error,
-                terminal.Cancelled));
+                terminal.Cancelled,
+                EntityKept: entityKept));
     }
 
     private static void ValidateRemovalRepair(OperationRepair repair)

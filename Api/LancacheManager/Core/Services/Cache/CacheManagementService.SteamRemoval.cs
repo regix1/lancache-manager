@@ -58,13 +58,17 @@ public partial class CacheManagementService
                 await onProgress(100.0, "signalr.gameRemove.finalizing", null, aggregatedReport.CacheFilesDeleted, (long)aggregatedReport.TotalBytesFreed);
             }
 
-            // Remove this game from cached game detection results so page reload shows correct data
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            // Direct DbContext delete is deliberate: removal drops the detection row outright instead of the load/upsert flow GameCacheDetectionDataService owns.
-            await dbContext.CachedGameDetections
-                .Where(CachedGameDetection => CachedGameDetection.GameAppId == gameAppId)
-                .ExecuteDeleteAsync();
-            _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
+            // A datasource that failed still holds the game's files, so the game keeps its detection row.
+            if (!aggregatedReport.EntityKept)
+            {
+                // Remove this game from cached game detection results so page reload shows correct data
+                // Direct DbContext delete is deliberate: removal drops the detection row outright instead of the load/upsert flow GameCacheDetectionDataService owns.
+                await dbContext.CachedGameDetections
+                    .Where(CachedGameDetection => CachedGameDetection.GameAppId == gameAppId)
+                    .ExecuteDeleteAsync();
+                _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
+            }
 
             // The prefill "Cached" badges are a record of what prefill put on disk for this app, so
             // the removal that just deleted those files falsifies them. Left behind, the prefill

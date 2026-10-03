@@ -108,6 +108,13 @@ public partial class CacheManagementService
         /// </summary>
         [JsonPropertyName("purge_depot_ids")]
         public List<uint> PurgeDepotIds { get; set; } = new();
+
+        /// <summary>
+        /// Set by the host when one datasource failed while another finished: files remain, so the game or
+        /// service keeps its detection row and stays listed. The removers never write it.
+        /// </summary>
+        [JsonIgnore]
+        public bool EntityKept { get; set; }
     }
 
     public class ServiceCacheRemovalReport
@@ -132,6 +139,13 @@ public partial class CacheManagementService
         /// </summary>
         [JsonPropertyName("purge_urls")]
         public List<string> PurgeUrls { get; set; } = new();
+
+        /// <summary>
+        /// Set by the host when one datasource failed while another finished: files remain, so the game or
+        /// service keeps its detection row and stays listed. The removers never write it.
+        /// </summary>
+        [JsonIgnore]
+        public bool EntityKept { get; set; }
     }
 
     private sealed record RemovalDatasourceContext(

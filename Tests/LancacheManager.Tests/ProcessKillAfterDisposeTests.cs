@@ -336,6 +336,8 @@ public sealed class ProcessKillAfterDisposeTests
                 return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
             });
 
+        // Beta's cache step fails at once, so the run still ends failed and alpha's log step is the one redone.
+        harness.ReleaseRust();
         var operationId = await TrackedRemovalOperationRunner.StartAsync(
             harness.Tracker,
             harness.NotificationService,

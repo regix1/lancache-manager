@@ -379,6 +379,65 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Equal(!cancelled, complete.Success);
     }
 
+    [Fact]
+    public async Task ARestoredRemovalThatKeptTheGameSaysSoAsync()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var emitted = new TaskCompletionSource<SignalRNotifications.GameRemovalComplete>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && args![1] is SignalRNotifications.GameRemovalComplete complete)
+            {
+                emitted.TrySetResult(complete);
+            }
+            return DefaultReturn(method.ReturnType);
+        });
+        var manager = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+            typeof(CacheManagementService));
+        typeof(CacheManagementService)
+            .GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, tracker);
+        typeof(CacheManagementService)
+            .GetField("_notifications", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, notifications);
+        var operationId = Guid.NewGuid();
+        var repair = new OperationRepair
+        {
+            Id = operationId,
+            Type = OperationType.GameRemoval,
+            Name = "Game Removal: Dota 2",
+            StartedAt = DateTime.UtcNow.AddMinutes(-1),
+            Outcome = OperationStatus.Completed,
+            Warnings =
+            [
+                new RunWarning(
+                    "common.notifications.warnings.datasourcesFailed",
+                    new Dictionary<string, object?> { ["datasources"] = "beta" })
+            ],
+            Target = new CacheRepairTarget { SteamAppId = 570 },
+            Removal = new RemovalRepair
+            {
+                EntityKey = "570",
+                EntityName = "Dota 2",
+                EntityKind = "steam",
+                FilesDeleted = 4,
+                BytesFreed = 2_048,
+                LogEntriesRemoved = 7
+            }
+        };
+
+        await manager.RestoreRepairAsync(repair, CancellationToken.None);
+        tracker.CompleteOperation(operationId, success: true, cancelled: false);
+        var complete = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(complete.Success);
+        Assert.True(complete.EntityKept);
+    }
+
     private void AssertQueuedGameRemoval(IActionResult result, ConflictScope expectedScope)
     {
         var accepted = Assert.IsAssignableFrom<ObjectResult>(result);

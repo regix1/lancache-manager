@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -64,133 +65,164 @@ public partial class CacheManagementService
             };
 
             int datasourcesProcessed = 0;
+            // A datasource that fails does not stop the others, as in the cache clear: what finished is
+            // kept and the card names the datasources that did not finish.
+            var failedDatasources = new List<string>();
+            Exception? firstFailure = null;
             foreach (var execution in executionPlan.RunnableDatasources)
             {
                 var datasource = execution.Datasource;
-                if (operationId.HasValue)
+                try
                 {
-                    await _operationStateService.StartWorkAsync(
-                        operationId.Value,
-                        datasource.Name,
-                        cancellationToken);
-                }
-
-                // The binary only deletes cache files; the log lines go in this datasource's log step.
-                var dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgress, ServiceCacheRemovalReport>(
-                    "[ServiceRemoval]",
-                    execution,
-                    () =>
+                    if (operationId.HasValue)
                     {
-                        var operationArgument = operationId.HasValue
-                            ? $" --operation-id {operationId.Value}"
-                            : string.Empty;
-                        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                            rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
-                        _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                            datasource.Name, rustBinaryPath, startInfo.Arguments);
-                        return startInfo;
-                    },
-                    "service_remover",
-                    cancellationToken,
-                    operationId,
-                    async progressData =>
-                    {
-                        if (onProgress != null)
+                        await _operationStateService.StartWorkAsync(
+                            operationId.Value,
+                            datasource.Name,
+                            cancellationToken);
+                    }
+
+                    // The binary only deletes cache files; the log lines go in this datasource's log step.
+                    var dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgress, ServiceCacheRemovalReport>(
+                        "[ServiceRemoval]",
+                        execution,
+                        () =>
                         {
-                            await onProgress(
-                                progressData.PercentComplete,
-                                progressData.StageKey,
-                                progressData.Context,
-                                aggregatedReport.CacheFilesDeleted,
-                                checked((long)aggregatedReport.TotalBytesFreed));
-                        }
-                    },
-                    async result =>
-                    {
-                        // The report JSON carries the cache counts and the URLs for the log step; the
-                        // stderr parse is the fallback for a run that died before writing it, whose
-                        // URLs the log step still reads from the rows it deletes.
-                        try
-                        {
-                            return await _rustProcessHelper.ReadOutputJsonAsync<ServiceCacheRemovalReport>(
-                                result.OutputJsonPath,
-                                "ServiceRemoval");
-                        }
-                        catch (Exception readEx)
-                        {
-                            _logger.LogWarning(readEx,
-                                "[ServiceRemoval] Output JSON unreadable for '{Service}'; falling back to stderr summary parse",
-                                serviceName);
-                            var report = new ServiceCacheRemovalReport { ServiceName = serviceName };
-                            if (!string.IsNullOrEmpty(result.StdErr))
-                            {
-                                ExtractServiceRemovalStats(result.StdErr, report);
-                            }
-
-                            return report;
-                        }
-                    });
-
-                // Accepted before anything else can throw, so a failure after the cache step rolls
-                // this datasource's log step forward in the repair.
-                await SaveRemovalSourceAsync(
-                    operationId,
-                    datasource.Name,
-                    aggregatedReport.CacheFilesDeleted + dsReport.CacheFilesDeleted,
-                    checked((long)(aggregatedReport.TotalBytesFreed + dsReport.TotalBytesFreed)),
-                    []);
-
-                // Aggregate results from this datasource
-                aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
-                aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
-                aggregatedReport.DatabaseEntriesDeleted += dsReport.DatabaseEntriesDeleted;
-
-                if (operationId.HasValue)
-                {
-                    await _operationStateService.StartWorkAsync(
-                        operationId.Value,
-                        datasource: null,
-                        cancellationToken);
-                    aggregatedReport.LogEntriesRemoved += await RunRemovalLogStepAsync(
-                        operationId.Value,
-                        datasource,
-                        removalSelection with { DatasourceNames = [datasource.Name] },
-                        dsReport.PurgeUrls,
-                        async purgeProgress =>
+                            var operationArgument = operationId.HasValue
+                                ? $" --operation-id {operationId.Value}"
+                                : string.Empty;
+                            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                                rustBinaryPath,
+                                $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
+                            _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                                datasource.Name, rustBinaryPath, startInfo.Arguments);
+                            return startInfo;
+                        },
+                        "service_remover",
+                        cancellationToken,
+                        operationId,
+                        async progressData =>
                         {
                             if (onProgress != null)
                             {
                                 await onProgress(
-                                    purgeProgress.PercentComplete,
-                                    "signalr.serviceRemove.logs.removing",
-                                    null,
+                                    progressData.PercentComplete,
+                                    progressData.StageKey,
+                                    progressData.Context,
                                     aggregatedReport.CacheFilesDeleted,
                                     checked((long)aggregatedReport.TotalBytesFreed));
                             }
                         },
-                        cancellationToken);
+                        async result =>
+                        {
+                            // The report JSON carries the cache counts and the URLs for the log step; the
+                            // stderr parse is the fallback for a run that died before writing it, whose
+                            // URLs the log step still reads from the rows it deletes.
+                            try
+                            {
+                                return await _rustProcessHelper.ReadOutputJsonAsync<ServiceCacheRemovalReport>(
+                                    result.OutputJsonPath,
+                                    "ServiceRemoval");
+                            }
+                            catch (Exception readEx)
+                            {
+                                _logger.LogWarning(readEx,
+                                    "[ServiceRemoval] Output JSON unreadable for '{Service}'; falling back to stderr summary parse",
+                                    serviceName);
+                                var report = new ServiceCacheRemovalReport { ServiceName = serviceName };
+                                if (!string.IsNullOrEmpty(result.StdErr))
+                                {
+                                    ExtractServiceRemovalStats(result.StdErr, report);
+                                }
+
+                                return report;
+                            }
+                        });
+
+                    // Accepted before anything else can throw, so a failure after the cache step rolls
+                    // this datasource's log step forward in the repair.
+                    await SaveRemovalSourceAsync(
+                        operationId,
+                        datasource.Name,
+                        aggregatedReport.CacheFilesDeleted + dsReport.CacheFilesDeleted,
+                        checked((long)(aggregatedReport.TotalBytesFreed + dsReport.TotalBytesFreed)),
+                        []);
+
+                    // Aggregate results from this datasource
+                    aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
+                    aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
+                    aggregatedReport.DatabaseEntriesDeleted += dsReport.DatabaseEntriesDeleted;
+
+                    if (operationId.HasValue)
+                    {
+                        await _operationStateService.StartWorkAsync(
+                            operationId.Value,
+                            datasource: null,
+                            cancellationToken);
+                        aggregatedReport.LogEntriesRemoved += await RunRemovalLogStepAsync(
+                            operationId.Value,
+                            datasource,
+                            removalSelection with { DatasourceNames = [datasource.Name] },
+                            dsReport.PurgeUrls,
+                            async purgeProgress =>
+                            {
+                                if (onProgress != null)
+                                {
+                                    await onProgress(
+                                        purgeProgress.PercentComplete,
+                                        "signalr.serviceRemove.logs.removing",
+                                        null,
+                                        aggregatedReport.CacheFilesDeleted,
+                                        checked((long)aggregatedReport.TotalBytesFreed));
+                                }
+                            },
+                            cancellationToken);
+                    }
+
+                    datasourcesProcessed++;
+
+                    if (onProgress != null)
+                    {
+                        // Synthetic completion tick after Rust exits; empty stageKey → registry default.
+                        await onProgress(
+                            100,
+                            string.Empty,
+                            null,
+                            aggregatedReport.CacheFilesDeleted,
+                            checked((long)aggregatedReport.TotalBytesFreed));
+                    }
+
+                    _logger.LogInformation(
+                        "[ServiceRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for service '{Service}'",
+                        datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, serviceName);
+
+                    // Clean up progress file for this datasource
+                    await _rustProcessHelper.DeleteTempFileAsync(execution.ProgressJsonPath);
                 }
-
-                datasourcesProcessed++;
-
-                if (onProgress != null)
+                catch (Exception failure) when (failure is not OperationCanceledException)
                 {
-                    // Synthetic completion tick after Rust exits; empty stageKey → registry default.
-                    await onProgress(
-                        100,
-                        string.Empty,
-                        null,
-                        aggregatedReport.CacheFilesDeleted,
-                        checked((long)aggregatedReport.TotalBytesFreed));
+                    _logger.LogError(failure, "[ServiceRemoval] Removal failed for datasource '{DatasourceName}'", datasource.Name);
+                    failedDatasources.Add(datasource.Name);
+                    firstFailure ??= failure;
                 }
+            }
 
-                _logger.LogInformation(
-                    "[ServiceRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for service '{Service}'",
-                    datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, serviceName);
+            // Nothing finished anywhere: the run fails with the first error, as it did before.
+            if (firstFailure is not null && failedDatasources.Count == executionPlan.RunnableDatasources.Count)
+            {
+                ExceptionDispatchInfo.Throw(firstFailure);
+            }
 
-                // Clean up progress file for this datasource
-                await _rustProcessHelper.DeleteTempFileAsync(execution.ProgressJsonPath);
+            // The service's files remain on the datasources that failed, so it keeps its detection row and stays listed until a removal finishes everywhere.
+            if (failedDatasources.Count > 0)
+            {
+                aggregatedReport.EntityKept = true;
+                if (operationId.HasValue)
+                {
+                    await _operationStateService.SetRunWarningAsync(operationId.Value, new RunWarning(
+                        "common.notifications.warnings.datasourcesFailed",
+                        new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+                }
             }
 
             _logger.LogInformation(
@@ -209,13 +241,17 @@ public partial class CacheManagementService
                 await onProgress(100.0, "signalr.serviceRemove.finalizing", null, aggregatedReport.CacheFilesDeleted, (long)aggregatedReport.TotalBytesFreed);
             }
 
-            // Remove this service from cached service detection results so page reload shows correct data
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            // Direct DbContext delete is deliberate: removal drops the detection row outright instead of the load/upsert flow GameCacheDetectionDataService owns.
-            await dbContext.CachedServiceDetections
-                .Where(s => s.ServiceName == serviceName)
-                .ExecuteDeleteAsync();
-            _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
+            // A datasource that failed still holds the service's files, so the service keeps its detection row.
+            if (!aggregatedReport.EntityKept)
+            {
+                // Remove this service from cached service detection results so page reload shows correct data
+                // Direct DbContext delete is deliberate: removal drops the detection row outright instead of the load/upsert flow GameCacheDetectionDataService owns.
+                await dbContext.CachedServiceDetections
+                    .Where(s => s.ServiceName == serviceName)
+                    .ExecuteDeleteAsync();
+                _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
+            }
 
             // Prefill records a depot and manifest per app, which is Steam's content model, so every
             // row in the table belongs to this one platform and removing its service deletes the

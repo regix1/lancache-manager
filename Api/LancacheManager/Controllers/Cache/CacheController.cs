@@ -2100,7 +2100,8 @@ public class CacheController : ControllerBase
                     report.CacheFilesDeleted,
                     (long)report.TotalBytesFreed,
                     report.LogEntriesRemoved,
-                    new Dictionary<string, object?> { ["name"] = name }),
+                    new Dictionary<string, object?> { ["name"] = name },
+                    EntityKept: report.EntityKept),
                 BuildCancelled: id => new ServiceRemovalComplete(
                     false,
                     name,

@@ -65,7 +65,11 @@ public partial class CacheManagementService
             // removal's detection-row cleanup; without it the (xbox/blizzard/riot) detection row
             // survives and the game keeps showing in the Game Cache Detection grid after the frontend
             // refetch (the Xbox cache-split stores Service='xbox' lowercase, matched case-insensitively).
-            await _gameCacheDetectionService.RemoveNamedGameFromCacheAsync(service, gameName);
+            // A datasource that failed still holds the game's files, so the game keeps its detection row.
+            if (!aggregatedReport.EntityKept)
+            {
+                await _gameCacheDetectionService.RemoveNamedGameFromCacheAsync(service, gameName);
+            }
             var removedApps = platform.HasValue
                 ? await dbContext.PrefillCachedApps
                     .Where(a => a.Platform == platform.Value && (appIds.Contains(a.Id) || a.AppName == gameName))
