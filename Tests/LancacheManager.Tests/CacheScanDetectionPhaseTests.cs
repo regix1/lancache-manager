@@ -1152,6 +1152,60 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task AStopDuringTheRemoveStepIsKeptForTheRestartAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var context = ctx.CreateContext();
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        ctx.State.SetEvictedDataMode(EvictedDataMode.Remove.ToWireString());
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper(
+            async (operationId, cancellationToken) =>
+            {
+                var checkpoint = await context.EvictionScanCheckpoints
+                    .SingleAsync(item => item.OperationId == operationId, cancellationToken);
+                checkpoint.FinalizedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(cancellationToken);
+            }));
+        var scanNotice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var scanId = ctx.RegisterScan(scanNotice);
+        // The token the scan's worker passes (X on the scan's card cancels it); the removal's own token is linked to it.
+        using var stop = new CancellationTokenSource();
+        ctx.Notifications.OnSent = (eventName, _) =>
+        {
+            if (eventName == SignalREvents.EvictionRemovalStarted)
+            {
+                stop.Cancel();
+            }
+        };
+
+        var scan = (Task)typeof(CacheReconciliationService)
+            .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice, false])!;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
+
+        var outcome = scan.GetType().GetProperty("Result")!.GetValue(scan)!;
+        Assert.True((bool)outcome.GetType().GetProperty("Cancelled")!.GetValue(outcome)!);
+        // The scan saved its own outcome before the remove step; the record keeps that the person stopped the run,
+        // so a restart restores the gray card the session showed.
+        var record = ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId);
+        Assert.Equal(OperationStatus.Completed, record.Outcome);
+        Assert.True(record.RunCancelled);
+    }
+
+    [Fact]
     public async Task AScanThatLeftAFolderUncheckedKeepsItOnItsRepairRecordAsync()
     {
         using var ctx = new PhaseContext();

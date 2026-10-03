@@ -842,11 +842,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     operationId);
             }
         }
+        // A stop during the remove step lands after the scan saved its own outcome, so the record keeps that the
+        // person stopped the run and a restart restores the same canceled card.
         await repairOwner.FinishRepairAsync(
             operationId,
             operationSucceeded,
             operationCancelled,
-            operationError);
+            operationError,
+            operationCancelled ? repair => repair.RunCancelled = true : null);
 
         return new EvictionScanRunOutcome(operationSucceeded, operationError,
             RepairStarted: true,
