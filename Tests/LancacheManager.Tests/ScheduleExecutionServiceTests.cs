@@ -139,7 +139,7 @@ public sealed class ScheduleExecutionServiceTests
             new CancellationTokenSource(),
             notice: new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
         tracker.SetWarning(id, new RunWarning(
-            "signalr.logRotation.logReopenPartlyFailed",
+            "common.notifications.warnings.logReopenPartlyFailed",
             new Dictionary<string, object?> { ["errors"] = new string('x', 5000) }));
         tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
 
@@ -148,7 +148,7 @@ public sealed class ScheduleExecutionServiceTests
         Assert.True(JsonSerializer.Serialize(execution.Warning).Length <= 4096);
         Assert.True(await service.InsertAsync(execution));
         var item = Assert.Single((await service.GetPageAsync(1, 10)).Items);
-        Assert.Equal("signalr.logRotation.logReopenPartlyFailed", item.Warning!.StageKey);
+        Assert.Equal("common.notifications.warnings.logReopenPartlyFailed", item.Warning!.StageKey);
     }
 
     [Fact]

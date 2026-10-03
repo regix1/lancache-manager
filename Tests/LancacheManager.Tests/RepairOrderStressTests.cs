@@ -782,14 +782,21 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
 
         private async Task PassAsync(string datasource, bool manual)
         {
-            Guid? batch = manual
+            // A live import pass registers as RustLogProcessorService.cs:1092-1099 does, so the log lock gives
+            // it the live import's turn beside a reopen; a manual batch registers as a plain run.
+            var passId = manual
                 ? _harness.Tracker.RegisterOperation(
                     OperationType.LogProcessing,
                     "Manual log batch",
                     new CancellationTokenSource())
-                : null;
+                : _harness.Tracker.RegisterOperation(
+                    OperationType.LogProcessing,
+                    "Log Processing",
+                    new CancellationTokenSource(),
+                    notice: new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled),
+                    liveIngest: true);
             await using (await _harness.Owner.LockLogFilesAsync(
-                             batch,
+                             passId,
                              OperationType.LogProcessing,
                              LogFileLockKind.Ingest,
                              _teardown.Token))
@@ -809,10 +816,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                         datasource,
                         new Dictionary<string, long> { ["access.log"] = position }));
             }
-            if (batch is { } done)
-            {
-                _harness.Tracker.CompleteOperation(done, success: true);
-            }
+            _harness.Tracker.CompleteOperation(passId, success: true);
         }
 
         private List<Guid> Removals()
@@ -1261,21 +1265,25 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
         {
             var harness = _harness;
             var tracker = harness.Repairs.Tracker;
-            Guid? batch = manual
+            // A live import pass registers as RustLogProcessorService.cs:1092-1099 does, so the log lock gives
+            // it the live import's turn beside a reopen; a manual batch registers as a plain run.
+            var passId = manual
                 ? tracker.RegisterOperation(OperationType.LogProcessing, "Manual log batch", new CancellationTokenSource())
-                : null;
+                : tracker.RegisterOperation(
+                    OperationType.LogProcessing,
+                    "Log Processing",
+                    new CancellationTokenSource(),
+                    notice: new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled),
+                    liveIngest: true);
             await using (await harness.Owner.LockLogFilesAsync(
-                             batch,
+                             passId,
                              OperationType.LogProcessing,
                              LogFileLockKind.Ingest,
                              _teardown.Token))
             {
                 _positions.Import(AccessLog, position => harness.State.SetLogPosition("alpha", position));
             }
-            if (batch is { } done)
-            {
-                tracker.CompleteOperation(done, success: true);
-            }
+            tracker.CompleteOperation(passId, success: true);
         }
 
         private void Use(OperationRepairTests.DispatchHarness harness)
