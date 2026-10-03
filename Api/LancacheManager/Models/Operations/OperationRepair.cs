@@ -39,6 +39,11 @@ public sealed class OperationRepair
     /// restart completes as it did.
     /// </summary>
     public bool RunCompleted { get; set; }
+    /// <summary>
+    /// The person stopped the run after its job had saved its own outcome (an eviction scan stopped during its
+    /// remove step); a run restored after a restart ends canceled as it did.
+    /// </summary>
+    public bool RunCancelled { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

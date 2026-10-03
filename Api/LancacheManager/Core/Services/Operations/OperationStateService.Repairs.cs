@@ -261,13 +261,15 @@ public partial class OperationStateService
             _repairs.TryGetValue(operationId, out var saved) && saved.Outcome == OperationStatus.Cancelled &&
             _operationTracker.GetOperation(operationId) is { CompletedFlag: 0 })
         {
-            CompleteRunFromRecord(operationId);
+            CompleteRunFromRecord(saved);
         }
     }
 
     // Force stop records the outcome in one call that never waits for a repair or a failed save, so
-    // the request returns at once; the owner's own FinishRepairAsync still follows it.
-    public async Task RecordForceStopAsync(Guid operationId)
+    // the request returns at once; the owner's own FinishRepairAsync still follows it. Returns true when the
+    // job had already saved its own outcome: its owner then completes the run with its own completion events,
+    // the same ending a restart restores, so the force stop must not complete it.
+    public async Task<bool> RecordForceStopAsync(Guid operationId)
     {
         var stoppingToken = _applicationLifetime.ApplicationStopping;
         await WaitForRecoveryOwnershipAsync(stoppingToken);
@@ -279,14 +281,8 @@ public partial class OperationStateService
             update: null,
             forceStop: true,
             stoppingToken);
-        // The job saved its own outcome before this force stop arrived: that outcome is the ending a restart
-        // restores, so the run ends with it now instead of showing a cancel the restart would undo.
-        if (_repairs.TryGetValue(operationId, out var saved) &&
-            saved.Outcome is { } outcome && outcome != OperationStatus.Cancelled &&
-            _operationTracker.GetOperation(operationId) is { CompletedFlag: 0 })
-        {
-            CompleteRunFromRecord(operationId);
-        }
+        return _repairs.TryGetValue(operationId, out var saved) &&
+            saved.Outcome is { } outcome && outcome != OperationStatus.Cancelled;
     }
 
     private async Task RecordOutcomeAsync(
@@ -345,6 +341,15 @@ public partial class OperationStateService
             // A prepared record never started its work, so it owes no repair; a log pass that owes
             // only a downloads refresh sends it here instead of through a repair.
             var current = GetRequiredRepair(operationId);
+            // A force stop whose own save failed has already ended the run canceled; the job's later save keeps that
+            // ending, so a restart restores the canceled card the session showed.
+            if (!forceStop &&
+                _operationTracker.GetOperation(operationId) is { CompletedFlag: not 0, Status: OperationStatus.Cancelled })
+            {
+                success = false;
+                cancelled = true;
+                error = null;
+            }
             if (phase == OperationRepairPhase.Prepared || IsDownloadsRefreshOnly(current))
             {
                 nextPhase = OperationRepairPhase.Completed;
@@ -863,7 +868,7 @@ public partial class OperationStateService
                 {
                     _operationTracker.BeginRepair(operationId);
                 }
-                CompleteRunFromRecord(operationId);
+                CompleteRunFromRecord(GetRequiredRepair(operationId));
             }
 
             while (true)
@@ -2144,10 +2149,9 @@ public partial class OperationStateService
             && repair.Type != OperationType.EvictionScan;
     }
 
-    private void CompleteRunFromRecord(Guid operationId)
+    private void CompleteRunFromRecord(OperationRepair repair)
     {
-        var repair = GetRequiredRepair(operationId);
-        if (_operationTracker.GetOperation(operationId) is null)
+        if (_operationTracker.GetOperation(repair.Id) is null)
         {
             return;
         }
@@ -2158,16 +2162,16 @@ public partial class OperationStateService
         {
             foreach (var warning in warnings)
             {
-                _operationTracker.SetWarning(operationId, warning);
+                _operationTracker.SetWarning(repair.Id, warning);
             }
         }
 
         // A force stop the person asked for stays canceled even when the owner's later save marked the job's
         // own work as done.
-        var cancelled = repair.Outcome == OperationStatus.Cancelled;
+        var cancelled = repair.Outcome == OperationStatus.Cancelled || repair.RunCancelled;
         var success = !cancelled && (repair.Outcome == OperationStatus.Completed || repair.RunCompleted);
         _operationTracker.CompleteOperation(
-            operationId,
+            repair.Id,
             success,
             success ? null : repair.Error,
             cancelled);

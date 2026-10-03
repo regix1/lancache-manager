@@ -670,6 +670,31 @@ public sealed class OperationWaitingBlockerTests : IDisposable
     }
 
     [Fact]
+    public async Task AJobThatSavesAfterAForceStopWhoseSaveFailedKeepsTheCancelAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            stateService: state,
+            apply: (_, _) => Task.CompletedTask,
+            waitUntil: (_, cancellationToken) => Task.Delay(Timeout.Infinite, cancellationToken));
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        state.FailNextRepairWrite = true;
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+        // The job's own save as a clean cache clear makes it, after the force stop already ended the run canceled.
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null);
+
+        Assert.Equal(OperationStatus.Cancelled, state.LoadOperationRepairs().Single(repair => repair.Id == id).Outcome);
+    }
+
+    [Fact]
     public async Task ForceKillOfAnEndedOperationChangesNothingAsync()
     {
         await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
@@ -728,7 +753,13 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         var cancellation = new OperationCancellationService(harness.Tracker,
             new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
             NullLogger<OperationCancellationService>.Instance);
+        var ended = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource(),
+            onTerminalEmit: terminal =>
+            {
+                ended.TrySetResult(terminal);
+                return Task.CompletedTask;
+            },
             ownerCompletes: true);
         await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
         await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
@@ -741,10 +772,17 @@ public sealed class OperationWaitingBlockerTests : IDisposable
 
         Assert.True(await cancellation.ForceKillAsync(id));
 
+        // The job's owner still completes the run, as the cache clear's failure catch does for a partly cleared clear.
+        Assert.Equal(0, harness.Tracker.GetOperation(id)!.CompletedFlag);
+        harness.Tracker.CompleteOperation(id, success: true);
+
         var operation = harness.Tracker.GetOperation(id)!;
         Assert.Equal(OperationStatus.Completed, operation.Status);
         Assert.Contains(operation.Warnings, warning =>
             warning.StageKey == "common.notifications.warnings.datasourcesNotCleared");
+        var emitted = await ended.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(emitted.Success);
+        Assert.False(emitted.Cancelled);
     }
 
     [Fact]

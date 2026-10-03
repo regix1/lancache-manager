@@ -2483,6 +2483,35 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task ARestoredRunStoppedAfterItsJobSavedItsOutcomeEndsCanceledAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewCacheClearingRepair(Path.Combine(_root, "cache", "restored-stopped"));
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Completed;
+        repair.RunCancelled = true;
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("cancelled", row.Status);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Fact]
     public async Task ARestoredLogRemovalWhoseReopenFailedStaysCompletedWithItsWarningAsync()
     {
         var state = CreateStateService(_root);

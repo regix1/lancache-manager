@@ -754,7 +754,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.OnTerminalEmit = null;
             cleanup = operation.OnTerminalCleanup;
             operation.OnTerminalCleanup = null;
-            terminal = new OperationTerminalInfo(success, operation.Cancelled, error, skipped);
+            // A successful ending reports no cancel even when X or a force stop set the latch: the card is green, so
+            // the completion event must say what finished (a removed game leaves its list).
+            terminal = new OperationTerminalInfo(success, !success && operation.Cancelled, error, skipped);
             terminalSubscribers = OperationTerminal;
         }
 

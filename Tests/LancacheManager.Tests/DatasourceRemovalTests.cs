@@ -89,6 +89,75 @@ public sealed class DatasourceRemovalTests
         await harness.CompleteAnotherAsync(OperationType.ServiceRemoval);
     }
 
+    [Fact]
+    public async Task AForceStopDuringARemovalsFinalSaveSendsItsCompletionAsync()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "lm-service-removal-force-stop-" + Guid.NewGuid().ToString("N"));
+        await using var harness = await RemovalRepairHarness.CreateAsync(root);
+        var metrics = new RemovalMetrics
+        {
+            EntityKey = "steam",
+            EntityName = "steam",
+            EntityKind = "service"
+        };
+        var config = harness.CreateConfig(
+            OperationType.ServiceRemoval,
+            metrics,
+            async (operationId, cancellationToken, report) =>
+            {
+                await harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
+                await harness.SaveSourceAsync(operationId, "alpha", 9, 200);
+                await report(new RemovalProgressUpdate(
+                    100,
+                    "alpha-complete",
+                    FilesDeleted: 9,
+                    BytesFreed: 200));
+                return (9, 200L);
+            });
+        var saved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        config = config with
+        {
+            FinishRepairAsync = async (id, success, cancelled, error) =>
+            {
+                await harness.Manager.FinishRemovalRepairAsync(id, success, cancelled, error);
+                if (success)
+                {
+                    // Holds the runner where a thread switch can leave it: its success saved, its CompleteOperation not yet run.
+                    saved.TrySetResult();
+                    await release.Task;
+                }
+            }
+        };
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        await saved.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var cancellation = new OperationCancellationService(
+            harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        Assert.True(await cancellation.ForceKillAsync(operationId));
+        release.TrySetResult();
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        var complete = Assert.IsType<SignalRNotifications.ServiceRemovalComplete>(
+            await harness.WaitForCompleteMessageAsync());
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.True(complete.Success);
+        Assert.False(complete.Cancelled);
+        Assert.Equal(9, complete.FilesDeleted);
+        Assert.Single(
+            harness.ReadMessages(),
+            message => message.Event == "complete");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

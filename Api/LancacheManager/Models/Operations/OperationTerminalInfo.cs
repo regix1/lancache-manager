@@ -8,7 +8,7 @@ namespace LancacheManager.Models;
 /// NOT an anonymous object — keeps the contract explicit.
 /// </summary>
 /// <param name="Success">True when the operation completed successfully.</param>
-/// <param name="Cancelled">True when the operation was cancelled (mirrors <see cref="OperationInfo.Cancelled"/>).</param>
+/// <param name="Cancelled">True when the run ended canceled; a successful ending is never canceled here, even when X marked the run.</param>
 /// <param name="Error">Error/diagnostic message when the operation failed; null on success/cancel.</param>
 /// <param name="Skipped">
 /// True when the run started, found nothing to do, and stopped without doing it. Carried alongside
