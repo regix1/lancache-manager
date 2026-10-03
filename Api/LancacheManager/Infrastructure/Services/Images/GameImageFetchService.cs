@@ -190,9 +190,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                             _logger.LogInformation(
                                 "[GameImageFetch] Refreshed {Count} Epic image URLs", refreshedUrls);
                         }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
                         {
-                            // Epic's catalog call fails on an expired session or a bad response.
+                            // Epic's catalog call fails on an expired session, a bad response or a
+                            // timeout (HttpClient reports its own timeout as a canceled task).
                             // The stored URLs still fetch, so the pass carries on.
                             _logger.LogWarning(ex, "[GameImageFetch] Epic image URL refresh failed");
                             reporter.SetWarning(new RunWarning(

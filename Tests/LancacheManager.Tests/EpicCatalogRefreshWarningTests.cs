@@ -88,6 +88,84 @@ public sealed class EpicCatalogRefreshWarningTests
         }
     }
 
+    [Fact]
+    public async Task AnEpicStepThatTimesOutEndsAmberAndTheRefreshGoesOnAsync()
+    {
+        var handler = new TimingOutHandler(timeOutOnCall: 2);
+
+        var run = await RunScheduledRefreshAsync(handler);
+
+        Assert.Equal("completed", run.Status);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.epicStepsFailed", warning.StageKey);
+        Assert.Equal(1, warning.Context["count"]);
+        Assert.True(handler.Calls > 2, "the steps after the timed-out one never ran");
+    }
+
+    [Fact]
+    public async Task AnEpicCatalogRequestThatTimesOutEndsRedAsync()
+    {
+        var run = await RunScheduledRefreshAsync(new TimingOutHandler(timeOutOnCall: 1));
+
+        Assert.Equal("failed", run.Status);
+    }
+
+    private static async Task<OperationRun> RunScheduledRefreshAsync(HttpMessageHandler handler)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "epic-refresh-timeout", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new AuthCredentialFormatTests.TempDirPathResolver(root);
+            var keys = new ApiKeyService(NullLogger<ApiKeyService>.Instance, new ConfigurationBuilder().Build(), paths);
+            var encryption = new SecureStateEncryptionService(
+                DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, "keys"))), keys,
+                NullLogger<SecureStateEncryptionService>.Instance);
+            var storage = new EpicAuthStorageService(NullLogger<EpicAuthStorageService>.Instance, paths, encryption);
+            storage.SaveAuthData(new EpicAuthData { RefreshToken = "refresh", DisplayName = "owner" });
+
+            using var http = new HttpClient(handler);
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"epic_refresh_timeout_{Guid.NewGuid():N}")
+                .Options;
+            var tracker = new UnifiedOperationTracker(
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<UnifiedOperationTracker>.Instance);
+            using var services = new ServiceCollection().BuildServiceProvider();
+            using var service = new EpicMappingService(
+                NullLogger<EpicMappingService>.Instance,
+                new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance),
+                storage,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                new TestDbContextFactory(options),
+                tracker,
+                services.GetRequiredService<IServiceScopeFactory>(),
+                DispatchProxy.Create<IStateService, NullReturningProxy>());
+            typeof(EpicMappingService)
+                .GetField("_isAuthenticated", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(service, true);
+            typeof(EpicMappingService)
+                .GetField("_currentTokens", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(service, new EpicOAuthTokens
+                {
+                    AccessToken = "access",
+                    RefreshToken = "refresh",
+                    ExpiresAt = DateTime.UtcNow.AddHours(1),
+                });
+
+            Assert.True(service.TryStartRefresh());
+            await (Task)typeof(EpicMappingService)
+                .GetField("_currentRefreshTask", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(service)!;
+
+            return Assert.Single(tracker.GetRuns().Runs);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
     /// <summary>
     /// Answers the owned-assets request with no assets, then fails the next request the way a dropped
     /// connection does, which is the CDN step's own assets request.
@@ -101,6 +179,38 @@ public sealed class EpicCatalogRefreshWarningTests
             if (Interlocked.Increment(ref _calls) == 2)
             {
                 throw new HttpRequestException("connection dropped");
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Answers every request with no assets except one, which fails the way HttpClient reports its own
+    /// timeout: a canceled task whose inner exception is the timeout.
+    /// </summary>
+    private sealed class TimingOutHandler : HttpMessageHandler
+    {
+        private readonly int _timeOutOnCall;
+        private int _calls;
+
+        public TimingOutHandler(int timeOutOnCall)
+        {
+            _timeOutOnCall = timeOutOnCall;
+        }
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _calls) == _timeOutOnCall)
+            {
+                throw new TaskCanceledException(
+                    "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
+                    new TimeoutException());
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

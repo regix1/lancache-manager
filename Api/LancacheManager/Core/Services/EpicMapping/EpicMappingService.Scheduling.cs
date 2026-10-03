@@ -111,7 +111,7 @@ public partial class EpicMappingService
                     context: CreateEpicContext());
                 _logger.LogInformation("Epic catalog refresh completed successfully");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
             {
                 _logger.LogInformation("Epic catalog refresh cancelled");
                 await reporter.CompleteAsync(
@@ -361,7 +361,7 @@ public partial class EpicMappingService
                 await MergeCdnPatternsAsync(cdnInfos, cancellationToken);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
         {
             failedSteps++;
             _logger.LogWarning(ex, "Failed to refresh Epic CDN patterns");
@@ -389,7 +389,7 @@ public partial class EpicMappingService
                 _lastUpdatedGames += result.UpdatedGames;
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
         {
             failedSteps++;
             _logger.LogDebug(ex, "Epic free-game discovery skipped");
@@ -404,7 +404,7 @@ public partial class EpicMappingService
         {
             await ResolveDownloadsAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
         {
             failedSteps++;
             _logger.LogWarning(ex, "Failed to resolve Epic downloads");

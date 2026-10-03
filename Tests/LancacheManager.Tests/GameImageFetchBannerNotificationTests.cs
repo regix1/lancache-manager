@@ -113,8 +113,19 @@ public sealed class GameImageFetchBannerNotificationTests
     [Fact]
     public async Task AnImagePassWhoseEpicLinkRefreshFailedEndsAmberAsync()
     {
+        await AssertEpicLinkRefreshFailureEndsAmberAsync(new DroppedConnectionHandler());
+    }
+
+    [Fact]
+    public async Task AnEpicImageRefreshThatTimesOutEndsAmberAndThePassGoesOnAsync()
+    {
+        await AssertEpicLinkRefreshFailureEndsAmberAsync(new TimedOutHandler());
+    }
+
+    private static async Task AssertEpicLinkRefreshFailureEndsAmberAsync(HttpMessageHandler epicHandler)
+    {
         var httpClients = new SingleHandlerHttpClients(new FailingHandler());
-        using var epicHttp = new HttpClient(new DroppedConnectionHandler());
+        using var epicHttp = new HttpClient(epicHandler);
         using var epicMapping = new EpicMappingService(
             NullLogger<EpicMappingService>.Instance,
             new EpicApiDirectClient(epicHttp, NullLogger<EpicApiDirectClient>.Instance),
@@ -245,6 +256,17 @@ public sealed class GameImageFetchBannerNotificationTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
             => throw new HttpRequestException("connection dropped");
+    }
+
+    /// <summary>Fails every request the way HttpClient reports its own timeout: a canceled task whose
+    /// inner exception is the timeout.</summary>
+    private sealed class TimedOutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+            => throw new TaskCanceledException(
+                "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
+                new TimeoutException());
     }
 
     /// <summary>Succeeds on every request with a payload past MinImageBytes, so any phase given a
