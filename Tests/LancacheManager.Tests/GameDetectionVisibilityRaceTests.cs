@@ -395,6 +395,14 @@ public class GameDetectionVisibilityRaceTests
         var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
         await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
 
+        // The tracker sets the run's status inside its lock and sends the completion event after it, so the test waits for
+        // the event itself.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!run.Notifications.Completed(id) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
+
         var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(
             Assert.Single(run.Notifications.Events, e => e.Event == SignalREvents.GameDetectionComplete).Value);
         Assert.True(complete.Success);
