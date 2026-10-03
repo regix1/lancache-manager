@@ -439,6 +439,8 @@ where
         }
 
         let root = PathBuf::from(&ds.cache_path);
+        // Two datasources can share one root; a walk of it that already succeeded checked it.
+        let walked_before = digests_by_root.contains_key(&root);
         let mut root_digests = digests_by_root.remove(&root).unwrap_or_default();
         let fully_checked = walk_root(cache_dir, &mut |name: &str| {
             match cache_utils::parse_cache_file_digest(name) {
@@ -461,6 +463,10 @@ where
         // A folder of the cache layout that could not be read hides the files in it, and a missing
         // file reads as an eviction, so the whole root abstains, as the repair walk does.
         if !fully_checked {
+            if walked_before {
+                digests_by_root.insert(root, root_digests);
+                continue;
+            }
             eprintln!(
                 "[EvictionScan] Cache directory for datasource '{}' has folders that could not be read: {} - absence cannot be verified under this root, so its downloads will not be marked evicted",
                 ds.name, ds.cache_path
@@ -854,6 +860,36 @@ mod tests {
             |path, visit_file| {
                 walks += 1;
                 walks > 1 && cache_utils::walk_cache_root(path, visit_file)
+            },
+        );
+
+        assert_eq!(walks, 2);
+        assert_eq!(
+            files
+                .digests_for_root(root.path())
+                .map(|digests| digests.len()),
+            Some(1)
+        );
+        assert!(unchecked.is_empty());
+    }
+
+    #[test]
+    fn a_root_two_datasources_share_keeps_its_first_complete_walk_when_a_later_walk_fails() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let datasources = [
+            datasource("first", root.path(), "monolithic"),
+            datasource("second", root.path(), "monolithic"),
+        ];
+        let mut walks = 0;
+
+        // The first walk of the shared root reads it whole; the second meets a folder it cannot read.
+        let (files, unchecked) = collect_files_on_disk_with(
+            &datasources,
+            |_| {},
+            |path, visit_file| {
+                walks += 1;
+                walks == 1 && cache_utils::walk_cache_root(path, visit_file)
             },
         );
 
