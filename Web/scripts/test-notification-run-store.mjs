@@ -33,6 +33,8 @@ const TEMPLATES = {
   'common.notifications.repairFailed': 'Repair failed: {{reason}}',
   'common.notifications.warnings.datasourcesNotRepaired':
     'The repair finished but skipped these datasources because they were removed or their folders changed: {{datasources}}.',
+  'common.notifications.warnings.logFilesSkipped':
+    'Log files with errors were skipped: {{fileNames}}. {{entriesSaved}} entries from the other files were saved.',
   'prefill.auth.waitingForSignIn': 'Waiting for {{service}} sign-in',
   'prefill.persistent.services.steam': 'Steam',
   'signalr.gameDetect.error.fatal': 'Game detection failed: {{errorDetail}}',
@@ -1395,6 +1397,27 @@ test('a failed run with a warning stays red and still shows the warning', () => 
   assert.equal(
     card.detailMessage,
     'The repair finished but skipped these datasources because they were removed or their folders changed: alpha.'
+  );
+});
+
+test("a warning's counts print with thousands separators", () => {
+  const browser = new Browser();
+  browser.snapshot([
+    kept('LP', {
+      operationType: 'logProcessing',
+      name: 'Process Logs',
+      status: 'completed',
+      warnings: [
+        {
+          stageKey: 'common.notifications.warnings.logFilesSkipped',
+          context: { fileNames: 'access.log.1', entriesSaved: 1234567 }
+        }
+      ]
+    })
+  ]);
+  assert.equal(
+    browser.card('LP').detailMessage,
+    'Log files with errors were skipped: access.log.1. 1,234,567 entries from the other files were saved.'
   );
 });
 

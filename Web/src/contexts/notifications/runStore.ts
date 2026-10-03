@@ -1100,7 +1100,20 @@ function drawRun(entry: RunEntry): UnifiedNotification {
   // or canceled run with one is an amber card; a failed one stays red and shows the same lines.
   const warningLine =
     !live && !repairing && !repairFailed && run.warnings && run.warnings.length > 0
-      ? run.warnings.map((warning) => i18n.t(warning.stageKey, warning.context)).join(' ')
+      ? run.warnings
+          .map((warning) =>
+            i18n.t(
+              warning.stageKey,
+              // Counts read with thousands separators, as every other count on a card does.
+              Object.fromEntries(
+                Object.entries(warning.context).map(([name, value]) => [
+                  name,
+                  typeof value === 'number' && Number.isInteger(value) ? formatCount(value) : value
+                ])
+              )
+            )
+          )
+          .join(' ')
       : undefined;
   const amber = warningLine !== undefined && run.status !== 'failed';
   const line = warningLine ?? detail.detailMessage;
