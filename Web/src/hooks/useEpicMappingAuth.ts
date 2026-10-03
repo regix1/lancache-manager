@@ -248,6 +248,26 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     } catch (error) {
       if (!current()) return false;
       if (error instanceof Error && error.name === 'AbortError') {
+        // Closing the dialog moves the request on before it aborts, so a current request that aborted was ended by the
+        // server: the card's X, pressed in another tab, stopped this sign-in, possibly after its account was saved. A
+        // status read that fails leaves the code form as it was.
+        const ending = await ApiService.getEpicMappingAuthStatus(submittedAttempt).then(
+          (next) => (next.loginEnding?.attemptId === submittedAttempt ? next.loginEnding : null),
+          () => null
+        );
+        if (!current() || !ending) return false;
+        attemptRef.current = null;
+        setAttemptId(null);
+        if (ending.status === 'completed') {
+          onSuccess?.();
+          return true;
+        }
+        setNeedsAuthorizationCode(false);
+        setAuthorizationCode('');
+        setAuthorizationUrl('');
+        const message = t(ending.stageKey);
+        setError(message);
+        onError?.(message);
         return false;
       }
       attemptRef.current = null;
@@ -275,7 +295,8 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     onError,
     identity,
     refreshStatus,
-    canAuthenticate
+    canAuthenticate,
+    t
   ]);
 
   const state: EpicAuthState = {
