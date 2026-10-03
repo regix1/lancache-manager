@@ -26,6 +26,29 @@ test('the cancel click does not write the cancelled notice', () => {
   );
 });
 
+test('the cancel click leaves the step running until the pass reports its ending', () => {
+  assert.ok(
+    !handlerText('handleCancelProcessing').includes('setProcessing(false)'),
+    'the completion event or the watchdog ends the running view, not the click'
+  );
+});
+
+test("the watchdog reads the pass's own ending", () => {
+  const watchdogEffect = findSoleNode(
+    source,
+    'watchdog effect',
+    (node) =>
+      ts.isCallExpression(node) &&
+      node.getText(source).startsWith('useEffect(') &&
+      node.getText(source).includes('const watchdog = setInterval')
+  ).getText(source);
+  assert.ok(watchdogEffect.includes('getTrackedOperation'), 'the run says how the pass ended');
+  assert.ok(
+    watchdogEffect.includes('initialization.logProcessing.cancelled'),
+    'a cancelled run shows the cancelled notice'
+  );
+});
+
 test('a successful completion clears the notice', () => {
   const completion = handlerText('handleLogProcessingComplete');
   const successBranch = completion.slice(completion.indexOf('// Success case'));

@@ -271,17 +271,19 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       try {
         const status = await ApiService.getProcessingStatus();
         if (!status.isProcessing) {
+          // Once no pass runs the processing status only says idle, so the pass's own run says how it ended.
+          const operationId = activeOperationIdRef.current;
+          const run = operationId ? await ApiService.getTrackedOperation(operationId) : null;
           setProcessing(false);
-          if (status.status?.toLowerCase() === 'completed') {
+          if (run?.status === 'completed') {
             setComplete(true);
             setProgress({
               isProcessing: false,
               progress: 100,
-              status: 'completed',
-              entriesProcessed: status.entriesProcessed,
-              linesProcessed: status.linesProcessed,
-              totalLines: status.totalLines
+              status: 'completed'
             });
+          } else if (run?.status === 'cancelled') {
+            setNotice({ tone: 'info', message: t('initialization.logProcessing.cancelled') });
           }
         } else {
           setLastEventAt(Date.now());
@@ -296,7 +298,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     }, 5000);
 
     return () => clearInterval(watchdog);
-  }, [processing, lastEventAt]);
+  }, [processing, lastEventAt, t]);
 
   // When a run finishes having imported nothing, the log format may not be recognized.
   // Surface a hint only if the datasource diagnostics confirm unrecognized/misplaced lines.
@@ -418,10 +420,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         return;
       }
 
-      // The completion event that follows a force stop says how the pass ended; a pass that saved its success just
-      // before the stop still completes, so the notice comes from that event, not from this click.
+      // The completion event that follows a force stop says how the pass ended, and the watchdog below ends the step if
+      // that event is lost, so the step keeps its running view until one of them does.
       await ApiService.forceKillOperation(operationId);
-      setProcessing(false);
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
