@@ -677,6 +677,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     _operationTracker.SetWarning(operationId, new RunWarning(
                         "common.notifications.warnings.cacheFoldersUnchecked",
                         new Dictionary<string, object?> { ["folders"] = folders }));
+                    // Kept on the repair record at once, so a restart before the run ends restores the warning.
+                    await repairOwner.SaveRepairAsync(
+                        operationId,
+                        repair => repair.EvictionScan!.UncheckedFolders = scanResult.UncheckedFolders,
+                        stoppingToken);
                 }
 
                 await ReportScanProgressAsync(
@@ -795,7 +800,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             UnEvicted = checkpoint.UnEvicted,
                             DetectionError = _evictionScanTerminalStates.TryGetValue(operationId, out var terminal)
                                 ? terminal.DetectionError
-                                : null
+                                : null,
+                            UncheckedFolders = repair.EvictionScan?.UncheckedFolders
                         };
                     },
                     _applicationLifetime.ApplicationStopping);
@@ -905,6 +911,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             cts.Dispose();
             return Task.CompletedTask;
+        }
+
+        // A scan that left cache folders unchecked ends amber after a restart too.
+        if (metrics.UncheckedFolders is { Count: > 0 } folders)
+        {
+            _operationTracker.SetWarning(repair.Id, new RunWarning(
+                "common.notifications.warnings.cacheFoldersUnchecked",
+                new Dictionary<string, object?> { ["folders"] = string.Join(", ", folders) }));
         }
 
         _evictionScanTerminalStates[repair.Id] = state;
@@ -1209,7 +1223,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Processed = checkpoint.Processed,
                     Evicted = checkpoint.Evicted,
                     UnEvicted = checkpoint.UnEvicted,
-                    DetectionError = current.EvictionScan?.DetectionError
+                    DetectionError = current.EvictionScan?.DetectionError,
+                    UncheckedFolders = current.EvictionScan?.UncheckedFolders
                 };
             },
             stoppingToken);
@@ -1221,28 +1236,31 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// the full scan will not reach (no scan follows a clean clear without download traffic, and a
     /// source without a launch, a key scheme or a receipt cannot be scanned), and it wipes the
     /// prefill "Cached" badges; then it refreshes the projections built on those rows. A clear that
-    /// did not complete changes nothing here: its full scan decides what the clear removed.
+    /// did not complete leaves the rest to its full scan, but no scan can check a source without a
+    /// key scheme, so such a source that the clear finished is evicted here too.
     /// </summary>
     public async Task EvictClearedSourcesAsync(
         OperationRepair repair,
         bool skipsCacheScan,
         CancellationToken stoppingToken)
     {
-        if (repair.Outcome != OperationStatus.Completed)
-        {
-            return;
-        }
-
+        var completed = repair.Outcome == OperationStatus.Completed;
         // Matched case-insensitively: Downloads.Datasource drifts in case from the configured
         // name (rows stored as 'Default' against a 'default' config were observed live).
         var datasourceNames = repair.Sources
-            .Where(source => skipsCacheScan
-                || !source.NativeLaunchAuthorized
-                || source.KeyScheme is null
-                || !File.Exists(source.ReceiptPath))
+            .Where(source => completed
+                ? skipsCacheScan
+                    || !source.NativeLaunchAuthorized
+                    || source.KeyScheme is null
+                    || !File.Exists(source.ReceiptPath)
+                : source.KeyScheme is null && source.NativeCompletionAccepted)
             .Select(source => source.Datasource.ToLowerInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        if (!completed && datasourceNames.Count == 0)
+        {
+            return;
+        }
 
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -2066,21 +2084,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     datasource.Name,
                     StringComparison.OrdinalIgnoreCase))))
             .ToList();
+        // A datasource whose log folder is missing keeps the lines of the rows this step deletes, and
+        // reading its logs again from the start can bring them back, so the removal's card names it
+        // once those rows are gone.
+        List<string> logFoldersMissing = [];
         if (redoSources is null)
         {
-            // A datasource whose log folder is missing keeps the lines of the rows this step deletes, and
-            // reading its logs again from the start can bring them back, so the removal's card names it.
-            var logFoldersMissing = _datasourceService.GetDatasources()
+            logFoldersMissing = _datasourceService.GetDatasources()
                 .Where(datasource => !string.IsNullOrWhiteSpace(datasource.LogPath)
                     && !Directory.Exists(datasource.LogPath))
                 .Select(datasource => datasource.Name)
                 .ToList();
-            if (logFoldersMissing.Count > 0)
-            {
-                _operationTracker.SetWarning(operationId, new RunWarning(
-                    "common.notifications.warnings.logFoldersMissing",
-                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", logFoldersMissing) }));
-            }
 
             // Every start comes before the lock: a start waits for another operation's repair,
             // and that repair may need the lock for its own position reset.
@@ -2105,6 +2119,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         int downloadsDeleted = 0;
         int prefillDepotsDeleted = 0;
         int prefillAppsDeleted = 0;
+        List<string> deletedFrom = [];
         await using (await repairOwner.LockLogFilesAsync(
             operationId,
             OperationType.EvictionRemoval,
@@ -2148,6 +2163,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                 "LOCK TABLE \"LogEntries\" IN SHARE ROW EXCLUSIVE MODE",
                                 stoppingToken);
                         }
+
+                        deletedFrom = await context.Downloads
+                            .Where(d => d.IsEvicted)
+                            .Select(d => d.Datasource)
+                            .Distinct()
+                            .ToListAsync(stoppingToken);
 
                         // Step 1: delete evicted detection rows so the frontend list clears.
                         await ReportAsync(
@@ -2274,6 +2295,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             EvictionScope.Service => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null && d.Service == keyLower),
                             _ => throw new ArgumentOutOfRangeException(nameof(selection))
                         };
+                        deletedFrom = await downloads.Select(d => d.Datasource).Distinct().ToListAsync(stoppingToken);
                         prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context, downloads)
                             .ExecuteDeleteAsync(stoppingToken);
                         // Step 1: Delete LogEntries for this entity's evicted Downloads (FK constraint).
@@ -2377,6 +2399,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             foreach (var datasource in purged)
             {
                 await repairOwner.MarkLogPositionsKeptAsync(operationId, datasource);
+            }
+
+            var missingWithRows = logFoldersMissing
+                .Where(name => deletedFrom.Contains(name, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            if (missingWithRows.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.logFoldersMissing",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", missingWithRows) }));
             }
         }
 

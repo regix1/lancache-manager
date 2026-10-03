@@ -190,6 +190,82 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task AnEvictionRemovalNamesOnlyAMissingLogFolderThatHeldItsRowsAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "other", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        source.SchemeOverride = DatasourceSchemeOverride.Monolithic;
+        Directory.Delete(source.LogPath, recursive: true);
+
+        await ctx.WaitForRepairAsync(
+            ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None),
+            TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => ctx._operationStateService.GetBlockingRepair() is null);
+
+        var removal = Assert.Single(tracker.GetRuns().Runs,
+            run => run.OperationType == OperationType.EvictionRemoval.ToWireString());
+        Assert.Empty(removal.Warnings);
+        Assert.False(removal.Retained);
+        Assert.False(await context.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
+    public async Task ACanceledEvictionRemovalDoesNotSayItRemovedTheDownloadsAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        source.SchemeOverride = DatasourceSchemeOverride.Monolithic;
+        Directory.Delete(source.LogPath, recursive: true);
+        var removalId = Guid.Empty;
+        ctx.Notifications.OnSent = (eventName, value) =>
+        {
+            if (eventName == SignalREvents.EvictionRemovalStarted && value is EvictionRemovalStarted started)
+            {
+                removalId = started.OperationId;
+            }
+            // The first progress report comes inside the deletes' transaction, after the step has
+            // looked at the log folders, so the cancel lands between the two.
+            else if (eventName == SignalREvents.EvictionRemovalProgress)
+            {
+                tracker.CancelOperation(removalId);
+            }
+        };
+
+        await ctx.WaitForRepairAsync(
+            ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None),
+            TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => ctx._operationStateService.GetBlockingRepair() is null);
+
+        var removal = Assert.Single(tracker.GetRuns().Runs,
+            run => run.OperationType == OperationType.EvictionRemoval.ToWireString());
+        Assert.Equal(OperationStatus.Cancelled.ToWireString(), removal.Status);
+        Assert.Empty(removal.Warnings);
+        Assert.True(await context.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
     public async Task SaveRemoveRetriesReopenBeforeDeletingEvictedRowsAsync()
     {
         using var ctx = new PhaseContext();
@@ -1071,6 +1147,51 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.True(ended.Retained);
     }
 
+    [Fact]
+    public async Task AScanThatLeftAFolderUncheckedKeepsItOnItsRepairRecordAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var context = ctx.CreateContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper(
+            async (operationId, cancellationToken) =>
+            {
+                var checkpoint = await context.EvictionScanCheckpoints
+                    .SingleAsync(item => item.OperationId == operationId, cancellationToken);
+                checkpoint.FinalizedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(cancellationToken);
+            },
+            // What cache_eviction_scan writes when it did not check a cache folder (ScanResult.unchecked_folders).
+            """{"success":true,"processed":1,"evicted":0,"unEvicted":0,"uncheckedFolders":["/cache/missing"]}"""));
+        var scanNotice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var scanId = ctx.RegisterScan(scanNotice);
+        List<string>? saved = null;
+        ctx.Notifications.OnSent = (eventName, value) =>
+        {
+            // Read where a restart would restore from, as the scan moves past the child's result.
+            if (eventName == SignalREvents.EvictionScanProgress
+                && value is EvictionScanProgress { StageKey: "signalr.evictionScan.postProcessing" })
+            {
+                saved = ctx._operationStateService.GetPendingRepairs()
+                    .Single(repair => repair.Id == scanId).EvictionScan!.UncheckedFolders;
+            }
+        };
+
+        var scan = (Task)typeof(CacheReconciliationService)
+            .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(["/cache/missing"], saved);
+    }
+
     [Theory]
     [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
     [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
@@ -1225,6 +1346,34 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Single(await verify.PrefillCachedDepots.ToListAsync());
         Assert.Single(await verify.PrefillCachedApps.ToListAsync());
         Assert.Equal(0, harness.Notifications.Count(SignalREvents.PrefillCacheChanged));
+    }
+
+    [Fact]
+    public async Task AClearThatFailedElsewhereEvictsTheRowsOfASourceNoScanCanCheckAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        using var harness = new DatabaseReconciliation(database, database.Options);
+        var clearStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.AddRange(
+                ClearedDownload("failed-source", "failed", clearStartedAt.AddMinutes(-1), gameAppId: 10),
+                ClearedDownload("cleared-unscannable", "mixed", clearStartedAt.AddMinutes(-1), gameAppId: 20));
+            await seed.SaveChangesAsync();
+        }
+        // The first datasource's clear failed; the second has no key scheme and its clear finished.
+        var cleared = ClearSource("mixed", keyScheme: null, receiptPath: null);
+        cleared.NativeCompletionAccepted = true;
+
+        await harness.Scan.EvictClearedSourcesAsync(
+            ClearRepair(clearStartedAt, OperationStatus.Failed, ClearSource("failed", "monolithic", receiptPath: null), cleared),
+            skipsCacheScan: false,
+            CancellationToken.None);
+
+        await using var verify = new AppDbContext(database.Options);
+        var evicted = await verify.Downloads.ToDictionaryAsync(row => row.ClientIp, row => row.IsEvicted);
+        Assert.False(evicted["failed-source"]);
+        Assert.True(evicted["cleared-unscannable"]);
     }
 
     [Fact]
@@ -1977,7 +2126,7 @@ public sealed class CacheScanDetectionPhaseTests
         var attemptCopy = ctx._operationStateService.GetPendingRepairs().Single(pending => pending.Id == repair.Id);
         await ctx._operationStateService.SaveRepairAsync(
             repair.Id,
-            current => current.EvictionScan = new EvictionScanRepair { DetectionError = "Probe abstained" },
+            current => current.EvictionScan = new EvictionScanRepair { DetectionError = "Probe abstained", UncheckedFolders = ["/cache/missing"] },
             CancellationToken.None);
         var scanId = Guid.NewGuid();
         await using (var seed = ctx.CreateContext())
@@ -2000,6 +2149,31 @@ public sealed class CacheScanDetectionPhaseTests
         var stored = ctx._operationStateService.GetPendingRepairs().Single(pending => pending.Id == repair.Id);
         Assert.Equal(3, stored.EvictionScan!.Processed);
         Assert.Equal("Probe abstained", stored.EvictionScan.DetectionError);
+        Assert.Equal(["/cache/missing"], stored.EvictionScan.UncheckedFolders);
+    }
+
+    [Fact]
+    public async Task ARestoredScanThatLeftFoldersUncheckedEndsAmberNamingThemAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("default", ["access.log"], true));
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow.AddMinutes(-3),
+            Sources = [new OperationRepairSource { Datasource = "default" }],
+            EvictionScan = new EvictionScanRepair { Processed = 3, UncheckedFolders = ["/cache/missing"] }
+        };
+
+        await run.Scan.RestoreRepairAsync(repair, CancellationToken.None);
+        run.Tracker.CompleteOperation(repair.Id, success: true);
+
+        var ended = Assert.Single(run.Tracker.GetRuns().Runs, row => row.OperationId == repair.Id);
+        var warning = Assert.Single(ended.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFoldersUnchecked", warning.StageKey);
+        Assert.Equal("/cache/missing", warning.Context["folders"]);
+        Assert.True(ended.Retained);
     }
 
     [Fact]
@@ -3360,8 +3534,11 @@ public sealed class CacheScanDetectionPhaseTests
     private sealed class ScanResultRustProcessHelper : RustProcessHelper
     {
         private readonly Func<Guid, CancellationToken, Task> _complete;
+        private readonly string _resultJson;
 
-        public ScanResultRustProcessHelper(Func<Guid, CancellationToken, Task> complete)
+        public ScanResultRustProcessHelper(
+            Func<Guid, CancellationToken, Task> complete,
+            string resultJson = """{"success":true,"processed":1,"evicted":0,"unEvicted":0}""")
             : base(
                 NullLogger<RustProcessHelper>.Instance,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -3369,6 +3546,7 @@ public sealed class CacheScanDetectionPhaseTests
                 operationTracker: null!)
         {
             _complete = complete;
+            _resultJson = resultJson;
         }
 
         public override async Task<RustExecutionResult> RunEvictionScanAsync(
@@ -3384,7 +3562,7 @@ public sealed class CacheScanDetectionPhaseTests
             return new RustExecutionResult
             {
                 Success = true,
-                Data = """{"success":true,"processed":1,"evicted":0,"unEvicted":0}"""
+                Data = _resultJson
             };
         }
     }
