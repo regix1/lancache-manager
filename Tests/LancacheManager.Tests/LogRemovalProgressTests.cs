@@ -449,9 +449,103 @@ public class LogRemovalProgressTests
     }
 
     [Fact]
+    public async Task LogRemoval_AMonolithicLogNginxRecreatesAfterTheRemovalEndsGreenAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync(recreatedByReopen: ["access.log"]);
+        // access.log held only steam lines, so the child deletes it; nginx then recreates it on the reopen.
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "access.log"), "steam1\nsteam2\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "access.log.1"), "o1\no2\no3\n");
+        harness.State.SetLogSourcePositions("default", new Dictionary<string, long> { ["access.log"] = 5 });
+        harness.Rust.DeletesWholeAccessLog = true;
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
+        Assert.Empty(row.Warnings);
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 3 },
+            harness.State.GetLogSourcePositions("default"));
+    }
+
+    [Fact]
+    public async Task LogRemoval_AServiceLogNginxRecreatesAfterTheRemovalEndsGreenAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync(
+            recreatedByReopen: ["steam-access.log", "epicgames-access.log"]);
+        File.Delete(Path.Combine(harness.LogPath, "access.log"));
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "steam-access.log"), "s1\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "epicgames-access.log"), "e1\ne2\n");
+        harness.State.SetLogSourcePositions("default", new Dictionary<string, long>
+        {
+            ["steam-access.log"] = 1,
+            ["epicgames-access.log"] = 2
+        });
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
+        Assert.Empty(row.Warnings);
+        Assert.Equal(
+            new Dictionary<string, long> { ["epicgames-access.log"] = 2 },
+            harness.State.GetLogSourcePositions("default"));
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
+    }
+
+    [Fact]
+    public async Task Repair_AServiceLogNginxRecreatesIsRemovedInOneAttemptAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync(recreatedByReopen: ["steam-access.log"]);
+        File.Delete(Path.Combine(harness.LogPath, "access.log"));
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "steam-access.log"), "s1\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "epicgames-access.log"), "e1\ne2\n");
+        var repairId = Guid.NewGuid();
+        await harness.Owner.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = repairId,
+                Type = OperationType.LogRemoval,
+                Name = "Log Removal",
+                StartedAt = DateTime.UtcNow,
+                LogRemoval = new LogRemovalRepair { Service = "steam", Datasource = "default" },
+                Sources =
+                [
+                    new OperationRepairSource
+                    {
+                        Datasource = "default",
+                        LogRoot = harness.LogPath,
+                        ResetLogPositions = true,
+                        RefreshDownloads = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repairId, "default", CancellationToken.None);
+        await harness.Owner.MarkLogRewriteStartedAsync(repairId, "default");
+        var repair = Assert.Single(harness.Owner.GetPendingRepairs(), pending => pending.Id == repairId);
+
+        await harness.Removal.ResumeRepairAsync(repair, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Single(harness.Rust.Launches);
+        Assert.True(Assert.Single(harness.ReadRepair(repairId).Sources).LogPositionsKept);
+    }
+
+    [Fact]
     public async Task LogRemoval_AnotherServiceLogRecreatedByTheReopenIsStillNamedAndReadAgainAsync()
     {
-        await using var harness = await LogStepHarness.CreateAsync(recreatedByReopen: "blizzard-access.log");
+        // Real nginx recreates every log it writes, the removed service's series included.
+        await using var harness = await LogStepHarness.CreateAsync(
+            recreatedByReopen: ["blizzard-access.log", "steam-access.log"]);
         File.Delete(Path.Combine(harness.LogPath, "access.log"));
         await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "steam-access.log"), "s1\n");
         await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "blizzard-access.log"), "b1\n");
@@ -506,6 +600,7 @@ public class LogRemovalProgressTests
         // The repair still holds the failed outcome, so it reopens nginx again.
         var repair = await harness.WaitForOutcomeAsync(ended.Id);
         Assert.Equal(OperationStatus.Failed, repair.Outcome);
+        Assert.True(repair.RunCompleted);
         Assert.Equal("common.notifications.warnings.nginxReopenFailed", Assert.Single(repair.Warnings!).StageKey);
     }
 
@@ -547,7 +642,7 @@ public class LogRemovalProgressTests
         public RecordingNotificationProxy CountsNotifications { get; }
         public RustLogRemovalService Removal { get; }
 
-        public static async Task<LogStepHarness> CreateAsync(string? recreatedByReopen = null, bool reopenFails = false)
+        public static async Task<LogStepHarness> CreateAsync(IReadOnlyList<string>? recreatedByReopen = null, bool reopenFails = false)
         {
             var root = Path.Combine(Path.GetTempPath(), "log-removal-step-" + Guid.NewGuid().ToString("N"));
             var logs = Path.Combine(root, "logs");
@@ -649,10 +744,10 @@ public class LogRemovalProgressTests
     }
 
     /// <summary>
-    /// One host nginx writer over the test logs. Its reopen creates the named log empty, as nginx does
-    /// for a log it writes by a fixed path (its reopen opens every such file with create).
+    /// One host nginx writer over the test logs. Its reopen opens every log it writes by a fixed path with
+    /// create, so each named log that is gone is back, empty.
     /// </summary>
-    private sealed class RecreatingNginx(IConfiguration configuration, IPathResolver paths, string logPath, string recreatedName)
+    private sealed class RecreatingNginx(IConfiguration configuration, IPathResolver paths, string logPath, IReadOnlyList<string> recreatedNames)
         : NginxLogRotationService(
             NullLogger<NginxLogRotationService>.Instance,
             configuration,
@@ -671,7 +766,10 @@ public class LogRemovalProgressTests
                 case "host nginx writer identity":
                     return Task.FromResult(new ProcessCommandResult { ExitCode = 0, Output = "4242|reopen\n" });
                 case "host nginx verified reopen":
-                    File.WriteAllBytes(Path.Combine(logPath, recreatedName), []);
+                    foreach (var recreatedName in recreatedNames)
+                    {
+                        File.WriteAllBytes(Path.Combine(logPath, recreatedName), []);
+                    }
                     return Task.FromResult(new ProcessCommandResult { ExitCode = 0 });
                 default:
                     throw new InvalidOperationException($"Unexpected nginx command: {label}");
@@ -828,12 +926,16 @@ public class LogRemovalProgressTests
                     }),
                     cancellationToken);
             }
-            else if (ExitCode == 0 && GoneAtLaunch is not null)
+            else if (ExitCode == 0 && File.Exists(Path.Combine(arguments[1], "steam-access.log")))
             {
-                // remove_service_from_logs on a folder holding steam-access.log: it deletes that file, and
-                // publish_deleted_files records it deleted and every other checked file unchanged, the one
+                // remove_service_from_logs on a folder holding steam-access.log deletes the service's series
+                // whenever its files exist (log_service_manager.rs:1147-1150, :1240-1244), and
+                // publish_deleted_files records it deleted and every other checked file unchanged, one
                 // deleted outside the app included, without failing the publication. Then the final progress.
-                File.Delete(Path.Combine(arguments[1], GoneAtLaunch));
+                if (GoneAtLaunch is not null)
+                {
+                    File.Delete(Path.Combine(arguments[1], GoneAtLaunch));
+                }
                 File.Delete(Path.Combine(arguments[1], "steam-access.log"));
                 await File.WriteAllTextAsync(
                     start.Environment["LANCACHE_LOG_RESULT"]!,

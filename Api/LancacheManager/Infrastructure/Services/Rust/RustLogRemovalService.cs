@@ -239,7 +239,8 @@ public class RustLogRemovalService
         LogRemovalCompletionMetrics metrics,
         bool success,
         bool cancelled,
-        string? error)
+        string? error,
+        bool runCompleted)
     {
         // The metrics ride in the outcome save, so one failed write takes the outcome's background
         // retry instead of throwing before the run reaches its terminal.
@@ -248,15 +249,19 @@ public class RustLogRemovalService
             success,
             cancelled,
             error,
-            repair => repair.LogRemoval = new LogRemovalRepair
+            repair =>
             {
-                Service = metrics.Service,
-                Datasource = metrics.Datasource,
-                FilesProcessed = metrics.FilesProcessed,
-                LinesProcessed = metrics.LinesProcessed,
-                LinesRemoved = metrics.LinesRemoved,
-                DatabaseRecordsDeleted = metrics.DatabaseRecordsDeleted,
-                StageKey = metrics.StageKey
+                repair.LogRemoval = new LogRemovalRepair
+                {
+                    Service = metrics.Service,
+                    Datasource = metrics.Datasource,
+                    FilesProcessed = metrics.FilesProcessed,
+                    LinesProcessed = metrics.LinesProcessed,
+                    LinesRemoved = metrics.LinesRemoved,
+                    DatabaseRecordsDeleted = metrics.DatabaseRecordsDeleted,
+                    StageKey = metrics.StageKey
+                };
+                repair.RunCompleted = runCompleted;
             });
     }
 
@@ -629,12 +634,15 @@ public class RustLogRemovalService
                     "common.notifications.warnings.nginxReopenFailed",
                     new Dictionary<string, object?> { ["error"] = completionError }));
             }
+            // The card completes amber while the repair keeps the failed outcome, so a run restored after a
+            // restart completes as it did.
             await FinishRepairAsync(
                 operationId.Value,
                 completionMetrics,
                 success: succeeded,
                 cancelled: false,
-                error: completionError);
+                error: completionError,
+                runCompleted: reopenFailedAfterRemoval);
             _operationTracker.CompleteOperation(
                 operationId.Value,
                 success: succeeded || reopenFailedAfterRemoval,
@@ -677,7 +685,8 @@ public class RustLogRemovalService
                         completionMetrics,
                         success: false,
                         cancelled: false,
-                        error: ex.Message);
+                        error: ex.Message,
+                        runCompleted: false);
                 }
                 _operationTracker.CompleteOperation(operationId.Value, success: false, error: ex.Message,
                         onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
@@ -703,7 +712,8 @@ public class RustLogRemovalService
                         completionMetrics,
                         success: false,
                         cancelled: false,
-                        error: "Log removal ended without reaching a terminal state");
+                        error: "Log removal ended without reaching a terminal state",
+                        runCompleted: false);
                 }
                 _operationTracker.CompleteOperation(
                     leakedOperationId.Value,
@@ -850,6 +860,25 @@ public class RustLogRemovalService
             // Read before the reopen: nginx recreates a log it writes by a fixed path, so after the reopen
             // a file deleted outside the app is back, empty, and would no longer read as gone.
             var goneBeforeReopen = reopenCheck.AffectedPaths.Where(path => !File.Exists(path)).ToList();
+            // The child records each bound file it deleted itself (a monolithic access.log whose every line
+            // matched, a deleted series). Read before the reopen too: the reopen recreates those files, and
+            // the publication check then reads them as deleted files that still exist.
+            HashSet<string> deletedByChild = [];
+            if (result.ExitCode == 0 && goneBeforeReopen.Count > 0)
+            {
+                try
+                {
+                    deletedByChild = (await NginxLogRotationService.ReadPublicationResultAsync(reopenCheck, CancellationToken.None)).Files
+                        .Where(record => record.Deleted)
+                        .Select(record => Path.GetFullPath(record.TargetPath))
+                        .ToHashSet();
+                }
+                catch (Exception publicationError) when (publicationError is not OperationCanceledException)
+                {
+                    // The reopen below still runs; its own check reports a bad publication as the step's error.
+                    _logger.LogWarning(publicationError, "Could not read the log child's publication for datasource {Datasource}", datasource.Name);
+                }
+            }
             // A cancel that lands after the child exited must still move nginx onto the rewritten files.
             var reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
                 reopenCheck,
@@ -874,14 +903,6 @@ public class RustLogRemovalService
                 // deleted stems' checkpoints must not survive the files.
                 var serviceStems = LancacheManager.Core.Services.LogSourceLayout.StemsForService(service);
                 _stateService.ClearLogSourcePositions(datasource.Name, serviceStems);
-                // The child records each bound file it deleted itself (a monolithic access.log whose every line
-                // matched, a deleted series); only a file it did not delete went outside the app.
-                HashSet<string> deletedByChild = goneBeforeReopen.Count == 0
-                    ? []
-                    : (await NginxLogRotationService.ReadPublicationResultAsync(reopenCheck, CancellationToken.None)).Files
-                        .Where(record => record.Deleted)
-                        .Select(record => Path.GetFullPath(record.TargetPath))
-                        .ToHashSet();
                 // A bound log of another series that something outside the app deleted during the step was
                 // not this removal's to delete, and the child left it unchanged. A saved position counts
                 // lines across the whole series, so a vanished file shifts it past lines never read; that
@@ -1144,7 +1165,8 @@ public class RustLogRemovalService
                     metrics,
                     success: false,
                     cancelled: true,
-                    error: null);
+                    error: null,
+                    runCompleted: false);
             }
             _operationTracker.CompleteOperation(operationId.Value, success: false, cancelled: true);
         }
