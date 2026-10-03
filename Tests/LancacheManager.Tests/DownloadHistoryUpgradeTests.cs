@@ -1811,6 +1811,46 @@ public class DownloadHistoryUpgradeTests
     }
 
     [Fact]
+    public async Task AnUpgradeThatStillSkipsRowsAfterItsReplanEndsAmberAsync()
+    {
+        await using var harness = await UpgradeHarness.CreateAsync();
+        var ids = await SeedIslandAsync(harness, rows: 2, logsPerRow: 0);
+        // The row changes identity as each plan's batch starts and is restored before the next plan
+        // is built, so both plans skip it and the replan cannot clear the skip.
+        harness.Recorder.OnExecuting = command =>
+        {
+            var identity = command.CommandText.StartsWith("LOCK TABLE \"Downloads\"", StringComparison.Ordinal)
+                ? "other"
+                : command.CommandText.Contains("CREATE TABLE \"DownloadSessionMergePlan\"", StringComparison.Ordinal)
+                    ? "default"
+                    : null;
+            if (identity is null)
+            {
+                return;
+            }
+
+            using var connection = new NpgsqlConnection(harness.ConnectionString);
+            connection.Open();
+            using var update = new NpgsqlCommand(
+                "UPDATE \"Downloads\" SET \"Datasource\" = @datasource WHERE \"Id\" = @id",
+                connection);
+            update.Parameters.AddWithValue("datasource", identity);
+            update.Parameters.AddWithValue("id", ids[1]);
+            update.ExecuteNonQuery();
+        };
+
+        var operationId = harness.RegisterUpgrade();
+        await harness.Service.RunAsync(operationId, 5000, replan: false, CancellationToken.None);
+
+        var run = Assert.Single(
+            harness.Tracker.GetRuns().Runs,
+            row => row.OperationId == operationId);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.historyRowsNotMerged", warning.StageKey);
+        Assert.Equal(1L, warning.Context["rowCount"]);
+    }
+
+    [Fact]
     public async Task AResolvedTitleReplacesAPlaceholderDuringTheMergeAsync()
     {
         await using var harness = await UpgradeHarness.CreateAsync();

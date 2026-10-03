@@ -348,6 +348,13 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
 
                 if (skipped == 0 || replanned)
                 {
+                    // Rows still skipped after the one re-plan stay as they were; the card counts them.
+                    if (skipped > 0)
+                    {
+                        _operationTracker.SetWarning(operationId, new RunWarning(
+                            "common.notifications.warnings.historyRowsNotMerged",
+                            new Dictionary<string, object?> { ["rowCount"] = skipped }));
+                    }
                     break;
                 }
 
