@@ -1920,6 +1920,8 @@ public sealed class NginxLogRotationServiceTests
     [InlineData("docker nginx writer identity", true)]
     [InlineData("docker nginx writer identity", false)]
     [InlineData("docker nginx file identity", true)]
+    [InlineData("docker nginx mount inspection", true)]
+    [InlineData("docker manager mount namespace", true)]
     public async Task AStepWhoseNginxContainerDoesNotAnswerFailsNamingItAsync(
         string hangingLabel,
         bool anotherWriterAnswers)
@@ -1940,12 +1942,15 @@ public sealed class NginxLogRotationServiceTests
             new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
             TimeProvider.System)
         {
-            ProbeHostWriters = hangingLabel == "docker nginx file identity",
+            ProbeHostWriters = hangingLabel is "docker nginx file identity" or "docker manager mount namespace",
             ReplaceDockerLogs = true,
             Hangs = command => command.Label == hangingLabel &&
                 (command.Arguments.StartsWith("exec cache-a ", StringComparison.Ordinal) ||
+                 command.Arguments.EndsWith(" cache-a", StringComparison.Ordinal) ||
                  command.ArgumentList.Contains("cache-a"))
         };
+        // The manager namespace check runs only for a container whose mount destination holds the log.
+        var destination = hangingLabel == "docker manager mount namespace" ? logs : "/logs";
         service.OnCommand = command => command.Label switch
         {
             "docker nginx writer list" => new ProcessCommandResult
@@ -1953,13 +1958,16 @@ public sealed class NginxLogRotationServiceTests
                 ExitCode = 0,
                 Output = anotherWriterAnswers ? "cache-a\ncache-b\n" : "cache-a\n"
             },
-            "docker nginx mount inspection" => new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" },
+            "docker nginx mount inspection" => new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|{destination}\n" },
+            // Docker lists a container's mounts without asking the container, so it answers while a stuck one hangs.
+            "docker nginx mount list" => new ProcessCommandResult { ExitCode = 0, Output = $"cache-a|{logs}\ncache-b|{logs}\n" },
             "docker nginx writer identity" when command.Arguments.Contains("cache-b", StringComparison.Ordinal) =>
                 new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
             "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "71|owned-a\n" },
             "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
-            "docker nginx file identity" when command.ArgumentList.Contains("cache-b") =>
-                new ProcessCommandResult { ExitCode = 0, Output = $"{identity.First}|{identity.Second}\n" },
+            // cache-b is not the manager's container: its mount namespace differs from the host mount namespace below.
+            "docker manager mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[200]\n" },
+            "docker nginx file identity" => new ProcessCommandResult { ExitCode = 0, Output = $"{identity.First}|{identity.Second}\n" },
             "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[107]\n" },
             "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
             _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
@@ -1973,6 +1981,53 @@ public sealed class NginxLogRotationServiceTests
 
         Assert.Contains("cache-a", error.Message, StringComparison.Ordinal);
         Assert.Contains("30 seconds", error.Message, StringComparison.Ordinal);
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task AnUnrelatedContainerWhoseInspectionHangsDoesNotStopTheStepAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nginx-writer-unrelated-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var target = Path.Combine(logs, "access.log");
+        await File.WriteAllTextAsync(target, "line");
+        var service = new TestNginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:ContainerName"] = "auto"
+            }).Build(),
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance) { DockerSocketAvailable = true, Root = root },
+            TimeProvider.System)
+        {
+            ProbeHostWriters = false,
+            ReplaceDockerLogs = true,
+            Hangs = command => command.Label == "docker nginx mount inspection" &&
+                command.Arguments.EndsWith(" db", StringComparison.Ordinal)
+        };
+        service.OnCommand = command => command.Label switch
+        {
+            "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "cache-b\ndb\n" },
+            "docker nginx mount inspection" => new ProcessCommandResult { ExitCode = 0, Output = $"{logs}|/logs\n" },
+            // db mounts a bind folder outside the logs and a named volume that no answered container mounts.
+            "docker nginx mount list" => new ProcessCommandResult
+            {
+                ExitCode = 0,
+                Output = $"cache-b|{logs}\ndb|{Path.Combine(root, "pgdata")},pgvolume\n"
+            },
+            "docker nginx writer identity" => new ProcessCommandResult { ExitCode = 0, Output = "72|owned\n" },
+            "docker nginx writer ownership" => new ProcessCommandResult { ExitCode = 0 },
+            _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
+        };
+        var source = CreateDatasource("default", root, logs, target);
+
+        // It waits the real 30 seconds for the container that does not answer.
+        await service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true)
+            .WaitAsync(TimeSpan.FromSeconds(45));
+
+        Assert.Single(service.Commands, command => command.Label == "docker nginx mount list");
         Directory.Delete(root, recursive: true);
     }
 
@@ -2055,6 +2110,7 @@ public sealed class NginxLogRotationServiceTests
         service.OnCommand = command => command.Label switch
         {
             "docker nginx writer list" => new ProcessCommandResult { ExitCode = 0, Output = "lancache\n" },
+            "docker nginx mount list" => new ProcessCommandResult { ExitCode = 0, Output = $"lancache|{root}\n" },
             "host mount namespace" => new ProcessCommandResult { ExitCode = 0, Output = "mnt:[107]\n" },
             "host nginx writer identity" => new ProcessCommandResult { ExitCode = 1 },
             _ => throw new InvalidOperationException($"Unexpected command: {command.Label} {command.Arguments}")
@@ -2062,7 +2118,7 @@ public sealed class NginxLogRotationServiceTests
         var source = CreateDatasource("default", root, root, target);
 
         // It waits the real 30 seconds for the inspection.
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<TimeoutException>(() =>
             service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true)
                 .WaitAsync(TimeSpan.FromSeconds(45)));
 

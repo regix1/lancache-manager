@@ -329,6 +329,9 @@ public class NginxLogRotationService
         var (containerName, error) = await FindMonolithicContainerAsync(CancellationToken.None);
         if (!string.IsNullOrWhiteSpace(containerName))
         {
+            // A detected container counts as available even when its nginx check did not answer (a sole LANCache-named
+            // container stays the target for that reason); the reopen itself then names the timeout. A configured container in
+            // that state answers Unknown above, which the page also offers as check-on-action.
             return DockerProbeResult.AvailableResult;
         }
 
@@ -759,6 +762,7 @@ public class NginxLogRotationService
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             var mounts = new Dictionary<string, IReadOnlyList<(string Source, string Destination)>>(StringComparer.Ordinal);
+            var timedOutInspections = new List<(string Name, string Error)>();
             foreach (var name in inspectionNames)
             {
                 var inspect = await RunLimitedAsync(
@@ -766,6 +770,13 @@ public class NginxLogRotationService
                         $"inspect --format \"{{{{range .Mounts}}}}{{{{println .Source \\\"|\\\" .Destination}}}}{{{{end}}}}\" {name}"),
                     "docker nginx mount inspection",
                     cancellationToken);
+                if (inspect.TimedOut)
+                {
+                    // Its mounts are unknown here; the container list below, which answers while a stuck container's
+                    // own commands hang, decides which logs it may write.
+                    timedOutInspections.Add((name, inspect.Error));
+                    continue;
+                }
                 if (inspect.ExitCode != 0)
                 {
                     var message = $"docker nginx mount inspection for '{name}' failed with exit code {inspect.ExitCode}";
@@ -857,6 +868,16 @@ public class NginxLogRotationService
                             candidateNamespace.StartsWith("mnt:[", StringComparison.Ordinal) &&
                             candidateNamespace.EndsWith(']') &&
                             ulong.TryParse(candidateNamespace.AsSpan(5, candidateNamespace.Length - 6), out _);
+                        if (candidate.TimedOut)
+                        {
+                            // This may be the manager's own container: without its mapping a writer matched by host
+                            // path could be missed, so the logs it mounts are not replaced.
+                            foreach (var path in relevantPaths)
+                            {
+                                unanswered[path].Add($"Container '{name}': {candidate.Error}");
+                            }
+                            continue;
+                        }
                         if (candidate.ExitCode != 0 || !candidateNumber)
                         {
                             var message =
@@ -910,6 +931,43 @@ public class NginxLogRotationService
                 foreach (var path in affectedPaths)
                 {
                     hostPaths[path] = path;
+                }
+            }
+
+            if (timedOutInspections.Count > 0)
+            {
+                var mountList = await RunLimitedAsync(
+                    CreateDockerStartInfo("ps --no-trunc --filter status=running --format \"{{.Names}}|{{.Mounts}}\""),
+                    "docker nginx mount list",
+                    cancellationToken);
+                foreach (var (name, error) in timedOutInspections)
+                {
+                    // Each entry is a bind mount's host source or a named volume's name.
+                    var entries = mountList.ExitCode == 0
+                        ? mountList.Output
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Select(line => line.Split('|', 2, StringSplitOptions.TrimEntries))
+                            .Where(parts => parts.Length == 2 && string.Equals(parts[0], name, StringComparison.Ordinal))
+                            .SelectMany(parts => parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                            .ToList()
+                        : null;
+                    foreach (var path in affectedPaths)
+                    {
+                        // A configured writer, or any container while Docker cannot list mounts, may write every log; a
+                        // listed container only the logs under its mounts, so an unrelated one that hangs never stops a step.
+                        var mayWrite = configured.Contains(name, StringComparer.Ordinal) || entries is null ||
+                            entries.Any(entry => Path.IsPathRooted(entry)
+                                ? IsWithinMount(path, entry, comparison) ||
+                                  (hostPaths[path] is { } hostPath && IsWithinMount(hostPath, entry, comparison))
+                                : mounts.Values.SelectMany(known => known).Any(mount =>
+                                    mount.Source.Replace('\\', '/').Contains($"/volumes/{entry}/", comparison) &&
+                                    (IsWithinMount(path, mount.Destination, comparison) ||
+                                     IsWithinMount(path, mount.Source, comparison))));
+                        if (mayWrite)
+                        {
+                            unanswered[path].Add($"Container '{name}': {error}");
+                        }
+                    }
                 }
             }
 
@@ -1289,9 +1347,10 @@ public class NginxLogRotationService
         return limit;
     }
 
-    // One command of a writer lookup, a container search or a reopen. A timeout reads as a failed command,
-    // which every caller already reports or skips: a hung Docker daemon cannot hold the log lock, and one
-    // container that does not answer cannot stop the search for the next. The caller's own cancel throws.
+    // One command of a writer lookup, a container search or a reopen, stopped after 30 seconds. A timeout is marked
+    // (TimedOut) and each caller decides what silence means: a writer read throws so the step names the container,
+    // the nginx check answers "unknown", and a search moves on to the next container. A hung Docker daemon cannot hold
+    // the log lock. The caller's own cancel throws.
     private async Task<ProcessCommandResult> RunLimitedAsync(
         ProcessStartInfo start,
         string label,
@@ -1317,7 +1376,8 @@ public class NginxLogRotationService
     /// <summary>
     /// Signals nginx to reopen log files. A configured or auto-detected LANCache container is
     /// preferred; when none is found, the host nginx master is signaled locally. Each command stops
-    /// after 30 seconds: a container that does not answer the nginx check is skipped, a writer that does not answer is
+    /// after 30 seconds: a container that does not answer the nginx check is skipped, except a sole LANCache-named
+    /// container, which stays the target so its writer read names the timeout; a writer that does not answer is
     /// named as not reopened, and a host writer read that does not answer fails the reopen. A cancel of
     /// <paramref name="cancellationToken"/> stops it.
     /// </summary>
