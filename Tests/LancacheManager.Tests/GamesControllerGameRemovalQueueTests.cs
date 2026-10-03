@@ -216,7 +216,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             operationQueue: null!,
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle(),
-            cacheSizeScan: null!);
+            cacheSizeScan: null!,
+            operationStateService: null!);
 
         var body = Assert.IsType<AllActiveRemovalsResponse>(Assert.IsType<OkObjectResult>(controller.GetAllActiveRemovals()).Value);
 

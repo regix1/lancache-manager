@@ -828,6 +828,9 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(1, warning.Context["failedCount"]);
         Assert.Equal(2, warning.Context["serviceCount"]);
         Assert.True(row.Retained);
+        // The record keeps the same warning, so a restart before the card is dismissed ends it amber too.
+        var repair = await fixture.WaitForCompletedRepairAsync(lastId);
+        Assert.Equal("common.notifications.warnings.servicesFailed", Assert.Single(repair.Warnings!).StageKey);
         fixture.Messages.Resume.TrySetResult();
     }
 
@@ -1238,7 +1241,7 @@ public sealed class CorruptionRemovalContractTests
                 _operationStateService);
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, CacheScanGateHarness.Idle(), null!);
+                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, CacheScanGateHarness.Idle(), null!, _operationStateService);
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)

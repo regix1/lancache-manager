@@ -48,6 +48,7 @@ public class CacheController : ControllerBase
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly CacheScanGate _cacheScanGate;
     private readonly CacheSizeScanScheduledService _cacheSizeScan;
+    private readonly OperationStateService _operationStateService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -66,8 +67,10 @@ public class CacheController : ControllerBase
         IOperationQueue operationQueue,
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate,
-        CacheSizeScanScheduledService cacheSizeScan)
+        CacheSizeScanScheduledService cacheSizeScan,
+        OperationStateService operationStateService)
     {
+        _operationStateService = operationStateService;
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
         _cacheSizeScan = cacheSizeScan;
@@ -1077,7 +1080,7 @@ public class CacheController : ControllerBase
                         // summary lands on its card, which ends amber instead of green.
                         if (_operationTracker.GetOperation(lastOperationId)?.Status == OperationStatus.Completed)
                         {
-                            _operationTracker.SetWarning(lastOperationId, new RunWarning(
+                            await _operationStateService.SetRunWarningAsync(lastOperationId, new RunWarning(
                                 "common.notifications.warnings.servicesFailed",
                                 new Dictionary<string, object?>
                                 {
