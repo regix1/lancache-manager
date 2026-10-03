@@ -129,6 +129,12 @@ public sealed class RustLogProcessorRefreshContractTests
         Assert.True(epicResolve > autoTag, "Epic resolve must run after auto-tag");
         Assert.True(blizzardResolve > epicResolve, "Blizzard resolve must run after Epic");
         Assert.True(xboxResolve > blizzardResolve, "Xbox resolve must run after Blizzard");
+
+        // Both endings that run the post-passes call them after the committed refresh.
+        var partialPostPasses = source.IndexOf("await RunPostPassesAsync(finalProgress.EntriesSaved, liveIngest);", StringComparison.Ordinal);
+        var completedPostPasses = source.IndexOf("await RunPostPassesAsync(finalProgress!.EntriesSaved, liveIngest);", StringComparison.Ordinal);
+        Assert.True(partialPostPasses > committedEmit, "the partial ending's post-passes must follow the committed-boundary refresh");
+        Assert.True(completedPostPasses > committedEmit, "the completed ending's post-passes must follow the committed-boundary refresh");
     }
 
     [Fact]

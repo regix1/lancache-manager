@@ -414,6 +414,42 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
+    public async Task ABatchThatFailedAfterADatasourceSkippedFilesStillNamesThemAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        fixture.State.SetLogPosition("beta", 7);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        // log_processor after one rotated member failed: terminal "partial", exit 0, the file named
+        // "path: reason".
+        var partial = TerminalProgress(7, 11, "partial", sourcePosition: 25);
+        partial.FilesWithErrors =
+        [
+            Path.Combine(Path.GetDirectoryName(fixture.LogFilePath)!, "access.log.2.gz") + ": unexpected end of file"
+        ];
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        await fixture.Pipe.ConnectAsync();
+        // The same ending FailedCheckpointWithExitOneKeepsCountsAndAllowsALaterLivePassAsync sends.
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(0, 0, "failed", sourcePosition: 7),
+            exitCode: 1);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("failed", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.logFilesSkipped", warning.StageKey);
+        Assert.Equal("access.log.2.gz", warning.Context["fileNames"]);
+    }
+
+    [Fact]
     public async Task BatchCancellationAfterAcceptedCountsKeepsCountsAndOffsetsAsync()
     {
         await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);

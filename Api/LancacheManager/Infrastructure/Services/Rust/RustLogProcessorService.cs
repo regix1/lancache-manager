@@ -282,10 +282,6 @@ public class RustLogProcessorService
                 null,
                 "Log processing completed successfully",
                 "signalr.logProcessing.complete");
-            if (batch.FailedFiles.Count > 0)
-            {
-                _operationTracker.SetWarning(operationId, SkippedLogFilesWarning(batch.FailedFiles, entriesProcessed));
-            }
             _operationTracker.CompleteOperation(
                 operationId,
                 true,
@@ -412,6 +408,13 @@ public class RustLogProcessorService
                 outcome.Cancelled,
                 outcome.Error);
             repairFinished = true;
+            // Files an earlier datasource skipped are named on every ending: completed, canceled or failed.
+            if (batch.FailedFiles.Count > 0)
+            {
+                await repairOwner.SetRunWarningAsync(
+                    batchOperationId,
+                    SkippedLogFilesWarning(batch.FailedFiles, confirmed.EntriesProcessed));
+            }
             CompleteBatchOperation(
                 batchOperationId,
                 batch,
@@ -448,6 +451,12 @@ public class RustLogProcessorService
 
             if (_operationTracker.GetOperation(batchOperationId)?.Status.IsTerminal() != true)
             {
+                if (batch.FailedFiles.Count > 0)
+                {
+                    await repairOwner.SetRunWarningAsync(
+                        batchOperationId,
+                        SkippedLogFilesWarning(batch.FailedFiles, finalMetrics.EntriesProcessed));
+                }
                 CompleteBatchOperation(
                     batchOperationId,
                     batch,
@@ -1600,7 +1609,7 @@ public class RustLogProcessorService
                             cancelled: false,
                             error: null);
                         repairFinished = true;
-                        _operationTracker.SetWarning(
+                        await repairOwner!.SetRunWarningAsync(
                             ownerOperationId.Value,
                             SkippedLogFilesWarning(finalProgress.FilesWithErrors, finalProgress.EntriesSaved));
                         _operationTracker.CompleteOperation(ownerOperationId.Value, true, onCompleting: operation => operation.Metadata = terminalMetrics);
