@@ -122,18 +122,21 @@ public partial class EpicMappingService
         }
 
         await _sessionLock.WaitAsync();
+        // The sign-in window has its own timer, so a cancel is the window running out exactly when that timer fired; a
+        // person's cancel or a logout cancels the sign-in's own source instead.
+        using var window = new CancellationTokenSource();
         CancellationTokenSource authCts;
         try
         {
-            authCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
+            authCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, window.Token);
         }
         catch (ObjectDisposedException)
         {
-            authCts = new CancellationTokenSource();
+            authCts = CancellationTokenSource.CreateLinkedTokenSource(window.Token);
         }
 
         var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
-        authCts.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        window.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
         if (!_authStorage.RunIntegrationLogin(login, () =>
         {
             _processingLogin = login;
@@ -249,7 +252,7 @@ public partial class EpicMappingService
             })) throw new OperationCanceledException();
             // The window bounds the sign-in, not the downloads step after it: the account is saved, so only a person's
             // cancel or a shutdown stops what follows.
-            authCts.CancelAfter(Timeout.InfiniteTimeSpan);
+            window.CancelAfter(Timeout.InfiniteTimeSpan);
             saved = true;
 
             await reporter.ReportAsync(
@@ -289,10 +292,10 @@ public partial class EpicMappingService
                 tokens.DisplayName,
                 _gamesDiscovered);
         }
-        // The window's timer counts whole milliseconds on a monotonic clock and was measured firing up to 0.8 ms before this
-        // wall-clock end on Linux, so a cancel within a second of the end counts as the window running out.
+        // A person's cancel, a logout or a shutdown: the window's timer had not fired and the clock had not passed its end.
+        // A check that reads the clock can find the window over a moment before the timer's callback runs.
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException &&
-                                                    (saved || DateTime.UtcNow < login.ExpiresAtUtc - TimeSpan.FromSeconds(1)))
+                                                    (saved || !window.IsCancellationRequested && DateTime.UtcNow < login.ExpiresAtUtc))
         {
             _logger.LogInformation("Epic mapping auth or collection cancelled");
             if (reporter is not null)

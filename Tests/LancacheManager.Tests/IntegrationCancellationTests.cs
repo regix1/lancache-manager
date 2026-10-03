@@ -5,10 +5,12 @@ using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -105,7 +107,8 @@ public sealed class IntegrationCancellationTests
 
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("completed", run.Status);
-        var notice = tracker.GetOperation(run.OperationId)!.Notice!;
+        Assert.Empty(run.Warnings);
+        var notice =tracker.GetOperation(run.OperationId)!.Notice!;
         Assert.Equal(mode, notice.Mode);
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
     }
@@ -148,8 +151,8 @@ public sealed class IntegrationCancellationTests
         Assert.Equal("completed", run.Status);
         var warning = Assert.Single(run.Warnings);
         Assert.Equal("common.notifications.warnings.epicStepsFailed", warning.StageKey);
-        // The service here has no database factory, so its downloads step fails too: two failed steps, the CDN step and that one.
-        Assert.Equal(2, warning.Context["count"]);
+        // Only the CDN step failed; the downloads step reads an empty database.
+        Assert.Equal(1, warning.Context["count"]);
     }
 
     [Fact]
@@ -213,7 +216,9 @@ public sealed class IntegrationCancellationTests
         IntegrationFixture fixture, HttpClient http, ServiceProvider services, UnifiedOperationTracker tracker) => new(
         NullLogger<EpicMappingService>.Instance,
         new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
-        DispatchProxy.Create<ISignalRNotificationService, Notifications>(), null!, tracker,
+        DispatchProxy.Create<ISignalRNotificationService, Notifications>(),
+        new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"epic_sign_in_{Guid.NewGuid():N}").Options), tracker,
         services.GetRequiredService<IServiceScopeFactory>(), DispatchProxy.Create<IStateService, NullReturningProxy>());
 
     [Fact]
