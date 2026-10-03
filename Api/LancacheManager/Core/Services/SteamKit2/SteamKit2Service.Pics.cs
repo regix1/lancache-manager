@@ -562,6 +562,7 @@ public partial class SteamKit2Service
                     // what pushed processedApps past totalApps and finished the bar early.
                     _totalAppsToProcess += dlcAppsToFetch.Count;
 
+                    var dlcBatchFailed = false;
                     foreach (var dlcBatch in dlcBatches)
                     {
                         _processedApps += dlcBatch.Length;
@@ -590,9 +591,14 @@ public partial class SteamKit2Service
                             // Session-fatal failures abort the crawl - the session could not be
                             // re-established, so every later batch would fail the same way.
                             // Anything else is a per-batch hiccup.
+                            dlcBatchFailed = true;
                             _logger.LogWarning(ex, "Failed to process DLC batch. Continuing...");
                         }
                     }
+
+                    // A failed DLC fetch leaves this batch's DLC depots unmapped; it counts the batch once,
+                    // so the warning's count stays within its total.
+                    if (dlcBatchFailed) _failedPicsBatches++;
                 }
 
                 _logger.LogTrace(
