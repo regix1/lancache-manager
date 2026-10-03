@@ -65,6 +65,10 @@ public class NginxLogRotationService
     private AvailabilityCacheEntry? _availability;
 
     protected virtual bool CanProbeHostWriters => OperatingSystem.IsLinux();
+    // A manager running in a container maps the logs from its own container; without that mapping a host path cannot be
+    // matched to a writer's bind mount.
+    protected virtual bool ManagerRunsInContainer =>
+        bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
     protected virtual bool CanReplaceDockerLogs => !OperatingSystem.IsWindows();
 
     public NginxLogRotationService(
@@ -815,6 +819,7 @@ public class NginxLogRotationService
             }
 
             var hostPaths = affectedPaths.ToDictionary(path => path, _ => (string?)null, pathComparer);
+            var managerMappingUnknown = false;
             if (CanProbeHostWriters)
             {
                 var localNamespace = new ProcessStartInfo
@@ -923,6 +928,7 @@ public class NginxLogRotationService
                         {
                             hostPaths[path] = path;
                         }
+                        managerMappingUnknown = ManagerRunsInContainer;
                     }
                 }
             }
@@ -947,15 +953,17 @@ public class NginxLogRotationService
                         ? mountList.Output
                             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                             .Select(line => line.Split('|', 2, StringSplitOptions.TrimEntries))
-                            .Where(parts => parts.Length == 2 && string.Equals(parts[0], name, StringComparison.Ordinal))
+                            // With --no-trunc Docker joins every name a container has, its link aliases included.
+                            .Where(parts => parts.Length == 2 && parts[0].Split(',').Contains(name, StringComparer.Ordinal))
                             .SelectMany(parts => parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                             .ToList()
                         : null;
                     foreach (var path in affectedPaths)
                     {
-                        // A configured writer, or any container while Docker cannot list mounts, may write every log; a
-                        // listed container only the logs under its mounts, so an unrelated one that hangs never stops a step.
-                        var mayWrite = configured.Contains(name, StringComparer.Ordinal) || entries is null ||
+                        // A configured writer, any container while Docker cannot list mounts, or any container while the manager's
+                        // own mapping is unknown may write every log; a listed container otherwise only the logs under its
+                        // mounts, so an unrelated one that hangs never stops a step.
+                        var mayWrite = configured.Contains(name, StringComparer.Ordinal) || entries is null || managerMappingUnknown ||
                             entries.Any(entry => Path.IsPathRooted(entry)
                                 ? IsWithinMount(path, entry, comparison) ||
                                   (hostPaths[path] is { } hostPath && IsWithinMount(hostPath, entry, comparison))
