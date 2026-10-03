@@ -242,7 +242,9 @@ public partial class EpicMappingService
             });
             return Task.FromResult(true);
         }
-        if (_isProcessingInt == 0 || _currentRefreshCts is null)
+        // The refresh's own cleanup disposes and clears this field, so it is read once.
+        var refresh = _currentRefreshCts;
+        if (_isProcessingInt == 0 || refresh is null)
         {
             return Task.FromResult(false);
         }
@@ -253,7 +255,7 @@ public partial class EpicMappingService
         _currentMappingReporter?.RequestCancellation();
         try
         {
-            _currentRefreshCts.Cancel();
+            refresh.Cancel();
             return Task.FromResult(true);
         }
         catch (ObjectDisposedException)

@@ -12,6 +12,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -201,6 +202,67 @@ public sealed class IntegrationCancellationTests
     }
 
     [Fact]
+    public async Task XOnTheEpicSignInCardDuringItsCdnStepStopsTheSignInAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        var tracker = NewTracker();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pressed = false;
+        // The card's X during the CDN step is the tracker cancel the cancel endpoint makes. The slow Epic server answers
+        // only when the test releases it, unless the request's own token is canceled first.
+        using var http = new HttpClient(new EpicSignInHandler
+        {
+            AtCdnRead = async cancellationToken =>
+            {
+                pressed = tracker.CancelOperation(Assert.Single(tracker.GetRuns().Runs).OperationId)
+                    == OperationCancelResult.Requested;
+                await release.Task.WaitAsync(cancellationToken);
+            }
+        });
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var service = NewEpicService(fixture, http, services, tracker);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+
+        var signIn = service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        // A sign-in the X did not reach is still held by the server; releasing it lets the test read how it ended.
+        if (await Task.WhenAny(signIn, Task.Delay(TimeSpan.FromSeconds(10))) != signIn) release.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => signIn.WaitAsync(TimeSpan.FromSeconds(20)));
+
+        Assert.True(pressed);
+        Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
+        Assert.False(service.IsAuthenticated);
+    }
+
+    [Fact]
+    public async Task AnEpicRefreshCancelThatMeetsTheRefreshsEndAnswersAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var logger = new RefreshEndingLogger();
+        using var service = new EpicMappingService(
+            logger,
+            new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
+            DispatchProxy.Create<ISignalRNotificationService, Notifications>(),
+            new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"epic_cancel_{Guid.NewGuid():N}").Options), NewTracker(),
+            services.GetRequiredService<IServiceScopeFactory>(), DispatchProxy.Create<IStateService, NullReturningProxy>());
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var field = typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!;
+        var refresh = new CancellationTokenSource();
+        typeof(EpicMappingService).GetField("_isProcessingInt", flags)!.SetValue(service, 1);
+        field.SetValue(service, refresh);
+        // The refresh's finally runs while the cancel logs: it disposes its source, then clears the field.
+        logger.OnCancelling = () =>
+        {
+            refresh.Dispose();
+            field.SetValue(service, null);
+        };
+
+        Assert.False(await service.CancelRefreshAsync());
+    }
+
+    [Fact]
     public async Task AnEpicSignInWhoseCatalogReadTimesOutEndsRedAsync()
     {
         using var fixture = new IntegrationFixture();
@@ -296,20 +358,23 @@ public sealed class IntegrationCancellationTests
     // read never answers, so it ends only when the caller's token or the client's timeout cancels it.
     // With FailCdn the second launcher-assets read (the first is the catalog read, the second the CDN step's)
     // fails at the transport, as SocketsHttpHandler does when the server refuses the connection.
+    // With AtCdnRead the CDN step's read runs that callback first, which can hold the read until the request's token is canceled.
     private sealed class EpicSignInHandler : HttpMessageHandler
     {
         private int _assetReads;
 
         public bool HangCatalog { get; init; }
         public bool FailCdn { get; init; }
+        public Func<CancellationToken, Task>? AtCdnRead { get; init; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (HangCatalog && request.Method != HttpMethod.Post) await Task.Delay(Timeout.Infinite, cancellationToken);
-            if (FailCdn && request.RequestUri!.AbsolutePath.EndsWith("/launcher/api/public/assets/Windows", StringComparison.Ordinal)
+            if (request.RequestUri!.AbsolutePath.EndsWith("/launcher/api/public/assets/Windows", StringComparison.Ordinal)
                 && Interlocked.Increment(ref _assetReads) == 2)
             {
-                throw new HttpRequestException("Connection refused");
+                if (FailCdn) throw new HttpRequestException("Connection refused");
+                if (AtCdnRead is not null) await AtCdnRead(cancellationToken);
             }
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -317,6 +382,25 @@ public sealed class IntegrationCancellationTests
                     ? """{"access_token":"access","refresh_token":"refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}"""
                     : "[]", Encoding.UTF8, "application/json")
             };
+        }
+    }
+
+    // Runs a callback when the service logs that it is cancelling the active refresh, which is between the cancel's two reads of the refresh's source.
+    private sealed class RefreshEndingLogger : ILogger<EpicMappingService>
+    {
+        public Action? OnCancelling { get; set; }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (formatter(state, exception).StartsWith("Cancelling active Epic catalog refresh", StringComparison.Ordinal))
+            {
+                OnCancelling?.Invoke();
+            }
         }
     }
 

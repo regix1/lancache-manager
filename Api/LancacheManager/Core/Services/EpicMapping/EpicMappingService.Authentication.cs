@@ -148,9 +148,9 @@ public partial class EpicMappingService
             Interlocked.Exchange(ref _isProcessingInt, 0);
             throw new OperationCanceledException();
         }
-        // Every step before the save waits on this token, so the window ends them; the steps after the save wait on the
-        // sign-in's own token, which the window cannot cancel, so a window that runs out during or after the save leaves
-        // a saved sign-in done.
+        // Every step before the save waits on this token (through steps once the card exists), so the window ends them;
+        // the steps after the save wait on the sign-in's own token, which the window cannot cancel, so a window that
+        // runs out during or after the save leaves a saved sign-in done.
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(authCts.Token, window.Token);
         MappingOperationReporter? reporter = null;
         var gamesDiscovered = 0;
@@ -186,6 +186,9 @@ public partial class EpicMappingService
             await reporter.StartAsync(CreateEpicContext(), login: login);
             _currentOperationId = reporter.OperationId;
             _currentStatus = EpicMappingStatus.RefreshingCatalog;
+            // The card's X cancels the reporter's own source, so once the card exists every step before the save also
+            // waits on it; the code exchange above had no card to stop it.
+            using var steps = CancellationTokenSource.CreateLinkedTokenSource(attempt.Token, reporter.Token);
 
             await reporter.ReportAsync(
                 15,
@@ -193,8 +196,8 @@ public partial class EpicMappingService
                 CreateEpicContext());
             var games = await _epicApiClient.GetOwnedGamesAsync(
                 tokens.AccessToken,
-                attempt.Token);
-            attempt.Token.ThrowIfCancellationRequested();
+                steps.Token);
+            steps.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             gamesDiscovered = games.Count;
 
@@ -205,7 +208,7 @@ public partial class EpicMappingService
                     games,
                     sessionHash,
                     "mapping-login",
-                    attempt.Token);
+                    steps.Token);
                 gamesDiscovered = result.TotalGames;
                 newGames = result.NewGames;
                 updatedGames = result.UpdatedGames;
@@ -219,12 +222,12 @@ public partial class EpicMappingService
             {
                 var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
                     tokens.AccessToken,
-                    attempt.Token);
-                attempt.Token.ThrowIfCancellationRequested();
+                    steps.Token);
+                steps.Token.ThrowIfCancellationRequested();
                 if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
                 if (cdnInfos.Count > 0)
                 {
-                    await MergeCdnPatternsAsync(cdnInfos, attempt.Token);
+                    await MergeCdnPatternsAsync(cdnInfos, steps.Token);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
@@ -233,7 +236,7 @@ public partial class EpicMappingService
                 _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
             }
 
-            attempt.Token.ThrowIfCancellationRequested();
+            steps.Token.ThrowIfCancellationRequested();
             if (!_authStorage.CompleteIntegrationLogin(login, new EpicAuthData
             {
                 OwnerAccountId = login.AccountId,
