@@ -1114,9 +1114,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
       ? 'failed'
       : live && (entry.cancel.cancelRequested || entry.cancel.cancelling)
         ? 'cancelling'
-        : waitsForAnotherJob(run)
-          ? 'waiting'
-          : run.status;
+        : run.status;
   const kept = run.retained === true && !live;
   // What an ended run left undone, worded by the locale key the server chose for each. A completed
   // run with one is an amber card; a canceled one stays gray and a failed one red, both showing
@@ -1259,8 +1257,16 @@ export function deriveNotifications(
         ? entry.visibility === 'card'
         : entry.visibility !== 'hidden';
     // A repairing card hidden here is still drawn, as its compact strip segment only.
-    if (drawn && (!entry.hiddenHere || (!isLive(entry) && entry.run.repairing)))
-      cards.push(drawRun(entry));
+    if (drawn && (!entry.hiddenHere || (!isLive(entry) && entry.run.repairing))) {
+      const card = drawRun(entry);
+      // A job held at its log step draws the purple waiting card here only; deriveRuns keeps it running, so
+      // the page gates still count it as busy while it waits.
+      cards.push(
+        card.status === 'running' && waitsForAnotherJob(entry.run)
+          ? { ...card, status: 'waiting' as const }
+          : card
+      );
+    }
   }
   for (const card of localCards) {
     const waiting = isTerminalNotificationStatus(card.status)

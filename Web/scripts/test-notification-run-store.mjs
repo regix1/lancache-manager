@@ -2891,6 +2891,12 @@ test('a running job held at its log step names what holds it, then shows its own
     assert.equal(browser.card('J').message, 'Job is waiting for Log Import', operationType);
     // A job held at its log step draws the purple waiting card.
     assert.equal(browser.card('J').status, 'waiting');
+    // The page gates read the run's own status, so a held job still counts as running there.
+    assert.equal(
+      deriveRuns(browser.state).find((run) => run.id === 'J').status,
+      'running',
+      operationType
+    );
     browser.push(row('J', fields));
     assert.equal(browser.card('J').message, 'Removing files', operationType);
   }
