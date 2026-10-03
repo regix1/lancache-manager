@@ -114,7 +114,10 @@ public partial class XboxCatalogMappingService
         caller ??= new(ownerAccountId, ownerAccountId, ownerAccountId is not null);
         var login = await _authStorage.BeginIntegrationLoginAsync(caller, attemptId, recover, ct);
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
-        lifetime.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
+        // The device code's limit bounds only the steps before the account is saved; the sign-in's own source (shutdown,
+        // and the person's cancel through the reporter) bounds the rest.
+        var window = new CancellationTokenSource();
+        window.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
         MappingOperationReporter? reporter = null;
         var startHeld = false;
         try
@@ -143,7 +146,7 @@ public partial class XboxCatalogMappingService
             }
             login = _authStorage.SetIntegrationLoginExpiry(login,
                 DateTime.UtcNow.AddSeconds(deviceCode.ExpiresIn));
-            lifetime.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
+            window.CancelAfter(login.ExpiresAtUtc - DateTime.UtcNow);
             XblRequestSigner? signer = null;
             if (!_authStorage.RunIntegrationLogin(login, () =>
             {
@@ -157,7 +160,7 @@ public partial class XboxCatalogMappingService
             })) throw new OperationCanceledException();
 
             var admitted = reporter!;
-            _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer!, admitted, login, lifetime), CancellationToken.None);
+            _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer!, admitted, login, lifetime, window), CancellationToken.None);
             return new XboxDeviceCodeChallenge
             {
                 UserCode = deviceCode.UserCode ?? string.Empty,
@@ -178,6 +181,7 @@ public partial class XboxCatalogMappingService
             }
             if (reporter is not null) await reporter.DisposeAsync();
             lifetime.Dispose();
+            window.Dispose();
             throw;
         }
         finally
@@ -197,9 +201,15 @@ public partial class XboxCatalogMappingService
         XblRequestSigner signer,
         MappingOperationReporter reporter,
         IntegrationLogin login,
-        CancellationTokenSource lifetime)
+        CancellationTokenSource lifetime,
+        CancellationTokenSource window)
     {
         var refreshGateHeld = false;
+        // Every step before the save waits on this token, so the device code's limit ends them; the steps after the save
+        // wait on the reporter's token, which the limit cannot cancel, so a limit that runs out during or after the save
+        // leaves a saved sign-in done.
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(reporter.Token, window.Token);
+        var saved = false;
         // The ending is sent after the finally below clears the sign-in, so a browser that reads the sign-in's status when
         // the event arrives finds it over; the dialog ignores an event while the status still says a sign-in runs.
         (OperationStatus Status, string StageKey, string? Message, string? Error, Dictionary<string, object?>? Context)? ending = null;
@@ -208,7 +218,7 @@ public partial class XboxCatalogMappingService
             // The sign-in holds the gate for the whole approval wait so a scheduled refresh cannot enter
             // while authentication is preparing the catalog it will merge. The wait is bounded: the device
             // code carries its own expiry and PollForTokenAsync stops at that deadline.
-            await _refreshGate.WaitAsync(reporter.Token);
+            await _refreshGate.WaitAsync(attempt.Token);
             refreshGateHeld = true;
 
             XboxMsaTokenResponse msaToken;
@@ -221,34 +231,34 @@ public partial class XboxCatalogMappingService
                     XboxAwaitingSignInStageKey,
                     "Waiting for Microsoft sign-in...");
 
-                msaToken = await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, reporter.Token);
+                msaToken = await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, attempt.Token);
             }
             finally
             {
                 _awaitingSignIn = false;
             }
 
-            reporter.Token.ThrowIfCancellationRequested();
+            attempt.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             var harvest = await _authClient.HarvestCatalogAsync(
                 msaToken.AccessToken!,
                 signer,
-                reporter.Token);
+                attempt.Token);
 
-            reporter.Token.ThrowIfCancellationRequested();
+            attempt.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             if (!_authStorage.RunIntegrationLogin(login, () => _currentMappingReporter = reporter))
                 throw new OperationCanceledException();
             await reporter.StartAsync(CreateXboxMappingContext(), login: login);
             if (harvest.CdnInfos.Count > 0)
             {
-                await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, reporter.Token);
+                await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, attempt.Token);
             }
             await reporter.ReportAsync(
                 70,
                 "signalr.xboxMapping.resolving",
                 CreateXboxMappingContext());
-            var resolved = await _mappingService.ResolveDownloadsAsync(reporter.Token);
+            var resolved = await _mappingService.ResolveDownloadsAsync(attempt.Token);
             _logger.LogInformation("Xbox mapping login resolved {Resolved} existing download(s)", resolved);
 
             await _authSessionLock.WaitAsync(CancellationToken.None);
@@ -261,7 +271,7 @@ public partial class XboxCatalogMappingService
                 {
                     throw new OperationCanceledException();
                 }
-                reporter.Token.ThrowIfCancellationRequested();
+                attempt.Token.ThrowIfCancellationRequested();
 
                 // Persist credentials (refresh token + device key) for auto-reconnect, atomically with the
                 // in-memory state under the lock so logout and login-success are mutually exclusive.
@@ -287,6 +297,7 @@ public partial class XboxCatalogMappingService
             {
                 _authSessionLock.Release();
             }
+            saved = true;
 
             await reporter.ReportAsync(
                 90,
@@ -310,14 +321,13 @@ public partial class XboxCatalogMappingService
                 harvest.DisplayName, harvest.CdnInfos.Count);
         }
         catch (Exception ex) when (ex is TimeoutException
-            || ex is OperationCanceledException { InnerException: not TimeoutException }
-                && (lifetime.IsCancellationRequested && !_shutdownCts.IsCancellationRequested
-                    || DateTime.UtcNow >= login.ExpiresAtUtc))
+            || !saved && ex is OperationCanceledException { InnerException: not TimeoutException }
+                && (window.IsCancellationRequested || DateTime.UtcNow >= login.ExpiresAtUtc))
         {
-            // The device code's limit ended the sign-in, before or after the person approved it: the app's limit, not the
-            // person's cancel, named in the reader's language. The limit's timer runs on a monotonic clock, so a host
-            // clock stepped back still reads as the limit; the clock check covers a check that found the code over before
-            // the timer's callback ran.
+            // The device code's limit ended the sign-in before its account was saved, before or after the person approved
+            // it: the app's limit, not the person's cancel, named in the reader's language. The limit's timer runs on a
+            // monotonic clock, so a host clock stepped back still reads as the limit; the clock check covers a check that
+            // found the code over before the timer's callback ran.
             _logger.LogInformation(ex, "Xbox mapping login expired");
             if (reporter.IsStarted)
             {
@@ -397,6 +407,7 @@ public partial class XboxCatalogMappingService
 
                 signer.Dispose();
                 lifetime.Dispose();
+                window.Dispose();
                 _authStorage.FinishIntegrationLogin(login);
                 await _authSessionLock.WaitAsync(CancellationToken.None);
                 try

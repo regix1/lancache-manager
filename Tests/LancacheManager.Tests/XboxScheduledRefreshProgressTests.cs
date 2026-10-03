@@ -205,10 +205,10 @@ public partial class XboxScheduledRefreshProgressTests
             "private async Task RunLoginPollAsync",
             StringComparison.Ordinal);
         var waitIndex = source.IndexOf(
-            "await _refreshGate.WaitAsync(reporter.Token)",
+            "await _refreshGate.WaitAsync(attempt.Token)",
             StringComparison.Ordinal);
         var pollIndex = source.IndexOf(
-            "await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, reporter.Token)",
+            "await _authClient.PollForTokenAsync(deviceCode, login.ExpiresAtUtc, attempt.Token)",
             StringComparison.Ordinal);
         var harvestIndex = source.IndexOf(
             "var harvest = await _authClient.HarvestCatalogAsync(",
@@ -468,6 +468,43 @@ public partial class XboxScheduledRefreshProgressTests
             harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
         Assert.Equal(OperationStatus.Failed, authState.Status);
         Assert.Equal("errors.integration.attemptExpired", authState.StageKey);
+    }
+
+    [Fact]
+    public async Task AnXboxSignInWhoseCodeRunsOutAfterItsAccountIsSavedStaysSignedInAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
+            CompleteHarvest = true,
+            DeviceCodeExpiresIn = 3
+        };
+        using var harness = new Harness(authHandler: auth);
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var held = false;
+        var expiry = DateTime.MaxValue;
+        // The first event after the account is saved is held until the code's limit has passed, as a slow client
+        // connection holds it in production.
+        harness.Notifications.OnNotify = _ =>
+        {
+            if (!held && harness.Service.IsAuthenticated)
+            {
+                held = true;
+                while (DateTime.UtcNow <= expiry.AddMilliseconds(300))
+                {
+                    Thread.Sleep(25);
+                }
+            }
+        };
+
+        var challenge = await harness.Service.StartLoginAsync(null, caller: owner);
+        expiry = challenge.ExpiresAtUtc;
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
+            harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
+        Assert.Equal(OperationStatus.Completed, authState.Status);
+        Assert.True(harness.Service.IsAuthenticated);
     }
 
     [Fact]
