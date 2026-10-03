@@ -345,8 +345,9 @@ export function ScheduleHistory() {
                   : `management.schedules.services.scheduledPrefill.config.services.${platformServiceKey}`;
               const platform =
                 platformKey !== null && i18n.exists(platformKey) ? t(platformKey) : null;
-              const detail =
-                typeof execution.detail === 'string' && execution.detail.trim().length > 0
+              const detail = execution.warning
+                ? t(execution.warning.stageKey, execution.warning.context)
+                : typeof execution.detail === 'string' && execution.detail.trim().length > 0
                   ? execution.detail
                   : null;
 
@@ -368,7 +369,11 @@ export function ScheduleHistory() {
                       </span>
                     </div>
                     <Badge
-                      variant={VARIANT_BY_STATUS[execution.status]}
+                      variant={
+                        execution.status === 'completed' && execution.warning
+                          ? 'warning'
+                          : VARIANT_BY_STATUS[execution.status]
+                      }
                       ariaLabel={t(`management.schedules.history.status.${execution.status}`)}
                     >
                       {t(`management.schedules.history.status.${execution.status}`)}

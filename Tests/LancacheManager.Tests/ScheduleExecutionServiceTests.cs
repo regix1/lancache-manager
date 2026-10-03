@@ -72,6 +72,34 @@ public sealed class ScheduleExecutionServiceTests
     }
 
     [Fact]
+    public async Task ACompletedRunWithAWarningKeepsItOnItsHistoryRowAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new ScheduleExecutionService(
+            database.Factory,
+            NullLogger<ScheduleExecutionService>.Instance);
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var id = tracker.RegisterOperation(
+            OperationType.LogRotation,
+            "Log Rotation",
+            new CancellationTokenSource(),
+            notice: new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
+        tracker.SetWarning(id, new RunWarning(
+            "signalr.scheduledPrefill.failedApps",
+            new Dictionary<string, object?> { ["failed"] = 1, ["total"] = 3 }));
+        tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
+
+        Assert.True(await service.InsertAsync(service.Capture(tracker.GetOperation(id)!, "scheduledPrefill")));
+
+        var item = Assert.Single((await service.GetPageAsync(1, 10)).Items);
+        Assert.Equal("signalr.scheduledPrefill.failedApps", item.Warning!.StageKey);
+        Assert.Equal(1, ((JsonElement)item.Warning.Context["failed"]!).GetInt32());
+        Assert.Equal(3, ((JsonElement)item.Warning.Context["total"]!).GetInt32());
+    }
+
+    [Fact]
     public async Task InsertRejectsOneOperationTwiceAndPagesTiedTimesByNewestId()
     {
         await using var database = await TestDatabase.CreateAsync();

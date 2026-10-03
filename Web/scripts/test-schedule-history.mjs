@@ -285,7 +285,7 @@ const makeComponent = (capture, language = 'en') => {
       completed: 'success',
       failed: 'danger',
       cancelled: 'neutral',
-      skipped: 'warning'
+      skipped: 'neutral'
     },
     SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY:
       platformConstants.SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
@@ -609,6 +609,26 @@ test('wire omissions render fallback titles without raw keys or blank detail sur
   assert.equal((html.match(/schedule-history-terminal-detail/g) ?? []).length, 1);
   assert.equal((html.match(/>Steam</g) ?? []).length, 1);
   assert.match(html, /first line\nsecond line/);
+});
+
+test('a completed row with a warning draws amber and prints the warning sentence', () => {
+  const items = [
+    {
+      id: 1,
+      operationId: 'warned',
+      serviceKey: 'scheduledPrefill',
+      status: 'completed',
+      startedAt: '2026-09-27T10:00:00Z',
+      completedAt: '2026-09-27T10:00:05Z',
+      workerStarted: true,
+      actorKind: 'server',
+      warning: { stageKey: 'signalr.scheduledPrefill.failedApps', context: { failed: 1, total: 3 } }
+    }
+  ];
+  const response = { items, page: 1, pageSize: 20, totalCount: 1, totalPages: 1 };
+  const { capture, html } = renderHistory(response, query(), new Set([1]));
+  assert.equal(capture.badges[0].variant, 'warning');
+  assert.match(html, /schedule-history-terminal-detail">1 of 3 games failed to download</);
 });
 
 test('the exact endpoint response renders all raw items without sanitizing omitted fields', () => {

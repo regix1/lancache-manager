@@ -75,6 +75,7 @@ public class ScheduleExecutionService
             StartedAt = DateTime.SpecifyKind(operation.StartedAt, DateTimeKind.Utc),
             CompletedAt = DateTime.SpecifyKind(operation.CompletedAt!.Value, DateTimeKind.Utc),
             Detail = detail,
+            Warning = operation.Status == OperationStatus.Completed ? operation.Warnings.FirstOrDefault() : null,
             ScheduleId = serviceRun?.ScheduleId,
             ScheduleName = serviceRun?.Name,
             Platform = serviceRun?.ServiceId,

@@ -35,6 +35,9 @@ public class ScheduleExecution
     [MaxLength(4096)]
     public string? Detail { get; set; }
 
+    /// <summary>The first warning of a completed run (it worked, with errors); drawn amber with its sentence.</summary>
+    public RunWarning? Warning { get; set; }
+
     public Guid? ScheduleId { get; set; }
 
     [MaxLength(256)]

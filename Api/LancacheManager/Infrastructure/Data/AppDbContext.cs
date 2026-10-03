@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -270,6 +271,11 @@ public class AppDbContext : DbContext
             execution.Property(item => item.Trigger).HasConversion<string>();
             execution.Property(item => item.ActorKind).HasConversion<string>();
             execution.Property(item => item.Platform).HasConversion<string>();
+            execution.Property(item => item.Warning)
+                .HasConversion(
+                    warning => warning == null ? null : JsonSerializer.Serialize(warning, (JsonSerializerOptions?)null),
+                    json => json == null ? null : JsonSerializer.Deserialize<RunWarning>(json, (JsonSerializerOptions?)null))
+                .HasMaxLength(4096);
 
             execution.HasIndex(item => item.OperationId)
                 .HasDatabaseName("IX_ScheduleExecutions_OperationId")

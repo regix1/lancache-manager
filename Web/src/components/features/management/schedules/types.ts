@@ -84,6 +84,7 @@ interface ScheduleExecutionFields {
   startedAt: string;
   completedAt: string;
   detail?: string | null;
+  warning?: { stageKey: string; context: Record<string, string | number> } | null;
   scheduleId?: string | null;
   scheduleName?: string | null;
   platform?: ScheduledPrefillServiceId | null;
