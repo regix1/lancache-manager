@@ -315,8 +315,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
           addNotification({
             type: 'generic',
             status: 'failed',
-            message: t('modals.steamAuth.errors.mobileConfirmationTimedOut'),
-            details: { notificationType: 'warning' }
+            message: t('modals.steamAuth.errors.mobileConfirmationTimedOut')
           });
           return false;
         }

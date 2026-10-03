@@ -84,7 +84,7 @@ const aliases = {
     'const hub={on(){},off(){},isConnected:true};export const useSignalR=()=>hub;'
   ),
   '@contexts/notifications': moduleUrl(
-    'const n={addNotification:()=>"card",updateNotification(){},removeNotification(){},scheduleAutoDismiss(){}};export const useNotifications=()=>n;export const NOTIFICATION_IDS={};'
+    'const n={addNotification:(card)=>{(globalThis.integrationTest.notifications??=[]).push(card);return "card"},updateNotification(){},removeNotification(){},scheduleAutoDismiss(){}};export const useNotifications=()=>n;export const NOTIFICATION_IDS={};'
   ),
   '@services/api.service': moduleUrl(
     'export default new Proxy({}, {get:(_target,key)=>(...args)=>globalThis.integrationTest.api[key](...args)});'
@@ -624,6 +624,38 @@ test('Steam continuation and stale cancellation keep the displayed opaque attemp
     assert.equal(view.render().state.username, '');
     old.actions.cancelLogin();
     assert.ok(f.calls.filter(Array.isArray).every((call) => call[2] === first));
+  } finally {
+    view.unmount();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Steam phone confirmation timeout adds a failed card that draws red', async () => {
+  const f = setup();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ sessionExpired: true, attemptId: body.attemptId }));
+  };
+  const view = await mount(() =>
+    useSteamLoginFlow({
+      loginUrl: '/login',
+      integration: {
+        identity: 'a',
+        access: { canManage: true, canSignIn: true },
+        refresh: async () => undefined
+      }
+    })
+  );
+  try {
+    view.read().actions.setUsername('steam-a');
+    view.read().actions.setPassword('password');
+    view.render();
+    await view.read().actions.handleAuthenticate();
+    assert.equal(f.notifications.length, 1);
+    assert.equal(f.notifications[0].status, 'failed');
+    assert.equal(f.notifications[0].message, 'modals.steamAuth.errors.mobileConfirmationTimedOut');
+    assert.equal(f.notifications[0].details?.notificationType, undefined);
   } finally {
     view.unmount();
     globalThis.fetch = originalFetch;

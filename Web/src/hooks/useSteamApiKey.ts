@@ -116,7 +116,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     }
   };
 
-  // status 'completed' + cancelled:true == RED + XCircle (cancel); 'failed' == RED;
+  // status 'completed' + cancelled:true == GRAY (cancel); 'failed' == RED;
   // plain 'completed' == green.
   const settleWebApiCard = (
     status: 'completed' | 'failed',
