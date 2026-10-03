@@ -508,6 +508,31 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(ScheduledPrefillServiceRunResult.Failed, await task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    [Fact]
+    public async Task AUserCancelSeenWithTheTimeLimitIsSentAsTheUsersCancelAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        fixture.Client.CompleteCancellation = false;
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        using var cancel = new CancellationTokenSource();
+        var run = await fixture.StartAsync("20");
+        run.Snapshot = run.Snapshot with { StartedAt = DateTimeOffset.UtcNow.AddDays(-2) };
+        var serviceRun = MakeRun("20") with
+        {
+            OperationId = run.PrefillRunId,
+            OperationIdString = run.PrefillRunId.ToString(),
+            Token = cancel.Token
+        };
+        await cancel.CancelAsync();
+        var task = Watch(scheduler, fixture, run, serviceRun);
+        await WaitUntilAsync(() => run.CancelRequested);
+        Assert.Null(run.CancelReason);
+        fixture.Client.Set(run, "cancelled", 12, "cancelled");
+        await fixture.RefreshAsync();
+        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

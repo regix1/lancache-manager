@@ -1499,8 +1499,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                             >= config.StallTimeout;
                     if (serviceRun.Token.IsCancellationRequested || expired)
                     {
+                        // A cancel the person sent is theirs even when the limit passed before this pass saw it.
                         await daemon.CancelPrefillRunAsync(session.Id, run.PrefillRunId, CancellationToken.None,
-                            expired ? "runtime-exceeded" : null);
+                            expired && !serviceRun.Token.IsCancellationRequested ? "runtime-exceeded" : null);
                     }
                     else if (stalled)
                         await daemon.FailStalledSessionAsync(session, run.PrefillRunId, now,

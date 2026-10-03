@@ -690,33 +690,6 @@ public class PrefillSessionService
         return [.. active, .. recent];
     }
 
-    // Each game's stored result of one run, so a run loaded after a restart still tells a run that lost
-    // some games from one that stopped early.
-    internal async Task<List<DaemonRunItem>> GetRunItemsAsync(Guid runId, CancellationToken cancellationToken)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
-        // No cap: the read covers one run and is bounded by that run's game count.
-        var entries = await context.PrefillHistoryEntries.AsNoTracking()
-            .Where(e => e.RunId == runId)
-            .ToListAsync(cancellationToken);
-        return [.. entries.Select(e => new DaemonRunItem
-        {
-            AppId = e.AppId,
-            Name = e.AppName,
-            Result = e.Status switch
-            {
-                PrefillHistoryEntryStatus.Completed => "success",
-                PrefillHistoryEntryStatus.Cached => "already_cached",
-                PrefillHistoryEntryStatus.Failed => "failed",
-                PrefillHistoryEntryStatus.Cancelled => "cancelled",
-                PrefillHistoryEntryStatus.Skipped => "skipped",
-                _ => null
-            },
-            Reason = e.Reason,
-            Sequence = e.Sequence
-        })];
-    }
-
     internal async Task<List<PrefillRunFailedGame>?> GetFailedGamesAsync(Guid runId, PrefillPlatform platform,
         CancellationToken cancellationToken)
     {
