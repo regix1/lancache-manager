@@ -693,6 +693,55 @@ public sealed partial class PrefillContainerOrchestrationTests
     }
 
     [Fact]
+    public async Task AHeadlessSignInFromTheStoredLoginLetsTheImageUpdateApplyAsync()
+    {
+        var client = new ScriptedLoginDaemonClient();
+        var scenario = NewImageScenario(client, authenticated: false);
+        using var daemon = scenario.Daemon;
+        var daemonInstanceId = scenario.Status.DaemonInstanceId!;
+        client.StatusHandler = _ => Task.FromResult<DaemonStatus?>(
+            client.StartLoginCallCount > 0 ? IdleStatus(daemonInstanceId) : scenario.Status);
+
+        await daemon.AttemptHeadlessPersistentSelfAuthAsync(scenario.Session);
+
+        Assert.Equal(DaemonAuthState.Authenticated, scenario.Session.AuthState);
+        Assert.True(scenario.Session.LoginSettled);
+        await daemon.ReconcilePersistentImageAsync(CancellationToken.None);
+
+        Assert.Single(scenario.Gateway.Removals, removal => removal.Id == "container-a");
+    }
+
+    [Fact]
+    public async Task AnImageUpdateWaitsForASignInCancelTheDaemonHasNotAnsweredAsync()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: ImageChallenge("cancel-wait"))
+        {
+            HoldCancelLogin = true
+        };
+        var scenario = NewImageScenario(client, authenticated: false);
+        using var daemon = scenario.Daemon;
+        var daemonInstanceId = scenario.Status.DaemonInstanceId!;
+        client.StatusOverride = scenario.Status;
+
+        var first = await daemon.StartLoginAsync(scenario.Session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(scenario.Session.Id, CancellationToken.None, first!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        client.StatusOverride = IdleStatus(daemonInstanceId);
+        client.LoginFinished = true;
+        await daemon.GetSessionStatusAsync(scenario.Session.Id);
+        await daemon.ReconcilePersistentImageAsync(CancellationToken.None);
+
+        Assert.Equal(0, scenario.Gateway.DestructiveCallCount);
+
+        client.ReleaseCancelLogin.SetResult();
+        Assert.False(await cancel);
+        await daemon.ReconcilePersistentImageAsync(CancellationToken.None);
+
+        Assert.Single(scenario.Gateway.Removals, removal => removal.Id == "container-a");
+    }
+
+    [Fact]
     public async Task FailedHeadlessCancelKeepsImageReplacementDeferredAsync()
     {
         var client = new ScriptedLoginDaemonClient(challengeOnLogin: ImageChallenge("failed-image-cancel"))

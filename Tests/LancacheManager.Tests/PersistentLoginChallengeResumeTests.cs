@@ -268,6 +268,46 @@ public class PersistentLoginChallengeResumeTests
         Assert.Equal(authStateBeforeCancel, session.AuthState);
     }
 
+    /// <summary>
+    /// A sign-in that finishes while the cancel is still waiting on the daemon ends signed in; when the daemon then
+    /// leaves the cancel unanswered, the session owes no challenge and is settled.
+    /// </summary>
+    [Fact]
+    public async Task AnUnansweredCancelOfASignInThatFinishedRestoresNoChallengeAsync()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            CancelAcknowledged = false,
+            HoldCancelLogin = true
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        client.StatusOverride = new DaemonStatus
+        {
+            ProtocolVersion = 2,
+            DaemonInstanceId = Guid.NewGuid().ToString(),
+            MaxConcurrentRuns = 1,
+            MaxConcurrentRequests = 1,
+            Features = ["concurrentPrefill", "operationProgress", "targetedCancel", "inlineSelection", "activeOperations"],
+            ActiveOperations = [],
+            RecentOperations = [],
+            Status = "logged-in"
+        };
+        client.LoginFinished = true;
+        await daemon.GetSessionStatusAsync(session.Id);
+        client.ReleaseCancelLogin.SetResult();
+
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => cancel);
+
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.True(session.LoginSettled);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+    }
+
     [Fact]
     public async Task CancelLoginAsync_UnacknowledgedCancelKeepsSettledSessionReady()
     {

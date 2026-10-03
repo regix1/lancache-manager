@@ -293,7 +293,9 @@ public abstract partial class PrefillDaemonServiceBase
             && session.LoginOperationId is null
             && session.AuthState != DaemonAuthState.LoggingIn
             && session.LoginSettled
-            && !session.SuppressLoginChallengePublication;
+            && !session.SuppressLoginChallengePublication
+            // A sign-in cancel still waiting for the daemon decides whether the sign-in ended; the container stays until it does.
+            && !session.LoginCanceling;
     }
 
     private async Task TryReplacePersistentImageAsync(
@@ -357,6 +359,7 @@ public abstract partial class PrefillDaemonServiceBase
                     || session.LoginOperationId is not null
                     || session.AuthState == DaemonAuthState.LoggingIn
                     || !session.LoginSettled
+                    || session.LoginCanceling
                     || !sameGeneration
                     || !sameImageDecision)
                 {

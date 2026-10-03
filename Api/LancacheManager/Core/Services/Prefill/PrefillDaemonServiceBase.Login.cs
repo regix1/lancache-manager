@@ -93,7 +93,13 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     case LoginAttemptOutcome.Authenticated:
                         // The daemon self-authenticated from its stored volume login; the login flow
-                        // already flipped auth state and broadcast through the existing flows.
+                        // already flipped auth state and broadcast through the existing flows. Its status
+                        // push skipped the settle while this attempt suppressed the challenge, so the
+                        // attempt settles the session; a persistent container's image update waits for it.
+                        lock (session.PrefillLock)
+                        {
+                            session.LoginSettled = true;
+                        }
                         return;
 
                     case LoginAttemptOutcome.Failed:
@@ -1486,11 +1492,19 @@ public abstract partial class PrefillDaemonServiceBase
                         && ReferenceEquals(session.Client, client)
                         && !session.AdmissionClosed)
                     {
-                        if (session.PendingLoginChallenge is null)
+                        // A sign-in that finished while the cancel went unanswered owes no challenge and is settled.
+                        if (session.AuthState == DaemonAuthState.Authenticated)
                         {
-                            session.PendingLoginChallenge = capturedPendingChallenge;
+                            session.LoginSettled = true;
                         }
-                        session.LoginSettled = settledBeforeCancel;
+                        else
+                        {
+                            if (session.PendingLoginChallenge is null)
+                            {
+                                session.PendingLoginChallenge = capturedPendingChallenge;
+                            }
+                            session.LoginSettled = settledBeforeCancel;
+                        }
                     }
                 }
             }
