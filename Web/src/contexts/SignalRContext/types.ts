@@ -448,6 +448,8 @@ export interface GameRemovalCompleteEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   cancelled?: boolean;
+  /** The run completed but a failed datasource still holds the files, so the entry stays listed. */
+  entityKept?: boolean;
   gameAppId: number | null;
   epicAppId: string | null;
   gameName?: string;
@@ -479,6 +481,8 @@ export interface ServiceRemovalCompleteEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
+  /** The run completed but a failed datasource still holds the files, so the entry stays listed. */
+  entityKept?: boolean;
   serviceName: string;
   filesDeleted?: number;
   bytesFreed?: number;

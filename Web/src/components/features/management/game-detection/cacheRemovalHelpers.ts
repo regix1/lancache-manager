@@ -97,9 +97,9 @@ export function useCompletedRemovalPruning({
   const { on, off } = useSignalR();
 
   useEffect(() => {
-    // A canceled or failed removal leaves the entity on disk, so only a success prunes it.
+    // A canceled or failed removal leaves the entity on disk, and so does one that failed on a datasource, so only a removal that finished everywhere prunes it.
     const handleGameRemovalComplete = (event: GameRemovalCompleteEvent) => {
-      if (!event.success || event.cancelled === true) return;
+      if (!event.success || event.cancelled === true || event.entityKept === true) return;
       const target: CacheRemovalTarget = {
         gameAppId: event.gameAppId ?? undefined,
         epicAppId: event.epicAppId ?? undefined,
@@ -109,7 +109,7 @@ export function useCompletedRemovalPruning({
     };
 
     const handleServiceRemovalComplete = (event: ServiceRemovalCompleteEvent) => {
-      if (!event.success || event.cancelled === true) return;
+      if (!event.success || event.cancelled === true || event.entityKept === true) return;
       const target: CacheRemovalTarget = { serviceName: event.serviceName };
       setServices((prev) => pruneServicesByRemovalTarget(prev, target));
     };
