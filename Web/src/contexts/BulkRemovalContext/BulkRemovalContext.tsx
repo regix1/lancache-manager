@@ -103,13 +103,11 @@ function settleBatchItem({
     case 'skipped':
       throw new Error(end.error ?? neverStartedMessage);
     case 'gone':
-      // The server keeps a failed removal run until it is closed, so after X a run it stopped tracking
-      // ended canceled, not failed.
-      if (ctx.wasCancelled()) {
-        ctx.cancelRun();
-        return false;
-      }
-      throw new Error(failedMessage);
+      // The server keeps a failed removal run until it is closed, so a run it stopped tracking ended completed,
+      // canceled or skipped: after X it counts as canceled, otherwise as done. A run a restart interrupted comes
+      // back as its own red card.
+      if (ctx.wasCancelled()) ctx.cancelRun();
+      return false;
   }
 }
 

@@ -193,7 +193,7 @@ const createBatchHarness = (queueName = 'runCacheQueue') => {
       cancelRunCalls += 1;
       cancelRun();
     },
-    // As useBatchQueue.ts:276 reads it.
+    // As useBatchQueue.ts reads its cancel latch.
     wasCancelled: () => cancelRequestedRef.current
   };
 
@@ -430,8 +430,7 @@ test('each way a run ends settles the item the way the batch counts it', async (
     [{ status: 'failed', error: 'disk full' }, 'disk full'],
     [{ status: 'failed' }, 'Service removal failed for steam'],
     [{ status: 'skipped' }, 'Service removal never started for steam'],
-    [{ status: 'skipped', error: 'nothing to remove' }, 'nothing to remove'],
-    [{ status: 'gone' }, 'Service removal failed for steam']
+    [{ status: 'skipped', error: 'nothing to remove' }, 'nothing to remove']
   ];
   for (const [terminal, message] of outcomes) {
     const harness = createBatchHarness();
@@ -461,6 +460,20 @@ test('an item whose run the browser lost after X ends canceled, not failed', asy
   harness.end({ operationId: 'run-x', status: 'gone' });
   await settled;
   assert.equal(harness.cancelRunCount(), 1);
+});
+
+test('an item whose run the browser lost without X counts as done', async () => {
+  const harness = createBatchHarness();
+  const settled = harness.start(SERVICE_ENTRY, {
+    operationId: 'run-x',
+    queued: false,
+    alreadyRunning: false,
+    status: 'running'
+  });
+  await flush();
+  harness.end({ operationId: 'run-x', status: 'gone' });
+  await settled;
+  assert.equal(harness.cancelRunCount(), 0);
 });
 
 test('a cancel with no operation id yet ends the run cleanly and reports nothing', async () => {
