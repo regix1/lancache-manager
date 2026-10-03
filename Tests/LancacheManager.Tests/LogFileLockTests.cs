@@ -320,6 +320,22 @@ public sealed class LogFileLockTests : IDisposable
     }
 
     [Fact]
+    public async Task AStepWaitingOnlyBehindAReopenDoesNotHoldOffTheImportAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+
+        var reopenLock = await LockAsync(owner, LogFileLockKind.Reopen);
+        var step = LockAsync(owner, LogFileLockKind.Rewrite);
+        Assert.False(step.IsCompleted);
+
+        var pass = await LockAsync(owner, LogFileLockKind.Ingest).WaitAsync(TimeSpan.FromSeconds(2));
+        await pass.DisposeAsync();
+        await reopenLock.DisposeAsync();
+        await using var stepLock = await step.WaitAsync(_wait);
+    }
+
+    [Fact]
     public async Task WaitForLogStepCompletesOnlyOnTheMatchingChangeAsync()
     {
         await using var harness = await CreateHarnessAsync();

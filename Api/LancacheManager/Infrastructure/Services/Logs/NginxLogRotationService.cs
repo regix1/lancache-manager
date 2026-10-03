@@ -321,12 +321,12 @@ public class NginxLogRotationService
         if (!string.IsNullOrWhiteSpace(configuredName) &&
             !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            return await ContainerHasNginxAsync(configuredName)
+            return await ContainerHasNginxAsync(configuredName, CancellationToken.None)
                 ? DockerProbeResult.AvailableResult
                 : DockerProbeResult.Unknown;
         }
 
-        var (containerName, error) = await FindMonolithicContainerAsync();
+        var (containerName, error) = await FindMonolithicContainerAsync(CancellationToken.None);
         if (!string.IsNullOrWhiteSpace(containerName))
         {
             return DockerProbeResult.AvailableResult;
@@ -649,7 +649,7 @@ public class NginxLogRotationService
         File.Move(temporaryPath, checkPath, overwrite: true);
     }
 
-    private static async Task<NginxPublicationResult> ReadPublicationResultAsync(
+    internal static async Task<NginxPublicationResult> ReadPublicationResultAsync(
         NginxReopenCheck check,
         CancellationToken cancellationToken)
     {
@@ -914,7 +914,7 @@ public class NginxLogRotationService
                 {
                     continue;
                 }
-                var writer = await ReadDockerWriterIdentityAsync(name);
+                var writer = await ReadDockerWriterIdentityAsync(name, cancellationToken);
                 if (writer is null)
                 {
                     if (configured.Contains(name, StringComparer.Ordinal))
@@ -1051,12 +1051,15 @@ public class NginxLogRotationService
         return new NginxWriterMatch(writer, Matches: false);
     }
 
-    private async Task<NginxWriterIdentity?> ReadDockerWriterIdentityAsync(string containerName)
+    private async Task<NginxWriterIdentity?> ReadDockerWriterIdentityAsync(
+        string containerName,
+        CancellationToken cancellationToken)
     {
         var identities = await RunProcessAsync(
             CreateDockerStartInfo(
                 $"exec {containerName} sh -c \"pids=\\\"$(cat /run/nginx.pid 2>/dev/null; cat /var/run/nginx.pid 2>/dev/null; pgrep -f 'nginx[:] master' 2>/dev/null)\\\"; found=; for pid in $pids; do case \\\"$pid\\\" in ''|*[!0-9]*) continue;; esac; tr '\\0' ' ' </proc/$pid/cmdline 2>/dev/null | grep -q 'nginx: master' || continue; start=$(awk '{{print $22}}' /proc/$pid/stat 2>/dev/null) || continue; test -n \\\"$start\\\" || continue; printf '%s|%s\\n' \\\"$pid\\\" \\\"$start\\\"; found=1; done; test -n \\\"$found\\\"\""),
-            "docker nginx writer identity");
+            "docker nginx writer identity",
+            cancellationToken);
         if (identities.ExitCode != 0)
         {
             return null;
@@ -1073,7 +1076,8 @@ public class NginxLogRotationService
             var ownership = await RunProcessAsync(
                 CreateDockerStartInfo(
                     $"exec {containerName} sh -c \"owner=$(readlink /proc/self/ns/mnt 2>/dev/null) || exit 5; test -n \\\"$owner\\\" || exit 5; candidate=$(readlink /proc/{candidate.ProcessId}/ns/mnt 2>/dev/null) || exit 6; test \\\"$candidate\\\" = \\\"$owner\\\" || exit 7; start=$(awk '{{print $22}}' /proc/{candidate.ProcessId}/stat 2>/dev/null) || exit 8; test \\\"$start\\\" = '{candidate.StartIdentity}'\""),
-                "docker nginx writer ownership");
+                "docker nginx writer ownership",
+                cancellationToken);
             if (ownership.ExitCode == 0)
             {
                 return candidate;
@@ -1215,10 +1219,20 @@ public class NginxLogRotationService
 
     /// <summary>
     /// Signals nginx to reopen log files. A configured or auto-detected LANCache container is
-    /// preferred; when none is found, the host nginx master is signaled locally.
+    /// preferred; when none is found, the host nginx master is signaled locally. Each command stops
+    /// after 30 seconds, which fails the reopen; a cancel of <paramref name="cancellationToken"/> stops it.
     /// </summary>
-    public async Task<LogRotationResult> ReopenNginxLogsAsync()
+    public async Task<LogRotationResult> ReopenNginxLogsAsync(CancellationToken cancellationToken)
     {
+        // Each command of the reopen stops after the writer-signal limit, so a hung Docker daemon fails the
+        // rotation and frees the log lock; the run's token (X on its card) stops it at once.
+        CancellationTokenSource Limit()
+        {
+            var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(_writerSignalTimeout);
+            return limit;
+        }
+
         void LogBareMetalFailure(string failureReason, Exception? exception = null)
         {
             var shouldLog = false;
@@ -1276,7 +1290,11 @@ public class NginxLogRotationService
             {
                 foreach (var containerName in configuredNames)
                 {
-                    var writer = await ReadDockerWriterIdentityAsync(containerName);
+                    NginxWriterIdentity? writer;
+                    using (var limit = Limit())
+                    {
+                        writer = await ReadDockerWriterIdentityAsync(containerName, limit.Token);
+                    }
                     if (writer is null)
                     {
                         return LogRotationResult.Failed(
@@ -1287,11 +1305,20 @@ public class NginxLogRotationService
             }
             else
             {
-                var (containerName, error) = await FindMonolithicContainerAsync();
+                string? containerName;
+                string? error;
+                using (var limit = Limit())
+                {
+                    (containerName, error) = await FindMonolithicContainerAsync(limit.Token);
+                }
                 detectionError = error;
                 if (!string.IsNullOrEmpty(containerName))
                 {
-                    var writer = await ReadDockerWriterIdentityAsync(containerName);
+                    NginxWriterIdentity? writer;
+                    using (var limit = Limit())
+                    {
+                        writer = await ReadDockerWriterIdentityAsync(containerName, limit.Token);
+                    }
                     if (writer is null)
                     {
                         return LogRotationResult.Failed(
@@ -1320,7 +1347,11 @@ public class NginxLogRotationService
 
             foreach (var writer in writers)
             {
-                var signal = await SignalWriterAsync(writer, CancellationToken.None);
+                ProcessCommandResult signal;
+                using (var limit = Limit())
+                {
+                    signal = await SignalWriterAsync(writer, limit.Token);
+                }
                 if (signal.ExitCode != 0)
                 {
                     return LogRotationResult.Failed(
@@ -1335,7 +1366,12 @@ public class NginxLogRotationService
             }
             return LogRotationResult.Succeeded();
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return LogRotationResult.Failed(
+                $"Reopening the nginx logs stopped: a command did not finish within {_writerSignalTimeout.TotalSeconds:0} seconds");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Failed while attempting best-effort nginx log reopen");
             return LogRotationResult.Failed(ex.Message);
@@ -1347,7 +1383,8 @@ public class NginxLogRotationService
     /// with nginx checks as a fallback when there are multiple candidates.
     /// </summary>
     /// <returns>A tuple of (container name, error message). If container is found, error is null.</returns>
-    protected virtual async Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync()
+    protected virtual async Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync(
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -1365,7 +1402,7 @@ public class NginxLogRotationService
             var processStartInfo = CreateDockerStartInfo(
                 "ps --filter status=running --format \"{{.Names}}|{{.Image}}\"");
 
-            var result = await RunProcessAsync(processStartInfo, "docker ps");
+            var result = await RunProcessAsync(processStartInfo, "docker ps", cancellationToken);
 
             if (result.ExitCode != 0)
             {
@@ -1441,7 +1478,7 @@ public class NginxLogRotationService
             {
                 foreach (var candidate in monolithicCandidates)
                 {
-                    var hasNginx = await ContainerHasNginxAsync(candidate.Name);
+                    var hasNginx = await ContainerHasNginxAsync(candidate.Name, cancellationToken);
                     if (hasNginx)
                     {
                         _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
@@ -1460,7 +1497,7 @@ public class NginxLogRotationService
                 // A single "lancache"-named match is ambiguous: a database or other sidecar
                 // can share the prefix, so confirm nginx is actually present before claiming
                 // it as the reopen target. If it is not, keep searching for a real nginx host.
-                if (await ContainerHasNginxAsync(match.Name))
+                if (await ContainerHasNginxAsync(match.Name, cancellationToken))
                 {
                     _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", match.Name);
                     return (match.Name, null);
@@ -1475,7 +1512,7 @@ public class NginxLogRotationService
             {
                 foreach (var candidate in candidates)
                 {
-                    var hasNginx = await ContainerHasNginxAsync(candidate.Name);
+                    var hasNginx = await ContainerHasNginxAsync(candidate.Name, cancellationToken);
                     if (hasNginx)
                     {
                         _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
@@ -1494,7 +1531,7 @@ public class NginxLogRotationService
             {
                 if (LooksLikeNonCache(container.Name) || LooksLikeNonCache(container.Image)) continue;
 
-                var hasNginx = await ContainerHasNginxAsync(container.Name);
+                var hasNginx = await ContainerHasNginxAsync(container.Name, cancellationToken);
                 if (!hasNginx) continue;
 
                 // Found a container with nginx
@@ -1507,7 +1544,7 @@ public class NginxLogRotationService
             _logger.LogDebug("No suitable nginx container found; trying host nginx signaling");
             return (null, NoNginxContainerFoundError);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogDebug(ex, "Container detection failed; trying host nginx signaling");
             return (null, ex.Message);
@@ -1517,17 +1554,17 @@ public class NginxLogRotationService
     /// <summary>
     /// Check if a container has nginx by trying to execute nginx -v
     /// </summary>
-    private async Task<bool> ContainerHasNginxAsync(string containerName)
+    private async Task<bool> ContainerHasNginxAsync(string containerName, CancellationToken cancellationToken)
     {
         try
         {
             var processStartInfo = CreateDockerStartInfo(
                 $"exec {containerName} sh -c \"which nginx || command -v nginx\"");
 
-            var result = await RunProcessAsync(processStartInfo, "docker exec nginx-check");
+            var result = await RunProcessAsync(processStartInfo, "docker exec nginx-check", cancellationToken);
             return result.ExitCode == 0;
         }
-        catch
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return false;
         }

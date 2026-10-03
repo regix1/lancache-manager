@@ -17,7 +17,8 @@ public partial class OperationStateService
     /// A step waits for the current import pass to end and for the speed tracker to stop; no new
     /// pass starts while a step waits, and an import that waited through a step goes next. A reopen
     /// waits only for a step, and a step waits for a reopen; neither the import nor the speed tracker
-    /// waits for a reopen.
+    /// waits for a reopen. A step that waits only behind a reopen does not hold off the import, since
+    /// it cannot be granted while the reopen holds.
     /// </summary>
     public async Task<LogFileLock> LockLogFilesAsync(
         Guid? operationId,
@@ -59,7 +60,7 @@ public partial class OperationStateService
                     granted = kind == LogFileLockKind.Reopen
                         ? _reopenHolder is null && (_logHolder is null || _logHolder.Kind == LogFileLockKind.Ingest)
                         : _logHolder is null
-                            && (step ? _reopenHolder is null && !_ingestTurnOwed : _logStepWaiters == 0 || _ingestTurnOwed);
+                            && (step ? _reopenHolder is null && !_ingestTurnOwed : _logStepWaiters == 0 || _ingestTurnOwed || _reopenHolder is not null);
                     if (granted)
                     {
                         if (kind == LogFileLockKind.Reopen)

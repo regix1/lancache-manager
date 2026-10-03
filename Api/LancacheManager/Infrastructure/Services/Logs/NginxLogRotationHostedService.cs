@@ -159,13 +159,12 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
                 LogFileLockKind.Reopen,
                 reporter.Token))
             {
-                result = await _rotationService.ReopenNginxLogsAsync();
+                result = await _rotationService.ReopenNginxLogsAsync(reporter.Token);
             }
         }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
-            // Canceled from its card while it waited: nginx was not signaled, and disposing the reporter
-            // ends the card as canceled.
+            // Canceled from its card while it waited or while it signaled: disposing the reporter ends the card as canceled.
             return;
         }
 

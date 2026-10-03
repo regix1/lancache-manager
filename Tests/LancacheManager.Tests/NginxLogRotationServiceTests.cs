@@ -1720,6 +1720,119 @@ public sealed class NginxLogRotationServiceTests
     }
 
     [Fact]
+    public async Task AHungDockerCommandFailsTheScheduledRotationAfterItsLimitAndFreesTheLogLockAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-rotation-hung-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+            service.DetectionResult = ("lancache", null);
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+            service.ReopenNeverReturns = true;
+            var rotation = new NginxLogRotationHostedService(
+                service,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                NullLogger<NginxLogRotationHostedService>.Instance,
+                new TestPathResolver(NullLogger.Instance),
+                harness.StateService,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                harness.Tracker,
+                harness.Owner);
+            var executeWork = typeof(NginxLogRotationHostedService).GetMethod(
+                "ExecuteWorkAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            var run = (Task)executeWork.Invoke(rotation, [CancellationToken.None])!;
+            OperationInfo? operation = null;
+            for (var attempt = 0; attempt < 200 && operation is null; attempt++)
+            {
+                operation = harness.Tracker.GetActiveOperations(OperationType.LogRotation).FirstOrDefault();
+                if (operation is null)
+                {
+                    await Task.Delay(25);
+                }
+            }
+            Assert.NotNull(operation);
+
+            // It waits the real 30 seconds, as the log step's own signal limit test does.
+            await run.WaitAsync(TimeSpan.FromSeconds(45));
+
+            var ended = harness.Tracker.GetOperation(operation.Id)!;
+            Assert.Equal(OperationStatus.Failed, ended.Status);
+            Assert.Contains("30 seconds", ended.Message, StringComparison.Ordinal);
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogRemoval,
+                LogFileLockKind.Rewrite,
+                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)))
+            {
+            }
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task XOnTheRotationCardStopsAHungReopenAndEndsItCanceledAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-rotation-hung-cancel-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+            service.DetectionResult = ("lancache", null);
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+            service.ReopenNeverReturns = true;
+            var rotation = new NginxLogRotationHostedService(
+                service,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                NullLogger<NginxLogRotationHostedService>.Instance,
+                new TestPathResolver(NullLogger.Instance),
+                harness.StateService,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                harness.Tracker,
+                harness.Owner);
+            var executeWork = typeof(NginxLogRotationHostedService).GetMethod(
+                "ExecuteWorkAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            var run = (Task)executeWork.Invoke(rotation, [CancellationToken.None])!;
+            OperationInfo? operation = null;
+            for (var attempt = 0; attempt < 200 && operation is null; attempt++)
+            {
+                operation = harness.Tracker.GetActiveOperations(OperationType.LogRotation).FirstOrDefault();
+                if (operation is null)
+                {
+                    await Task.Delay(25);
+                }
+            }
+            Assert.NotNull(operation);
+            for (var attempt = 0;
+                 attempt < 200 && !service.Commands.Any(command => command.Label == "docker nginx verified reopen");
+                 attempt++)
+            {
+                await Task.Delay(25);
+            }
+            Assert.Contains(service.Commands, command => command.Label == "docker nginx verified reopen");
+
+            harness.Tracker.CancelOperation(operation.Id);
+            await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(operation.Id)!.Status);
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogRemoval,
+                LogFileLockKind.Rewrite,
+                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)))
+            {
+            }
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
     public async Task ReopenNginxLogsAsync_NoContainer_SignalsHostWithExpectedCommandAsync()
     {
         var logger = new CapturingLogger<NginxLogRotationService>();
@@ -1728,7 +1841,7 @@ public sealed class NginxLogRotationServiceTests
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
-        var result = await service.ReopenNginxLogsAsync();
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(1, service.DetectionCalls);
@@ -1760,7 +1873,7 @@ public sealed class NginxLogRotationServiceTests
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
         var available = await service.CanReopenNginxAsync();
-        var reopenResult = await service.ReopenNginxLogsAsync();
+        var reopenResult = await service.ReopenNginxLogsAsync(CancellationToken.None);
 
         Assert.True(available);
         Assert.True(reopenResult.Success);
@@ -1786,7 +1899,7 @@ public sealed class NginxLogRotationServiceTests
             Error = string.Empty
         });
 
-        var result = await service.ReopenNginxLogsAsync();
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.False(result.DockerSocketMissing);
@@ -1810,8 +1923,8 @@ public sealed class NginxLogRotationServiceTests
             "Docker socket not mounted. Add /var/run/docker.sock:/var/run/docker.sock to your volumes.");
         EnqueueDeniedResult(service, count: 3);
 
-        var first = await service.ReopenNginxLogsAsync();
-        var second = await service.ReopenNginxLogsAsync();
+        var first = await service.ReopenNginxLogsAsync(CancellationToken.None);
+        var second = await service.ReopenNginxLogsAsync(CancellationToken.None);
 
         Assert.False(first.Success);
         Assert.False(second.Success);
@@ -1820,7 +1933,7 @@ public sealed class NginxLogRotationServiceTests
         Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
 
         timeProvider.Advance(TimeSpan.FromMinutes(5));
-        var third = await service.ReopenNginxLogsAsync();
+        var third = await service.ReopenNginxLogsAsync(CancellationToken.None);
 
         Assert.False(third.Success);
         Assert.Equal(6, service.Commands.Count);
@@ -1836,7 +1949,7 @@ public sealed class NginxLogRotationServiceTests
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
-        var result = await service.ReopenNginxLogsAsync();
+        var result = await service.ReopenNginxLogsAsync(CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(1, service.DetectionCalls);
@@ -2011,7 +2124,7 @@ public sealed class NginxLogRotationServiceTests
         protected override bool CanProbeHostWriters => ProbeHostWriters;
         protected override bool CanReplaceDockerLogs => ReplaceDockerLogs;
 
-        protected override Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync()
+        protected override Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync(CancellationToken cancellationToken)
         {
             DetectionCalls++;
             return Task.FromResult(DetectionResult);

@@ -42,7 +42,8 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
         Release,
         LivePass,
         ManualBatch,
-        Queue
+        Queue,
+        Reopen
     }
 
     // The first four are the job's own steps, in the order it takes them.
@@ -419,7 +420,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             for (var count = random.Next(3, 8); count > 0; count--)
             {
                 plan.Add(new RemovalStep(
-                    (RemovalEvent)random.Next(6),
+                    (RemovalEvent)random.Next(7),
                     random.Next(2) == 0,
                     random.Next(1000),
                     Datasources[random.Next(2)]));
@@ -526,6 +527,10 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                 case RemovalEvent.Queue:
                     events.Add("queue another removal of the same target");
                     _pending.Add(QueueRemovalAsync());
+                    return;
+                case RemovalEvent.Reopen:
+                    events.Add("scheduled nginx reopen");
+                    _pending.Add(ReopenAsync());
                     return;
                 default:
                     var manual = step.Kind == RemovalEvent.ManualBatch;
@@ -756,6 +761,22 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             finally
             {
                 _queue.Release();
+            }
+        }
+
+        private async Task ReopenAsync()
+        {
+            await using (await _harness.Owner.LockLogFilesAsync(
+                             null,
+                             OperationType.LogRotation,
+                             LogFileLockKind.Reopen,
+                             _teardown.Token))
+            {
+                // A reopen changes no file, row or position, but never runs inside a log step.
+                if (await RemovalRepairHarness.StepHeldAsync(_harness.Owner))
+                {
+                    throw Invariant(5, "a log step held the logs while a reopen held them");
+                }
             }
         }
 
