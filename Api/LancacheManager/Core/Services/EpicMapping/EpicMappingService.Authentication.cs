@@ -122,17 +122,17 @@ public partial class EpicMappingService
         }
 
         await _sessionLock.WaitAsync();
-        // The sign-in window has its own timer, so a cancel is the window running out exactly when that timer fired; a
-        // person's cancel or a logout cancels the sign-in's own source instead.
+        // The sign-in window has its own timer and bounds only the steps before the account is saved; a person's cancel, a
+        // logout or a shutdown cancels the sign-in's own source.
         using var window = new CancellationTokenSource();
         CancellationTokenSource authCts;
         try
         {
-            authCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, window.Token);
+            authCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
         }
         catch (ObjectDisposedException)
         {
-            authCts = CancellationTokenSource.CreateLinkedTokenSource(window.Token);
+            authCts = new CancellationTokenSource();
         }
 
         var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
@@ -148,6 +148,10 @@ public partial class EpicMappingService
             Interlocked.Exchange(ref _isProcessingInt, 0);
             throw new OperationCanceledException();
         }
+        // Every step before the save waits on this token, so the window ends them; the steps after the save wait on the
+        // sign-in's own token, which the window cannot cancel, so a window that runs out during or after the save leaves
+        // a saved sign-in done.
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(authCts.Token, window.Token);
         MappingOperationReporter? reporter = null;
         var gamesDiscovered = 0;
         var newGames = 0;
@@ -160,8 +164,8 @@ public partial class EpicMappingService
             _logger.LogInformation("Exchanging Epic authorization code for tokens...");
             var tokens = await _epicApiClient.ExchangeAuthCodeAsync(
                 authorizationCode,
-                authCts.Token);
-            authCts.Token.ThrowIfCancellationRequested();
+                attempt.Token);
+            attempt.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
 
             // Authentication is an explicit user action, so it gets a fresh manual notice rather than
@@ -189,8 +193,8 @@ public partial class EpicMappingService
                 CreateEpicContext());
             var games = await _epicApiClient.GetOwnedGamesAsync(
                 tokens.AccessToken,
-                reporter.Token);
-            authCts.Token.ThrowIfCancellationRequested();
+                attempt.Token);
+            attempt.Token.ThrowIfCancellationRequested();
             if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
             gamesDiscovered = games.Count;
 
@@ -201,7 +205,7 @@ public partial class EpicMappingService
                     games,
                     sessionHash,
                     "mapping-login",
-                    reporter.Token);
+                    attempt.Token);
                 gamesDiscovered = result.TotalGames;
                 newGames = result.NewGames;
                 updatedGames = result.UpdatedGames;
@@ -215,12 +219,12 @@ public partial class EpicMappingService
             {
                 var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
                     tokens.AccessToken,
-                    reporter.Token);
-                authCts.Token.ThrowIfCancellationRequested();
+                    attempt.Token);
+                attempt.Token.ThrowIfCancellationRequested();
                 if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
                 if (cdnInfos.Count > 0)
                 {
-                    await MergeCdnPatternsAsync(cdnInfos, reporter.Token);
+                    await MergeCdnPatternsAsync(cdnInfos, attempt.Token);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
@@ -229,7 +233,7 @@ public partial class EpicMappingService
                 _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
             }
 
-            authCts.Token.ThrowIfCancellationRequested();
+            attempt.Token.ThrowIfCancellationRequested();
             if (!_authStorage.CompleteIntegrationLogin(login, new EpicAuthData
             {
                 OwnerAccountId = login.AccountId,
@@ -250,9 +254,6 @@ public partial class EpicMappingService
                 _lastRefreshTime = DateTime.UtcNow;
                 _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
             })) throw new OperationCanceledException();
-            // The window bounds the sign-in, not the downloads step after it: the account is saved, so only a person's
-            // cancel or a shutdown stops what follows.
-            window.CancelAfter(Timeout.InfiniteTimeSpan);
             saved = true;
 
             await reporter.ReportAsync(
@@ -364,7 +365,14 @@ public partial class EpicMappingService
     public async Task LogoutAsync(IntegrationCaller? caller = null)
     {
         await using var release = await _authStorage.BeginIntegrationReleaseAsync(caller);
-        _currentRefreshCts?.Cancel();
+        try
+        {
+            _currentRefreshCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // A sign-in that ended between the read and the cancel has nothing left to stop.
+        }
         await _sessionLock.WaitAsync();
         try
         {

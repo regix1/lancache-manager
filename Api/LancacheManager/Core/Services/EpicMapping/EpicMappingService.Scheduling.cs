@@ -229,7 +229,14 @@ public partial class EpicMappingService
                 if (_processingLogin?.AttemptId == attemptId)
                 {
                     _currentMappingReporter?.RequestCancellation();
-                    _currentRefreshCts?.Cancel();
+                    try
+                    {
+                        _currentRefreshCts?.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // A sign-in that ended between the read and the cancel has nothing left to stop.
+                    }
                 }
                 _loginAttempt = null;
             });

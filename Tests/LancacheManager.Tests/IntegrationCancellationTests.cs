@@ -108,7 +108,7 @@ public sealed class IntegrationCancellationTests
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("completed", run.Status);
         Assert.Empty(run.Warnings);
-        var notice =tracker.GetOperation(run.OperationId)!.Notice!;
+        var notice = tracker.GetOperation(run.OperationId)!.Notice!;
         Assert.Equal(mode, notice.Mode);
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
     }
@@ -133,6 +133,51 @@ public sealed class IntegrationCancellationTests
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("failed", run.Status);
         Assert.Equal("errors.integration.attemptExpired", run.Error);
+    }
+
+    [Fact]
+    public async Task AnEpicSignInWhoseWindowRunsOutWhileItsAccountIsSavedEndsSignedInAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var state = DispatchProxy.Create<IStateService, SlowLastCollectionState>();
+        using var service = NewEpicService(fixture, http, services, tracker, state);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        var login = fixture.Epic.ContinueIntegrationLogin(fixture.Owner, start.AttemptId);
+        var expiry = DateTime.UtcNow.AddSeconds(2);
+        fixture.Epic.SetIntegrationLoginExpiry(login, expiry);
+        // The state write inside the account save holds until the window's timer has fired.
+        ((SlowLastCollectionState)(object)state).Until = expiry.AddMilliseconds(300);
+
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
+            .WaitAsync(TimeSpan.FromSeconds(20));
+
+        var run = Assert.Single(tracker.GetRuns().Runs);
+        Assert.Equal("completed", run.Status);
+        Assert.True(service.IsAuthenticated);
+    }
+
+    [Fact]
+    public async Task AnEpicLogoutThatMeetsAnEndedSignInsSourceAnswersAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        using var service = NewEpicService(fixture, http, services, tracker);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        // The state the sign-in's cleanup leaves between disposing its source and clearing the field.
+        var disposed = new CancellationTokenSource();
+        disposed.Dispose();
+        typeof(EpicMappingService).GetField("_currentRefreshCts", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, disposed);
+
+        await service.LogoutAsync(fixture.Owner).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(service.IsAuthenticated);
     }
 
     [Fact]
@@ -213,13 +258,14 @@ public sealed class IntegrationCancellationTests
     }
 
     private static EpicMappingService NewEpicService(
-        IntegrationFixture fixture, HttpClient http, ServiceProvider services, UnifiedOperationTracker tracker) => new(
+        IntegrationFixture fixture, HttpClient http, ServiceProvider services, UnifiedOperationTracker tracker,
+        IStateService? state = null) => new(
         NullLogger<EpicMappingService>.Instance,
         new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
         DispatchProxy.Create<ISignalRNotificationService, Notifications>(),
         new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"epic_sign_in_{Guid.NewGuid():N}").Options), tracker,
-        services.GetRequiredService<IServiceScopeFactory>(), DispatchProxy.Create<IStateService, NullReturningProxy>());
+        services.GetRequiredService<IServiceScopeFactory>(), state ?? DispatchProxy.Create<IStateService, NullReturningProxy>());
 
     [Fact]
     public void SteamSignInNeverStartsItsReporter()
@@ -271,6 +317,21 @@ public sealed class IntegrationCancellationTests
                     ? """{"access_token":"access","refresh_token":"refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}"""
                     : "[]", Encoding.UTF8, "application/json")
             };
+        }
+    }
+
+    // A state write that takes as long as a slow disk: the real SetEpicMappingLastCollection writes state.json.
+    private class SlowLastCollectionState : NullReturningProxy
+    {
+        public DateTime Until { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(IStateService.SetEpicMappingLastCollection))
+            {
+                while (DateTime.UtcNow <= Until) Thread.Sleep(25);
+            }
+            return base.Invoke(targetMethod, args);
         }
     }
 
