@@ -915,6 +915,179 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.True(stored.RunCancelled);
     }
 
+    [Fact]
+    public async Task XThenARealFailureInTheScanTailEndsRedAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var controller = new OperationsController(harness.Tracker, cancellation, harness.Owner)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    RequestServices = new ServiceCollection()
+                        .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+                        .BuildServiceProvider()
+                }
+            }
+        };
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        await controller.CancelOperation(id);
+
+        // The remove step unwound on the canceled token, then the checkpoint tail failed for a real reason.
+        await harness.Owner.FinishRepairAsync(id, success: false, cancelled: false, error: "Database unavailable");
+        harness.Tracker.CompleteOperation(id, success: false, error: "Database unavailable", cancelled: false);
+
+        Assert.Equal(OperationStatus.Failed, harness.Tracker.GetOperation(id)!.Status);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.False(stored.RunCancelled);
+        Assert.False(stored.RunContinues);
+        Assert.Equal("Database unavailable", stored.RunError);
+    }
+
+    [Fact]
+    public async Task AForceStopThenARealFailureInTheScanTailStaysCanceledAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        Assert.True(await cancellation.ForceKillAsync(id).WaitAsync(TimeSpan.FromSeconds(10)));
+
+        await harness.Owner.FinishRepairAsync(id, success: false, cancelled: false, error: "Database unavailable");
+        harness.Tracker.CompleteOperation(id, success: false, error: "Database unavailable", cancelled: false);
+
+        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.True(stored.RunCancelled);
+    }
+
+    [Fact]
+    public async Task XWhoseSaveFailedStillEndsTheScanCanceledAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root, stateService: state);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        state.FailNextRepairWrite = true;
+        harness.Tracker.CancelOperation(id);
+        await harness.Owner.RecordCancelAsync(id);
+
+        // The scan passed its last token check, so its last save reports a clean run.
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null);
+
+        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.True(stored.RunCancelled);
+    }
+
+    [Fact]
+    public async Task XDuringTheScansEarlySaveIsSavedOnceThatSaveIsDoneAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root, stateService: state);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        Task? pending = null;
+        state.OnRepairWrite = contents =>
+        {
+            var repairs = System.Text.Json.JsonSerializer.Deserialize<List<OperationRepair>>(contents) ?? [];
+            if (pending is null && repairs.Any(repair => repair.Id == id && repair.RunContinues))
+            {
+                // The early save holds the admission gate here, so the cancel waits for it.
+                harness.Tracker.CancelOperation(id);
+                pending = harness.Owner.RecordCancelAsync(id);
+            }
+        };
+
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        Assert.NotNull(pending);
+        await pending.WaitAsync(TimeSpan.FromSeconds(10));
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.True(stored.RunCancelled);
+    }
+
+    [Fact]
+    public async Task XBeforeTheScansEarlySaveIsKeptByThatSaveAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+
+        // The record shows no run going on yet, so this X finds nothing to save.
+        harness.Tracker.CancelOperation(id);
+        await harness.Owner.RecordCancelAsync(id);
+
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.True(stored.RunContinues);
+        Assert.True(stored.RunCancelled);
+        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
+    }
+
+    [Fact]
+    public async Task AFailedLastSaveIsWrittenWithTheRecordsNextSaveAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        var repairBlocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            stateService: state,
+            apply: async (_, cancellationToken) => await repairBlocked.Task.WaitAsync(cancellationToken));
+        try
+        {
+            var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+                ownerCompletes: true);
+            await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+            await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+            await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+                update: repair => repair.RunContinues = true);
+
+            state.FailNextRepairWrite = true;
+            await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null);
+            await harness.Owner.SetRunWarningAsync(id, new RunWarning(
+                "common.notifications.warnings.datasourcesFailed",
+                new Dictionary<string, object?> { ["datasources"] = "alpha" }));
+
+            Assert.False(harness.Owner.GetPendingRepairs().Single(repair => repair.Id == id).RunContinues);
+            var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+            Assert.False(stored.RunContinues);
+        }
+        finally
+        {
+            repairBlocked.TrySetResult();
+        }
+    }
+
     private static OperationRepair NewScanRepair(Guid id) => new()
     {
         Id = id,

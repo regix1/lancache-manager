@@ -296,7 +296,9 @@ public partial class OperationStateService
     // stop before the job's last save still restores the canceled card. Any other X is the owner's to record.
     public async Task RecordCancelAsync(Guid operationId)
     {
-        if (!_repairs.TryGetValue(operationId, out var repair) || !repair.RunContinues)
+        // The record's flag is read under the admission gate, so an X that lands while the job's early save holds the
+        // gate still finds the run going on once that save is done.
+        if (!_repairs.ContainsKey(operationId))
         {
             return;
         }
@@ -307,7 +309,7 @@ public partial class OperationStateService
         {
             if (_repairs.TryGetValue(operationId, out var current) && current.RunContinues)
             {
-                await SaveRepairCoreAsync(current, next => next.RunCancelled = true, stoppingToken);
+                await SaveRunEndingAsync(current, next => next.RunCancelled = true, stoppingToken);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
@@ -348,9 +350,12 @@ public partial class OperationStateService
                 var continuing = _repairs.TryGetValue(operationId, out var stored) && stored.RunContinues;
                 if (continuing)
                 {
+                    // A real failure after the person's stop ends red, unless the stop already ended the run gray; a stop
+                    // that came after the job's last token check still ends gray once the work is done.
+                    var runEnded = _operationTracker.GetOperation(operationId) is { CompletedFlag: not 0 };
                     try
                     {
-                        await SaveRepairCoreAsync(
+                        await SaveRunEndingAsync(
                             stored!,
                             next =>
                             {
@@ -360,7 +365,7 @@ public partial class OperationStateService
                                     return;
                                 }
                                 next.RunContinues = false;
-                                next.RunCancelled |= cancelled;
+                                next.RunCancelled = cancelled || next.RunCancelled && (success || runEnded);
                                 next.RunError = success || cancelled ? null : error;
                             },
                             stoppingToken);
@@ -431,6 +436,12 @@ public partial class OperationStateService
                         {
                             _unsavedChanges.TryGetValue(operationId, out var kept);
                             (kept + update)?.Invoke(next);
+                            // A person's stop that landed before this save found no run going on to record; a run that goes
+                            // on after this save keeps it, so an app stop before the job's last save restores the canceled card.
+                            if (next.RunContinues && _operationTracker.GetOperation(operationId) is { Cancelled: true })
+                            {
+                                next.RunCancelled = true;
+                            }
                             next.Outcome = success
                                 ? OperationStatus.Completed
                                 : cancelled
@@ -1375,6 +1386,29 @@ public partial class OperationStateService
         try
         {
             SaveRepairCore(current, update);
+        }
+        finally
+        {
+            _repairStateGate.Release();
+        }
+    }
+
+    // How a job's run ended is kept in memory before the state file is written, so a failed write still leaves the live
+    // ending right and the record's next save writes it; a restart before that save restores the older record.
+    private async Task SaveRunEndingAsync(
+        OperationRepair current,
+        Action<OperationRepair> update,
+        CancellationToken cancellationToken)
+    {
+        await _repairStateGate.WaitAsync(cancellationToken);
+        try
+        {
+            var latest = GetRequiredRepair(current.Id);
+            var replacement = CopyRepair(latest);
+            update(replacement);
+            ValidateRepairChange(latest, replacement);
+            _repairs[replacement.Id] = replacement;
+            PersistRepairs(replacement);
         }
         finally
         {
