@@ -8,7 +8,6 @@ import { useAuth } from '@contexts/useAuth';
 import { getErrorMessage } from '@utils/error';
 import { createUuid } from '@utils/uuid';
 import { getIntegrationReasonKey, type XboxMappingAuthStatus } from '../types';
-import type { XboxMappingAuthStateChangedEvent } from '../contexts/SignalRContext/types';
 
 interface UseXboxMappingAuthOptions {
   onSuccess?: () => void;
@@ -48,8 +47,9 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const statusRequestRef = useRef(0);
   const attemptRef = useRef<string | null>(null);
   const cancelledAttemptRef = useRef<string | null>(null);
-  // The last collection time when this sign-in started; the server stamps a new one when it saves the account.
-  const collectedBeforeRef = useRef<string | null>(null);
+  // The attempt id the stored status was asked for. Only a status asked for this sign-in after its start answer can
+  // say the server no longer knows it.
+  const statusAttemptRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
@@ -57,6 +57,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusFailures, setStatusFailures] = useState(0);
   const hasAccess =
     !isLoading &&
     (authenticationEnabled === false ||
@@ -68,9 +69,11 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const refreshStatus = useCallback(async () => {
     if (!hasAccess || identityRef.current !== identity) return null;
     const request = ++statusRequestRef.current;
+    const askedAttempt = attemptRef.current;
     try {
-      const next = await ApiService.getXboxMappingAuthStatus();
+      const next = await ApiService.getXboxMappingAuthStatus(askedAttempt);
       if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
+      statusAttemptRef.current = askedAttempt;
       setStatus(next);
       setStatusIdentity(identity);
       setStatusError(null);
@@ -79,6 +82,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
       setStatus(null);
       setStatusError(getErrorMessage(error));
+      setStatusFailures((count) => count + 1);
       notifyError('Xbox integration status unavailable', error, { silent: true });
       return null;
     } finally {
@@ -158,52 +162,58 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     [onError]
   );
 
-  const resyncLogin = useCallback(
-    async (event?: XboxMappingAuthStateChangedEvent) => {
-      const submittedAttempt = attemptRef.current;
-      const next = await refreshStatus();
-      if (
-        !next ||
-        !submittedAttempt ||
-        attemptRef.current !== submittedAttempt ||
-        !loginInProgressRef.current
-      )
-        return;
-      // Only this sign-in's own events carry its attempt id: another tab's sign-in may start once this one saved its
-      // account, and its events and status say nothing about this one.
-      const ownEvent = event?.attemptId === submittedAttempt ? event : undefined;
-      if (ownEvent?.status === 'waiting') return;
-      if (!ownEvent && (next.attemptId === submittedAttempt || next.loginInProgress)) return;
-      // With no ending event (one lost across a reconnect), a collection time later than the one this sign-in started
-      // with is its own save.
-      const collectedBefore = collectedBeforeRef.current;
-      const saved = ownEvent
-        ? ownEvent.status === 'completed'
-        : next.lastCollectionUtc !== null &&
-          (collectedBefore === null ||
-            Date.parse(next.lastCollectionUtc) > Date.parse(collectedBefore));
-      if (next.canManage === true && next.isAuthenticated && saved) {
+  // Every status read asks for the waiting sign-in's ending by its attempt id, so whichever read lands (after the
+  // ending event, a reconnect, a retry or the card's own reload) ends the dialog on this sign-in's own result.
+  useEffect(() => {
+    const submittedAttempt = attemptRef.current;
+    if (!authStatus || !submittedAttempt || !loginInProgressRef.current || !needsDeviceCode) return;
+    const ending = authStatus.loginEnding;
+    if (ending?.attemptId === submittedAttempt) {
+      if (ending.status !== 'completed') {
+        failLogin(t(ending.stageKey, ending.context ?? {}));
+      } else if (authStatus.canManage === true && authStatus.isAuthenticated) {
         finishLogin();
-      } else if (needsDeviceCode) {
-        const stageKey = ownEvent?.stageKey;
-        failLogin(
-          stageKey ? t(stageKey, ownEvent?.context ?? {}) : t('modals.xboxAuth.errors.loginFailed')
-        );
+      } else {
+        // The account was saved, then signed out (a logout from another tab) before this read.
+        failLogin(t('modals.xboxAuth.errors.loginFailed'));
       }
-    },
-    [refreshStatus, finishLogin, failLogin, needsDeviceCode, t]
-  );
+    } else if (
+      statusAttemptRef.current === submittedAttempt &&
+      authStatus.attemptId !== submittedAttempt &&
+      !authStatus.loginInProgress
+    ) {
+      // The server holds no ending for this attempt and runs no sign-in: a restart ended it.
+      failLogin(t('errors.integration.attemptExpired'));
+    }
+  }, [authStatus, needsDeviceCode, finishLogin, failLogin, t]);
+
+  // A failed status read while a sign-in waits is retried every 5 s (the setup wizard watchdog's tick) until a read
+  // answers or the device code's deadline passes, so one failed read cannot leave a finished sign-in's code on screen.
+  useEffect(() => {
+    const waitingAttempt = attemptRef.current;
+    if (
+      statusError === null ||
+      !waitingAttempt ||
+      loginDeadline === null ||
+      Date.now() >= loginDeadline
+    )
+      return;
+    const retry = setTimeout(() => {
+      if (attemptRef.current === waitingAttempt) void refreshStatus();
+    }, 5000);
+    return () => clearTimeout(retry);
+  }, [statusError, statusFailures, loginDeadline, refreshStatus]);
 
   useEffect(() => {
-    const handleAuthStateChanged = (event: XboxMappingAuthStateChangedEvent) => {
-      void resyncLogin(event);
+    const handleAuthStateChanged = () => {
+      void refreshStatus();
     };
     on('XboxMappingAuthStateChanged', handleAuthStateChanged);
     return () => off('XboxMappingAuthStateChanged', handleAuthStateChanged);
-  }, [on, off, resyncLogin]);
+  }, [on, off, refreshStatus]);
 
   useReconnectRefetch(isConnected, () => {
-    void resyncLogin();
+    void refreshStatus();
   });
 
   const startLogin = useCallback(async () => {
@@ -222,7 +232,6 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     cancelledAttemptRef.current = null;
     attemptRef.current = submittedAttempt;
     setAttemptId(submittedAttempt);
-    collectedBeforeRef.current = authStatus.lastCollectionUtc;
     busyRef.current = true;
     const request = ++requestRef.current;
     const current = () => identityRef.current === identity && requestRef.current === request;
@@ -238,6 +247,8 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       });
       if (!current()) return;
       attemptRef.current = response.attemptId;
+      // A status read while the start request was out may predate the server's attempt.
+      statusAttemptRef.current = null;
       setAttemptId(response.attemptId);
       setLoginDeadline(Date.parse(response.expiresAtUtc));
       setDeviceUserCode(response.userCode);

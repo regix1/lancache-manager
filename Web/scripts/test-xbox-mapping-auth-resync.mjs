@@ -85,10 +85,14 @@ export const createComponent = () => {
 const reactStubUrl = toUrl(reactStubSource);
 const { createComponent } = await import(reactStubUrl);
 
-/** What auth-status currently answers, how many times it has been asked, and whether it can. */
+/**
+ * What auth-status currently answers, how many times it has been asked, and whether it can. Like the
+ * server, it returns the ending of the attempt it is asked about, and the REST answer leaves out
+ * every null field (Program.cs DefaultIgnoreCondition = WhenWritingNull).
+ */
 const apiStubUrl = toUrl(`
 export default {
-  getXboxMappingAuthStatus: async () => {
+  getXboxMappingAuthStatus: async (attemptId) => {
     globalThis.__server.requests += 1;
     if (globalThis.__server.gate) {
       await globalThis.__server.gate;
@@ -96,15 +100,19 @@ export default {
     if (globalThis.__server.failing) {
       throw new Error('auth-status unavailable');
     }
-    return {
+    const body = {
       isAuthenticated: globalThis.__server.isAuthenticated,
       lastCollectionUtc: globalThis.__server.lastCollectionUtc,
       loginInProgress: globalThis.__server.loginInProgress,
       canManage: true,
       canSignIn: !globalThis.__server.attemptId,
       canCancel: Boolean(globalThis.__server.attemptId && globalThis.__server.loginInProgress),
-      attemptId: globalThis.__server.loginInProgress ? globalThis.__server.attemptId : null
+      attemptId: globalThis.__server.loginInProgress ? globalThis.__server.attemptId : null,
+      loginEnding: attemptId ? globalThis.__server.endings[attemptId] : null
     };
+    return Object.fromEntries(
+      Object.entries(body).filter(([, value]) => value !== null && value !== undefined)
+    );
   },
   startXboxMappingLogin: async (_signal, request) => {
     if (globalThis.__server.loginGate) {
@@ -198,6 +206,7 @@ const startServer = (isAuthenticated) => {
     isAuthenticated,
     lastCollectionUtc: isAuthenticated ? '2030-01-01T00:00:00Z' : null,
     loginInProgress: true,
+    endings: {},
     failing: false,
     gate: null,
     loginGate: null,
@@ -213,6 +222,26 @@ const saveAccount = (server) => {
   server.lastCollectionUtc = '2030-01-02T00:00:00Z';
 };
 
+/** What the server's poll does at its end: it records the ending by attempt id, then stops counting as running. */
+const endAttempt = (server, status, stageKey, attemptId = 'attempt-a') => {
+  server.endings[attemptId] = { attemptId, status, stageKey };
+  server.loginInProgress = false;
+};
+
+/** Captures the hook's 5 second status retry, so a test runs it when it chooses instead of waiting. */
+const captureRetries = () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const retries = [];
+  globalThis.setTimeout = (callback, delay, ...args) =>
+    delay === 5000 ? (retries.push(callback), 0) : realSetTimeout(callback, delay, ...args);
+  return {
+    retries,
+    restore: () => {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  };
+};
+
 /** Holds every auth-status answer until the returned function is called. */
 const holdAnswers = (server) => {
   let release;
@@ -224,7 +253,10 @@ const holdAnswers = (server) => {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const mount = async (connectedAtMount) => {
+const { useReconnectRefetch } = await import(reconnectUrl);
+
+/** `withCardRefetch` mounts the hook the way XboxDaemonStatus.tsx does: the card adds its own reconnect read of the same status. */
+const mount = async (connectedAtMount, withCardRefetch = false) => {
   const component = createComponent();
   const succeeded = { count: 0 };
   const failed = { count: 0, message: null };
@@ -238,7 +270,11 @@ const mount = async (connectedAtMount) => {
   let hook = null;
   const render = (isConnected) => {
     globalThis.__socketLive = isConnected;
-    hook = component.render(() => useXboxMappingAuth({ onSuccess, onError }));
+    hook = component.render(() => {
+      const mounted = useXboxMappingAuth({ onSuccess, onError });
+      if (withCardRefetch) useReconnectRefetch(isConnected, mounted.refreshStatus);
+      return mounted;
+    });
     return hook;
   };
   render(connectedAtMount);
@@ -253,10 +289,9 @@ const waitForApproval = async (xbox) => {
   await xbox.read().startLogin();
   const started = xbox.render(true);
   assert.equal(started.state.needsDeviceCode, true);
-  // The run's id is still empty here (it exists only once the account is approved); the attempt id is the sign-in's.
+  // The run's id is still empty here: it exists only once the account is approved.
   globalThis.__emit('XboxMappingAuthStateChanged', {
     operationId: '00000000-0000-0000-0000-000000000000',
-    attemptId: 'attempt-a',
     status: 'waiting'
   });
   await settle();
@@ -271,12 +306,13 @@ test('an approval that landed while the socket was down is picked up on recovery
 
   xbox.render(false);
   // The user approves the code here and the backend's completed event lands on a dead socket. The
-  // attempt is over by then, so the backend reports it finished and signed in.
+  // attempt is over by then, so the backend reports how it ended and that it is signed in.
   saveAccount(server);
-  server.loginInProgress = false;
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
 
   xbox.render(true);
   await settle();
+  xbox.render(true);
 
   assert.equal(server.requests, 1);
   assert.equal(
@@ -351,19 +387,20 @@ test('a login that died while the socket was down ends on recovery', async () =>
   xbox.render(false);
   // The poll gave up server-side (declined, or the code expired) and its failed event landed on a
   // dead socket. Nothing else can ever end this login.
-  server.loginInProgress = false;
+  endAttempt(server, 'failed', 'signalr.xbox.mapping.failed');
 
   xbox.render(true);
   await settle();
+  xbox.render(true);
 
   assert.equal(server.requests, 1);
   assert.equal(xbox.succeeded.count, 0);
   assert.equal(xbox.failed.count, 1, 'the login ends the way the failed event would have ended it');
-  assert.equal(xbox.failed.message, 'modals.xboxAuth.errors.loginFailed');
+  assert.equal(xbox.failed.message, 'signalr.xbox.mapping.failed');
   const ended = xbox.render(true);
   assert.equal(ended.state.needsDeviceCode, false, 'the modal drops the dead device code');
   assert.equal(ended.state.loading, false);
-  assert.equal(ended.state.error, 'modals.xboxAuth.errors.loginFailed');
+  assert.equal(ended.state.error, 'signalr.xbox.mapping.failed');
 
   xbox.render(false);
   xbox.render(true);
@@ -409,13 +446,13 @@ test('the completed event ends the login once, leaving nothing for a later recov
   await waitForApproval(xbox);
 
   saveAccount(server);
-  server.loginInProgress = false;
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
   globalThis.__emit('XboxMappingAuthStateChanged', {
     operationId: 'op-run',
-    attemptId: 'attempt-a',
     status: 'completed'
   });
   await settle();
+  xbox.render(true);
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.render(true).state.needsDeviceCode, false);
 
@@ -454,7 +491,7 @@ test('two recoveries with the ask still out complete the login once', async () =
   const xbox = await mount(true);
   await waitForApproval(xbox);
   saveAccount(server);
-  server.loginInProgress = false;
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
   const release = holdAnswers(server);
 
   xbox.render(false);
@@ -465,34 +502,42 @@ test('two recoveries with the ask still out complete the login once', async () =
 
   release();
   await settle();
+  xbox.render(true);
 
   assert.equal(xbox.succeeded.count, 1, 'one login is one onSuccess, however many answers arrive');
 });
 
 test('a status ask that fails keeps the login for the next recovery', async () => {
-  const server = startServer(false);
-  const xbox = await mount(true);
-  await waitForApproval(xbox);
-  server.failing = true;
-  saveAccount(server);
-  server.loginInProgress = false;
+  const { retries, restore } = captureRetries();
+  try {
+    const server = startServer(false);
+    const xbox = await mount(true);
+    await waitForApproval(xbox);
+    server.failing = true;
+    saveAccount(server);
+    endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
 
-  xbox.render(false);
-  xbox.render(true);
-  await settle();
+    xbox.render(false);
+    xbox.render(true);
+    await settle();
 
-  assert.equal(server.requests, 1);
-  assert.equal(globalThis.__reported.length, 1, 'the failed ask is reported, not swallowed');
-  assert.equal(xbox.succeeded.count, 0);
-  assert.equal(xbox.render(true).state.needsDeviceCode, true);
+    assert.equal(server.requests, 1);
+    assert.equal(globalThis.__reported.length, 1, 'the failed ask is reported, not swallowed');
+    assert.equal(xbox.succeeded.count, 0);
+    assert.equal(xbox.render(true).state.needsDeviceCode, true);
+    assert.equal(retries.length, 1, 'the failed ask is asked again without waiting for a recovery');
 
-  server.failing = false;
-  xbox.render(false);
-  xbox.render(true);
-  await settle();
+    server.failing = false;
+    xbox.render(false);
+    xbox.render(true);
+    await settle();
+    xbox.render(true);
 
-  assert.equal(server.requests, 2);
-  assert.equal(xbox.succeeded.count, 1);
+    assert.equal(server.requests, 2);
+    assert.equal(xbox.succeeded.count, 1);
+  } finally {
+    restore();
+  }
 });
 
 test('a re-sign-in ends on its own completed event while another sign-in runs', async () => {
@@ -502,14 +547,15 @@ test('a re-sign-in ends on its own completed event while another sign-in runs', 
 
   // Another tab started a second sign-in after this one saved its account.
   saveAccount(server);
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
   server.attemptId = 'attempt-b';
   server.loginInProgress = true;
   globalThis.__emit('XboxMappingAuthStateChanged', {
     operationId: 'op-run',
-    attemptId: 'attempt-a',
     status: 'completed'
   });
   await settle();
+  xbox.render(true);
 
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.failed.count, 0);
@@ -521,13 +567,13 @@ test('a re-sign-in ends green on its completed event', async () => {
   await waitForApproval(xbox);
 
   saveAccount(server);
-  server.loginInProgress = false;
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
   globalThis.__emit('XboxMappingAuthStateChanged', {
     operationId: 'op-run',
-    attemptId: 'attempt-a',
     status: 'completed'
   });
   await settle();
+  xbox.render(true);
 
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.failed.count, 0);
@@ -540,9 +586,10 @@ test('a re-sign-in whose ending was lost is picked up on recovery', async () => 
 
   xbox.render(false);
   saveAccount(server);
-  server.loginInProgress = false;
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
   xbox.render(true);
   await settle();
+  xbox.render(true);
 
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.failed.count, 0);
@@ -555,9 +602,133 @@ test('a re-sign-in that failed while the socket was down still fails on recovery
 
   // The account stays signed in from before, so its last collection time does not move.
   xbox.render(false);
-  server.loginInProgress = false;
+  endAttempt(server, 'failed', 'signalr.xbox.mapping.failed');
   xbox.render(true);
   await settle();
+  xbox.render(true);
+
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'signalr.xbox.mapping.failed');
+});
+
+test('a re-sign-in that failed while a refresh moved the collection time still fails', async () => {
+  const server = startServer(true);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  xbox.render(false);
+  endAttempt(server, 'failed', 'signalr.xbox.mapping.failed');
+  // A scheduled refresh stamps a newer collection time; it says nothing about this sign-in.
+  server.lastCollectionUtc = '2030-01-03T00:00:00Z';
+  xbox.render(true);
+  await settle();
+  xbox.render(true);
+
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'signalr.xbox.mapping.failed');
+});
+
+test('a sign-in another person canceled and replaced reads canceled', async () => {
+  const server = startServer(true);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  xbox.render(false);
+  endAttempt(server, 'cancelled', 'signalr.xbox.mapping.cancelled');
+  // Their own sign-in then saved the account, which this sign-in did not.
+  saveAccount(server);
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed', 'attempt-b');
+  xbox.render(true);
+  await settle();
+  xbox.render(true);
+
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'signalr.xbox.mapping.cancelled');
+});
+
+test('a sign-in a restart ended reads ended or expired', async () => {
+  const server = startServer(true);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  xbox.render(false);
+  // The restart lost the attempt, so the server holds no ending and runs no sign-in.
+  server.loginInProgress = false;
+  server.lastCollectionUtc = '2030-01-03T00:00:00Z';
+  xbox.render(true);
+  await settle();
+  xbox.render(true);
+
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'errors.integration.attemptExpired');
+});
+
+test("the Management card's own reconnect read still ends the sign-in", async () => {
+  const server = startServer(false);
+  const xbox = await mount(true, true);
+  await waitForApproval(xbox);
+
+  xbox.render(false);
+  saveAccount(server);
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
+  xbox.render(true);
+  await settle();
+  xbox.render(true);
+
+  assert.equal(server.requests, 2, 'the hook and the card each read on reconnect');
+  assert.equal(xbox.succeeded.count, 1, 'the read that lands last decides, whoever made it');
+  assert.equal(xbox.failed.count, 0);
+});
+
+test('one failed read at the ending is read again', async () => {
+  const { retries, restore } = captureRetries();
+  try {
+    const server = startServer(false);
+    const xbox = await mount(true);
+    await waitForApproval(xbox);
+
+    server.failing = true;
+    saveAccount(server);
+    endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
+    globalThis.__emit('XboxMappingAuthStateChanged', {
+      operationId: 'op-run',
+      status: 'completed'
+    });
+    await settle();
+    xbox.render(true);
+
+    assert.equal(retries.length, 1, 'the failed read is scheduled again');
+    assert.equal(xbox.succeeded.count, 0);
+
+    server.failing = false;
+    retries[0]();
+    await settle();
+    xbox.render(true);
+
+    assert.equal(xbox.succeeded.count, 1);
+    assert.equal(xbox.failed.count, 0);
+  } finally {
+    restore();
+  }
+});
+
+test('a sign-in saved and then signed out shows the sign-in failed text', async () => {
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  // Completed, then another tab signed the account out before this read.
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    status: 'completed'
+  });
+  await settle();
+  xbox.render(true);
 
   assert.equal(xbox.succeeded.count, 0);
   assert.equal(xbox.failed.count, 1);

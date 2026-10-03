@@ -2873,9 +2873,9 @@ class ApiService {
   }
 
   // Xbox mapping auth — mirrors Epic's auth-status/login/logout shape (daemon-free MSA device-code).
-  static async getXboxMappingAuthStatus(): Promise<XboxMappingAuthStatus> {
+  static async getXboxMappingAuthStatus(attemptId?: string | null): Promise<XboxMappingAuthStatus> {
     const response = await fetch(
-      `${API_BASE}/xbox/game-mappings/auth-status`,
+      `${API_BASE}/xbox/game-mappings/auth-status${attemptId ? `?attemptId=${encodeURIComponent(attemptId)}` : ''}`,
       this.getFetchOptions()
     );
     const status = await ApiService.handleResponse<XboxMappingAuthStatus>(response);
@@ -2942,9 +2942,9 @@ class ApiService {
     return ApiService.handleResponse<EpicGameMappingDto[]>(response);
   }
 
-  static async getEpicMappingAuthStatus(): Promise<EpicMappingAuthStatus> {
+  static async getEpicMappingAuthStatus(attemptId?: string | null): Promise<EpicMappingAuthStatus> {
     const response = await fetch(
-      `${API_BASE}/epic/game-mappings/auth-status`,
+      `${API_BASE}/epic/game-mappings/auth-status${attemptId ? `?attemptId=${encodeURIComponent(attemptId)}` : ''}`,
       this.getFetchOptions()
     );
     const status = await ApiService.handleResponse<EpicMappingAuthStatus>(response);

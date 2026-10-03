@@ -975,11 +975,20 @@ export function getIntegrationReasonKey(reason: string | null | undefined): stri
   return integrationReasonKeys[reason];
 }
 
+/** How one sign-in ended, read by its attempt id after its ending event was missed. */
+export interface IntegrationLoginEnding {
+  attemptId: string;
+  status: 'completed' | 'failed' | 'cancelled';
+  stageKey: string;
+  context?: Record<string, string | number | boolean>;
+}
+
 export interface EpicMappingAuthStatus extends IntegrationAccess {
   isAuthenticated: boolean;
   displayName: string | null;
   lastCollectionUtc: string | null;
   gamesDiscovered: number;
+  loginEnding?: IntegrationLoginEnding;
 }
 
 export interface XboxMappingAuthStatus extends IntegrationAccess {
@@ -988,10 +997,10 @@ export interface XboxMappingAuthStatus extends IntegrationAccess {
   lastCollectionUtc: string | null;
   gamesDiscovered: number;
   /** True while a device-code login attempt is still alive, covering the approval wait and the
-   *  catalog harvest after it. False alongside `isAuthenticated: false` is the only pair that means
-   *  the attempt is over and did not succeed. */
+   *  catalog harvest after it. */
   loginInProgress: boolean;
   expiresAtUtc: string | null;
+  loginEnding?: IntegrationLoginEnding;
 }
 
 export interface EpicScheduleStatus {
