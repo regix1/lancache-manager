@@ -1059,7 +1059,9 @@ export function locateRun(
           ? {
               operationId: run.operationId,
               status: endStatus(run.status),
-              error: run.error ?? undefined
+              error: run.error ?? undefined,
+              warned:
+                run.status === 'completed' && (run.warnings?.length ?? 0) > 0 ? true : undefined
             }
           : undefined
       };

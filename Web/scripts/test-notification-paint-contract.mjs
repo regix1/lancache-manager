@@ -2409,7 +2409,7 @@ test('a failed-out repair offers one Retry with no icon', () => {
   );
 });
 
-test('the background controls segment is teal only when every compact control is repairing', () => {
+test('the background controls segment is teal only when every compact control is repairing, and blue otherwise', () => {
   const control = (id, status) => ({
     ...notice(id),
     status,
@@ -2418,7 +2418,7 @@ test('the background controls segment is teal only when every compact control is
   });
   for (const [cards, variant] of [
     [[control('a', 'repairing'), control('b', 'repairing')], 'repairing'],
-    [[control('a', 'repairing'), control('b', 'running')], 'warning']
+    [[control('a', 'repairing'), control('b', 'running')], 'info']
   ]) {
     const bar = makeBar(cards, {}, {}, { defaultMode: 'condensed' });
     const strip = elements(bar.render()).find((node) => node.type === 'CondensedNotificationStrip');

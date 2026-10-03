@@ -423,7 +423,20 @@
         "logLinesKept": "The downloads were removed, but some of their log lines stay in these datasources because a log file could not be changed (permission denied): {{datasources}}. Reading those logs again from the start can bring them back.",
         "datasourcesNotRepaired": "The repair finished but skipped these datasources because they were removed or their folders changed: {{datasources}}.",
         "cacheScansSkipped": "The repair finished but did not recheck the cache of these datasources because their log layout changed: {{datasources}}. The next eviction scan checks them once each log folder holds one layout.",
-        "servicesFailed": "{{failedCount}} of {{serviceCount}} services failed and keep their own red cards; the other services finished."
+        "servicesFailed": "{{failedCount}} of {{serviceCount}} services failed and keep their own red cards; the other services finished.",
+        "datasourcesFailed": "Not finished on these datasources: {{datasources}}. The work done everywhere else was kept.",
+        "databaseErrorAfterSaving": "A database error stopped the run after {{entriesSaved}} entries were saved: {{error}}. The next run reads on from where this one stopped.",
+        "logPurgeProgramMissing": "The downloads were removed, but their log lines stay in these datasources because the log cleanup program is missing from this install: {{datasources}}. Reading those logs again from the start can bring them back.",
+        "nginxReopenFailed": "The change was made, but nginx could not be told to reopen its logs: {{error}}. Until it does, new lines may not reach the log file.",
+        "logReopenPartlyFailed": "Some nginx writers reopened their logs, but these could not be signaled: {{errors}}. Until they reopen, their new lines may not reach the log file.",
+        "resetLeftovers": "The tables were cleared, but these could not be reset: {{items}}.",
+        "depotBatchesFailed": "{{failed}} of {{total}} Steam app info batches failed, so their depots were not mapped this run.",
+        "epicStepsFailed": "The Epic catalog was refreshed, but follow-up steps failed: {{count}}. The server log names them.",
+        "epicImageLinksNotRefreshed": "Epic image links could not be refreshed, so Epic art was fetched from the links already stored.",
+        "historyRowsNotMerged": "Download rows that were not merged: {{rowCount}}.",
+        "signInExpired": "The sign-in was not finished in time, so the app ended it.",
+        "signInSessionEnded": "The app ended the prefill session before the sign-in finished.",
+        "bulkItemsWarned": "Items that finished with a warning: {{count}}. Each one's card names what it left undone."
       },
       "retryRepairFailed": "Could not retry the repair",
       "cancelling": "Cancelling...",
@@ -7620,8 +7633,8 @@
       "finalized": "Depot mapping complete",
       "completed": "Depot mapping complete",
       "failed": "Depot mapping failed",
-      "skippedSetupIncomplete": "Depot mapping skipped - setup is not finished yet",
-      "skippedSteamUnreachable": "Depot mapping skipped - could not reach Steam",
+      "skippedSetupIncomplete": "Depot mapping did not run: setup is not finished yet",
+      "skippedSteamUnreachable": "Depot mapping did not run: could not reach Steam",
       "scan": {
         "skippedFullRequired": "Scheduled scan skipped - full scan required"
       }
@@ -8012,6 +8025,10 @@
       "failedStalled": "Prefill stalled (no progress)",
       "failed": "Prefill failed",
       "failedApps": "{{failed}} of {{total}} games failed to download",
+      "partialMaxRuntime": "The time limit stopped the run after {{done}} of {{total}} games.",
+      "partialStalled": "The run stalled and was stopped after {{done}} of {{total}} games.",
+      "partialSignInLost": "The sign-in was lost after {{done}} of {{total}} games.",
+      "partialStopped": "The run stopped early after {{done}} of {{total}} games.",
       "stopped": "Prefill stopped",
       "completeWithBytes": "Prefill completed ({{bytes}} downloaded)",
       "completeAllCached": "Prefill completed, all selected games were already cached (0 bytes). Enable Force to re-download.",

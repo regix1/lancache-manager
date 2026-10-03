@@ -423,7 +423,20 @@
         "logLinesKept": "下载记录已移除，但由于无法修改日志文件（权限被拒绝），这些数据源中的部分日志行仍然保留：{{datasources}}。从头重新读取这些日志可能会让它们再次出现。",
         "datasourcesNotRepaired": "修复已完成，但跳过了以下数据源，因为它们已被移除或文件夹已更改：{{datasources}}。",
         "cacheScansSkipped": "修复已完成，但由于日志布局已更改，未重新检查以下数据源的缓存：{{datasources}}。当每个日志文件夹只包含一种布局时，下一次驱逐扫描会检查它们。",
-        "servicesFailed": "{{serviceCount}} 个服务中有 {{failedCount}} 个失败，并保留各自的红色卡片；其他服务已完成。"
+        "servicesFailed": "{{serviceCount}} 个服务中有 {{failedCount}} 个失败，并保留各自的红色卡片；其他服务已完成。",
+        "datasourcesFailed": "以下数据源未完成：{{datasources}}。其他已完成的工作均已保留。",
+        "databaseErrorAfterSaving": "保存了 {{entriesSaved}} 条记录后，数据库错误中止了本次运行：{{error}}。下一次运行将从中止处继续读取。",
+        "logPurgeProgramMissing": "下载记录已删除，但由于此安装缺少日志清理程序，其日志行仍保留在以下数据源中：{{datasources}}。从头重新读取这些日志可能会使其恢复。",
+        "nginxReopenFailed": "更改已完成，但无法通知 nginx 重新打开其日志：{{error}}。在此之前，新的日志行可能不会写入日志文件。",
+        "logReopenPartlyFailed": "部分 nginx 写入进程已重新打开日志，但以下进程无法收到信号：{{errors}}。在它们重新打开之前，其新的日志行可能不会写入日志文件。",
+        "resetLeftovers": "数据表已清除，但以下项目无法重置：{{items}}。",
+        "depotBatchesFailed": "{{total}} 个 Steam 应用信息批次中有 {{failed}} 个失败，因此本次未映射其仓库。",
+        "epicStepsFailed": "Epic 目录已刷新，但有后续步骤失败：{{count}} 个。服务器日志中列出了这些步骤。",
+        "epicImageLinksNotRefreshed": "无法刷新 Epic 图片链接，因此 Epic 图片是从已保存的链接获取的。",
+        "historyRowsNotMerged": "未合并的下载记录：{{rowCount}} 条。",
+        "signInExpired": "登录未在规定时间内完成，因此应用已将其结束。",
+        "signInSessionEnded": "登录完成前，应用已结束预填充会话。",
+        "bulkItemsWarned": "完成但带有警告的项目：{{count}} 个。每个项目的卡片会列出其未完成的内容。"
       },
       "retryRepairFailed": "无法重试修复",
       "cancelling": "取消中...",
@@ -7586,8 +7599,8 @@
       "finalized": "仓库映射完成",
       "completed": "仓库映射完成",
       "failed": "仓库映射失败",
-      "skippedSetupIncomplete": "仓库映射已跳过 - 初始设置尚未完成",
-      "skippedSteamUnreachable": "仓库映射已跳过 - 无法连接到 Steam",
+      "skippedSetupIncomplete": "仓库映射未运行：初始设置尚未完成",
+      "skippedSteamUnreachable": "仓库映射未运行：无法连接到 Steam",
       "scan": {
         "skippedFullRequired": "计划扫描已跳过 - 需要全面扫描"
       }
@@ -7978,6 +7991,10 @@
       "failedStalled": "预填充已停滞（无进度）",
       "failed": "预填充失败",
       "failedApps": "{{total}} 个游戏中有 {{failed}} 个下载失败",
+      "partialMaxRuntime": "达到时间限制，运行在完成 {{total}} 个游戏中的 {{done}} 个后被停止。",
+      "partialStalled": "运行停滞，在完成 {{total}} 个游戏中的 {{done}} 个后被停止。",
+      "partialSignInLost": "完成 {{total}} 个游戏中的 {{done}} 个后，登录已失效。",
+      "partialStopped": "运行在完成 {{total}} 个游戏中的 {{done}} 个后提前停止。",
       "stopped": "预填充已停止",
       "completeWithBytes": "预填充完成（已下载 {{bytes}}）",
       "completeAllCached": "预填充完成，所选游戏均已缓存（0 字节）。启用强制重新下载可再次下载。",

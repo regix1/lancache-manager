@@ -1348,7 +1348,7 @@ test('a log removal that found another log deleted outside the app is an amber c
   assert.equal(reloaded.card('LR').detailMessage, text);
 });
 
-test('a canceled run whose repair skipped a datasource is an amber card naming it, live and after a reload', () => {
+test('a canceled run whose repair skipped a datasource names it, live and after a reload', () => {
   const text =
     'The repair finished but skipped these datasources because they were removed or their folders changed: alpha.';
   const live = new Browser();
@@ -1861,10 +1861,28 @@ test('a waiter finds how a run ended, following every merge', () => {
   assert.deepEqual(locateRun(browser.state, 'W').terminal, {
     operationId: 'N',
     status: 'failed',
-    error: 'Boom'
+    error: 'Boom',
+    warned: undefined
   });
   assert.deepEqual(browser.ended, [{ operationId: 'N', status: 'failed', error: 'Boom' }]);
   assert.deepEqual(locateRun(browser.state, 'NEVER'), { operationId: 'NEVER', known: false });
+});
+
+test('a waiter learns that a run completed with a warning', () => {
+  const browser = new Browser();
+  browser.push(row('W'));
+  browser.push(row('W', { status: 'completed', warnings: DETECTION_WARNING, retained: true }));
+  assert.equal(locateRun(browser.state, 'W').terminal.warned, true);
+
+  const clean = new Browser();
+  clean.push(row('C'));
+  clean.push(row('C', { status: 'completed', retained: true }));
+  assert.equal(locateRun(clean.state, 'C').terminal.warned, undefined);
+
+  const failed = new Browser();
+  failed.push(row('F'));
+  failed.push(row('F', { status: 'failed', warnings: DETECTION_WARNING, retained: true }));
+  assert.equal(locateRun(failed.state, 'F').terminal.warned, undefined);
 });
 
 // ── The provider's snapshot request, lifted from NotificationsContext.tsx ───

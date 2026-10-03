@@ -330,10 +330,11 @@ const UniversalNotificationBar: React.FC = () => {
     condensedSegments.push({
       key: 'background-controls',
       notification: compactControls[0],
-      // Teal only when every row is a repair still running after its job ended.
+      // Teal only when every row is a repair still running after its job ended; otherwise blue,
+      // because these rows are still running.
       variant: compactControls.every((control) => control.status === 'repairing')
         ? 'repairing'
-        : 'warning'
+        : 'info'
     });
   }
   const condensedPanel = (

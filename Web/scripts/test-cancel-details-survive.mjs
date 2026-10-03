@@ -347,6 +347,27 @@ test('a canceled card draws gray, a warning amber, and only a failure red', asyn
   );
 });
 
+test('a canceled run that left something undone stays gray and names it', async () => {
+  const { cancel } = await loadCancel('canceled-undone');
+  const card = {
+    id: 'n1',
+    type: 'game_detection',
+    status: 'cancelled',
+    detailMessage: 'Cache files that could not be deleted: 3',
+    details: { cancelled: true, notificationType: 'warning' }
+  };
+  assert.equal(cancel.getNotificationVariant(card), 'neutral');
+  assert.equal(card.detailMessage, 'Cache files that could not be deleted: 3');
+});
+
+test('a skipped run draws gray', async () => {
+  const { cancel } = await loadCancel('skipped-gray');
+  assert.equal(
+    cancel.getNotificationVariant({ id: 'n1', type: 'game_detection', status: 'skipped' }),
+    'neutral'
+  );
+});
+
 test('only a server operation whose cancel was already requested force stops', async () => {
   const { cancel } = await loadCancel('force-table');
   const card = (type, details) => ({ id: 'n1', type, status: 'running', details });

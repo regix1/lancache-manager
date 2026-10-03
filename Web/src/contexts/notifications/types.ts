@@ -67,6 +67,8 @@ export interface NotificationTerminal {
   operationId: string;
   status: 'completed' | 'failed' | 'cancelled' | 'skipped' | 'gone';
   error?: string;
+  /** The run completed with a warning (it left something undone). */
+  warned?: boolean;
 }
 
 /** Whether a running notification has a known progress denominator. */

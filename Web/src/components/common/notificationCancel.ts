@@ -212,8 +212,8 @@ export const getNotificationVariant = (notification: UnifiedNotification): Badge
     return notification.details.notificationType;
   }
 
-  // `skipped` is amber because the run did nothing, so it is neither the green of a finished
-  // run nor the red of a broken one, and warning already has a glow tone in the condensed strip.
+  // `skipped` is gray: the run had nothing to do or was put off. A run that could not start because
+  // something is missing ends failed on the server, so it reads red.
   // `pending` and `cancelling` carry no row of their own: both are still in flight, so they
   // read the way a running run does.
   return VARIANT_BY_STATUS[notification.status] ?? 'info';

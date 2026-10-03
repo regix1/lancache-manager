@@ -12,6 +12,9 @@ import type { BadgeVariant } from '@components/ui/Badge.types';
  * A run the user stopped is not a fault, so `cancelled` is grey and red keeps meaning
  * something broke.
  *
+ * A skipped run did nothing because there was nothing to do or it was put off, so it is grey too;
+ * a run that could not start because something is missing ends failed on the server and is red.
+ *
  * Event lifecycle (`active` / `upcoming` / `past`) is a separate vocabulary and is
  * deliberately not folded in here.
  */
@@ -24,5 +27,5 @@ export const VARIANT_BY_STATUS: Record<string, BadgeVariant> = {
   cancelled: 'neutral',
   waiting: 'waiting',
   repairing: 'repairing',
-  skipped: 'warning'
+  skipped: 'neutral'
 };
