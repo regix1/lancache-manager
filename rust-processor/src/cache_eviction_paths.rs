@@ -468,6 +468,8 @@ where
             unchecked_roots.insert(ds.cache_path.clone());
             continue;
         }
+        // Two datasources can share one root; once a walk of it succeeds, it was checked.
+        unchecked_roots.remove(&ds.cache_path);
 
         // A directory that exists but yields zero hash-named cache files is indistinguishable
         // from a wrong mount or path; a genuinely emptied cache is reconciled by the
@@ -780,6 +782,89 @@ mod tests {
                 missing.to_string_lossy().into_owned()
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_cache_folder_whose_target_is_gone_makes_its_root_abstain() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        create_cache_file(&root);
+        // A 2-hex cache folder linked to a disk that is not mounted: its files cannot be read, so none
+        // of this root's downloads may read as evicted.
+        std::os::unix::fs::symlink(parent.path().join("unmounted"), root.join("ab")).unwrap();
+        let datasources = [datasource("default", &root, "monolithic")];
+
+        let (files, unchecked) = collect_files_on_disk(&datasources, |_| {});
+
+        assert!(files.digests_for_root(&root).is_none());
+        assert_eq!(unchecked, vec![root.to_string_lossy().into_owned()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_under_a_linked_cache_folder_is_indexed_and_a_deeper_link_is_not_followed() {
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked");
+        let other_disk = parent.path().join("other-disk");
+        std::fs::create_dir_all(&linked).unwrap();
+        std::fs::create_dir_all(&other_disk).unwrap();
+        std::os::unix::fs::symlink(&other_disk, linked.join("ef")).unwrap();
+        // Written through the link, so the file sits on the other disk.
+        create_cache_file(&linked);
+        let deeper = parent.path().join("deeper");
+        let elsewhere = parent.path().join("elsewhere");
+        std::fs::create_dir_all(deeper.join("ef")).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, deeper.join("ef").join("cd")).unwrap();
+        create_cache_file(&deeper);
+        let datasources = [
+            datasource("linked", &linked, "monolithic"),
+            datasource("deeper", &deeper, "monolithic"),
+        ];
+
+        let (files, unchecked) = collect_files_on_disk(&datasources, |_| {});
+
+        assert_eq!(
+            files.digests_for_root(&linked).map(|digests| digests.len()),
+            Some(1)
+        );
+        // Only a 2-hex folder directly under the root is followed, so the deeper root holds no file.
+        assert_eq!(
+            files.digests_for_root(&deeper).map(|digests| digests.len()),
+            Some(0)
+        );
+        assert_eq!(unchecked, vec![deeper.to_string_lossy().into_owned()]);
+    }
+
+    #[test]
+    fn a_root_two_datasources_share_is_named_only_while_no_walk_of_it_succeeded() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let datasources = [
+            datasource("first", root.path(), "monolithic"),
+            datasource("second", root.path(), "monolithic"),
+        ];
+        let mut walks = 0;
+
+        // The first walk of the shared root meets a folder it cannot read; the second reads it whole.
+        let (files, unchecked) = collect_files_on_disk_with(
+            &datasources,
+            |_| {},
+            |path, visit_file| {
+                walks += 1;
+                walks > 1 && cache_utils::walk_cache_root(path, visit_file)
+            },
+        );
+
+        assert_eq!(walks, 2);
+        assert_eq!(
+            files
+                .digests_for_root(root.path())
+                .map(|digests| digests.len()),
+            Some(1)
+        );
+        assert!(unchecked.is_empty());
     }
 
     #[test]

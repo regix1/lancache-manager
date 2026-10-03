@@ -218,6 +218,51 @@ pub fn safe_path_under_root(root: &Path, candidate: &Path) -> io::Result<PathBuf
     Ok(canonical)
 }
 
+/// The canonical target of `folder`, a 2-hex cache folder directly under the cache root, when it is a
+/// link to a folder: one cache folder can sit on another disk. Cache clear, game and service removal
+/// and both eviction walks follow such a link, and no other. `None` when `folder` is not a link, not
+/// 2-hex or its target is not a folder; an error when the target cannot be resolved (gone included).
+pub fn linked_hex_folder_target(folder: &Path) -> io::Result<Option<PathBuf>> {
+    let hex_name = folder
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.len() == 2 && name.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    if !hex_name || !folder.symlink_metadata()?.file_type().is_symlink() {
+        return Ok(None);
+    }
+    let target = folder.canonicalize()?;
+    Ok(target.is_dir().then_some(target))
+}
+
+/// `safe_path_under_root` for a cache file of nginx's layout, which may also sit under a linked 2-hex
+/// cache folder (`linked_hex_folder_target`) and must then stay under that link's target. A file that
+/// is itself a link, and a link anywhere else, are still refused.
+pub fn safe_cache_path_under_root(root: &Path, candidate: &Path) -> io::Result<PathBuf> {
+    let refused = match safe_path_under_root(root, candidate) {
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => error,
+        result => return result,
+    };
+    if candidate.symlink_metadata()?.file_type().is_symlink() {
+        return Err(refused);
+    }
+    let folder = candidate
+        .strip_prefix(root)
+        .ok()
+        .and_then(|relative| relative.components().next())
+        .map(|first| root.join(first));
+    let target = match folder {
+        Some(folder) => linked_hex_folder_target(&folder)?,
+        None => None,
+    };
+    if let Some(target) = target {
+        let canonical = candidate.canonicalize()?;
+        if canonical.starts_with(&target) {
+            return Ok(canonical);
+        }
+    }
+    Err(refused)
+}
+
 // Filesystem type magic numbers from statfs (Unix only)
 #[cfg(unix)]
 #[allow(dead_code)]
@@ -402,33 +447,54 @@ pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
 
 /// Visits the name of every regular file under one cache root and returns false when a folder of
 /// nginx's `levels=2:2` layout below it (or the root itself) could not be read, so a name missing
-/// from the visit proves nothing about this root.
+/// from the visit proves nothing about this root. A 2-hex folder directly under the root that is a
+/// link to a folder is read like a real one.
 ///
 /// The digest parser stays with the caller on purpose. The eviction index matches file NAMES
 /// case-insensitively, so a foreign name can never mask a probe candidate and be read as an
 /// eviction; a scan that deletes needs the `levels=2:2` directory shape verified first. Those
 /// are different questions, and only the traversal is shared.
 pub fn walk_cache_root(root: &Path, visit_file: &mut dyn FnMut(&str)) -> bool {
-    let mut fully_checked = true;
-    for entry in jwalk::WalkDir::new(root).min_depth(1) {
-        match entry {
-            Ok(entry) if entry.file_type().is_file() => {
-                visit_file(&entry.file_name().to_string_lossy());
+    // Only the root and its 2-hex/2-hex folders can hold a cache file a probe looks for, so an
+    // unreadable folder elsewhere (lost+found, a NAS snapshot folder) hides nothing.
+    let in_cache_layout = |path: &Path| {
+        path.strip_prefix(root).map_or(true, |relative| {
+            relative.components().take(2).all(|part| {
+                part.as_os_str().to_str().is_some_and(|name| {
+                    name.len() == 2 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+            })
+        })
+    };
+    let walk = jwalk::WalkDir::new(root)
+        .min_depth(1)
+        .process_read_dir(|_, _, _, children| {
+            for child in children.iter_mut().flatten() {
+                // A linked 2-hex cache folder is read through its link. One whose target cannot be
+                // resolved is read anyway, so the failed read marks the root as not fully checked.
+                if child.depth == 1
+                    && child.file_type.is_symlink()
+                    && !matches!(linked_hex_folder_target(&child.path()), Ok(None))
+                {
+                    child.read_children_path = Some(child.path().into());
+                }
             }
-            Ok(_) => {}
-            // Only the root and its 2-hex/2-hex folders can hold a cache file a probe looks for, so an
-            // unreadable folder elsewhere (lost+found, a NAS snapshot folder) hides nothing.
+        });
+    let mut fully_checked = true;
+    for entry in walk {
+        match entry {
+            Ok(entry) => {
+                if entry.file_type().is_file() {
+                    visit_file(&entry.file_name().to_string_lossy());
+                }
+                // jwalk reports a folder it could not list on that folder's own entry, not as an
+                // error item.
+                if entry.read_children_error.is_some() && in_cache_layout(&entry.path()) {
+                    fully_checked = false;
+                }
+            }
             Err(error) => {
-                let in_cache_layout = error.path().is_none_or(|path| {
-                    path.strip_prefix(root).map_or(true, |relative| {
-                        relative.components().take(2).all(|part| {
-                            part.as_os_str().to_str().is_some_and(|name| {
-                                name.len() == 2 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
-                            })
-                        })
-                    })
-                });
-                if in_cache_layout {
+                if error.path().is_none_or(in_cache_layout) {
                     fully_checked = false;
                 }
             }
@@ -1642,6 +1708,43 @@ fn is_guid_at(bytes: &[u8], at: usize) -> bool {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_path_under_a_linked_cache_folder_is_accepted_and_every_other_link_refused() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        let other_disk = parent.path().join("other-disk");
+        std::fs::create_dir_all(other_disk.join("cd")).unwrap();
+        std::fs::create_dir_all(root.join("12")).unwrap();
+        std::os::unix::fs::symlink(&other_disk, root.join("ab")).unwrap();
+        let linked_file = root
+            .join("ab")
+            .join("cd")
+            .join("0123456789abcdef0123456789abcdab");
+        std::fs::write(&linked_file, b"cache").unwrap();
+        assert_eq!(
+            safe_cache_path_under_root(&root, &linked_file).unwrap(),
+            other_disk
+                .canonicalize()
+                .unwrap()
+                .join("cd")
+                .join("0123456789abcdef0123456789abcdab")
+        );
+
+        // A link one level deeper stays refused.
+        let elsewhere = parent.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, root.join("12").join("34")).unwrap();
+        let deeper_file = root.join("12").join("34").join("deeper");
+        std::fs::write(&deeper_file, b"cache").unwrap();
+        assert!(safe_cache_path_under_root(&root, &deeper_file).is_err());
+
+        // A file that is itself a link stays refused, also under a linked cache folder.
+        let file_link = root.join("ab").join("cd").join("file-link");
+        std::os::unix::fs::symlink(&deeper_file, &file_link).unwrap();
+        assert!(safe_cache_path_under_root(&root, &file_link).is_err());
+    }
 
     #[test]
     fn http_range_parser_accepts_only_single_closed_inclusive_ranges() {

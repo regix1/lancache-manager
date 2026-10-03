@@ -132,6 +132,15 @@ where
                 continue;
             };
             if file_type.is_symlink() {
+                // A 2-hex cache folder linked to another disk is read like a real one. One whose target
+                // cannot be resolved hides that folder, so the root is not fully checked.
+                if directory == canonical_path {
+                    match cache_utils::linked_hex_folder_target(&path) {
+                        Ok(Some(_)) => pending.push(path),
+                        Ok(None) => {}
+                        Err(_) => fully_checked = false,
+                    }
+                }
                 continue;
             }
             if file_type.is_dir() {
@@ -310,6 +319,27 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"cache").unwrap();
         path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_repair_walk_reads_a_linked_cache_folder_and_abstains_for_one_whose_target_is_gone() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        let other_disk = parent.path().join("other-disk");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&other_disk).unwrap();
+        std::os::unix::fs::symlink(&other_disk, root.join("ef")).unwrap();
+        // Written through the link, so the file sits on the other disk.
+        create_cache_file(&root);
+
+        let files = scan_root(&root).unwrap();
+        assert_eq!(files.digests.len(), 1);
+        assert!(files.fully_checked);
+
+        std::os::unix::fs::symlink(parent.path().join("unmounted"), root.join("ab")).unwrap();
+        let files = scan_root(&root).unwrap();
+        assert!(!files.fully_checked);
     }
 
     #[test]
