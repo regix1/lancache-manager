@@ -67,6 +67,24 @@ public sealed class XboxAuthClientTests
             lifetime.Token));
     }
 
+    [Fact]
+    public async Task TryGetGamertagAsync_ARequestThatTimesOutIsNotACancel()
+    {
+        // What HttpClient throws when its own timeout elapses: a canceled task with an inner TimeoutException.
+        using var http = new HttpClient(new StubHttpMessageHandler((_, _) =>
+            throw new TaskCanceledException(
+                "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
+                new TimeoutException())));
+        var client = new XboxAuthClient(http, NullLogger<XboxAuthClient>.Instance);
+        var method = typeof(XboxAuthClient).GetMethod(
+            "TryGetGamertagAsync",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+        var gamertag = await (Task<string?>)method.Invoke(client, ["xuid", "header", CancellationToken.None])!;
+
+        Assert.Null(gamertag);
+    }
+
     // A fixed Windows-filetime timestamp (Int64). 0x01d51856b75ee000.
     private const long FixedFiletime = 132038524800000000L;
 

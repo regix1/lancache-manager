@@ -96,7 +96,6 @@ public class XboxAuthClient
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            ct.ThrowIfCancellationRequested();
             XboxMsaTokenResponse token;
             try
             {
@@ -112,9 +111,11 @@ public class XboxAuthClient
 
                 token = await PostTokenFormAsync(form, ct);
             }
-            catch (OperationCanceledException) when (DateTimeOffset.UtcNow >= deadline)
+            catch (OperationCanceledException) when (DateTimeOffset.UtcNow >= deadline - TimeSpan.FromSeconds(1))
             {
                 // The sign-in's lifetime ends at this same deadline, so its cancel is the code running out, not a person.
+                // Its timer counts whole milliseconds on a monotonic clock and was measured firing up to 0.8 ms before
+                // this wall-clock deadline on Linux, so a cancel within a second of it counts as the code running out.
                 break;
             }
 
@@ -277,7 +278,8 @@ public class XboxAuthClient
                 // Gentle pacing between titles, mirroring EpicApiDirectClient's catalog loop.
                 await Task.Delay(100, ct);
             }
-            catch (OperationCanceledException)
+            // An HttpClient timeout is a canceled task with an inner TimeoutException: a slow request, not a cancel, so the warning below skips it.
+            catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
             {
                 throw;
             }
@@ -484,7 +486,8 @@ public class XboxAuthClient
 
             return string.IsNullOrWhiteSpace(gamertag) ? null : gamertag;
         }
-        catch (OperationCanceledException)
+        // An HttpClient timeout is a canceled task with an inner TimeoutException: a slow request, not a cancel, so the lookup below returns no gamertag.
+        catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
         {
             throw;
         }

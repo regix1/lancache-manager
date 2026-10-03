@@ -310,7 +310,7 @@ public partial class XboxCatalogMappingService
             _logger.LogInformation("Xbox mapping login complete: {DisplayName}, {Games} games",
                 harvest.DisplayName, harvest.CdnInfos.Count);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
         {
             _logger.LogInformation("Xbox mapping login cancelled");
             if (reporter.IsStarted)
@@ -352,6 +352,16 @@ public partial class XboxCatalogMappingService
                 OperationStatus.Failed,
                 ex.StageKey,
                 context: mappingContext);
+        }
+        catch (TimeoutException ex)
+        {
+            // The device code ran out before the person approved it: the app's limit, named in the reader's language.
+            // The poll is the only source of this exception and runs before the card starts.
+            _logger.LogInformation(ex, "Xbox mapping login expired");
+            await EmitAuthStateAsync(
+                reporter.OperationId,
+                OperationStatus.Failed,
+                "errors.integration.attemptExpired");
         }
         catch (Exception ex)
         {

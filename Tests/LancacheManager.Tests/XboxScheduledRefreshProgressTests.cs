@@ -424,6 +424,22 @@ public partial class XboxScheduledRefreshProgressTests
     }
 
     [Fact]
+    public async Task AnXboxSignInWhoseDeviceCodeRunsOutSaysItExpiredAsync()
+    {
+        using var auth = new StubDeviceCodeHandler { DeviceCodeExpiresIn = 2 };
+        using var harness = new Harness(authHandler: auth);
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+
+        await harness.Service.StartLoginAsync(null, caller: owner);
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
+            harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
+        Assert.Equal(OperationStatus.Failed, authState.Status);
+        Assert.Equal("errors.integration.attemptExpired", authState.StageKey);
+    }
+
+    [Fact]
     public void SuccessMarksTheSessionBeforeTheAttemptIsCleared()
     {
         // A client reads loginInProgress and isAuthenticated from one snapshot, and treats false/false
@@ -470,6 +486,9 @@ public partial class XboxScheduledRefreshProgressTests
         /// <summary>What the token endpoint answers. Pending keeps the poll waiting for approval.</summary>
         public string TokenBody { get; init; } = """{"error":"authorization_pending"}""";
 
+        /// <summary>Seconds the device code stays valid, as the device-code endpoint's <c>expires_in</c>.</summary>
+        public int DeviceCodeExpiresIn { get; init; } = 900;
+
         public bool CompleteHarvest { get; init; }
 
         public bool HoldFirstHarvest { get; init; }
@@ -498,9 +517,9 @@ public partial class XboxScheduledRefreshProgressTests
             {
                 DeviceRequests++;
                 return JsonResponse(
-                    """
+                    $$"""
                     {"user_code":"ABCD-EFGH","device_code":"DEV",
-                     "verification_uri":"https://microsoft.com/link","interval":1,"expires_in":900}
+                     "verification_uri":"https://microsoft.com/link","interval":1,"expires_in":{{DeviceCodeExpiresIn}}}
                     """);
             }
 
