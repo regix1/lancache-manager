@@ -1674,6 +1674,8 @@ public class CacheController : ControllerBase
                 datasources.Count, service);
             bool allSucceeded = true;
             string? lastError = null;
+            var failedDatasources = new List<string>();
+            var finishedDatasources = 0;
             var rewritesLogs = selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss;
 
             var datasourceCount = datasources.Count;
@@ -1912,6 +1914,7 @@ public class CacheController : ControllerBase
                     {
                         _logger.LogInformation("[CorruptionRemoval] Completed for service {Service} on datasource '{Datasource}'",
                             service, datasource.Name);
+                        finishedDatasources++;
                     }
                     else
                     {
@@ -1934,7 +1937,7 @@ public class CacheController : ControllerBase
                             service, datasource.Name, result.Error);
                         allSucceeded = false;
                         lastError = result.Error;
-
+                        failedDatasources.Add(datasource.Name);
                     }
                 }
                 catch (Exception error)
@@ -1970,7 +1973,17 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
                 await FinishAndCompleteAsync(success: true, cancelled: false, error: null);
             }
-
+            else if (finishedDatasources > 0)
+            {
+                // Some datasources removed their chunks: the removal worked, with errors. A failed
+                // datasource was never accepted, so the repair's full scan still checks it.
+                _logger.LogWarning("Corruption removal for service {Service} failed on {Datasources}: {Error}",
+                    service, string.Join(", ", failedDatasources), lastError);
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.datasourcesFailed",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+                await FinishAndCompleteAsync(success: true, cancelled: false, error: null);
+            }
             else
             {
                 _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);

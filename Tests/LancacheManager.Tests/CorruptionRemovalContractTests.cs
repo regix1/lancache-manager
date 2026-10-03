@@ -834,6 +834,32 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.Resume.TrySetResult();
     }
 
+    [Fact]
+    public async Task ACorruptionRemovalThatFailedOnOneDatasourceEndsAmberAsync()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, transport: true, datasourceCount: 2);
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        await fixture.Pipe.SendAsync(Live("service", 25, 3, 20));
+        var progress = await fixture.Messages.WaitProgressAsync("service");
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.Structural, second: false), 0);
+        await fixture.Pipe.ConnectAsync();
+        // The same failed checkpoint and exit code a removal child writes when its datasource cannot be cleaned.
+        await fixture.Pipe.SendAsync("""{"status":"failed","stageKey":"failed","percentComplete":25,"filesProcessed":3,"totalFiles":20,"context":{"errorDetail":"disk unavailable"}}""", 7);
+
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == progress.OperationId);
+        Assert.Equal("completed", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.datasourcesFailed", warning.StageKey);
+        Assert.Equal("secondary", warning.Context["datasources"]);
+        var repair = await fixture.WaitForCompletedRepairAsync(progress.OperationId);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.Equal("common.notifications.warnings.datasourcesFailed", Assert.Single(repair.Warnings!).StageKey);
+        fixture.Messages.Resume.TrySetResult();
+    }
+
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
