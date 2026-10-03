@@ -141,6 +141,17 @@ public partial class SteamKit2Service
             return await CompleteLoginAsync(login,
                 new AuthenticationResult { Success = true, Message = "Authentication successful" });
         }
+        catch (OperationCanceledException) when (DateTime.UtcNow >= login.ExpiresAtUtc)
+        {
+            // The sign-in window ran out, not a person: say it expired, as a late code is told.
+            _logger.LogInformation("Steam sign-in expired");
+            return await CompleteLoginAsync(login, new AuthenticationResult
+            {
+                Success = false,
+                Message = "This sign-in has ended or expired. Start a new sign-in.",
+                StageKey = "errors.integration.attemptExpired"
+            });
+        }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Steam sign-in cancelled");

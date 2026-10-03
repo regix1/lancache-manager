@@ -97,17 +97,27 @@ public class XboxAuthClient
         while (DateTimeOffset.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            await Task.Delay(interval, ct);
-            if (DateTimeOffset.UtcNow >= deadline) break;
-
-            var form = new Dictionary<string, string>
+            XboxMsaTokenResponse token;
+            try
             {
-                ["client_id"] = XboxAuthConstants.ClientId,
-                ["grant_type"] = XboxAuthConstants.DeviceCodeGrantType,
-                ["device_code"] = deviceCode.DeviceCode
-            };
+                await Task.Delay(interval, ct);
+                if (DateTimeOffset.UtcNow >= deadline) break;
 
-            var token = await PostTokenFormAsync(form, ct);
+                var form = new Dictionary<string, string>
+                {
+                    ["client_id"] = XboxAuthConstants.ClientId,
+                    ["grant_type"] = XboxAuthConstants.DeviceCodeGrantType,
+                    ["device_code"] = deviceCode.DeviceCode
+                };
+
+                token = await PostTokenFormAsync(form, ct);
+            }
+            catch (OperationCanceledException) when (DateTimeOffset.UtcNow >= deadline)
+            {
+                // The sign-in's lifetime ends at this same deadline, so its cancel is the code running out, not a person.
+                break;
+            }
+
             if (token.AccessToken != null)
             {
                 // A device-code access token by itself only keeps Xbox connected for this process.

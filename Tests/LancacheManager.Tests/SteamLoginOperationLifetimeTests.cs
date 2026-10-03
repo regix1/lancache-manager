@@ -123,6 +123,26 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
     }
 
     [Fact]
+    public async Task ASteamSignInWhoseWindowRunsOutSaysItExpiredAsync()
+    {
+        var tracker = CreateTracker();
+        var service = CreateService(tracker, new SemaphoreSlim(0, 1));
+        var caller = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var storage = GetPrivateField<SteamAuthStorageService>(service, "_steamAuthRepository");
+        var login = await storage.BeginIntegrationLoginAsync(caller);
+        login = storage.SetIntegrationLoginExpiry(login, DateTime.UtcNow.AddSeconds(1));
+        SetPrivateField(service, "_hasPendingLoginOwner", true);
+        SetPrivateField<string?>(service, "_pendingLoginUsername", "steam-user");
+
+        var result = await service.AuthenticateAsync(
+            "steam-user", "password", twoFactorCode: "12345", caller: caller, attemptId: login.AttemptId)
+            .WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.False(result.Success);
+        Assert.Equal("errors.integration.attemptExpired", result.StageKey);
+    }
+
+    [Fact]
     public async Task ActiveOwnerRefusalCreatesNoOperationAndDoesNotChangeCredentials()
     {
         var tracker = CreateTracker();

@@ -51,6 +51,22 @@ public sealed class XboxAuthClientTests
         Assert.Equal(0, calls);
     }
 
+    [Fact]
+    public async Task PollForTokenAsync_ADeviceCodeThatRunsOutWhileThePollWaitsTimesOut()
+    {
+        using var http = new HttpClient(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(JsonResponse("""{ "error": "authorization_pending" }"""))));
+        var client = new XboxAuthClient(http, NullLogger<XboxAuthClient>.Instance);
+        var expiresAt = DateTime.UtcNow.AddSeconds(1.5);
+        // The sign-in's lifetime ends at the same instant as the device code, as the service arms it.
+        using var lifetime = new CancellationTokenSource(expiresAt - DateTime.UtcNow);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => client.PollForTokenAsync(
+            new XboxDeviceCodeResponse { DeviceCode = "DEV", Interval = 1 },
+            expiresAt,
+            lifetime.Token));
+    }
+
     // A fixed Windows-filetime timestamp (Int64). 0x01d51856b75ee000.
     private const long FixedFiletime = 132038524800000000L;
 
