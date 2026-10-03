@@ -1594,6 +1594,13 @@ public class CacheController : ControllerBase
                 BuildCorruptionRepair(operationId, startedAt, selection, datasources, metadata),
                 cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // X while the repair waited to be prepared: nothing ran, and the person's cancel is gray.
+            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+            await terminalCompletion.Task;
+            return false;
+        }
         catch (Exception ex)
         {
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);

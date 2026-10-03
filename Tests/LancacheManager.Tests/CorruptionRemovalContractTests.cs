@@ -860,6 +860,42 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.Resume.TrySetResult();
     }
 
+    [Fact]
+    public async Task XWhileACorruptionRemovalPreparesItsRepairEndsItCanceledAsync()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        // The repair owner admits one repair change at a time; holding its gate keeps the removal in its prepare step.
+        var gate = (SemaphoreSlim)typeof(OperationStateService)
+            .GetField("_admissionGate", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(fixture.States)!;
+        await gate.WaitAsync();
+        var gateHeld = true;
+        try
+        {
+            var run = fixture.RunAsync();
+            Guid operationId = Guid.Empty;
+            for (var attempt = 0; attempt < 400 && operationId == Guid.Empty; attempt++)
+            {
+                operationId = fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval).FirstOrDefault()?.Id ?? Guid.Empty;
+                if (operationId == Guid.Empty) await Task.Delay(25);
+            }
+            Assert.NotEqual(Guid.Empty, operationId);
+
+            fixture.Tracker.CancelOperation(operationId);
+            gate.Release();
+            gateHeld = false;
+
+            Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+            var operation = fixture.Tracker.GetOperation(operationId)!;
+            Assert.Equal(OperationStatus.Cancelled, operation.Status);
+            Assert.True(operation.Cancelled);
+        }
+        finally
+        {
+            if (gateHeld) gate.Release();
+        }
+    }
+
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
