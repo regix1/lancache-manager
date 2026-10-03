@@ -1492,8 +1492,9 @@ public abstract partial class PrefillDaemonServiceBase
                         && ReferenceEquals(session.Client, client)
                         && !session.AdmissionClosed)
                     {
-                        // A sign-in that finished while the cancel went unanswered owes no challenge and is settled.
-                        if (session.AuthState == DaemonAuthState.Authenticated)
+                        // A sign-in that ended while the cancel went unanswered, signed in or not, owes no challenge and is
+                        // settled.
+                        if (session.AuthState is DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated)
                         {
                             session.LoginSettled = true;
                         }

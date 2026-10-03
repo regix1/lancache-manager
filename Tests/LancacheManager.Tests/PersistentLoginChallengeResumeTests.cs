@@ -308,6 +308,46 @@ public class PersistentLoginChallengeResumeTests
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
     }
 
+    /// <summary>
+    /// A sign-in that ends signed out while the cancel is still waiting on the daemon (the daemon reports
+    /// "awaiting-login") owes no challenge either; the session is settled so the image update does not wait.
+    /// </summary>
+    [Fact]
+    public async Task AnUnansweredCancelOfASignInThatEndedSignedOutRestoresNoChallengeAsync()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
+        {
+            CancelAcknowledged = false,
+            HoldCancelLogin = true
+        };
+        var (daemon, session) = CreateSessionWithClient(client);
+
+        var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var cancel = daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        client.StatusOverride = new DaemonStatus
+        {
+            ProtocolVersion = 2,
+            DaemonInstanceId = Guid.NewGuid().ToString(),
+            MaxConcurrentRuns = 1,
+            MaxConcurrentRequests = 1,
+            Features = ["concurrentPrefill", "operationProgress", "targetedCancel", "inlineSelection", "activeOperations"],
+            ActiveOperations = [],
+            RecentOperations = [],
+            Status = "awaiting-login"
+        };
+        client.LoginFinished = true;
+        await daemon.GetSessionStatusAsync(session.Id);
+        client.ReleaseCancelLogin.SetResult();
+
+        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => cancel);
+
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.True(session.LoginSettled);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);
+    }
+
     [Fact]
     public async Task CancelLoginAsync_UnacknowledgedCancelKeepsSettledSessionReady()
     {
