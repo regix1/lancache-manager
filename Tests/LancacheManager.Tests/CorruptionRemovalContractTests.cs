@@ -860,8 +860,10 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.Resume.TrySetResult();
     }
 
-    [Fact]
-    public async Task XWhileACorruptionRemovalPreparesItsRepairEndsItCanceledAsync()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task XWhileACorruptionRemovalPreparesItsRepairEndsItCanceledAsync(bool removeAll)
     {
         await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         // The repair owner admits one repair change at a time; holding its gate keeps the removal in its prepare step.
@@ -872,23 +874,35 @@ public sealed class CorruptionRemovalContractTests
         var gateHeld = true;
         try
         {
-            var run = fixture.RunAsync();
-            Guid operationId = Guid.Empty;
-            for (var attempt = 0; attempt < 400 && operationId == Guid.Empty; attempt++)
+            var selection = await fixture.Detection.GetRemovalSelectionAsync(fixture.ScanId, "steam");
+            var bulkType = typeof(CacheController).GetNestedType("BulkCorruptionRemovalState", BindingFlags.NonPublic)!;
+            object? bulk = null;
+            if (removeAll)
             {
-                operationId = fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval).FirstOrDefault()?.Id ?? Guid.Empty;
-                if (operationId == Guid.Empty) await Task.Delay(25);
+                bulk = Activator.CreateInstance(bulkType)!;
+                bulkType.GetProperty("ServiceCount")!.SetValue(bulk, 2);
+                bulkType.GetField("ServiceIndex")!.SetValue(bulk, 1);
             }
+            var registeredId = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Action<Guid> registered = id => registeredId.TrySetResult(id);
+            var core = typeof(CacheController).GetMethod("RunCorruptionRemovalCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var run = (Task<bool>)core.Invoke(fixture.Controller, [selection, fixture.Datasources, registered, bulk])!;
+            var operationId = await registeredId.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.NotEqual(Guid.Empty, operationId);
 
             fixture.Tracker.CancelOperation(operationId);
             gate.Release();
             gateHeld = false;
 
-            Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
             var operation = fixture.Tracker.GetOperation(operationId)!;
             Assert.Equal(OperationStatus.Cancelled, operation.Status);
             Assert.True(operation.Cancelled);
+            if (removeAll)
+            {
+                Assert.True((bool)bulkType.GetField("Cancelled")!.GetValue(bulk)!);
+                Assert.Equal(operationId, bulkType.GetField("LastOperationId")!.GetValue(bulk));
+            }
         }
         finally
         {

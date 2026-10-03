@@ -1588,6 +1588,12 @@ public class CacheController : ControllerBase
                 startedAt: startedAt,
                 ownerCompletes: true));
 
+        // The caller gets the id now, so a cancel during the prepare ends a run the caller already reported.
+        // Remove all names this card in its canceled summary, so the id is recorded before the prepare can end.
+        if (bulk != null)
+            bulk.LastOperationId = operationId;
+        onRegistered?.Invoke(operationId);
+
         try
         {
             await _corruptionDetectionService.PrepareRepairAsync(
@@ -1597,9 +1603,10 @@ public class CacheController : ControllerBase
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // X while the repair waited to be prepared: nothing ran, and the person's cancel is gray.
+            // Rethrown as the main cancel path does, so Remove all stops and the single-service start does not queue the removal again.
             _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
             await terminalCompletion.Task;
-            return false;
+            throw new OperationCanceledException(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1607,8 +1614,6 @@ public class CacheController : ControllerBase
             await terminalCompletion.Task;
             return false;
         }
-
-        onRegistered?.Invoke(operationId);
 
         async Task FinishAndCompleteAsync(bool success, bool cancelled, string? error)
         {
@@ -1646,7 +1651,6 @@ public class CacheController : ControllerBase
             : "signalr.corruptionRemove.starting";
         if (bulk != null)
         {
-            bulk.LastOperationId = operationId;
             startContext["serviceIndex"] = serviceIndex;
             startContext["serviceCount"] = serviceCount;
             startStageKey = selection.DetectionMethod == CorruptionDetectionMethod.Structural
