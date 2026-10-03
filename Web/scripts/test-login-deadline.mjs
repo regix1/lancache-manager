@@ -858,6 +858,203 @@ test('guest Xbox initial action stays pending after an empty challenge read', as
   }
 });
 
+// What PrefillDaemonHubBase.SubscribeToSessionAsync sends on every subscribe: the session snapshot, which carries
+// loginEnding only once a sign-in on the session has ended (the REST and hub serializers drop null fields).
+const subscribedSession = (loginEnding) => ({
+  id: 'session',
+  authState: loginEnding?.status === 'completed' ? 'Authenticated' : 'NotAuthenticated',
+  ...(loginEnding ? { loginEnding } : {})
+});
+const signedInEnding = (loginAttempt) => ({
+  loginAttempt,
+  status: 'completed',
+  stageKey: 'prefill.persistent.status.loggedIn'
+});
+const refusedEnding = (loginAttempt) => ({
+  loginAttempt,
+  status: 'failed',
+  stageKey: 'prefill.auth.signInRefused'
+});
+
+test('a guest Steam sign-in whose success event was lost ends on the resubscribe', async () => {
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    await flow.start();
+    flow.reconnect();
+    const handler = flow.socket.handlers.get('SessionSubscribed');
+    assert.equal(typeof handler, 'function');
+    handler(subscribedSession(signedInEnding(4)));
+    const auth = flow.render();
+    assert.equal(flow.outcomes.success, 1);
+    assert.equal(auth.state.waitingForMobileConfirmation, false);
+    assert.equal(auth.loginDeadline, null);
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('a guest Xbox sign-in whose success event was lost ends on the resubscribe', async () => {
+  const flow = guest(useGuest, 'xbox');
+  try {
+    await flow.start();
+    assert.equal(flow.render().state.needsDeviceCode, true);
+    flow.reconnect();
+    const handler = flow.socket.handlers.get('SessionSubscribed');
+    assert.equal(typeof handler, 'function');
+    handler(subscribedSession(signedInEnding(7)));
+    assert.equal(flow.outcomes.success, 1);
+    assert.equal(flow.render().state.needsDeviceCode, false);
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('a guest Epic sign-in whose success event was lost ends on the resubscribe', async () => {
+  const flow = guest(useGuest, 'epic');
+  try {
+    flow.reply = {
+      ...challenge('epic-code', 'authorization-url'),
+      authUrl: 'https://example.test/epic'
+    };
+    let auth = await flow.start();
+    auth.actions.setAuthorizationCode('accepted-code');
+    auth = flow.render();
+    await auth.actions.handleAuthenticate();
+    assert.equal(flow.render().state.loading, true);
+    flow.reconnect();
+    const handler = flow.socket.handlers.get('SessionSubscribed');
+    assert.equal(typeof handler, 'function');
+    handler(subscribedSession(signedInEnding(7)));
+    assert.equal(flow.outcomes.success, 1);
+    assert.equal(flow.render().state.loading, false);
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('a guest sign-in refused while the event was lost shows the refusal', async () => {
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    await flow.start();
+    flow.reconnect();
+    const handler = flow.socket.handlers.get('SessionSubscribed');
+    assert.equal(typeof handler, 'function');
+    handler(subscribedSession(refusedEnding(4)));
+    const auth = flow.render();
+    assert.equal(auth.state.error, 'prefill.auth.signInRefused');
+    assert.deepEqual(flow.outcomes.errors, ['Authentication failed']);
+    assert.equal(flow.outcomes.success, 0);
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('an ending of another attempt or before any sign-in leaves the dialog as it is', async () => {
+  const flow = guest();
+  const idle = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    const waiting = await flow.start();
+    flow.reconnect();
+    flow.socket.handlers.get('SessionSubscribed')?.(subscribedSession(signedInEnding(3)));
+    const after = flow.render();
+    assert.equal(flow.outcomes.success, 0);
+    assert.equal(after.state.waitingForMobileConfirmation, true);
+    assert.equal(after.loginDeadline, waiting.loginDeadline);
+
+    idle.render();
+    idle.socket.handlers.get('SessionSubscribed')?.(subscribedSession(signedInEnding(4)));
+    assert.equal(idle.outcomes.success, 0);
+    assert.deepEqual(idle.outcomes.errors, []);
+  } finally {
+    flow.unmount();
+    idle.unmount();
+  }
+});
+
+test('a refused persistent sign-in ends with its refusal, not the deadline', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    // What GetChallengeAsync answers once the login's own sign-in ended other than signed in.
+    const answers = [
+      { status: 'ended', sessionId: 'session', loginEnding: refusedEnding(1) },
+      { status: 'logged-in', sessionId: 'session' }
+    ];
+    flow.poll = async () => answers.shift();
+    assert.equal(await flow.render().actions.submit('password'), false);
+    assert.equal(flow.store.getPersistentLoginState('Steam').error, 'prefill.auth.signInRefused');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('one failed challenge read is read again after 5 seconds', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    const answers = [
+      () => Promise.reject(new TypeError('Failed to fetch')),
+      () => Promise.resolve({ status: 'logged-in', sessionId: 'session' })
+    ];
+    flow.poll = () => answers.shift()();
+    const submitted = flow.render().actions.submit('password');
+    await new Promise((resolve) => setImmediate(resolve));
+    await time.advance(5000);
+    assert.equal(await submitted, true);
+    assert.equal(flow.store.getPersistentLoginState('Steam').error, null);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('each challenge read names its login', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    const { loginId } = flow.store.getPersistentLoginState('Steam');
+    assert.notEqual(loginId, null);
+    flow.poll = async () => ({ status: 'logged-in', sessionId: 'session' });
+    await flow.render().actions.poll();
+    const read = flow.calls.find(([name]) => name === 'poll');
+    assert.equal(read[4], loginId);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('an Xbox poll that reads an ended sign-in stops with its reason', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage(), 'Xbox');
+    flow.reply = { ...challenge('first', 'device-code'), sessionId: 'session' };
+    await flow.start();
+    flow.poll = async () => ({
+      status: 'ended',
+      sessionId: 'session',
+      loginEnding: refusedEnding(1)
+    });
+    const result = await flow.render().actions.poll();
+    assert.equal(result.status, 'ended');
+    assert.equal(flow.store.getPersistentLoginState('Xbox').error, 'prefill.auth.signInRefused');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
 test('persistent same-stage poll and SignalR delivery retain the accepted step and deadline', async () => {
   const time = clock();
   let flow;

@@ -8,6 +8,7 @@ import { ApiError } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import { createUuid } from '@utils/uuid';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
+import type { PrefillLoginEnding } from '../types';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import { loginAttemptTimeoutMs } from './loginAttemptTimeout';
 import { getAuthStage } from './authStage';
@@ -157,6 +158,7 @@ interface PersistentPrefillAuthResult {
 export type PollResult =
   | { status: 'authenticated' }
   | { status: 'challenge'; challenge: CredentialChallenge }
+  | { status: 'ended'; ending: PrefillLoginEnding }
   | { status: 'pending' };
 
 // SignalR now pushes challenges the instant the daemon emits them (see
@@ -276,13 +278,22 @@ export function usePersistentPrefillAuth(
     }
 
     try {
-      const response = await ApiService.getPersistentChallenge(service, timeoutSeconds, sessionId);
+      const response = await ApiService.getPersistentChallenge(
+        service,
+        timeoutSeconds,
+        sessionId,
+        getPersistentLoginState(service).loginId
+      );
       if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
       if (isPersistentLoginAuthenticatedResponse(response)) {
         return { status: 'authenticated' };
       }
       if (isPersistentLoginCredentialChallenge(response)) {
         return { status: 'challenge', challenge: response };
+      }
+      // The server keeps how this login's sign-in ended; a refused or stopped one sends no further challenge.
+      if (typeof response === 'object' && 'loginEnding' in response) {
+        return { status: 'ended', ending: response.loginEnding };
       }
       // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
       // for the user to confirm a device code). Keep polling instead of erroring.
@@ -296,9 +307,18 @@ export function usePersistentPrefillAuth(
       ) {
         handleSessionConflict(err);
       }
-      // The rethrow is unconditional: the caller's loop still has to end, whether or not this
-      // attempt was the one that owned the store.
-      throw err;
+      if (
+        isPersistentLoginSuspended() ||
+        isPersistentSessionConflictError(err) ||
+        isPersistentChallengeNotFoundError(err)
+      ) {
+        // The caller's loop still has to end, whether or not this attempt owned the store.
+        throw err;
+      }
+      // One failed read says nothing about the sign-in, which may still finish. Read again after 5 s (the Xbox
+      // sign-in dialog's retry); the attempt's deadline, checked at the top of every read, still ends the wait.
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      return { status: 'pending' };
     }
   }, [handleSessionConflict, messages, service, timeoutSeconds]);
 
@@ -391,6 +411,10 @@ export function usePersistentPrefillAuth(
         finishPersistentLoginStep(service, submitted.actionId);
         return result;
       }
+      if (result.status === 'ended') {
+        fail(t(result.ending.stageKey));
+        return result;
+      }
 
       if (result.status === 'authenticated') {
         finishAuthenticated();
@@ -404,7 +428,16 @@ export function usePersistentPrefillAuth(
       }
       return result;
     },
-    [applyChallenge, finishAuthenticated, handleSessionConflict, messages, pollForResult, service]
+    [
+      applyChallenge,
+      fail,
+      finishAuthenticated,
+      handleSessionConflict,
+      messages,
+      pollForResult,
+      service,
+      t
+    ]
   );
 
   const submit = useCallback(
@@ -464,6 +497,10 @@ export function usePersistentPrefillAuth(
       if (isPersistentLoginCancelled(service)) {
         return result;
       }
+      if (result.status === 'ended') {
+        fail(t(result.ending.stageKey));
+        return result;
+      }
 
       if (result.status === 'authenticated') {
         finishAuthenticated();
@@ -509,7 +546,7 @@ export function usePersistentPrefillAuth(
       fail(message);
       throw err;
     }
-  }, [applyChallenge, fail, finishAuthenticated, messages, pollForResult, service]);
+  }, [applyChallenge, fail, finishAuthenticated, messages, pollForResult, service, t]);
 
   const start = useCallback(async (): Promise<CredentialChallenge | null> => {
     if (isPersistentLoginSuspended()) return null;

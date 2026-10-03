@@ -8,6 +8,7 @@ import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthe
 import { loginAttemptTimeoutMs, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
 import { getAuthStage, type AuthStage, type AuthStep } from './authStage';
+import type { PrefillLoginEnding } from '../types';
 
 export interface CredentialChallenge {
   type: string;
@@ -24,7 +25,7 @@ export interface CredentialChallenge {
   expiresAt: string;
   /** Tracker id of the daemon sign-in this challenge belongs to. */
   operationId?: string;
-  /** Persistent logins: the server's attempt number, sent back with a cancel so it cannot end a newer attempt. */
+  /** The server's attempt number: a persistent cancel names it, and a missed sign-in ending is matched by it. */
   loginAttempt?: number | null;
 }
 
@@ -64,6 +65,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const authStepRef = useRef<AuthStep | null>(null);
   const authStepCounterRef = useRef(0);
   const retiredChallengeIdsRef = useRef<Set<string>>(new Set());
+  // The attempt number on this sign-in's challenges, matched against the session's recorded ending.
+  const loginAttemptRef = useRef<number | null>(null);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
@@ -115,6 +118,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     waitRef.current = null;
     setLoginDeadline(null);
     hasStartedAuthRef.current = false;
+    loginAttemptRef.current = null;
     setLoading(false);
     setNeedsTwoFactor(false);
     setNeedsEmailCode(false);
@@ -223,6 +227,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoginDeadline(null);
       }
       pendingChallengeRef.current = challenge;
+      loginAttemptRef.current = challenge.loginAttempt ?? null;
       setPendingChallenge(challenge);
       setNeedsDeviceCode(false);
       switch (challenge.credentialType) {
@@ -356,11 +361,31 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       }
     };
 
+    // A reconnect gap or a hidden tab can miss that event. Every resubscribe answers with the session, which keeps how
+    // its last sign-in ended, so a sign-in still waiting here ends on its own attempt's ending the same way.
+    const handleSessionSubscribed = ({
+      id,
+      loginEnding
+    }: {
+      id: string;
+      loginEnding?: PrefillLoginEnding;
+    }) => {
+      if (id !== sessionId || !hasStartedAuthRef.current || !loginEnding) return;
+      if (loginEnding.loginAttempt !== loginAttemptRef.current) return;
+      handleAuthStateChanged({
+        sessionId: id,
+        authState: loginEnding.status === 'completed' ? 'Authenticated' : 'NotAuthenticated'
+      });
+    };
+
     const eventName = getEventName('AuthStateChanged', serviceId);
+    const subscribedName = getEventName('SessionSubscribed', serviceId);
     hubConnection.on(eventName, handleAuthStateChanged);
+    hubConnection.on(subscribedName, handleSessionSubscribed);
 
     return () => {
       hubConnection.off(eventName, handleAuthStateChanged);
+      hubConnection.off(subscribedName, handleSessionSubscribed);
     };
   }, [hubConnection, sessionId, onSuccess, onError, serviceId, finishAuthStep, t]);
 

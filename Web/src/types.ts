@@ -983,6 +983,13 @@ export interface IntegrationLoginEnding {
   context?: Record<string, string | number | boolean>;
 }
 
+/** How a prefill session's last sign-in ended, kept by its attempt number for a browser that missed the ending. */
+export interface PrefillLoginEnding {
+  loginAttempt: number;
+  status: 'completed' | 'failed' | 'cancelled';
+  stageKey: string;
+}
+
 export interface EpicMappingAuthStatus extends IntegrationAccess {
   isAuthenticated: boolean;
   displayName: string | null;

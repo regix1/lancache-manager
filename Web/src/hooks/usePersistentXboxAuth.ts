@@ -58,6 +58,7 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
         if (result.status === 'authenticated') {
           return true;
         }
+        if (result.status === 'ended') return false;
 
         const challengeId = result.status === 'challenge' ? result.challenge.challengeId : null;
         if (challengeId !== null && challengeId === lastChallengeId) {

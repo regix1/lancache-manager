@@ -66,7 +66,8 @@ import {
   type XboxMappingAuthStatus,
   type IntegrationLoginRequest,
   type PicsStatus,
-  type OrphanedDownloadsResponse
+  type OrphanedDownloadsResponse,
+  type PrefillLoginEnding
 } from '../types';
 import type { StructuralScanMode } from '../types/corruptionScan';
 import type { ImportResult, ValidationResult } from '../types/migration';
@@ -133,7 +134,8 @@ type PersistentChallengeResponse =
   | (CredentialChallenge & { sessionId: string })
   | 'authenticated'
   | { authenticated: true; sessionId?: string }
-  | { status: 'authenticated' | 'logged-in'; message?: string; sessionId?: string };
+  | { status: 'authenticated' | 'logged-in'; message?: string; sessionId?: string }
+  | { status: 'ended'; sessionId: string; loginEnding: PrefillLoginEnding };
 
 type PersistentLoginCancelIdentity =
   | { loginId: string; loginAttempt?: number | null }
@@ -3852,13 +3854,15 @@ class ApiService {
   static async getPersistentChallenge(
     service: PersistentPrefillServiceId,
     timeoutSeconds: number | undefined,
-    sessionId: string
+    sessionId: string,
+    loginId?: string | null
   ): Promise<PersistentChallengeResponse> {
     try {
       const params = new URLSearchParams({ service, sessionId });
       if (timeoutSeconds !== undefined) {
         params.set('timeoutSeconds', timeoutSeconds.toString());
       }
+      if (loginId) params.set('loginId', loginId);
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/challenge?${params.toString()}`,
         this.getFetchOptions()
