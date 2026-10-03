@@ -736,11 +736,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     UnEvicted = committedCheckpoint.UnEvicted,
                     FilesOnDisk = scanResult.FilesOnDisk
                 };
+                // The run goes on after this save (the remove step and the checkpoint tail), so the record says so until the
+                // scan's last save below records how the run ended.
                 await repairOwner.FinishRepairAsync(
                     operationId,
                     success: true,
                     cancelled: false,
-                    error: null);
+                    error: null,
+                    update: repair => repair.RunContinues = true);
 
                 // Handle evicted data "remove" mode. The removal self-registers its OWN
                 // OperationType.EvictionRemoval operation (operationId: null) so it is cancellable,
@@ -842,14 +845,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     operationId);
             }
         }
-        // A stop during the remove step lands after the scan saved its own outcome, so the record keeps that the
-        // person stopped the run and a restart restores the same canceled card.
+        // The scan's last save. After the early save above, it records how the run ended (stopped, failed or done), so a
+        // restart restores the same card.
         await repairOwner.FinishRepairAsync(
             operationId,
             operationSucceeded,
             operationCancelled,
-            operationError,
-            operationCancelled ? repair => repair.RunCancelled = true : null);
+            operationError);
 
         return new EvictionScanRunOutcome(operationSucceeded, operationError,
             RepairStarted: true,
