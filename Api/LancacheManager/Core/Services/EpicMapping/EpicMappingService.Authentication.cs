@@ -309,6 +309,11 @@ public partial class EpicMappingService
                     cancelled: true,
                     context: CreateEpicContext());
             }
+            // The request this cancel ends answers 499, so a browser reads how its sign-in ended by its attempt id.
+            _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                login.AttemptId,
+                saved ? OperationStatus.Completed : OperationStatus.Cancelled,
+                saved ? "signalr.epicMapping.completed" : "errors.integration.attemptExpired"));
             throw;
         }
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)

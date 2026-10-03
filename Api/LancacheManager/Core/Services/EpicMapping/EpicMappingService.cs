@@ -169,7 +169,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     /// <summary>
     /// Returns current auth and progress status for REST endpoints.
     /// </summary>
-    public EpicMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null)
+    public EpicMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null, Guid? attemptId = null)
     {
         var access = caller is null ? null : GetIntegrationAccess(caller);
         return new EpicMappingAuthStatus
@@ -183,6 +183,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
             OwnershipReason = access?.OwnershipReason,
             AttemptId = access?.AttemptId,
             LoginExpiresAtUtc = access?.LoginExpiresAtUtc,
+            LoginEnding = caller is null || attemptId is null ? null : _authStorage.GetIntegrationLoginEnding(caller, attemptId.Value),
             DisplayName = caller is null || access!.CanManage ? _displayName : null,
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered

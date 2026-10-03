@@ -252,7 +252,8 @@ public partial class EpicMappingService
         _logger.LogInformation(
             "Cancelling active Epic catalog refresh (operationId: {OperationId})",
             _currentOperationId);
-        _currentMappingReporter?.RequestCancellation();
+        // A refresh that ended while this logged may already have a successor in these fields; its card is not this one.
+        if (ReferenceEquals(_currentRefreshCts, refresh)) _currentMappingReporter?.RequestCancellation();
         try
         {
             refresh.Cancel();

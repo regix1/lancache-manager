@@ -231,6 +231,37 @@ public sealed class IntegrationCancellationTests
         Assert.True(pressed);
         Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
         Assert.False(service.IsAuthenticated);
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(start.AttemptId, ending.AttemptId);
+        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
+    }
+
+    [Fact]
+    public async Task XOnTheEpicSignInCardAfterItsAccountIsSavedLeavesTheSignInDoneAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var state = DispatchProxy.Create<IStateService, SlowLastCollectionState>();
+        using var service = NewEpicService(fixture, http, services, tracker, state);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        // The card's X lands inside the account save's state write, so the next step after the save sees the cancel.
+        ((SlowLastCollectionState)(object)state).Until = DateTime.UtcNow;
+        ((SlowLastCollectionState)(object)state).OnWrite = () =>
+            tracker.CancelOperation(Assert.Single(tracker.GetRuns().Runs).OperationId);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
+                .WaitAsync(TimeSpan.FromSeconds(20)));
+
+        Assert.True(service.IsAuthenticated);
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Completed, ending.Status);
+        Assert.Equal("signalr.epicMapping.completed", ending.StageKey);
     }
 
     [Fact]
@@ -260,6 +291,45 @@ public sealed class IntegrationCancellationTests
         };
 
         Assert.False(await service.CancelRefreshAsync());
+    }
+
+    [Fact]
+    public async Task AnEpicRefreshCancelThatMeetsTheNextRefreshLeavesItRunningAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var logger = new RefreshEndingLogger();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        var tracker = NewTracker();
+        using var service = new EpicMappingService(
+            logger,
+            new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
+            notifications,
+            new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"epic_cancel_{Guid.NewGuid():N}").Options), tracker,
+            services.GetRequiredService<IServiceScopeFactory>(), DispatchProxy.Create<IStateService, NullReturningProxy>());
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var cts = typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!;
+        var reporterField = typeof(EpicMappingService).GetField("_currentMappingReporter", flags)!;
+        var refresh = new CancellationTokenSource();
+        using var nextRefresh = new CancellationTokenSource();
+        var next = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual), nextRefresh.Token, NullLogger.Instance);
+        typeof(EpicMappingService).GetField("_isProcessingInt", flags)!.SetValue(service, 1);
+        cts.SetValue(service, refresh);
+        // The refresh ends and the next one starts while the cancel logs, between its read of the source and its cancels.
+        logger.OnCancelling = () =>
+        {
+            refresh.Dispose();
+            cts.SetValue(service, nextRefresh);
+            reporterField.SetValue(service, next);
+        };
+
+        Assert.False(await service.CancelRefreshAsync());
+
+        Assert.False(next.Token.IsCancellationRequested);
+        await next.DisposeAsync();
     }
 
     [Fact]
@@ -385,7 +455,7 @@ public sealed class IntegrationCancellationTests
         }
     }
 
-    // Runs a callback when the service logs that it is cancelling the active refresh, which is between the cancel's two reads of the refresh's source.
+    // Runs a callback when the service logs that it is canceling the active refresh, which is after the cancel read the refresh's source.
     private sealed class RefreshEndingLogger : ILogger<EpicMappingService>
     {
         public Action? OnCancelling { get; set; }
@@ -408,11 +478,13 @@ public sealed class IntegrationCancellationTests
     private class SlowLastCollectionState : NullReturningProxy
     {
         public DateTime Until { get; set; }
+        public Action? OnWrite { get; set; }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod!.Name == nameof(IStateService.SetEpicMappingLastCollection))
             {
+                OnWrite?.Invoke();
                 while (DateTime.UtcNow <= Until) Thread.Sleep(25);
             }
             return base.Invoke(targetMethod, args);

@@ -15,6 +15,11 @@ public class EpicMappingAuthStatus
     public string? OwnershipReason { get; set; }
     public Guid? AttemptId { get; set; }
     public DateTime? LoginExpiresAtUtc { get; set; }
+    /// <summary>
+    /// The ending of the sign-in the caller asked about by its attempt id, once it ended. A browser whose sign-in request
+    /// was ended by the server reads how its own sign-in ended here.
+    /// </summary>
+    public IntegrationLoginEnding? LoginEnding { get; set; }
     public bool IsAuthenticated { get; set; }
     public string? DisplayName { get; set; }
     public DateTime? LastCollectionUtc { get; set; }

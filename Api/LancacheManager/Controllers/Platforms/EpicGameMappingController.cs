@@ -69,12 +69,15 @@ public class EpicGameMappingController : ControllerBase
     /// <summary>
     /// Gets the current mapping auth status (authenticated, displayName, etc.)
     /// </summary>
+    /// <remarks>
+    /// With <c>attemptId</c>, also returns how that sign-in ended once it ended.
+    /// </remarks>
     [HttpGet("auth-status")]
     [ProducesResponseType(typeof(EpicMappingAuthStatus), StatusCodes.Status200OK)]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
-    public async Task<ActionResult<EpicMappingAuthStatus>> GetAuthStatus()
+    public async Task<ActionResult<EpicMappingAuthStatus>> GetAuthStatus([FromQuery] Guid? attemptId = null)
     {
-        return Ok(_epicMappingService.GetAuthStatus(await IntegrationLease.ResolveCallerAsync(HttpContext)));
+        return Ok(_epicMappingService.GetAuthStatus(await IntegrationLease.ResolveCallerAsync(HttpContext), attemptId));
     }
 
     /// <summary>
