@@ -166,7 +166,6 @@ public partial class XboxCatalogMappingService
                 UserCode = deviceCode.UserCode ?? string.Empty,
                 VerificationUri = deviceCode.VerificationUri ?? string.Empty,
                 Interval = deviceCode.Interval,
-                OperationId = reporter!.OperationId,
                 AttemptId = login.AttemptId,
                 ExpiresAtUtc = login.ExpiresAtUtc
             };
@@ -215,9 +214,9 @@ public partial class XboxCatalogMappingService
         (OperationStatus Status, string StageKey, string? Message, string? Error, Dictionary<string, object?>? Context)? ending = null;
         try
         {
-            // The sign-in holds the gate for the whole approval wait so a scheduled refresh cannot enter
-            // while authentication is preparing the catalog it will merge. The wait is bounded: the device
-            // code carries its own expiry and PollForTokenAsync stops at that deadline.
+            // The sign-in holds the gate from the approval wait until its account is saved, so a scheduled refresh
+            // cannot enter while authentication is preparing the catalog it will merge. The wait is bounded: the
+            // device code carries its own expiry and PollForTokenAsync stops at that deadline.
             await _refreshGate.WaitAsync(attempt.Token);
             refreshGateHeld = true;
 
@@ -227,6 +226,7 @@ public partial class XboxCatalogMappingService
             {
                 await EmitAuthStateAsync(
                     reporter.OperationId,
+                    login.AttemptId,
                     OperationStatus.Waiting,
                     XboxAwaitingSignInStageKey,
                     "Waiting for Microsoft sign-in...");
@@ -298,6 +298,10 @@ public partial class XboxCatalogMappingService
                 _authSessionLock.Release();
             }
             saved = true;
+            // The account is saved and the catalog merged, so a refresh or another sign-in no longer waits for the
+            // banner pass below.
+            _refreshGate.Release();
+            refreshGateHeld = false;
 
             await reporter.ReportAsync(
                 90,
@@ -427,7 +431,7 @@ public partial class XboxCatalogMappingService
 
         if (ending is { } end)
         {
-            await EmitAuthStateAsync(reporter.OperationId, end.Status, end.StageKey, end.Message, end.Error, end.Context);
+            await EmitAuthStateAsync(reporter.OperationId, login.AttemptId, end.Status, end.StageKey, end.Message, end.Error, end.Context);
         }
     }
 
@@ -581,6 +585,7 @@ public partial class XboxCatalogMappingService
 
     private async Task EmitAuthStateAsync(
         Guid operationId,
+        Guid attemptId,
         OperationStatus status,
         string stageKey,
         string? message = null,
@@ -597,7 +602,8 @@ public partial class XboxCatalogMappingService
                     stageKey,
                     message,
                     error,
-                    context));
+                    context,
+                    attemptId));
         }
         catch (Exception ex)
         {

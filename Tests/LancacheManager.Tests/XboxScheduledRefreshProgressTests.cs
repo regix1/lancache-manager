@@ -411,6 +411,7 @@ public partial class XboxScheduledRefreshProgressTests
         await auth.ChainReached.WaitAsync(TimeSpan.FromSeconds(20));
         auth.ReleaseChain();
         await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+        await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
 
         Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingStarted));
         Assert.Empty(harness.Notifications.EventsFor(SignalREvents.XboxMappingProgress));
@@ -433,6 +434,7 @@ public partial class XboxScheduledRefreshProgressTests
 
         await harness.Service.StartLoginAsync(null, caller: owner);
         await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+        await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
 
         var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
             harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
@@ -463,6 +465,7 @@ public partial class XboxScheduledRefreshProgressTests
 
         auth.ReleaseFirstHarvest();
         await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+        await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
 
         var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
             harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
@@ -500,6 +503,7 @@ public partial class XboxScheduledRefreshProgressTests
         var challenge = await harness.Service.StartLoginAsync(null, caller: owner);
         expiry = challenge.ExpiresAtUtc;
         await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+        await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
 
         var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
             harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
@@ -527,6 +531,71 @@ public partial class XboxScheduledRefreshProgressTests
         await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
 
         Assert.False(seen.Last());
+    }
+
+    [Fact]
+    public async Task AnXboxSignInsAuthEventsCarryItsAttemptIdAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
+            CompleteHarvest = true
+        };
+        using var harness = new Harness(authHandler: auth);
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+
+        var challenge = await harness.Service.StartLoginAsync(null, caller: owner);
+        await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
+
+        var events = harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged)
+            .Select(sent => Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(sent))
+            .ToList();
+        Assert.Equal([OperationStatus.Waiting, OperationStatus.Completed], events.Select(authState => authState.Status));
+        Assert.All(events, authState => Assert.Equal(challenge.AttemptId, authState.AttemptId));
+    }
+
+    [Fact]
+    public async Task ASecondXboxSignInPollsWhileTheFirstStillLoadsBannerArtAsync()
+    {
+        const string catalogJson =
+            """
+            {"Products":[{"ProductId":"9NBLGGH4R315","LocalizedProperties":[{"ProductTitle":"Test Title",
+            "Images":[{"Uri":"//store-images.example/banner.jpg","ImagePurpose":"Poster"}]}]}]}
+            """;
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
+            CompleteHarvest = true
+        };
+        var catalog = new StubCatalogHandler(catalogJson) { HoldFirst = true };
+        using var harness = new Harness(catalog, auth);
+        await using (var db = await harness.DbFactory.CreateDbContextAsync())
+        {
+            db.XboxGameMappings.Add(new XboxGameMapping
+            {
+                ProductId = "9NBLGGH4R315",
+                Title = "Test Title",
+                ImageUrl = null
+            });
+            await db.SaveChangesAsync();
+        }
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+
+        await harness.Service.StartLoginAsync(null, caller: owner);
+        // The first sign-in saved its account and waits on a banner lookup the test holds.
+        await catalog.FirstReached.WaitAsync(TimeSpan.FromSeconds(20));
+        await harness.Service.StartLoginAsync(null, caller: owner);
+        try
+        {
+            await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged)
+                .OfType<SignalRNotifications.XboxMappingAuthStateChanged>()
+                .Count(authState => authState.Status == OperationStatus.Waiting) >= 2);
+        }
+        finally
+        {
+            catalog.ReleaseFirst();
+        }
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
     }
 
     [Fact]
@@ -755,20 +824,44 @@ public partial class XboxScheduledRefreshProgressTests
         }
     }
 
-    /// <summary>Answers every request with one canned DisplayCatalog body.</summary>
+    /// <summary>Answers every request with one canned DisplayCatalog body; with <see cref="HoldFirst"/> the first request waits for <see cref="ReleaseFirst"/>.</summary>
     private sealed class StubCatalogHandler : HttpMessageHandler
     {
         private readonly string _json;
+        private readonly TaskCompletionSource _firstReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _firstReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _requests;
 
         public StubCatalogHandler(string json) => _json = json;
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        public bool HoldFirst { get; init; }
+
+        /// <summary>Completes once the first request is waiting for the release.</summary>
+        public Task FirstReached => _firstReached.Task;
+
+        public void ReleaseFirst() => _firstReleased.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            CancellationToken cancellationToken)
+        {
+            if (HoldFirst && Interlocked.Increment(ref _requests) == 1)
+            {
+                _firstReached.TrySetResult();
+                await _firstReleased.Task.WaitAsync(cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(_json, Encoding.UTF8, "application/json")
-            });
+            };
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            _firstReleased.TrySetResult();
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class Harness : IDisposable

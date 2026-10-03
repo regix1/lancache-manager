@@ -46,7 +46,6 @@ public class XboxDeviceCodeChallenge
     public string UserCode { get; set; } = string.Empty;
     public string VerificationUri { get; set; } = string.Empty;
     public int Interval { get; set; }
-    public Guid? OperationId { get; set; }
 }
 
 /// <summary>

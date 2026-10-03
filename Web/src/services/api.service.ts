@@ -2892,7 +2892,6 @@ class ApiService {
     interval: number;
     attemptId: string;
     expiresAtUtc: string;
-    operationId?: string | null;
   }> {
     const response = await fetch(
       `${API_BASE}/xbox/game-mappings/auth/login`,
@@ -2904,7 +2903,6 @@ class ApiService {
       interval: number;
       attemptId: string;
       expiresAtUtc: string;
-      operationId?: string | null;
     }>(response);
   }
 

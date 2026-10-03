@@ -484,7 +484,8 @@ public static class SignalRNotifications
 
     /// <summary>
     /// Xbox device-code authentication state. Authentication can precede a mapping run, so it uses
-    /// its own compatibility event instead of impersonating tracked mapping progress.
+    /// its own compatibility event instead of impersonating tracked mapping progress. AttemptId names the sign-in the
+    /// event belongs to; the run's operation id exists only once the account is approved.
     /// </summary>
     public record XboxMappingAuthStateChanged(
         Guid OperationId,
@@ -492,7 +493,8 @@ public static class SignalRNotifications
         string StageKey,
         string? Message = null,
         string? Error = null,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        Guid? AttemptId = null
     );
 
     /// <summary>

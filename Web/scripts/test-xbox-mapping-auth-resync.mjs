@@ -98,6 +98,7 @@ export default {
     }
     return {
       isAuthenticated: globalThis.__server.isAuthenticated,
+      lastCollectionUtc: globalThis.__server.lastCollectionUtc,
       loginInProgress: globalThis.__server.loginInProgress,
       canManage: true,
       canSignIn: !globalThis.__server.attemptId,
@@ -113,7 +114,7 @@ export default {
       throw new Error('502');
     }
     globalThis.__server.attemptId = request.attemptId;
-    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, operationId: globalThis.__server.operationId, expiresAtUtc: '2030-01-01T00:00:00Z' };
+    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, expiresAtUtc: '2030-01-01T00:00:00Z' };
   },
   cancelXboxMappingLogin: async () => {}
 };
@@ -195,6 +196,7 @@ const startServer = (isAuthenticated) => {
   globalThis.__server = {
     requests: 0,
     isAuthenticated,
+    lastCollectionUtc: isAuthenticated ? '2030-01-01T00:00:00Z' : null,
     loginInProgress: true,
     failing: false,
     gate: null,
@@ -203,6 +205,12 @@ const startServer = (isAuthenticated) => {
   };
   globalThis.__reported = [];
   return globalThis.__server;
+};
+
+/** What the server's save does: the account is signed in and its last collection time moves. */
+const saveAccount = (server) => {
+  server.isAuthenticated = true;
+  server.lastCollectionUtc = '2030-01-02T00:00:00Z';
 };
 
 /** Holds every auth-status answer until the returned function is called. */
@@ -245,7 +253,12 @@ const waitForApproval = async (xbox) => {
   await xbox.read().startLogin();
   const started = xbox.render(true);
   assert.equal(started.state.needsDeviceCode, true);
-  globalThis.__emit('XboxMappingAuthStateChanged', { status: 'waiting' });
+  // The run's id is still empty here (it exists only once the account is approved); the attempt id is the sign-in's.
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: '00000000-0000-0000-0000-000000000000',
+    attemptId: 'attempt-a',
+    status: 'waiting'
+  });
   await settle();
   xbox.render(true);
   globalThis.__server.requests = 0;
@@ -259,7 +272,7 @@ test('an approval that landed while the socket was down is picked up on recovery
   xbox.render(false);
   // The user approves the code here and the backend's completed event lands on a dead socket. The
   // attempt is over by then, so the backend reports it finished and signed in.
-  server.isAuthenticated = true;
+  saveAccount(server);
   server.loginInProgress = false;
 
   xbox.render(true);
@@ -395,9 +408,13 @@ test('the completed event ends the login once, leaving nothing for a later recov
   const xbox = await mount(true);
   await waitForApproval(xbox);
 
-  server.isAuthenticated = true;
+  saveAccount(server);
   server.loginInProgress = false;
-  globalThis.__emit('XboxMappingAuthStateChanged', { status: 'completed' });
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    attemptId: 'attempt-a',
+    status: 'completed'
+  });
   await settle();
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.render(true).state.needsDeviceCode, false);
@@ -436,7 +453,7 @@ test('two recoveries with the ask still out complete the login once', async () =
   const server = startServer(false);
   const xbox = await mount(true);
   await waitForApproval(xbox);
-  server.isAuthenticated = true;
+  saveAccount(server);
   server.loginInProgress = false;
   const release = holdAnswers(server);
 
@@ -457,7 +474,7 @@ test('a status ask that fails keeps the login for the next recovery', async () =
   const xbox = await mount(true);
   await waitForApproval(xbox);
   server.failing = true;
-  server.isAuthenticated = true;
+  saveAccount(server);
   server.loginInProgress = false;
 
   xbox.render(false);
@@ -480,18 +497,71 @@ test('a status ask that fails keeps the login for the next recovery', async () =
 
 test('a re-sign-in ends on its own completed event while another sign-in runs', async () => {
   const server = startServer(true);
-  server.operationId = 'op-a';
   const xbox = await mount(true);
   await waitForApproval(xbox);
 
   // Another tab started a second sign-in after this one saved its account.
+  saveAccount(server);
   server.attemptId = 'attempt-b';
   server.loginInProgress = true;
-  globalThis.__emit('XboxMappingAuthStateChanged', { operationId: 'op-a', status: 'completed' });
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    attemptId: 'attempt-a',
+    status: 'completed'
+  });
   await settle();
 
   assert.equal(xbox.succeeded.count, 1);
   assert.equal(xbox.failed.count, 0);
+});
+
+test('a re-sign-in ends green on its completed event', async () => {
+  const server = startServer(true);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  saveAccount(server);
+  server.loginInProgress = false;
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    attemptId: 'attempt-a',
+    status: 'completed'
+  });
+  await settle();
+
+  assert.equal(xbox.succeeded.count, 1);
+  assert.equal(xbox.failed.count, 0);
+});
+
+test('a re-sign-in whose ending was lost is picked up on recovery', async () => {
+  const server = startServer(true);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  xbox.render(false);
+  saveAccount(server);
+  server.loginInProgress = false;
+  xbox.render(true);
+  await settle();
+
+  assert.equal(xbox.succeeded.count, 1);
+  assert.equal(xbox.failed.count, 0);
+});
+
+test('a re-sign-in that failed while the socket was down still fails on recovery', async () => {
+  const server = startServer(true);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  // The account stays signed in from before, so its last collection time does not move.
+  xbox.render(false);
+  server.loginInProgress = false;
+  xbox.render(true);
+  await settle();
+
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'modals.xboxAuth.errors.loginFailed');
 });
 
 test('a refused sign-in start reports the shared reason, not a fixed sentence', async () => {

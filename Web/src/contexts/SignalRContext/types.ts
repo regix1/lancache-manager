@@ -1018,6 +1018,7 @@ export type XboxMappingCompleteEvent = MappingCompleteEvent;
 
 export interface XboxMappingAuthStateChangedEvent {
   operationId: string;
+  attemptId?: string | null;
   status: OperationStatus;
   stageKey: string;
   message?: string | null;

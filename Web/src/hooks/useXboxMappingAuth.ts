@@ -48,8 +48,8 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const statusRequestRef = useRef(0);
   const attemptRef = useRef<string | null>(null);
   const cancelledAttemptRef = useRef<string | null>(null);
-  const operationRef = useRef<string | null>(null);
-  const wasAuthenticatedRef = useRef(false);
+  // The last collection time when this sign-in started; the server stamps a new one when it saves the account.
+  const collectedBeforeRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
@@ -119,7 +119,6 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     formIdentityRef.current = identity;
     resetAuthForm();
     cancelledAttemptRef.current = null;
-    operationRef.current = null;
     setStatus(null);
     setStatusIdentity(null);
     setStatusLoading(hasAccess);
@@ -170,23 +169,25 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
         !loginInProgressRef.current
       )
         return;
-      const matchingEvent = Boolean(
-        operationRef.current && event?.operationId === operationRef.current
-      );
-      // A second sign-in may start once this one saved its account, so the status can show that one running; this
-      // sign-in's own ending (every event after its one waiting event) still decides how its dialog ends.
-      const ownEnding = matchingEvent && event?.status !== 'waiting';
-      if (!ownEnding && (next.attemptId === submittedAttempt || next.loginInProgress)) return;
-      if (
-        next.canManage === true &&
-        next.isAuthenticated &&
-        (!wasAuthenticatedRef.current || (matchingEvent && event?.status === 'completed'))
-      ) {
+      // Only this sign-in's own events carry its attempt id: another tab's sign-in may start once this one saved its
+      // account, and its events and status say nothing about this one.
+      const ownEvent = event?.attemptId === submittedAttempt ? event : undefined;
+      if (ownEvent?.status === 'waiting') return;
+      if (!ownEvent && (next.attemptId === submittedAttempt || next.loginInProgress)) return;
+      // With no ending event (one lost across a reconnect), a collection time later than the one this sign-in started
+      // with is its own save.
+      const collectedBefore = collectedBeforeRef.current;
+      const saved = ownEvent
+        ? ownEvent.status === 'completed'
+        : next.lastCollectionUtc !== null &&
+          (collectedBefore === null ||
+            Date.parse(next.lastCollectionUtc) > Date.parse(collectedBefore));
+      if (next.canManage === true && next.isAuthenticated && saved) {
         finishLogin();
       } else if (needsDeviceCode) {
-        const stageKey = matchingEvent ? event?.stageKey : null;
+        const stageKey = ownEvent?.stageKey;
         failLogin(
-          stageKey ? t(stageKey, event?.context ?? {}) : t('modals.xboxAuth.errors.loginFailed')
+          stageKey ? t(stageKey, ownEvent?.context ?? {}) : t('modals.xboxAuth.errors.loginFailed')
         );
       }
     },
@@ -221,8 +222,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     cancelledAttemptRef.current = null;
     attemptRef.current = submittedAttempt;
     setAttemptId(submittedAttempt);
-    wasAuthenticatedRef.current = authStatus.isAuthenticated;
-    operationRef.current = null;
+    collectedBeforeRef.current = authStatus.lastCollectionUtc;
     busyRef.current = true;
     const request = ++requestRef.current;
     const current = () => identityRef.current === identity && requestRef.current === request;
@@ -239,7 +239,6 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       if (!current()) return;
       attemptRef.current = response.attemptId;
       setAttemptId(response.attemptId);
-      operationRef.current = response.operationId ?? null;
       setLoginDeadline(Date.parse(response.expiresAtUtc));
       setDeviceUserCode(response.userCode);
       setDeviceVerificationUri(response.verificationUri);
