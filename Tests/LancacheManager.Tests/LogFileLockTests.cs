@@ -329,10 +329,49 @@ public sealed class LogFileLockTests : IDisposable
         var step = LockAsync(owner, LogFileLockKind.Rewrite);
         Assert.False(step.IsCompleted);
 
-        var pass = await LockAsync(owner, LogFileLockKind.Ingest).WaitAsync(TimeSpan.FromSeconds(2));
+        var liveId = harness.Tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource(),
+            liveIngest: true);
+        var pass = await owner.LockLogFilesAsync(
+            liveId,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
         await pass.DisposeAsync();
         await reopenLock.DisposeAsync();
         await using var stepLock = await step.WaitAsync(_wait);
+    }
+
+    [Fact]
+    public async Task AManualPassDoesNotStartAheadOfAWaitingStepWhileAReopenHoldsAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+
+        var reopenLock = await LockAsync(owner, LogFileLockKind.Reopen);
+        var step = LockAsync(owner, LogFileLockKind.Rewrite);
+        Assert.False(step.IsCompleted);
+
+        var manualId = harness.Tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource());
+        var pass = owner.LockLogFilesAsync(
+            manualId,
+            OperationType.LogProcessing,
+            LogFileLockKind.Ingest,
+            CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        Assert.False(pass.IsCompleted);
+
+        await reopenLock.DisposeAsync();
+        var stepLock = await step.WaitAsync(_wait);
+        Assert.False(pass.IsCompleted);
+
+        await stepLock.DisposeAsync();
+        await using var passLock = await pass.WaitAsync(_wait);
     }
 
     [Fact]

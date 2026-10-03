@@ -17,8 +17,8 @@ public partial class OperationStateService
     /// A step waits for the current import pass to end and for the speed tracker to stop; no new
     /// pass starts while a step waits, and an import that waited through a step goes next. A reopen
     /// waits only for a step, and a step waits for a reopen; neither the import nor the speed tracker
-    /// waits for a reopen. A step that waits only behind a reopen does not hold off the import, since
-    /// it cannot be granted while the reopen holds.
+    /// waits for a reopen. A step that waits only behind a reopen does not hold off the live import's
+    /// pass, since it cannot be granted while the reopen holds; a manual pass still waits for the step.
     /// </summary>
     public async Task<LogFileLock> LockLogFilesAsync(
         Guid? operationId,
@@ -28,6 +28,11 @@ public partial class OperationStateService
     {
         var request = new LogFileLock(this, operationId, operationType, kind);
         var step = kind is LogFileLockKind.Rows or LogFileLockKind.Rewrite;
+        // Only the live import's pass may start beside a reopen while a step waits; a manual pass or
+        // batch datasource keeps the turn rule, so no new pass starts ahead of a waiting step.
+        var liveIngest = kind == LogFileLockKind.Ingest
+            && operationId is { } ingestId
+            && _operationTracker.GetOperation(ingestId)?.LiveIngest == true;
         await _admissionGate.WaitAsync(cancellationToken);
         try
         {
@@ -60,7 +65,7 @@ public partial class OperationStateService
                     granted = kind == LogFileLockKind.Reopen
                         ? _reopenHolder is null && (_logHolder is null || _logHolder.Kind == LogFileLockKind.Ingest)
                         : _logHolder is null
-                            && (step ? _reopenHolder is null && !_ingestTurnOwed : _logStepWaiters == 0 || _ingestTurnOwed || _reopenHolder is not null);
+                            && (step ? _reopenHolder is null && !_ingestTurnOwed : _logStepWaiters == 0 || _ingestTurnOwed || (_reopenHolder is not null && liveIngest));
                     if (granted)
                     {
                         if (kind == LogFileLockKind.Reopen)
