@@ -227,6 +227,13 @@ public interface IUnifiedOperationTracker
     event Action<OperationInfo>? OperationTerminal;
 
     /// <summary>
+    /// Raised when <see cref="SetWarning"/> turns a run that had already ended into one kept until
+    /// someone closes it, after the <see cref="OperationTerminal"/> handlers read it as not kept. Fired
+    /// off the caller's stack, fire-and-forget; handler faults are logged and contained.
+    /// </summary>
+    event Action<OperationInfo>? EndingKept;
+
+    /// <summary>
     /// Marks an operation as complete and cleans up resources.
     /// </summary>
     /// <param name="onCompleting">Publishes prepared terminal metrics only for the first completion,

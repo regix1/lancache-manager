@@ -238,6 +238,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         {
             _tracker.OperationTerminal += OnTrackedOperationTerminal;
             _tracker.BlockerCleared += OnBlockerCleared;
+            _tracker.EndingKept += RecordKeptEnding;
         }
 
         // The tracker sees downloads stop the moment it parses a snapshot with nothing in it, which
@@ -312,104 +313,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             _stateService.SetGameDetectionLastFullScan(DateTime.UtcNow);
         }
 
-        // One kept ending of each kind per schedule: the newest kept failure replaces the schedule's
-        // older failures and carries its failure streak and whether a later run succeeded; a kept
-        // skip or warning replaces only the older one of the same kind. Placed before the
-        // two branches below because both return, and their endings are outcomes too. A phase run
-        // under a parent, the prefill run-level container, a waiting record that handed its work on
-        // and a mapping sign-in are not outcomes of a schedule; runs of no schedule keep one card
-        // each.
-        if (IsScheduleOutcome(operation, scheduleId))
-        {
-            lock (_keptEndingsLock)
-            {
-                // Frozen by the tracker at completion, so these read the same whether or not a person
-                // has since closed this ending or the tracker has reaped it.
-                OperationStatus status;
-                long completedRevision;
-                Guid? handedTo;
-                bool wasKept;
-                lock (operation)
-                {
-                    status = operation.Status;
-                    completedRevision = operation.CompletedRevision;
-                    handedTo = operation.NextOperationId;
-                    wasKept = UnifiedOperationTracker.KeepsUntilClosed(operation);
-                }
-
-                if (handedTo is null)
-                {
-                    if (!_scheduleOutcomes.TryGetValue((operation.Type, scheduleId), out var outcomes))
-                    {
-                        outcomes = new ScheduleOutcomes();
-                        _scheduleOutcomes.Add((operation.Type, scheduleId), outcomes);
-                    }
-
-                    // Every ending is recorded by the revision that orders it, so the streak is read
-                    // from the endings themselves and comes out the same whatever order the handlers
-                    // run in. Any ending other than a failure breaks the streak, whether or not it
-                    // kept a card.
-                    outcomes.Endings[completedRevision] = status;
-
-                    var typeWire = operation.Type.ToWireString();
-                    var failedWire = OperationStatus.Failed.ToWireString();
-                    var statusWire = status.ToWireString();
-                    var handledFailed = status == OperationStatus.Failed;
-                    var scheduleRuns = tracker.GetRuns().Runs
-                        .Where(run => run.OperationType == typeWire && run.ScheduleId == scheduleId && !run.IntegrationLogin)
-                        .ToList();
-                    var endings = scheduleRuns.Where(run => run.Retained && !run.Closed).ToList();
-
-                    // A kept ending replaces the older kept endings of its own kind only, so the
-                    // schedule never collects a card per run and an ending never closes one of
-                    // another kind. A pass never closes an ending newer than its own, so the result
-                    // is the same whatever order the handlers run in.
-                    if (wasKept)
-                    {
-                        // A failed-out repair's card holds its Retry until the user closes it, and a
-                        // repair still running, a retried one included, keeps its card until it ends.
-                        foreach (var older in endings.Where(run => run.CompletedRevision < completedRevision
-                            && run.Status == statusWire && run.RepairError is null && !run.Repairing))
-                        {
-                            tracker.CloseRun(older.OperationId);
-                        }
-                    }
-
-                    var newest = endings
-                        .Where(run => run.Status == failedWire && (!handledFailed || run.CompletedRevision >= completedRevision))
-                        .MaxBy(run => run.CompletedRevision);
-                    if (newest?.CompletedRevision is { } newestRevision)
-                    {
-                        var streak = outcomes.Endings
-                            .Where(ending => ending.Key <= newestRevision)
-                            .Reverse()
-                            .TakeWhile(ending => ending.Value == OperationStatus.Failed)
-                            .Count();
-                        var latestRunSucceeded = outcomes.Endings
-                            .Any(ending => ending.Key > newestRevision && ending.Value == OperationStatus.Completed);
-                        tracker.UpdateKeptEnding(newest.OperationId, streak, latestRunSucceeded);
-                    }
-
-                    // A streak is only ever read from a listed ending, so everything below the break
-                    // just under the oldest listed ending (this one included) can go; the break stays
-                    // so a failure after it still stops counting there.
-                    var floor = scheduleRuns
-                        .Select(run => run.CompletedRevision)
-                        .OfType<long>()
-                        .Append(completedRevision)
-                        .Min();
-                    var lastBreak = outcomes.Endings
-                        .Where(ending => ending.Key < floor && ending.Value != OperationStatus.Failed)
-                        .Select(ending => ending.Key)
-                        .DefaultIfEmpty()
-                        .Max();
-                    foreach (var pruned in outcomes.Endings.Keys.Where(revision => revision < lastBreak).ToList())
-                    {
-                        outcomes.Endings.Remove(pruned);
-                    }
-                }
-            }
-        }
+        // Placed before the two branches below because both return, and their endings are outcomes too.
+        RecordKeptEnding(operation);
 
         // A run declined before it started registers itself only to be reported and carries no
         // terminal broadcast of its own. This registry is already listening here and is the one
@@ -467,6 +372,114 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 operation.Id,
                 reason: null,
                 SkippedBeforeStartStageKey);
+        }
+    }
+
+    // One kept ending of each kind per schedule: the newest kept failure replaces the schedule's
+    // older failures and carries its failure streak and whether a later run succeeded; a kept
+    // skip or warning replaces only the older one of the same kind. A phase run under a parent,
+    // the prefill run-level container, a waiting record that handed its work on and a mapping
+    // sign-in are not outcomes of a schedule; runs of no schedule keep one card each. Runs from the
+    // terminal handler, and again from EndingKept when a warning set after the run ended made it kept.
+    private void RecordKeptEnding(OperationInfo operation)
+    {
+        var scheduleId = (operation.Metadata as ScheduledPrefillServiceRunState)?.ScheduleId;
+        if (!IsScheduleOutcome(operation, scheduleId))
+        {
+            return;
+        }
+
+        // Subscribed only when the registry was given a tracker (see the constructor).
+        var tracker = _tracker!;
+        lock (_keptEndingsLock)
+        {
+            // Status, revision and handoff are frozen by the tracker at completion, so they read the same
+            // whether or not a person has since closed this ending or the tracker has reaped it. Whether it
+            // is kept can change once, when a warning set after completion makes it kept; the tracker then
+            // raises EndingKept, which runs this pass again.
+            OperationStatus status;
+            long completedRevision;
+            Guid? handedTo;
+            bool wasKept;
+            lock (operation)
+            {
+                status = operation.Status;
+                completedRevision = operation.CompletedRevision;
+                handedTo = operation.NextOperationId;
+                wasKept = UnifiedOperationTracker.KeepsUntilClosed(operation);
+            }
+
+            if (handedTo is null)
+            {
+                if (!_scheduleOutcomes.TryGetValue((operation.Type, scheduleId), out var outcomes))
+                {
+                    outcomes = new ScheduleOutcomes();
+                    _scheduleOutcomes.Add((operation.Type, scheduleId), outcomes);
+                }
+
+                // Every ending is recorded by the revision that orders it, so the streak is read
+                // from the endings themselves and comes out the same whatever order the handlers
+                // run in. Any ending other than a failure breaks the streak, whether or not it
+                // kept a card.
+                outcomes.Endings[completedRevision] = status;
+
+                var typeWire = operation.Type.ToWireString();
+                var failedWire = OperationStatus.Failed.ToWireString();
+                var statusWire = status.ToWireString();
+                var handledFailed = status == OperationStatus.Failed;
+                var scheduleRuns = tracker.GetRuns().Runs
+                    .Where(run => run.OperationType == typeWire && run.ScheduleId == scheduleId && !run.IntegrationLogin)
+                    .ToList();
+                var endings = scheduleRuns.Where(run => run.Retained && !run.Closed).ToList();
+
+                // A kept ending replaces the older kept endings of its own kind only, so the
+                // schedule never collects a card per run and an ending never closes one of
+                // another kind. A pass never closes an ending newer than its own, so the result
+                // is the same whatever order the handlers run in.
+                if (wasKept)
+                {
+                    // A failed-out repair's card holds its Retry until the user closes it, and a
+                    // repair still running, a retried one included, keeps its card until it ends.
+                    foreach (var older in endings.Where(run => run.CompletedRevision < completedRevision
+                        && run.Status == statusWire && run.RepairError is null && !run.Repairing))
+                    {
+                        tracker.CloseRun(older.OperationId);
+                    }
+                }
+
+                var newest = endings
+                    .Where(run => run.Status == failedWire && (!handledFailed || run.CompletedRevision >= completedRevision))
+                    .MaxBy(run => run.CompletedRevision);
+                if (newest?.CompletedRevision is { } newestRevision)
+                {
+                    var streak = outcomes.Endings
+                        .Where(ending => ending.Key <= newestRevision)
+                        .Reverse()
+                        .TakeWhile(ending => ending.Value == OperationStatus.Failed)
+                        .Count();
+                    var latestRunSucceeded = outcomes.Endings
+                        .Any(ending => ending.Key > newestRevision && ending.Value == OperationStatus.Completed);
+                    tracker.UpdateKeptEnding(newest.OperationId, streak, latestRunSucceeded);
+                }
+
+                // A streak is only ever read from a listed ending, so everything below the break
+                // just under the oldest listed ending (this one included) can go; the break stays
+                // so a failure after it still stops counting there.
+                var floor = scheduleRuns
+                    .Select(run => run.CompletedRevision)
+                    .OfType<long>()
+                    .Append(completedRevision)
+                    .Min();
+                var lastBreak = outcomes.Endings
+                    .Where(ending => ending.Key < floor && ending.Value != OperationStatus.Failed)
+                    .Select(ending => ending.Key)
+                    .DefaultIfEmpty()
+                    .Max();
+                foreach (var pruned in outcomes.Endings.Keys.Where(revision => revision < lastBreak).ToList())
+                {
+                    outcomes.Endings.Remove(pruned);
+                }
+            }
         }
     }
 

@@ -66,6 +66,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// <inheritdoc />
     public event Action? BlockerCleared;
 
+    /// <inheritdoc />
+    public event Action<OperationInfo>? EndingKept;
+
     public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                                   object? metadata = null, Action? onTerminalCleanup = null,
                                   Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
@@ -587,14 +590,27 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     public void SetWarning(Guid operationId, RunWarning warning)
     {
         if (!_operations.TryGetValue(operationId, out var operation)) return;
+        bool endingKept;
         lock (operation)
         {
+            var keptBefore = KeepsUntilClosed(operation);
             operation.Warnings.RemoveAll(existing => existing.StageKey == warning.StageKey);
             operation.Warnings.Add(warning);
+            // A repair's warning can arrive after the run ended and its terminal handlers read it as not kept.
+            endingKept = operation.CompletedFlag != 0 && !operation.Closed && !keptBefore && KeepsUntilClosed(operation);
             Publish(operation);
         }
 
         _ = DrainRunsAsync();
+        if (endingKept && EndingKept is { } subscribers)
+        {
+            // Fire-and-forget off the caller's stack, like OperationTerminal; handler faults are contained.
+            _ = Task.Run(() =>
+            {
+                try { subscribers(operation); }
+                catch (Exception ex) { _logger.LogWarning(ex, "EndingKept handler threw for operation {Id}", operationId); }
+            });
+        }
     }
 
     public void NotifyBlockerCleared()
@@ -702,7 +718,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // flags live in, a notice trigger raised without this lock, a handoff floor, the link
             // removed when the successor is reaped) changes how the ended run is drawn or whether it
             // is kept; every later KeepsUntilClosed call gives this answer, except that a repair that
-            // fails out after completion keeps the row until it is closed.
+            // fails out after completion, or a warning set after it (SetWarning, which then raises
+            // EndingKept), keeps the row until it is closed.
             operation.CompletedVisibility = ReadVisibility(operation);
             try { onCompleting?.Invoke(operation); }
             catch (Exception ex) { publicationError = ex; }

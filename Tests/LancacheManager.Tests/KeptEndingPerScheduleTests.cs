@@ -493,6 +493,31 @@ public sealed class KeptEndingPerScheduleTests
         Assert.DoesNotContain(tracker.GetRuns().Runs, run => run.OperationId == first.Id && !run.Closed);
     }
 
+    // A repair's warning can land after the run ended; the registry's own subscription to the tracker
+    // must then close the schedule's older amber card, with no call from the test.
+    [Fact]
+    public async Task AWarningSetAfterARunEndedReplacesTheSchedulesOlderAmberEndingAsync()
+    {
+        var (tracker, _, handle) = Create();
+        var older = SucceedWithWarning(tracker);
+        handle(older);
+        var later = Succeed(tracker);
+        handle(later);
+        Assert.Equal(older.Id, Assert.Single(Kept(tracker)).OperationId);
+
+        tracker.SetWarning(later.Id, new RunWarning(
+            "common.notifications.warnings.datasourcesNotRepaired",
+            new Dictionary<string, object?> { ["datasources"] = "secondary" }));
+
+        // The tracker raises the event off the caller's stack.
+        for (var attempt = 0; attempt < 100 && Kept(tracker).Any(run => run.OperationId == older.Id); attempt++)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.Equal(later.Id, Assert.Single(Kept(tracker)).OperationId);
+    }
+
     private static IEnumerable<int[]> Orders(int count)
     {
         if (count == 0)
