@@ -178,6 +178,25 @@ public sealed class DepotImportTests
         Assert.Same(admitted, SingleRunNotice(fixture));
     }
 
+    [Fact]
+    public async Task ADepotRunThatCouldNotReachSteamEndsFailedAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.LastViabilityCheck = null);
+        fixture.CheckChanges = (_, _) => throw new IOException("Steam is unreachable");
+        Set(fixture.Service, "_initialized", true);
+        Set(fixture.Service, "_isRunning", true);
+        Set(fixture.Service, "_crawlIncrementalMode", true);
+
+        await (Task)Invoke(fixture.Service, "ExecuteWorkAsync", CancellationToken.None)!;
+
+        Assert.Equal("failed", Assert.Single(fixture.Tracker.GetRuns().Runs).Status);
+        Assert.Contains(fixture.Events.Snapshots, snapshot =>
+            snapshot.Content.TryGetProperty("StageKey", out var stageKey)
+            && stageKey.GetString() == "signalr.depotMapping.skippedSteamUnreachable");
+    }
+
     // The crawl fails at its started event, so it never connects to Steam; its operation is already
     // registered by then.
     private static async Task StartRebuildAndStopBeforeConnectingAsync(Fixture fixture, Func<bool> start)
