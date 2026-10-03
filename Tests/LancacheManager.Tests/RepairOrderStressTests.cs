@@ -62,7 +62,8 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
         LivePass,
         ManualBatch,
         Queue,
-        ArmScanFailures
+        ArmScanFailures,
+        ForceStopAfterSave
     }
 
     [Fact]
@@ -946,7 +947,13 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             RestartEvent[] sides =
                 [RestartEvent.LivePass, RestartEvent.ManualBatch, RestartEvent.Queue, RestartEvent.ArmScanFailures];
             RestartEvent[] endings =
-                [RestartEvent.Finish, RestartEvent.Cancel, RestartEvent.ForceStop, RestartEvent.Restart];
+                [
+                    RestartEvent.Finish,
+                    RestartEvent.Cancel,
+                    RestartEvent.ForceStop,
+                    RestartEvent.Restart,
+                    RestartEvent.ForceStopAfterSave
+                ];
             var plan = new List<RestartStep>();
             void AddSides(int most)
             {
@@ -965,8 +972,9 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             AddSides(1);
             var ending = endings[random.Next(endings.Length)];
             // Armed only where the ending's own outcome save writes a repairing record, so that save
-            // is the one that fails.
-            if (random.Next(3) == 0 && _reach > 0 && ending != RestartEvent.Restart)
+            // is the one that fails. A force stop after the save needs the save to land first.
+            if (random.Next(3) == 0 && _reach > 0
+                && ending is not (RestartEvent.Restart or RestartEvent.ForceStopAfterSave))
             {
                 plan.Add(new RestartStep(RestartEvent.ArmSaveFailure, 0));
             }
@@ -1053,6 +1061,21 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                     events.Add($"{_job} reports its cancel after the force stop");
                     _ownerFinishOwed = false;
                     await owner.FinishRepairAsync(_job, false, true, null).WaitAsync(Bound);
+                    return;
+                case RestartEvent.ForceStopAfterSave:
+                    var savedSuccess = _reach == 4;
+                    var savedError = savedSuccess ? null : "Injected job failure.";
+                    events.Add(
+                        $"{_job} saves its {(savedSuccess ? "completed" : "failed")} outcome, "
+                        + "then a force stop, then it completes its run");
+                    await StopJobAsync();
+                    await owner.FinishRepairAsync(_job, savedSuccess, false, savedError).WaitAsync(Bound);
+                    await _cancellation.ForceKillAsync(_job).WaitAsync(Bound);
+                    if (_harness.Repairs.Tracker.GetOperation(_job) is { CompletedFlag: not 0 })
+                    {
+                        throw Invariant(2, $"the force stop ended {_job}, whose job had saved its outcome");
+                    }
+                    _harness.Repairs.Tracker.CompleteOperation(_job, savedSuccess, savedError, cancelled: false);
                     return;
                 case RestartEvent.Restart:
                     await RestartAsync();
