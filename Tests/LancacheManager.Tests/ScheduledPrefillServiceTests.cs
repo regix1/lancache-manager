@@ -1213,6 +1213,26 @@ public class ScheduledPrefillServiceTests
         Assert.Equal("skipped", terminal.Status);
     }
 
+    [Theory]
+    [InlineData(ScheduledPrefillServiceRunResult.Unavailable)]
+    [InlineData(ScheduledPrefillServiceRunResult.NeedsLogin)]
+    public async Task CompleteServiceRun_ARunThatCouldNotStart_KeepsItsOwnReasonAndClosesAsFailed(
+        ScheduledPrefillServiceRunResult result)
+    {
+        var state = new ScheduledPrefillServiceRunState(
+            PrefillPlatform.Xbox,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Xbox),
+            "Default", new RunNotice(NotificationMode.All, RunTrigger.Manual));
+        state.Record("skipped", "No running persistent container for Xbox", "signalr.scheduledPrefill.skippedNoContainer", 99d);
+
+        var terminal = await CompleteServiceRunForTestAsync(state, result, failureMessage: null);
+
+        Assert.False(terminal.Success);
+        Assert.Equal("No running persistent container for Xbox", terminal.Error);
+        Assert.Equal("signalr.scheduledPrefill.skippedNoContainer", terminal.StageKey);
+        Assert.Null(terminal.Status);
+    }
+
     private sealed record ServiceTerminal(bool Success, string? Error, string? StageKey, string? Status);
 
     private static async Task<ServiceTerminal> CompleteServiceRunForTestAsync(

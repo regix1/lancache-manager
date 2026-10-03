@@ -806,8 +806,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 var run = daemon.GetRun(session.Id, status.RunId);
                 if (status.CompletedAtUtc.HasValue)
                 {
-                    // The rule a watched run ends by: some game done is a run, failed games or not.
-                    if ((status.Snapshot.State == "completed" || run is not null && EndedWithSomeGamesFailed(run))
+                    // The rule a watched run ends by: a run in which some game landed is a run, failed games or an early stop included.
+                    if (status.Snapshot.State is "completed" or "failed"
                         && status.Snapshot.CompletedApps + status.Snapshot.CachedApps > 0
                         && config.GetSchedulesInRunOrder().Any(schedule => schedule.ScheduleId == scheduleId))
                         _stateService.SetScheduledPrefillServiceLastActualRun(scheduleId.ToString("N"), status.CompletedAtUtc.Value);
@@ -893,8 +893,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
     /// <summary>
     /// Closes one service's tracked operation and its notification card, so each card reaches its own
-    /// terminal when THAT service finishes rather than when the slowest sibling does. A skip is
-    /// completed as skipped, not failed: a prerequisite gap is not an error. [4][24]
+    /// terminal when THAT service finishes rather than when the slowest sibling does. A skip (nothing
+    /// to do, or put off) is completed as skipped. A run that could not start because it needs a login
+    /// or something else is missing ends failed with that reason, so its card is red.
     /// </summary>
     /// <param name="failureMessage">
     /// The thrown exception's message when the service failed by throwing, otherwise null. It takes
@@ -913,10 +914,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     {
         var success = result == ScheduledPrefillServiceRunResult.Ran;
         var cancelled = result == ScheduledPrefillServiceRunResult.Cancelled;
-        var skipped = result is ScheduledPrefillServiceRunResult.Skipped or ScheduledPrefillServiceRunResult.NeedsLogin;
+        var skipped = result == ScheduledPrefillServiceRunResult.Skipped;
 
-        // A skip and a needs-login keep the recorded line, which IS their reason. A gated failure
-        // keeps it too, because it reported itself through a progress event before returning.
+        // A skip, a needs-login and an unavailable run keep the recorded line, which IS their reason. A
+        // gated failure keeps it too, because it reported itself through a progress event before returning.
         var snapshot = serviceRun.State.Record(cancelled ? "cancelled" : skipped ? "skipped"
                 : success ? "completed" : "failed", failureMessage ?? string.Empty, null, null, terminal: true);
         if (snapshot is null) return;
@@ -991,7 +992,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         if (daemon is null)
         {
             await ReportProgressAsync(notifications, serviceRun, "skipped", "No daemon registered for this service", percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.skippedNoDaemon");
-            return ScheduledPrefillServiceRunResult.Skipped;
+            return ScheduledPrefillServiceRunResult.Unavailable;
         }
 
         // 2. Reuse the running persistent admin container. Scheduled prefill is admin-only and
@@ -1019,7 +1020,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     : "signalr.scheduledPrefill.skippedNoContainer");
             return requiresLogin
                 ? ScheduledPrefillServiceRunResult.NeedsLogin
-                : ScheduledPrefillServiceRunResult.Skipped;
+                : ScheduledPrefillServiceRunResult.Unavailable;
         }
 
         // TryGetRunnablePersistentSession only returns true for a non-null session.
@@ -1094,7 +1095,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     : "signalr.scheduledPrefill.skippedContainerNotReady");
             return requiresLogin
                 ? ScheduledPrefillServiceRunResult.NeedsLogin
-                : ScheduledPrefillServiceRunResult.Skipped;
+                : ScheduledPrefillServiceRunResult.Unavailable;
         }
 
         if (session.Capabilities?.SupportsConcurrentPrefill == true)
@@ -1180,7 +1181,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             catch (PrefillAlreadyRunningException)
             {
                 await ReportProgressAsync(notifications, serviceRun, "skipped", "A prefill is already in progress", percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-                return ScheduledPrefillServiceRunResult.Skipped;
+                return ScheduledPrefillServiceRunResult.Unavailable;
             }
 
             await mutation.DisposeAsync();
@@ -1455,7 +1456,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             await ReportProgressAsync(notifications, serviceRun, "skipped",
                 "The prefill daemon has no available run slots. This attempt was not queued.",
                 stageKey: "errors.prefill.runLimit");
-            return ScheduledPrefillServiceRunResult.Skipped;
+            return ScheduledPrefillServiceRunResult.Unavailable;
         }
         catch (DaemonCommandException ex) when (ex.RequiresLogin)
         {
@@ -1533,8 +1534,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // Some games failed while others downloaded or were already cached: the run completes and its
         // card names how many failed. Every game failed, or a run that stopped early, is a failed run.
         var someGamesFailed = EndedWithSomeGamesFailed(run);
+        // A run the app or an outside problem stopped after some games landed worked, with errors: it
+        // completes amber naming what stopped it.
+        var done = summary.CompletedApps + summary.CachedApps;
+        var stoppedPartway = summary.State == "failed" && !someGamesFailed && done > 0;
         var outcome = summary.State == "cancelled" ? ScheduledPrefillServiceRunResult.Cancelled
-            : summary.State != "completed" && !someGamesFailed ? ScheduledPrefillServiceRunResult.Failed
+            : summary.State != "completed" && !someGamesFailed && !stoppedPartway ? ScheduledPrefillServiceRunResult.Failed
             : summary.CompletedApps + summary.CachedApps == 0 ? ScheduledPrefillServiceRunResult.Skipped
             : ScheduledPrefillServiceRunResult.Ran;
         if (someGamesFailed)
@@ -1545,6 +1550,22 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 {
                     ["failed"] = summary.FailedApps,
                     ["total"] = Math.Max(summary.TotalApps, summary.FailedApps)
+                });
+        }
+        else if (stoppedPartway)
+        {
+            serviceRun.State.Warning = new RunWarning(
+                summary.Reason switch
+                {
+                    "runtime-exceeded" => "signalr.scheduledPrefill.partialMaxRuntime",
+                    "stalled" => "signalr.scheduledPrefill.partialStalled",
+                    "auth-lost" => "signalr.scheduledPrefill.partialSignInLost",
+                    _ => "signalr.scheduledPrefill.partialStopped"
+                },
+                new Dictionary<string, object?>
+                {
+                    ["done"] = done,
+                    ["total"] = Math.Max(summary.TotalApps, done)
                 });
         }
         var completion = BuildCompletionMessage(summary.BytesTransferred,

@@ -180,13 +180,14 @@ public class ScheduledPrefillRunVisibilityTests
     }
 
     /// <summary>
-    /// A service that did nothing closes its card as skipped, not failed: the terminal carries the
-    /// same wire word the tracker uses, and reports success because a missing prerequisite is not an
-    /// error. Every other outcome leaves the status off the wire.
+    /// A service that had nothing to do, or was put off, closes its card as skipped: the terminal
+    /// carries the same wire word the tracker uses. A service that could not start because something
+    /// it needs is missing closes as failed. Every other outcome leaves the status off the wire.
     /// </summary>
     [Theory]
     [InlineData(ScheduledPrefillServiceRunResult.Skipped, "skipped", true)]
-    [InlineData(ScheduledPrefillServiceRunResult.NeedsLogin, "skipped", true)]
+    [InlineData(ScheduledPrefillServiceRunResult.NeedsLogin, null, false)]
+    [InlineData(ScheduledPrefillServiceRunResult.Unavailable, null, false)]
     [InlineData(ScheduledPrefillServiceRunResult.Ran, null, true)]
     [InlineData(ScheduledPrefillServiceRunResult.Failed, null, false)]
     [InlineData(ScheduledPrefillServiceRunResult.Cancelled, null, false)]

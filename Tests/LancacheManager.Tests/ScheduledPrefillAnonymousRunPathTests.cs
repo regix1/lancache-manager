@@ -247,7 +247,7 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     [Fact]
-    public async Task RunAndStampServiceAsync_NeedsLogin_CompletesSkippedAndOnlyStampsBasis()
+    public async Task RunAndStampServiceAsync_NeedsLogin_CompletesFailedAndOnlyStampsBasis()
     {
         var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
         client.LiveStatus = "awaiting-login";
@@ -271,7 +271,8 @@ public class ScheduledPrefillAnonymousRunPathTests
             c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
         var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
             c => c.Args.Length > 1 && c.Args[0] as string == SignalREvents.ScheduledPrefillCompleted);
-        Assert.Equal("skipped", completed.Args[1]!.GetType().GetProperty("status")!.GetValue(completed.Args[1]));
+        Assert.Null(completed.Args[1]!.GetType().GetProperty("status")!.GetValue(completed.Args[1]));
+        Assert.False((bool)completed.Args[1]!.GetType().GetProperty("success")!.GetValue(completed.Args[1])!);
         Assert.False(client.PrefillCalled);
         Assert.Null(client.SelectedAppIdsSent);
     }

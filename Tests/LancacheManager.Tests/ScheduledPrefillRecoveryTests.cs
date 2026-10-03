@@ -366,7 +366,7 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(3, fixture.Client.StartCount);
         Assert.False(firstTask.IsCompleted);
         Assert.False(secondTask.IsCompleted);
-        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, await StartService(MakeRun("40", platform: platform)));
+        Assert.Equal(ScheduledPrefillServiceRunResult.Unavailable, await StartService(MakeRun("40", platform: platform)));
         var firstRun = daemon.GetRun(fixture.Session.Id, first.OperationId)!;
         var secondRun = daemon.GetRun(fixture.Session.Id, second.OperationId)!;
         fixture.Client.Set(firstRun, "completed", 100, "success");
@@ -405,9 +405,9 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.False(firstTask.IsCompleted);
         Assert.False(secondTask.IsCompleted);
         var refused = await Start(scheduler, fixture, MakeRun("40"));
-        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, refused);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Unavailable, refused);
         Assert.Equal(3, fixture.Client.StartCount);
-        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped,
+        Assert.Equal(ScheduledPrefillServiceRunResult.Unavailable,
             await Start(scheduler, fixture, MakeRun("50", first.ServiceConfig.ScheduleId)));
         var firstRun = fixture.Daemon.GetRun(fixture.Session.Id, first.OperationId)!;
         var secondRun = fixture.Daemon.GetRun(fixture.Session.Id, second.OperationId)!;
@@ -542,21 +542,23 @@ public sealed class ScheduledPrefillRecoveryTests
 
     /// <summary>
     /// The daemons call a run in which any game failed "failed" (Battle.net with a reason). It completes
-    /// amber when every game ended with its own result and one landed; all failed, or games left unrun by
-    /// a lost sign-in or a crash, stays red.
+    /// amber naming how many games failed when every game ended with its own result and one landed. A run
+    /// stopped partway (a lost sign-in, a crash) with a game done is amber naming what stopped it; all
+    /// failed, or nothing done, stays red.
     /// </summary>
     [Theory]
-    [InlineData(PrefillPlatform.Steam, null, "success,failed", true)]
-    [InlineData(PrefillPlatform.Steam, null, "already_cached,failed", true)]
-    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed", true)]
-    [InlineData(PrefillPlatform.Steam, null, "success,failed,nothing-to-download", true)]
-    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,nothing-to-download", true)]
-    [InlineData(PrefillPlatform.Steam, null, "failed,failed", false)]
-    [InlineData(PrefillPlatform.Steam, "auth-lost", "success,failed,skipped", false)]
-    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,skipped", false)]
-    public async Task ARunWithSomeFailedGamesEndsAmberOnlyWhenEveryGameEndedAndOneLandedAsync(
-        PrefillPlatform platform, string? reason, string results, bool ran)
+    [InlineData(PrefillPlatform.Steam, null, "success,failed", "signalr.scheduledPrefill.failedApps")]
+    [InlineData(PrefillPlatform.Steam, null, "already_cached,failed", "signalr.scheduledPrefill.failedApps")]
+    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed", "signalr.scheduledPrefill.failedApps")]
+    [InlineData(PrefillPlatform.Steam, null, "success,failed,nothing-to-download", "signalr.scheduledPrefill.failedApps")]
+    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,nothing-to-download", "signalr.scheduledPrefill.failedApps")]
+    [InlineData(PrefillPlatform.Steam, null, "failed,failed", null)]
+    [InlineData(PrefillPlatform.Steam, "auth-lost", "success,failed,skipped", "signalr.scheduledPrefill.partialSignInLost")]
+    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,skipped", "signalr.scheduledPrefill.partialStopped")]
+    public async Task ARunWithSomeGamesDoneEndsAmberNamingWhatStoppedTheRestAsync(
+        PrefillPlatform platform, string? reason, string results, string? warningKey)
     {
+        var ran = warningKey is not null;
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         var daemon = CreateDaemon(fixture, platform);
         var serviceType = platform == PrefillPlatform.Steam ? typeof(SteamDaemonService) : typeof(BattleNetDaemonService);
@@ -580,9 +582,50 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(ran ? ScheduledPrefillServiceRunResult.Ran : ScheduledPrefillServiceRunResult.Failed,
             await task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(ran ? run.CompletedAtUtc : null, ((ScheduleState)(object)state).LastActualRun);
-        Assert.Equal(ran ? "signalr.scheduledPrefill.failedApps" : null, serviceRun.State.Warning?.StageKey);
-        Assert.Equal(ran ? 1 : (int?)null, (int?)serviceRun.State.Warning?.Context["failed"]);
+        Assert.Equal(warningKey, serviceRun.State.Warning?.StageKey);
+        var failedApps = warningKey == "signalr.scheduledPrefill.failedApps";
+        Assert.Equal(failedApps ? 1 : (int?)null, (int?)serviceRun.State.Warning?.Context.GetValueOrDefault("failed"));
+        Assert.Equal(ran && !failedApps ? 1 : (int?)null, (int?)serviceRun.State.Warning?.Context.GetValueOrDefault("done"));
         Assert.Equal(ran ? games.Length : (int?)null, (int?)serviceRun.State.Warning?.Context["total"]);
+    }
+
+    /// <summary>
+    /// A run that could not start because something it needs is missing ends red with its own reason; a
+    /// run that was only put off (the container is busy) ends skipped.
+    /// </summary>
+    [Theory]
+    [InlineData(PrefillPlatform.Steam, "noDaemon", OperationStatus.Failed, "signalr.scheduledPrefill.skippedNoDaemon")]
+    [InlineData(PrefillPlatform.Steam, "noContainer", OperationStatus.Failed, "signalr.scheduledPrefill.needsPersistentContainer")]
+    [InlineData(PrefillPlatform.BattleNet, "noContainer", OperationStatus.Failed, "signalr.scheduledPrefill.skippedNoContainer")]
+    [InlineData(PrefillPlatform.Steam, "loggedOut", OperationStatus.Failed, "signalr.scheduledPrefill.needsPersistentLogin")]
+    [InlineData(PrefillPlatform.BattleNet, "loggedOut", OperationStatus.Failed, "signalr.scheduledPrefill.skippedContainerNotReady")]
+    [InlineData(PrefillPlatform.Steam, "busy", OperationStatus.Skipped, "signalr.scheduledPrefill.skippedAlreadyRunning")]
+    public async Task ARunThatCouldNotStartEndsByItsCauseAsync(
+        PrefillPlatform platform, string cause, OperationStatus status, string stageKey)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: cause != "noContainer");
+        var serviceType = platform == PrefillPlatform.Steam ? typeof(SteamDaemonService) : typeof(BattleNetDaemonService);
+        var registered = new ServiceCollection();
+        if (cause != "noDaemon") registered.AddSingleton(serviceType, CreateDaemon(fixture, platform));
+        using var services = registered.BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        // Without concurrent-run support the run takes the single-container gates: the daemon's status
+        // says whether the container is signed in, and its session says whether it is already prefilling.
+        fixture.Session.Capabilities = null;
+        fixture.Client.Status = new DaemonStatus { Status = cause == "loggedOut" ? "awaiting-login" : "logged-in" };
+        fixture.Session.IsPrefilling = cause == "busy";
+        var run = MakeRun("20", platform: platform);
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        Assert.True(tracker.TryRestoreOperation(run.OperationId, OperationType.ScheduledPrefill, run.State.Name,
+            new CancellationTokenSource(), run.State));
+
+        await (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [run, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
+                CancellationToken.None, true])!;
+
+        Assert.Equal(status, tracker.GetOperation(run.OperationId)!.Status);
+        Assert.Equal(stageKey, run.State.Snapshot.StageKey);
     }
 
     [Fact]
