@@ -50,6 +50,9 @@ public partial class SteamKit2Service
         MappingOperationReporter? reporter = null;
         var admitted = false;
         var keepPendingLoginOwner = false;
+        // The sign-in window has its own timer, so a cancel is the window running out exactly when that timer fired;
+        // a wall-clock check can read a moment early, because the timer counts whole milliseconds on a monotonic clock.
+        using var window = new CancellationTokenSource();
         try
         {
             lock (_loginOwnerLock)
@@ -73,8 +76,8 @@ public partial class SteamKit2Service
                 })) IntegrationLease.Refuse("attempt-expired");
             }
 
-            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(reporter!.Token);
-            lifetime.CancelAfter(login.ExpiresAtUtc > DateTime.UtcNow ? login.ExpiresAtUtc - DateTime.UtcNow : TimeSpan.Zero);
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(reporter!.Token, window.Token);
+            window.CancelAfter(login.ExpiresAtUtc > DateTime.UtcNow ? login.ExpiresAtUtc - DateTime.UtcNow : TimeSpan.Zero);
             using var cancelled = lifetime.Token.Register(() =>
             {
                 lock (_loginOwnerLock)
@@ -141,7 +144,7 @@ public partial class SteamKit2Service
             return await CompleteLoginAsync(login,
                 new AuthenticationResult { Success = true, Message = "Authentication successful" });
         }
-        catch (OperationCanceledException) when (DateTime.UtcNow >= login.ExpiresAtUtc)
+        catch (OperationCanceledException) when (window.IsCancellationRequested)
         {
             // The sign-in window ran out, not a person: say it expired, as a late code is told.
             _logger.LogInformation("Steam sign-in expired");
