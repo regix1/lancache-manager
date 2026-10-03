@@ -30,13 +30,13 @@ const formatDatabaseResetCompleteMessage = bindLifted(
   }
 );
 
-test('a reset that left a prefill login active names the services instead of claiming success', () => {
+test('a reset that left a prefill login active does not claim success', () => {
   assert.equal(
     formatDatabaseResetCompleteMessage({
       stageKey: 'signalr.dbReset.complete',
       context: { persistentLoginFailures: ['Xbox', 'Epic'] }
     }),
-    'signalr.dbReset.completeWithActiveLogins:Xbox, Epic'
+    'signalr.dbReset.completeWithActiveLogins'
   );
 });
 
