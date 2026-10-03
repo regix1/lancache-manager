@@ -607,7 +607,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
     private bool _challengeDelivered;
 
     public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
-    public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
+    public event Func<DaemonStatus, Task>? OnStatusUpdate;
     public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
     public event Func<string, Task>? OnError { add { } remove { } }
     public event Func<Task>? OnDisconnected { add { } remove { } }
@@ -758,6 +758,18 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
         if (HoldCancelLogin)
         {
             await ReleaseCancelLogin.Task.WaitAsync(cancellationToken);
+        }
+
+        // The daemons announce the ended sign-in before they answer an acknowledged cancel-login
+        // (epic-prefill-daemon SocketCommandInterface.cs:607 before :609); a refused cancel announces nothing.
+        if (CancelAcknowledged)
+        {
+            await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
+            {
+                Status = "awaiting-login",
+                Message = "Login cancelled - ready for new attempt",
+                Timestamp = DateTime.UtcNow
+            }, null);
         }
 
         return CancelAcknowledged;

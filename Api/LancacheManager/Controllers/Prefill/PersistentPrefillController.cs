@@ -992,7 +992,7 @@ public class PersistentPrefillController : ControllerBase
     /// </summary>
     /// <remarks>
     /// For the running persistent session. AccountHolder analogue of the user cancel-login flow.
-    /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken, long?, Guid?)"/>.
+    /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken, long?, Guid?, string?)"/>.
     /// </remarks>
     [HttpPost("cancel-login")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]

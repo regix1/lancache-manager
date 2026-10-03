@@ -293,6 +293,72 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
+    /// The daemon announces the ended sign-in before it answers the cancel, so that announcement must end
+    /// the sign-in red with the expired reason, and the reason must not outlive it to turn the next
+    /// sign-in's cancel red.
+    /// </summary>
+    [Fact]
+    public async Task AnExpiredSignInEndsRedAndLeavesNoReasonForTheNextSignInAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+
+        await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+
+        var firstRun = tracker.GetOperation(firstRunId)!;
+        Assert.Equal(OperationStatus.Failed, firstRun.Status);
+        Assert.Equal("common.notifications.warnings.signInExpired", Assert.Single(firstRun.Warnings).StageKey);
+        Assert.Null(session.LoginStopReason);
+
+        await daemon.StartLoginAsync(session.Id);
+        var secondRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        await daemon.CancelLoginAsync(session.Id);
+
+        var secondRun = tracker.GetOperation(secondRunId)!;
+        Assert.Equal(OperationStatus.Cancelled, secondRun.Status);
+        Assert.Empty(secondRun.Warnings);
+    }
+
+    /// <summary>
+    /// The sweep's cancel can meet a newer sign-in that started while the daemon answered. The newer
+    /// sign-in owns the ending, so the sweep's reason must not stay behind to end it red.
+    /// </summary>
+    [Fact]
+    public async Task AnExpiryCancelThatMeetsANewerAttemptLeavesNoReasonAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.HoldCancelLogin = true;
+
+        var sweep = daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // A new login takes the next attempt number and drops the finished cancel as Login.cs:648-649 do.
+        session.LoginAttempt++;
+        session.LoginCancelTask = null;
+        client.ReleaseCancelLogin.SetResult();
+        await sweep;
+
+        Assert.Null(session.LoginStopReason);
+        await daemon.CancelLoginAsync(session.Id);
+
+        var operation = tracker.GetOperation(operationId)!;
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Empty(operation.Warnings);
+    }
+
+    /// <summary>
     /// A session the app ends (expired or shutting down) ends its open sign-in red; any other
     /// termination reason is a person's choice and stays a gray cancel.
     /// </summary>

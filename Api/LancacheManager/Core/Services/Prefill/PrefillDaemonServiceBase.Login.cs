@@ -1372,8 +1372,9 @@ public abstract partial class PrefillDaemonServiceBase
     /// whatever login is current. A cancel for an older attempt changes nothing.
     /// </param>
     /// <param name="stopReason">
-    /// The reason an app-made cancel names. Applied only when this call ends the login, never by a call that
-    /// joins another cancel, fails, or meets a newer attempt.
+    /// The reason an app-made cancel names. Set before the daemon round trip, because the daemon announces the
+    /// ended sign-in before it answers; cleared when this call fails or meets a newer attempt, and never set by a
+    /// call that joins another cancel.
     /// </param>
     /// <returns>False when <paramref name="loginAttempt"/> names an older attempt and nothing was cancelled.</returns>
     public async Task<bool> CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default,
@@ -1437,6 +1438,9 @@ public abstract partial class PrefillDaemonServiceBase
                 completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 session.LoginCancelTask = completion.Task;
                 session.LoginCanceling = true;
+                // The daemon announces the ended sign-in before it answers the cancel, so the reason has to be
+                // on the session before the round trip for that announcement to end the sign-in with it.
+                if (stopReason is not null) session.LoginStopReason = stopReason;
                 settledBeforeCancel = session.LoginSettled;
                 session.LoginSettled = false;
                 dispatch = session.LoginDispatch?.Task;
@@ -1513,6 +1517,8 @@ public abstract partial class PrefillDaemonServiceBase
             lock (session.PrefillLock)
             {
                 newerAttempt = session.LoginAttempt != attempt;
+                // The newer attempt owns the sign-in now, so this call's reason must not end it.
+                if (newerAttempt && stopReason is not null) session.LoginStopReason = null;
             }
             if (newerAttempt)
             {
@@ -1532,7 +1538,6 @@ public abstract partial class PrefillDaemonServiceBase
                         Context = new() { ["sessionId"] = session.Id }
                     };
                 }
-                if (stopReason is not null) session.LoginStopReason = stopReason;
                 session.AuthState = DaemonAuthState.NotAuthenticated;
                 session.LoginSettled = true;
                 await NotifyAuthStateChangeAsync(session);
@@ -1549,6 +1554,8 @@ public abstract partial class PrefillDaemonServiceBase
             lock (session.PrefillLock)
             {
                 session.LoginCanceling = false;
+                // A cancel that failed did not end the sign-in, so its reason must not end a later one.
+                if (failure is not null && stopReason is not null) session.LoginStopReason = null;
                 if (failure is not null && ReferenceEquals(session.LoginCancelTask, completion!.Task))
                     session.LoginCancelTask = null;
             }
