@@ -25,6 +25,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     private readonly ConcurrentDictionary<Guid, Guid> _handoffs = new();
 
     /// <summary>
+    /// How a dropped run ended, for a browser that missed its ending event and asks after the drop. The setup wizard's
+    /// watchdog reads a run up to 35 s after it ended (30 s with no event, then its next 5 s tick); each entry stays at
+    /// least 5 minutes, which also covers that read failing while the network is out. Older entries are pruned at a later
+    /// drop.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, (OperationStatus Status, DateTime ReapedAtUtc)> _reapedStatuses = new();
+
+    /// <summary>
     /// Bound on how far <see cref="ResolveHandoff"/> will follow a chain. A handoff always points at
     /// a freshly-registered id so a cycle cannot form, but a bounded walk means a bug upstream
     /// degrades to "cancel did nothing" instead of hanging the request thread.
@@ -453,6 +461,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return _operations.TryGetValue(operationId, out var operation) ? operation : null;
     }
 
+    public OperationStatus? GetReapedStatus(Guid operationId)
+        => _reapedStatuses.TryGetValue(operationId, out var reaped) ? reaped.Status : null;
+
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
         // Waiting ops are queued, not running: they must not block conflict checks and must
@@ -844,6 +855,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         if (!_operations.TryGetValue(operationId, out var operation)) return;
         var links = _handoffs.ToArray();
         var stale = links.Where(link => ResolveHandoff(link.Key) == operationId).ToArray();
+        OperationStatus status;
         lock (operation)
         {
             // A repairing row stays until EndRepair, which schedules the reaper again. A row kept until
@@ -851,7 +863,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // closed, also when the reaper scheduled at completion fires after that.
             if (operation.CompletedFlag == 0 || !operation.Status.IsTerminal() || operation.Repairing
                 || (KeepsUntilClosed(operation) && !operation.Closed)) return;
+            status = operation.Status;
             ((ICollection<KeyValuePair<Guid, OperationInfo>>)_operations).Remove(new(operationId, operation));
+        }
+        var reapedAt = DateTime.UtcNow;
+        _reapedStatuses[operationId] = (status, reapedAt);
+        foreach (var reaped in _reapedStatuses)
+        {
+            if (reapedAt - reaped.Value.ReapedAtUtc > TimeSpan.FromMinutes(5)) _reapedStatuses.TryRemove(reaped);
         }
         foreach (var entry in _entityKeyIndex.Where(entry => entry.Value == operationId).ToArray())
         {

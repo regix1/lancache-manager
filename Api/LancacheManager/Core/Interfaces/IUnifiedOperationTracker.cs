@@ -130,6 +130,12 @@ public interface IUnifiedOperationTracker
     OperationInfo? GetOperation(Guid operationId, bool followHandoff = false);
 
     /// <summary>
+    /// How a run that is no longer tracked ended, for at least 5 minutes after it was dropped. Null for a run never
+    /// tracked or dropped longer ago.
+    /// </summary>
+    OperationStatus? GetReapedStatus(Guid operationId);
+
+    /// <summary>
     /// Gets all active operations, optionally filtered by type.
     /// Excludes <see cref="OperationStatus.Waiting"/> operations: queued ops have not started
     /// any work, must not block conflict checks, and must stay invisible to the per-type

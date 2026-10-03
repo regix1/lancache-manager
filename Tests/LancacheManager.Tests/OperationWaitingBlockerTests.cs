@@ -121,7 +121,7 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Null(status.Message);
         Assert.Equal(successor, status.NextOperationId);
         Assert.Equal(OperationStatus.Running, status.NextStatus);
-        Assert.Equal(reapWaiter ? null : OperationStatus.Completed, status.Status);
+        Assert.Equal(OperationStatus.Completed, status.Status);
         if (forceKill)
         {
             var response = Assert.IsType<OperationForceKillResponse>(Assert.IsType<OkObjectResult>((await controller.ForceKillAsync(waiter)).Result).Value);
@@ -186,6 +186,39 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         var links = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid>>(
             typeof(UnifiedOperationTracker).GetField("_handoffs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker));
         Assert.Empty(links);
+    }
+
+    [Theory]
+    [InlineData(OperationStatus.Completed)]
+    [InlineData(OperationStatus.Cancelled)]
+    public void ADroppedRunStillAnswersHowItEnded(OperationStatus ended)
+    {
+        var tracker = CreateTracker();
+        var controller = CreateController(tracker);
+        var id = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.CompleteOperation(id, success: ended == OperationStatus.Completed, cancelled: ended == OperationStatus.Cancelled);
+        Reap(tracker, id);
+        Assert.Null(tracker.GetOperation(id));
+        var status = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(id).Result).Value);
+        Assert.False(status.Active);
+        Assert.Equal(ended, status.Status);
+    }
+
+    [Fact]
+    public void ADroppedRunIsForgottenAtALaterDropFiveMinutesOn()
+    {
+        var tracker = CreateTracker();
+        var a = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.CompleteOperation(a, true);
+        Reap(tracker, a);
+        var reaped = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, (OperationStatus Status, DateTime ReapedAtUtc)>>(
+            typeof(UnifiedOperationTracker).GetField("_reapedStatuses", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker));
+        reaped[a] = (OperationStatus.Completed, DateTime.UtcNow.AddMinutes(-6));
+        var b = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.CompleteOperation(b, true);
+        Reap(tracker, b);
+        Assert.Null(tracker.GetReapedStatus(a));
+        Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(b));
     }
 
     internal static void Reap(UnifiedOperationTracker tracker, Guid id)

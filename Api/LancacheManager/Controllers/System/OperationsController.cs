@@ -38,7 +38,7 @@ public class OperationsController : ControllerBase
     /// consumers that cannot subscribe to SignalR.
     ///
     /// Returns 200 with { id, active, percentComplete, message }. active=false means the
-    /// operation is no longer tracked (completed, failed, cancelled, or never existed).
+    /// operation is no longer running; a run dropped in the last 5 minutes still answers how it ended in <c>status</c>.
     /// </remarks>
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(OperationStatusResponse), StatusCodes.Status200OK)]
@@ -65,6 +65,10 @@ public class OperationsController : ControllerBase
                 response.ParentOperationId = op.ParentOperationId;
                 response.Error = op.Status == OperationStatus.Failed ? op.Message : null;
             }
+        }
+        else
+        {
+            response.Status = _operationTracker.GetReapedStatus(id);
         }
         if (next != null && next.Id != id)
         {
