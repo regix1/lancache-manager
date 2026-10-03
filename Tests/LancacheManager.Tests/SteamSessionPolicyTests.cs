@@ -262,6 +262,26 @@ public sealed class SteamSessionPolicyTests
     }
 
     [Fact]
+    public async Task SessionChangesDuringASteamSignInDoNotEndACrawlBatchAsync()
+    {
+        using var fixture = new Fixture();
+        fixture.Connect(EAccountType.AnonUser);
+        Set(fixture.Service, "_loginActive", 1);
+        var attempts = 0;
+        var result = await RunPicsAsync(fixture.Service, () =>
+        {
+            if (++attempts <= 3)
+            {
+                Set(fixture.Service, "_sessionVersion", (long)attempts);
+                throw new SteamConnectionLostException("Session changed");
+            }
+            return Task.FromResult(42);
+        }, CancellationToken.None);
+        Assert.Equal(42, result);
+        Assert.Equal(4, attempts);
+    }
+
+    [Fact]
     public void UnclassifiedLogoffPreservesCredentialAndWakesWait()
     {
         using var fixture = new Fixture();

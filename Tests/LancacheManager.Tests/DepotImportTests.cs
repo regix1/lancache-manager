@@ -195,7 +195,8 @@ public sealed class DepotImportTests
         Assert.Equal("failed", run.Status);
         Assert.Equal("signalr.depotMapping.skippedSteamUnreachable", run.Error);
         Assert.Contains(fixture.Events.Snapshots, snapshot =>
-            snapshot.Content.TryGetProperty("StageKey", out var stageKey)
+            snapshot.Content.ValueKind == JsonValueKind.Object
+            && snapshot.Content.TryGetProperty("StageKey", out var stageKey)
             && stageKey.GetString() == "signalr.depotMapping.skippedSteamUnreachable");
     }
 
@@ -222,6 +223,39 @@ public sealed class DepotImportTests
         await fixture.SeedAsync();
         fixture.State.UpdateState(state => state.LastViabilityCheck = null);
         Set(fixture.Service, "_rebuildActive", 1);
+        Set(fixture.Service, "_picsCrawlRunning", true);
+        Set(fixture.Service, "_isLoggedOn", true);
+        fixture.CheckChanges = (_, _) => throw new InvalidOperationException("The depot database is not available");
+
+        var result = await fixture.Service.CheckViabilityAsync(CancellationToken.None);
+
+        Assert.Equal("errors.steam.connectionFailed", result.StageKey);
+        Assert.True(Get<bool>(fixture.Service, "_isLoggedOn"));
+    }
+
+    [Fact]
+    public async Task AViabilityCheckThatFailsDuringAGitHubImportResetsTheConnectionFlagAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.LastViabilityCheck = null);
+        Set(fixture.Service, "_rebuildActive", 1);
+        Set(fixture.Service, "_isLoggedOn", true);
+        fixture.CheckChanges = (_, _) => throw new TimeoutException("Steam did not answer the PICS request within 5 minutes");
+
+        var result = await fixture.Service.CheckViabilityAsync(CancellationToken.None);
+
+        Assert.Equal("errors.steam.connectionFailed", result.StageKey);
+        Assert.False(Get<bool>(fixture.Service, "_isLoggedOn"));
+    }
+
+    [Fact]
+    public async Task AViabilityCheckThatFailsDuringASteamSignInLeavesItsSessionAloneAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.LastViabilityCheck = null);
+        Set(fixture.Service, "_loginActive", 1);
         Set(fixture.Service, "_isLoggedOn", true);
         fixture.CheckChanges = (_, _) => throw new InvalidOperationException("The depot database is not available");
 

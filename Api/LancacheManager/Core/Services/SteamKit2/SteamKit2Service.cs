@@ -55,6 +55,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private DepotScanMode _activeDepotScanMode;
     private int _rebuildActive;
 
+    // Set while a PICS crawl runs, the one rebuild holder that uses the Steam session.
+    private volatile bool _picsCrawlRunning;
+
     // A sign-in now outlives the request that started it, so a second submit can arrive while the
     // first credentials poll is still waiting on a phone tap. Without this guard that second submit
     // would register a second depotMapping operation and the bar would show two sign-in cards.
@@ -519,7 +522,11 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             catch (Exception ex) when (ex is SteamConnectionLostException or AsyncJobFailedException)
             {
                 ct.ThrowIfCancellationRequested();
-                if (attempt >= MaxBatchConnectionRetries) throw;
+                // A Steam sign-in replaces the session this request shares at each of its steps (a new client for each
+                // credentials poll, a fresh logon after it), so a connection it dropped is not this request's failure
+                // and spends none of its attempts; the retries it causes end when the sign-in does.
+                var signInActive = Volatile.Read(ref _loginActive) == 1;
+                if (!signInActive && attempt >= MaxBatchConnectionRetries) throw;
                 var sessionChanged = sessionVersion != Interlocked.Read(ref _sessionVersion);
                 if (sessionChanged)
                 {
@@ -544,6 +551,10 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
                 }
 
                 await EnsureSessionAsync(ct, forceReconnect: !sessionChanged, expectedVersion: sessionVersion);
+                if (signInActive)
+                {
+                    attempt--;
+                }
             }
         }
     }

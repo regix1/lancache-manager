@@ -144,7 +144,9 @@ public partial class SteamKit2Service
             return await CompleteLoginAsync(login,
                 new AuthenticationResult { Success = true, Message = "Authentication successful" });
         }
-        catch (OperationCanceledException) when (window.IsCancellationRequested)
+        // The window ran out: its own timer fired, or a check that reads the clock found it over before the timer's
+        // callback ran. A person's cancel lands earlier.
+        catch (OperationCanceledException) when (window.IsCancellationRequested || DateTime.UtcNow >= login.ExpiresAtUtc)
         {
             // The sign-in window ran out, not a person: say it expired, as a late code is told.
             _logger.LogInformation("Steam sign-in expired");

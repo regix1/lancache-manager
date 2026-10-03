@@ -70,6 +70,7 @@ public partial class SteamKit2Service
                         : "Starting full depot mapping scan...",
                 });
                 _currentPicsOperationId = reporter.OperationId;
+                _picsCrawlRunning = true;
 
                 await ConnectAndBuildIndexAsync(reporter.Token, incrementalOnly).ConfigureAwait(false);
                 _logger.LogInformation("PICS crawl completed successfully");
@@ -124,6 +125,7 @@ public partial class SteamKit2Service
                     _currentRebuildCts = null;
                     _currentMappingReporter = null;
                     _currentPicsOperationId = null;
+                    _picsCrawlRunning = false;
                     Interlocked.Exchange(ref _rebuildActive, 0);
                     RaiseExecutionStateChanged();
                 }

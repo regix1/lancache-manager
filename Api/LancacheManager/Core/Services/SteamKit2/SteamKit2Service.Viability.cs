@@ -119,9 +119,9 @@ public partial class SteamKit2Service
         {
             _logger.LogError(ex, "Failed to check incremental viability - connection or network error");
 
-            // A crawl that is running owns the Steam session and recovers it itself; a failed check must not drop the
-            // connection under it and spend one of its reconnect attempts.
-            if (!IsRebuildRunning)
+            // A running depot crawl or a Steam sign-in owns the Steam session and recovers it itself; a failed check
+            // must not drop the connection under it. A GitHub import or a manual mapping apply does not use the session.
+            if (!_picsCrawlRunning && Volatile.Read(ref _loginActive) == 0)
             {
                 // Clean up connection state on failure to prevent stale connections
                 if (_steamClient?.IsConnected == true)
