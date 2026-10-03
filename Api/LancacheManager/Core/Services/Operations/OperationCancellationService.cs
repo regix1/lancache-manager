@@ -87,6 +87,10 @@ public class OperationCancellationService
             "Force killing operation {Id} ({Type}: {Name})",
             operationId, operation.Type, operation.Name);
 
+        // Cancel the run and its token before the child is stopped, in the order CancelOperation uses:
+        // a child stopped while the token is live reads as a failed exit, and the run would end red.
+        _operationTracker.ForceKillOperation(operationId, followHandoff: caller is null);
+
         try
         {
             if (process is { HasExited: false })
@@ -113,8 +117,6 @@ public class OperationCancellationService
             // SignalR completion — the op is already terminal.
             return true;
         }
-
-        _operationTracker.ForceKillOperation(operationId, followHandoff: caller is null);
 
         // Force stop ends the job but never its repair: the outcome is recorded first, so the card
         // turns to repairing (or ends when nothing is owed) at once.

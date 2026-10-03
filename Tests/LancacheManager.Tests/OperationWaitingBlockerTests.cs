@@ -69,15 +69,12 @@ public sealed class OperationWaitingBlockerTests : IDisposable
             tracker.RecordHandoff(waiter, successor);
             tracker.CompleteOperation(waiter, true);
             if (reapWaiter) Reap(tracker, waiter);
-            var forceKill = controller.ForceKillAsync(waiter);
-            Assert.Equal("CANCEL", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.False(forceKill.IsCompleted);
+            // A force stop cancels the run and kills the child at once, so the successor's own ending can
+            // only come first; the force stop that follows must leave that ending as it is.
             tracker.CompleteOperation(successor, false, "Original failure", onCompleting: operation => operation.PercentComplete = 63);
             var terminal = tracker.GetOperation(successor)!;
             var completedAt = terminal.CompletedAt;
-            await pipe.WriteAsync(new byte[] { 1 });
-            await pipe.FlushAsync();
-            var response = Assert.IsType<OperationForceKillResponse>(Assert.IsType<OkObjectResult>((await forceKill).Result).Value);
+            var response = Assert.IsType<OperationForceKillResponse>(Assert.IsType<OkObjectResult>((await controller.ForceKillAsync(waiter)).Result).Value);
             Assert.Equal(waiter, response.OperationId);
             Assert.Equal(OperationStatus.Failed, terminal.Status);
             Assert.Equal("Original failure", terminal.Message);
@@ -724,6 +721,46 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal("Repair failed: disk gone", kept.RepairError);
         Assert.Null(tracker.GetOperation(plain.Id));
         Assert.Equal(3, tracker.GetOperation(latest.Id)!.ConsecutiveFailures);
+    }
+
+    [Fact]
+    public async Task AForceStopWithNoCancelFirstCancelsTheTokenBeforeTheChildExitsAsync()
+    {
+        var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
+        var cancellation = new OperationCancellationService(tracker, processManager,
+            OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance);
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        var operationId = tracker.RegisterOperation(OperationType.LogProcessing, "Log processing", cts, ownerCompletes: true);
+
+        // A child that ignores the CANCEL line on stdin, like a purge that checks for a cancel only after
+        // its whole pass: it dies only to the hard kill.
+        var start = OperatingSystem.IsWindows()
+            ? new System.Diagnostics.ProcessStartInfo("ping", "-n 60 127.0.0.1")
+            : new System.Diagnostics.ProcessStartInfo("sleep", "60");
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardInput = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        using var process = new System.Diagnostics.Process { StartInfo = start, EnableRaisingEvents = true };
+        var tokenCanceledAtExit = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.Exited += (_, _) => tokenCanceledAtExit.TrySetResult(token.IsCancellationRequested);
+        Assert.True(process.Start());
+        try
+        {
+            tracker.AssociateProcess(operationId, process);
+
+            Assert.True(await cancellation.ForceKillAsync(operationId));
+
+            Assert.True(await tokenCanceledAtExit.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+            Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
     }
 
     private static UnifiedOperationTracker CreateTracker()
