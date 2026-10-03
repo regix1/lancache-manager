@@ -361,6 +361,9 @@ public partial class OperationStateService
                             {
                                 if (forceStop)
                                 {
+                                    // A force stop ends the run here, so the job's last save finds no run going on and
+                                    // keeps this stop, even when it lands before the force stop completes the card.
+                                    next.RunContinues = false;
                                     next.RunCancelled = true;
                                     return;
                                 }

@@ -862,7 +862,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
         Assert.Equal(OperationStatus.Completed, stored.Outcome);
         Assert.True(stored.RunCancelled);
-        Assert.True(stored.RunContinues);
+        // The force stop ended the run, so the scan's last save finds no run going on.
+        Assert.False(stored.RunContinues);
 
         // The scan's last save after the stop records how the run ended.
         await harness.Owner.FinishRepairAsync(id, success: false, cancelled: true, error: null);
@@ -976,6 +977,80 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
         var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
         Assert.True(stored.RunCancelled);
+    }
+
+    [Fact]
+    public async Task AFailingLastSaveBetweenAForceStopsSaveAndItsEndingStaysCanceledAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root, stateService: state);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+        Task? lastSave = null;
+        state.OnRepairWrite = contents =>
+        {
+            var repairs = System.Text.Json.JsonSerializer.Deserialize<List<OperationRepair>>(contents) ?? [];
+            if (lastSave is null && repairs.Any(repair => repair.Id == id && repair.RunCancelled))
+            {
+                // The force stop's save holds the admission gate here; the scan's tail failed for a real reason, so
+                // its last save waits for the gate.
+                lastSave = harness.Owner.FinishRepairAsync(id, success: false, cancelled: false, error: "Database unavailable");
+            }
+        };
+
+        // The force stop's steps, with the scan's last save landing before the force stop completes the run.
+        harness.Tracker.ForceKillOperation(id, followHandoff: true);
+        Assert.False(await harness.Owner.RecordForceStopAsync(id));
+        Assert.NotNull(lastSave);
+        await lastSave.WaitAsync(TimeSpan.FromSeconds(10));
+        harness.Tracker.CompleteOperation(id, success: false, error: "Force killed by user", cancelled: true);
+        harness.Tracker.CompleteOperation(id, success: false, error: "Database unavailable", cancelled: false);
+
+        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(id)!.Status);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.True(stored.RunCancelled);
+        Assert.False(stored.RunContinues);
+        Assert.Null(stored.RunError);
+    }
+
+    [Fact]
+    public async Task AFailingLastSaveBeforeAForceStopEndsRedLiveAndSavedAsync()
+    {
+        var state = OperationRepairTests.CreateFailingStateService(_root);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root, stateService: state);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var id = harness.Tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(NewScanRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(id, success: true, cancelled: false, error: null,
+            update: repair => repair.RunContinues = true);
+        Task<bool>? forceStop = null;
+        state.OnRepairWrite = contents =>
+        {
+            var repairs = System.Text.Json.JsonSerializer.Deserialize<List<OperationRepair>>(contents) ?? [];
+            if (forceStop is null && repairs.Any(repair => repair.Id == id && repair.RunError == "Database unavailable"))
+            {
+                // The scan's failing last save holds the admission gate here, so the force stop waits for it.
+                forceStop = cancellation.ForceKillAsync(id);
+            }
+        };
+
+        await harness.Owner.FinishRepairAsync(id, success: false, cancelled: false, error: "Database unavailable");
+        harness.Tracker.CompleteOperation(id, success: false, error: "Database unavailable", cancelled: false);
+        Assert.NotNull(forceStop);
+        Assert.True(await forceStop.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal(OperationStatus.Failed, harness.Tracker.GetOperation(id)!.Status);
+        var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
+        Assert.False(stored.RunCancelled);
+        Assert.Equal("Database unavailable", stored.RunError);
     }
 
     [Fact]
