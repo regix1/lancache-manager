@@ -1011,10 +1011,14 @@ function ServicePrefillPanel({
     if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
-      await signalR.hubConnection.current.invoke('CancelLoginAsync', signalR.session.id);
+      const cancelled = await signalR.hubConnection.current.invoke<boolean>(
+        'CancelLoginAsync',
+        signalR.session.id
+      );
       setShowAuthModal(false);
       authActions.resetAuthForm();
-      addLog('info', t('prefill.log.loginCancelled'));
+      // A sign-in that finished as the cancel reached the daemon stays signed in, and its auth event shows that.
+      if (cancelled) addLog('info', t('prefill.log.loginCancelled'));
     } catch (err) {
       // The dialog has already closed. One notice: the popup for an admin, the log line for a
       // guest, who has no notification bar.

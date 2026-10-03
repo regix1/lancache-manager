@@ -334,6 +334,29 @@ test('a failed End Session or Cancel Login reaches an admin as one popup and a g
   }
 });
 
+test('Cancel Login logs a cancel only when the sign-in was canceled', async () => {
+  for (const [answer, expected] of [
+    [false, []],
+    [true, [['info', 'prefill.log.loginCancelled']]]
+  ]) {
+    const logged = [];
+    await bindLifted(liftHookCallback(panelPath, 'useCallback', "'CancelLoginAsync'"), {
+      isAdmin: true,
+      signalR: {
+        session: { id: 'session-a' },
+        hubConnection: { current: { invoke: async () => answer } }
+      },
+      setShowAuthModal: () => undefined,
+      authActions: { resetAuthForm: () => undefined },
+      addLog: (type, message) => logged.push([type, message]),
+      getErrorMessage: (error) => error.message,
+      notifyError: () => undefined,
+      t: (text) => text
+    })();
+    assert.deepEqual(logged, expected, `hub answered ${answer}`);
+  }
+});
+
 test('an expiring session writes no second error beside the expired panel', () => {
   const written = [];
   const countdown = bindLifted(
