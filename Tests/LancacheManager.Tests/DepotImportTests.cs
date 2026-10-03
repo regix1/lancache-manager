@@ -216,6 +216,22 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task AViabilityCheckThatFailsWhileACrawlRunsLeavesItsSessionAloneAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.LastViabilityCheck = null);
+        Set(fixture.Service, "_rebuildActive", 1);
+        Set(fixture.Service, "_isLoggedOn", true);
+        fixture.CheckChanges = (_, _) => throw new InvalidOperationException("The depot database is not available");
+
+        var result = await fixture.Service.CheckViabilityAsync(CancellationToken.None);
+
+        Assert.Equal("errors.steam.connectionFailed", result.StageKey);
+        Assert.True(Get<bool>(fixture.Service, "_isLoggedOn"));
+    }
+
+    [Fact]
     public async Task ADepotScanCanceledDuringItsWebApiListingStopsAsACancelAsync()
     {
         await using var fixture = await Fixture.CreateAsync();

@@ -119,13 +119,18 @@ public partial class SteamKit2Service
         {
             _logger.LogError(ex, "Failed to check incremental viability - connection or network error");
 
-            // Clean up connection state on failure to prevent stale connections
-            if (_steamClient?.IsConnected == true)
+            // A crawl that is running owns the Steam session and recovers it itself; a failed check must not drop the
+            // connection under it and spend one of its reconnect attempts.
+            if (!IsRebuildRunning)
             {
-                _intentionalDisconnect = true;
-                _steamClient.Disconnect();
+                // Clean up connection state on failure to prevent stale connections
+                if (_steamClient?.IsConnected == true)
+                {
+                    _intentionalDisconnect = true;
+                    _steamClient.Disconnect();
+                }
+                _isLoggedOn = false;
             }
-            _isLoggedOn = false;
 
             var changeNumberForError = await TryGetLastChangeNumberAsync() ?? 0;
 
