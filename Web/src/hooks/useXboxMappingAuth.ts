@@ -170,10 +170,13 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
         !loginInProgressRef.current
       )
         return;
-      if (next.attemptId === submittedAttempt || next.loginInProgress) return;
       const matchingEvent = Boolean(
         operationRef.current && event?.operationId === operationRef.current
       );
+      // A second sign-in may start once this one saved its account, so the status can show that one running; this
+      // sign-in's own ending (every event after its one waiting event) still decides how its dialog ends.
+      const ownEnding = matchingEvent && event?.status !== 'waiting';
+      if (!ownEnding && (next.attemptId === submittedAttempt || next.loginInProgress)) return;
       if (
         next.canManage === true &&
         next.isAuthenticated &&

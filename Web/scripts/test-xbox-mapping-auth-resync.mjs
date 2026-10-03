@@ -113,7 +113,7 @@ export default {
       throw new Error('502');
     }
     globalThis.__server.attemptId = request.attemptId;
-    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, expiresAtUtc: '2030-01-01T00:00:00Z' };
+    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, operationId: globalThis.__server.operationId, expiresAtUtc: '2030-01-01T00:00:00Z' };
   },
   cancelXboxMappingLogin: async () => {}
 };
@@ -476,6 +476,22 @@ test('a status ask that fails keeps the login for the next recovery', async () =
 
   assert.equal(server.requests, 2);
   assert.equal(xbox.succeeded.count, 1);
+});
+
+test('a re-sign-in ends on its own completed event while another sign-in runs', async () => {
+  const server = startServer(true);
+  server.operationId = 'op-a';
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  // Another tab started a second sign-in after this one saved its account.
+  server.attemptId = 'attempt-b';
+  server.loginInProgress = true;
+  globalThis.__emit('XboxMappingAuthStateChanged', { operationId: 'op-a', status: 'completed' });
+  await settle();
+
+  assert.equal(xbox.succeeded.count, 1);
+  assert.equal(xbox.failed.count, 0);
 });
 
 test('a refused sign-in start reports the shared reason, not a fixed sentence', async () => {
