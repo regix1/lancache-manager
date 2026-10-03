@@ -84,20 +84,20 @@ function updateBulkProgress({
 /**
  * Turns how an item's run ended into the queue item's outcome. A canceled run ends the batch as
  * canceled, never as a failed item; `gone` is a run the server stopped tracking without saying
- * how it ended.
+ * how it ended. Returns true for a run that completed with a warning.
  */
 function settleBatchItem({
   end,
   ctx,
   failedMessage,
   neverStartedMessage
-}: SettleBatchItemOptions): void {
+}: SettleBatchItemOptions): boolean {
   switch (end.status) {
     case 'completed':
-      return;
+      return end.warned === true;
     case 'cancelled':
       ctx.cancelRun();
-      return;
+      return false;
     case 'failed':
       throw new Error(end.error ?? failedMessage);
     case 'skipped':
@@ -196,6 +196,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
+      let warned = 0;
       const onPercent = (inner: number): void =>
         updateBulkProgress({ bulkNotifId, currentIndex, total, inner, updateNotification });
 
@@ -241,12 +242,16 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               ctx,
               onPercent
             });
-            settleBatchItem({
-              end,
-              ctx,
-              failedMessage: `Service removal failed for ${serviceName}`,
-              neverStartedMessage: `Service removal never started for ${serviceName}`
-            });
+            if (
+              settleBatchItem({
+                end,
+                ctx,
+                failedMessage: `Service removal failed for ${serviceName}`,
+                neverStartedMessage: `Service removal never started for ${serviceName}`
+              })
+            ) {
+              warned++;
+            }
           } else {
             const game = entry.game;
             const entity = classifyGameFromCacheInfo(game);
@@ -261,12 +266,16 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               ctx,
               onPercent
             });
-            settleBatchItem({
-              end,
-              ctx,
-              failedMessage: `Game removal failed for ${game.game_name}`,
-              neverStartedMessage: `Game removal never started for ${game.game_name}`
-            });
+            if (
+              settleBatchItem({
+                end,
+                ctx,
+                failedMessage: `Game removal failed for ${game.game_name}`,
+                neverStartedMessage: `Game removal never started for ${game.game_name}`
+              })
+            ) {
+              warned++;
+            }
           }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
@@ -276,6 +285,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             failed,
             total: finalizeTotal,
             cancelled,
+            warned,
             t,
             updateNotification,
             text: {
@@ -322,6 +332,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
+      let warned = 0;
       const onPercent = (inner: number): void =>
         updateBulkProgress({ bulkNotifId, currentIndex, total, inner, updateNotification });
 
@@ -384,12 +395,16 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             ctx,
             onPercent
           });
-          settleBatchItem({
-            end,
-            ctx,
-            failedMessage: 'Evicted removal failed',
-            neverStartedMessage: 'Evicted removal never started'
-          });
+          if (
+            settleBatchItem({
+              end,
+              ctx,
+              failedMessage: 'Evicted removal failed',
+              neverStartedMessage: 'Evicted removal never started'
+            })
+          ) {
+            warned++;
+          }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
           finalizeBulkRemovalNotification({
@@ -398,6 +413,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             failed,
             total: finalizeTotal,
             cancelled,
+            warned,
             t,
             updateNotification,
             text: {
@@ -445,6 +461,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
+      let warned = 0;
       const onPercent = (inner: number): void =>
         updateBulkProgress({ bulkNotifId, currentIndex, total, inner, updateNotification });
 
@@ -486,12 +503,16 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             ctx,
             onPercent
           });
-          settleBatchItem({
-            end,
-            ctx,
-            failedMessage,
-            neverStartedMessage: `Log removal never started for ${service}`
-          });
+          if (
+            settleBatchItem({
+              end,
+              ctx,
+              failedMessage,
+              neverStartedMessage: `Log removal never started for ${service}`
+            })
+          ) {
+            warned++;
+          }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
           finalizeBulkRemovalNotification({
@@ -500,6 +521,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             failed,
             total: finalizeTotal,
             cancelled,
+            warned,
             t,
             updateNotification,
             text: {

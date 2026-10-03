@@ -378,3 +378,37 @@ test('an amber batch card leaves once the failure folded under it was closed els
   const state = { ...createRunStoreState(), keptBatches: new Set(['bulk']) };
   assert.deepEqual(settleBulkCards(state, amber).release, ['bulk']);
 });
+
+test('a bulk removal whose item completed with a warning ends amber', () => {
+  const notifications = [
+    {
+      id: 'bulk',
+      type: 'bulk_removal',
+      status: 'running',
+      message: '',
+      details: { itemTypes: ['game_removal'], itemOperationIds: ['op-a', 'op-b'] }
+    }
+  ];
+  const updateNotification = (id, updates) => {
+    const found = notifications.find((n) => n.id === id);
+    Object.assign(found, typeof updates === 'function' ? updates(found) : updates);
+  };
+
+  finalizeBulkRemovalNotification({
+    id: 'bulk',
+    succeeded: 2,
+    failed: 0,
+    total: 2,
+    cancelled: false,
+    warned: 1,
+    t: (key) => key,
+    updateNotification,
+    text: FINALIZE_TEXT
+  });
+
+  const card = notifications[0];
+  assert.equal(card.status, 'completed');
+  assert.equal(card.details.notificationType, 'warning');
+  assert.equal(card.detailMessage, 'common.notifications.warnings.bulkItemsWarned');
+  assert.deepEqual(card.details.itemOperationIds, ['op-a', 'op-b'], 'the folded item ids stay');
+});

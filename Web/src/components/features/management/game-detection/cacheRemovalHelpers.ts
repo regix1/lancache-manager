@@ -45,6 +45,7 @@ interface FinalizeBulkRemovalNotificationArgs {
   failed: number;
   total: number;
   cancelled: boolean;
+  warned: number;
   t: TFunction;
   updateNotification: NotificationsContextType['updateNotification'];
   text: FinalizeBulkRemovalText;
@@ -178,6 +179,7 @@ export const finalizeBulkRemovalNotification = ({
   failed,
   total,
   cancelled,
+  warned,
   t,
   updateNotification,
   text
@@ -228,13 +230,20 @@ export const finalizeBulkRemovalNotification = ({
     return;
   }
 
-  updateNotification(id, {
+  // An item that finished with a warning folds under this card, so the batch ends amber and says so.
+  updateNotification(id, (card) => ({
     status: 'completed',
     progress: FULL_PROGRESS_PERCENT,
     message: t(text.completeKey, {
       count: succeeded,
       total,
       defaultValue: text.completeDefaultValue
-    })
-  });
+    }),
+    ...(warned > 0
+      ? {
+          detailMessage: t('common.notifications.warnings.bulkItemsWarned', { count: warned }),
+          details: { ...card.details, notificationType: 'warning' as const }
+        }
+      : {})
+  }));
 };
