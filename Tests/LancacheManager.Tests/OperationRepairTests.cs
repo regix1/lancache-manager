@@ -2405,6 +2405,45 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task ARestoredRunEndsWithTheWarningsItsRepairRecordKeptAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Completed;
+        repair.Warnings =
+        [
+            new RunWarning(
+                "common.notifications.warnings.cacheFilesKept",
+                new Dictionary<string, object?> { ["fileCount"] = 3UL, ["path"] = "/cache/aa/kept" })
+        ];
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("completed", row.Status);
+        Assert.True(row.Repairing);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFilesKept", warning.StageKey);
+        Assert.Equal("/cache/aa/kept", warning.Context["path"]?.ToString());
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+        Assert.True(harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Retained);
+    }
+
+    [Fact]
     public async Task MaintenanceSkipsTheDatabaseWhileSetupIsPendingAsync()
     {
         await using var harness = await RepairHarness.CreateAsync(_root, start: false);

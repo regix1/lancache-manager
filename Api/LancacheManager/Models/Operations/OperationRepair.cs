@@ -31,6 +31,8 @@ public sealed class OperationRepair
     public GameDetectionMetrics? GameDetection { get; set; }
     public EvictionScanRepair? EvictionScan { get; set; }
     public EvictionRemovalRepair? EvictionRemoval { get; set; }
+    /// <summary>The warnings the job's run carries, so a run restored after a restart ends with them.</summary>
+    public List<RunWarning>? Warnings { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

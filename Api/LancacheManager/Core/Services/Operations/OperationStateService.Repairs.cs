@@ -174,6 +174,44 @@ public partial class OperationStateService
         }
     }
 
+    /// <summary>
+    /// Sets a warning on a job's run and keeps it on the job's repair record, so a run restored while
+    /// its repair still runs ends with it. A run with no record keeps it on the run only.
+    /// </summary>
+    public async Task SetRunWarningAsync(Guid operationId, RunWarning warning)
+    {
+        _operationTracker.SetWarning(operationId, warning);
+        var stoppingToken = _applicationLifetime.ApplicationStopping;
+        await WaitForRecoveryOwnershipAsync(stoppingToken);
+        await _repairStateGate.WaitAsync(stoppingToken);
+        try
+        {
+            // A completed log-processing record is dropped (ForgetCompletedLogRepairAsync); nothing restores it.
+            if (!_repairs.TryGetValue(operationId, out var current))
+            {
+                return;
+            }
+            SaveRepairCore(current, next =>
+            {
+                next.Warnings ??= [];
+                next.Warnings.RemoveAll(existing => existing.StageKey == warning.StageKey);
+                next.Warnings.Add(warning);
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The run still shows the warning; only a restart before the record's next save loses it.
+            _logger.LogWarning(
+                exception,
+                "Could not keep a warning on the repair record of operation {OperationId}",
+                operationId);
+        }
+        finally
+        {
+            _repairStateGate.Release();
+        }
+    }
+
     public Task MarkLogRewriteStartedAsync(Guid operationId, string datasource)
     {
         return SaveRepairSourceAsync(operationId, datasource, source => source.LogRewriteStarted = true);
@@ -2096,6 +2134,15 @@ public partial class OperationStateService
         if (_operationTracker.GetOperation(operationId) is null)
         {
             return;
+        }
+
+        // The job's warnings ride on its record, so the restored run ends amber as it did before the restart.
+        if (repair.Warnings is { } warnings)
+        {
+            foreach (var warning in warnings)
+            {
+                _operationTracker.SetWarning(operationId, warning);
+            }
         }
 
         var success = repair.Outcome == OperationStatus.Completed;
