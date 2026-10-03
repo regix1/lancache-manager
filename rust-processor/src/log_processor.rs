@@ -287,6 +287,9 @@ struct Progress {
     /// "path: error" for every file that failed mid-run. Non-empty ⇒ terminal is at best
     /// `partial`, never plain `completed`.
     files_with_errors: Vec<String>,
+    /// The database error that stopped the run, or null. A partial run that carries one read no file
+    /// after it, so the host fails the run with this error instead of naming a log file.
+    database_error: Option<String>,
 }
 
 fn seed_progress(run_id: &str, status: &str, terminal_status: &str, message: &str) -> Progress {
@@ -314,6 +317,7 @@ fn seed_progress(run_id: &str, status: &str, terminal_status: &str, message: &st
         riot_hosts_processed: 0,
         riot_hosts_mapped: 0,
         files_with_errors: Vec::new(),
+        database_error: None,
     }
 }
 
@@ -363,6 +367,7 @@ struct Processor {
     incomplete_final_records: u64,
     files_with_errors: Vec<String>,
     rotated_member_errors: usize,
+    database_error: Option<String>,
     parser: LogParser,
     detailed_parser: HttpDetailedParser,
     total_lines: AtomicU64,
@@ -515,6 +520,7 @@ impl Processor {
             incomplete_final_records: 0,
             files_with_errors: Vec::new(),
             rotated_member_errors: 0,
+            database_error: None,
             parser: LogParser::new(local_tz),
             detailed_parser: HttpDetailedParser::new(local_tz),
             total_lines: AtomicU64::new(0),
@@ -601,6 +607,7 @@ impl Processor {
             riot_hosts_processed: self.riot_mapping.processed(),
             riot_hosts_mapped: self.riot_mapping.mapped(),
             files_with_errors: self.files_with_errors.clone(),
+            database_error: self.database_error.clone(),
         }
     }
 
@@ -995,6 +1002,7 @@ impl Processor {
                                     log_file.path.display(),
                                     error
                                 );
+                                self.database_error = Some(message);
                                 stop_sources = true;
                                 break;
                             }
@@ -2591,6 +2599,40 @@ mod classification_tests {
     fn read_progress(path: &Path) -> serde_json::Value {
         let contents = std::fs::read_to_string(path).expect("read progress checkpoint");
         serde_json::from_str(&contents).expect("parse progress checkpoint")
+    }
+
+    #[tokio::test]
+    async fn a_database_error_is_written_on_the_terminal_checkpoint() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let progress_path = tmp.path().join("progress.json");
+        let mut processor = test_processor(
+            tmp.path().to_path_buf(),
+            progress_path.clone(),
+            HashMap::new(),
+        );
+
+        processor
+            .write_terminal(
+                "partial",
+                "completed",
+                "Log processing finished with 1 file error(s)",
+            )
+            .expect("write a checkpoint without a database error");
+        assert!(read_progress(&progress_path)["database_error"].is_null());
+
+        processor.database_error =
+            Some("pool timed out while waiting for an open connection".to_string());
+        processor
+            .write_terminal(
+                "partial",
+                "completed",
+                "Log processing finished with 1 file error(s)",
+            )
+            .expect("write a checkpoint with a database error");
+        assert_eq!(
+            read_progress(&progress_path)["database_error"],
+            "pool timed out while waiting for an open connection"
+        );
     }
 
     fn resume_processor(

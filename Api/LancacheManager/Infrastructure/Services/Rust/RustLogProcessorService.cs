@@ -213,6 +213,7 @@ public class RustLogProcessorService
         if (!succeeded && batch.FailedDatasourceName is null)
         {
             batch.FailedDatasourceName = datasourceName;
+            batch.DatabaseError = progress?.DatabaseError;
         }
     }
 
@@ -256,7 +257,9 @@ public class RustLogProcessorService
 
         if (batch.FailedDatasourceName is { } failedDatasourceName)
         {
-            var message = $"Log processing failed for datasource '{failedDatasourceName}'";
+            var message = batch.DatabaseError is { } databaseError
+                ? $"Log processing failed for datasource '{failedDatasourceName}': {databaseError}"
+                : $"Log processing failed for datasource '{failedDatasourceName}'";
             var metrics = new LogProcessingTerminalMetrics(
                 entriesProcessed,
                 linesProcessed,
@@ -879,7 +882,9 @@ public class RustLogProcessorService
 
         if (batch.FailedDatasourceName is { } failedDatasourceName)
         {
-            var message = $"Log processing failed for datasource '{failedDatasourceName}'";
+            var message = batch.DatabaseError is { } databaseError
+                ? $"Log processing failed for datasource '{failedDatasourceName}': {databaseError}"
+                : $"Log processing failed for datasource '{failedDatasourceName}'";
             return (
                 new LogProcessingTerminalMetrics(
                     batch.EntriesProcessed,
@@ -1544,12 +1549,41 @@ public class RustLogProcessorService
                     }
                     await logLock.DisposeAsync();
 
+                    // A database error stopped every source, so the files after it were never read and no
+                    // log file is to blame: the pass fails with that error and keeps the positions it
+                    // reached, so the next pass reads on from them.
+                    if (finalProgress.DatabaseError is { } databaseError)
+                    {
+                        _logger.LogError("Log processing stopped by a database error: {Error}", databaseError);
+                        if (ownerOperationId.HasValue && shouldFinalizeOperation)
+                        {
+                            terminalMetrics = new LogProcessingTerminalMetrics(
+                                EntriesProcessed: finalProgress.EntriesSaved,
+                                LinesProcessed: finalProgress.LinesParsed,
+                                Elapsed: null,
+                                Message: databaseError,
+                                StageKey: null);
+                            terminalMetrics = await FinishProcessingRepairAsync(
+                                repairOwner!,
+                                ownerOperationId.Value,
+                                terminalMetrics,
+                                success: false,
+                                cancelled: false,
+                                error: databaseError);
+                            repairFinished = true;
+                            _operationTracker.CompleteOperation(ownerOperationId.Value, false, databaseError, onCompleting: operation => operation.Metadata = terminalMetrics);
+                        }
+                        return false;
+                    }
+
                     var partialMessage =
                         $"Log processing finished with {finalProgress.FilesWithErrors.Count} file error(s); " +
                         $"{finalProgress.EntriesSaved} entries were saved";
                     _logger.LogWarning("{Message}: {Files}", partialMessage,
                         string.Join("; ", finalProgress.FilesWithErrors));
                     batch?.FailedFiles.AddRange(finalProgress.FilesWithErrors);
+                    // The entries the clean files saved get the same tagging and naming as a completed pass's.
+                    await RunPostPassesAsync(finalProgress.EntriesSaved, liveIngest);
                     if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         terminalMetrics = new LogProcessingTerminalMetrics(
@@ -1651,124 +1685,7 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Rust processor automatically maps depots during processing (auto_map_depots = 1);
-                // game images are fetched from the Steam API in the background task below.
-                if (finalProgress?.EntriesSaved > 0)
-                {
-                    // Auto-tag new downloads to active events for BOTH live and interactive
-                    // passes (prevents duplicate grouping issues). The committed-boundary refresh
-                    // above already made the inserted rows visible; the tag pass emits its own
-                    // conditional DownloadsRefresh when it changes associations.
-                    await AutoTagNewDownloadsAsync();
-                }
-
-                // Resolve Epic downloads BEFORE the UI refresh so downloads show with game names.
-                // This runs unconditionally (not gated on EntriesSaved > 0) because new CDN patterns
-                // may have been added since the last run (e.g., a new user contributed patterns),
-                // allowing previously unresolved downloads to be matched. The method itself is
-                // efficient and no-ops when there are no unresolved Epic downloads.
-                try
-                {
-                    using var epicScope = _serviceProvider.CreateScope();
-                    var epicMappingService = epicScope.ServiceProvider.GetRequiredService<EpicMappingService>();
-                    var resolved = await epicMappingService.ResolveDownloadsAsync();
-                    if (resolved > 0)
-                    {
-                        Interlocked.Exchange(ref _epicRowsResolvedPending, 1);
-                        _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
-                }
-
-                // Resolve Blizzard / Battle.net downloads the same way. Blizzard games are named
-                // from the static, compiled-in TACT catalog at ingest, but downloads ingested
-                // before a catalog entry existed stay unnamed; re-running the re-map after each
-                // log process names them automatically (mirroring Epic above), so no manual
-                // "Apply Now" card is needed. The service singleton no-ops when nothing is
-                // unresolved and emits its own DownloadsRefresh when it renames rows.
-                try
-                {
-                    var battleNetMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
-                    // An interactive pass shows the resolve as a background row; a live pass draws
-                    // nothing unless it fails.
-                    var resolvedBlizzard = await battleNetMappingService.ResolveDownloadsAsync(
-                        liveIngest
-                            ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled)
-                            : new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
-                    if (resolvedBlizzard > 0)
-                    {
-                        _logger.LogInformation("Resolved {Count} Blizzard downloads to game names after log processing", resolvedBlizzard);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resolve Blizzard downloads (non-fatal)");
-                }
-
-                // Rust ingest continues rows that ended within five minutes of the log time. The Xbox
-                // backfill renames a row only through a conditional update that re-checks that the row
-                // is inactive and unnamed at write time.
-                try
-                {
-                    var xboxMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
-                    var resolvedXbox = await xboxMappingService.ResolveDownloadsAsync();
-                    if (resolvedXbox > 0)
-                    {
-                        _logger.LogInformation("Re-tagged {Count} wsus downloads to Xbox titles after log processing", resolvedXbox);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resolve Xbox downloads (non-fatal)");
-                }
-
-                // Image fetching can run in background as it's not critical for the UI refresh
-                _ = Task.Run(async () =>
-                {
-                    if (!await _postPassLock.WaitAsync(0))
-                    {
-                        _logger.LogDebug("Skipping image pass after log processing - one is already running");
-                        return;
-                    }
-
-                    try
-                    {
-                        // Brief settle delay so any final DB writes from the Rust process are durable
-                        // before we fetch images. (The live dashboard-batch cache is invalidated
-                        // synchronously in the finalize step below, before the UI refresh signal —
-                        // see InvalidateLiveCache.)
-                        await Task.Delay(500);
-
-                        var namedCount = finalProgress?.EntriesSaved > 0
-                            ? await FetchMissingGameNamesAsync()
-                            : 0;
-                        var epicRowsResolved = Interlocked.Exchange(ref _epicRowsResolvedPending, 0) != 0;
-                        await FetchMissingEpicImagesAsync(epicRowsResolved);
-
-                        // The Rust processor maps depots itself, so the SteamKit2 mapping trigger never
-                        // fires for games it identified. Start a banner pass when one of them has no
-                        // stored art yet, instead of leaving it blank until the next scheduled tick.
-                        try
-                        {
-                            using var imageFetchScope = _serviceProvider.CreateScope();
-                            var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
-                            await imageFetchService.StartFetchForMissingArtAsync(
-                                namedCount > 0,
-                                CancellationToken.None);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Banner fetch trigger after log processing failed (non-fatal)");
-                        }
-                    }
-                    finally
-                    {
-                        _postPassLock.Release();
-                    }
-                });
+                await RunPostPassesAsync(finalProgress!.EntriesSaved, liveIngest);
 
                 if (!liveIngest && shouldFinalizeOperation)
                 {
@@ -2326,6 +2243,133 @@ public class RustLogProcessorService
         {
             _logger.LogWarning(ex, "Error fetching missing Epic game images - this is non-critical");
         }
+    }
+
+    /// <summary>
+    /// Runs after a pass that completed or partly completed has given the logs back: tags the new
+    /// downloads to active events, names Epic, Blizzard and Xbox downloads, then starts the missing-name
+    /// and image pass in the background. It reads only saved rows, never a log file.
+    /// </summary>
+    private async Task RunPostPassesAsync(long entriesSaved, bool liveIngest)
+    {
+        // Rust processor automatically maps depots during processing (auto_map_depots = 1);
+        // game images are fetched from the Steam API in the background task below.
+        if (entriesSaved > 0)
+        {
+            // Auto-tag new downloads to active events for BOTH live and interactive
+            // passes (prevents duplicate grouping issues). The committed-boundary refresh
+            // above already made the inserted rows visible; the tag pass emits its own
+            // conditional DownloadsRefresh when it changes associations.
+            await AutoTagNewDownloadsAsync();
+        }
+
+        // Resolve Epic downloads BEFORE the UI refresh so downloads show with game names.
+        // This runs unconditionally (not gated on EntriesSaved > 0) because new CDN patterns
+        // may have been added since the last run (e.g., a new user contributed patterns),
+        // allowing previously unresolved downloads to be matched. The method itself is
+        // efficient and no-ops when there are no unresolved Epic downloads.
+        try
+        {
+            using var epicScope = _serviceProvider.CreateScope();
+            var epicMappingService = epicScope.ServiceProvider.GetRequiredService<EpicMappingService>();
+            var resolved = await epicMappingService.ResolveDownloadsAsync();
+            if (resolved > 0)
+            {
+                Interlocked.Exchange(ref _epicRowsResolvedPending, 1);
+                _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
+        }
+
+        // Resolve Blizzard / Battle.net downloads the same way. Blizzard games are named
+        // from the static, compiled-in TACT catalog at ingest, but downloads ingested
+        // before a catalog entry existed stay unnamed; re-running the re-map after each
+        // log process names them automatically (mirroring Epic above), so no manual
+        // "Apply Now" card is needed. The service singleton no-ops when nothing is
+        // unresolved and emits its own DownloadsRefresh when it renames rows.
+        try
+        {
+            var battleNetMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
+            // An interactive pass shows the resolve as a background row; a live pass draws
+            // nothing unless it fails.
+            var resolvedBlizzard = await battleNetMappingService.ResolveDownloadsAsync(
+                liveIngest
+                    ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled)
+                    : new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
+            if (resolvedBlizzard > 0)
+            {
+                _logger.LogInformation("Resolved {Count} Blizzard downloads to game names after log processing", resolvedBlizzard);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Blizzard downloads (non-fatal)");
+        }
+
+        // Rust ingest continues rows that ended within five minutes of the log time. The Xbox
+        // backfill renames a row only through a conditional update that re-checks that the row
+        // is inactive and unnamed at write time.
+        try
+        {
+            var xboxMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
+            var resolvedXbox = await xboxMappingService.ResolveDownloadsAsync();
+            if (resolvedXbox > 0)
+            {
+                _logger.LogInformation("Re-tagged {Count} wsus downloads to Xbox titles after log processing", resolvedXbox);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Xbox downloads (non-fatal)");
+        }
+
+        // Image fetching can run in background as it's not critical for the UI refresh
+        _ = Task.Run(async () =>
+        {
+            if (!await _postPassLock.WaitAsync(0))
+            {
+                _logger.LogDebug("Skipping image pass after log processing - one is already running");
+                return;
+            }
+
+            try
+            {
+                // Brief settle delay so any final DB writes from the Rust process are durable
+                // before we fetch images. (The live dashboard-batch cache is invalidated
+                // synchronously in the finalize step below, before the UI refresh signal —
+                // see InvalidateLiveCache.)
+                await Task.Delay(500);
+
+                var namedCount = entriesSaved > 0
+                    ? await FetchMissingGameNamesAsync()
+                    : 0;
+                var epicRowsResolved = Interlocked.Exchange(ref _epicRowsResolvedPending, 0) != 0;
+                await FetchMissingEpicImagesAsync(epicRowsResolved);
+
+                // The Rust processor maps depots itself, so the SteamKit2 mapping trigger never
+                // fires for games it identified. Start a banner pass when one of them has no
+                // stored art yet, instead of leaving it blank until the next scheduled tick.
+                try
+                {
+                    using var imageFetchScope = _serviceProvider.CreateScope();
+                    var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
+                    await imageFetchService.StartFetchForMissingArtAsync(
+                        namedCount > 0,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Banner fetch trigger after log processing failed (non-fatal)");
+                }
+            }
+            finally
+            {
+                _postPassLock.Release();
+            }
+        });
     }
 
     /// <summary>

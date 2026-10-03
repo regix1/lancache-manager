@@ -302,6 +302,67 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.True(row.Retained);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ADatabaseErrorInAPassFailsItNamingTheErrorAsync(bool batch)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+
+        var run = fixture.Track(batch
+            ? fixture.Processor.StartProcessingAsync()
+            : fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        // log_processor when the database stops answering after some entries were saved: it names the file
+        // it was reading as "path: error", records the error as database_error, stops every source and ends
+        // "partial" with exit 0.
+        const string databaseError = "pool timed out while waiting for an open connection";
+        var partial = TerminalProgress(7, 11, "partial", sourcePosition: 25);
+        partial.FilesWithErrors = [fixture.LogFilePath + ": " + databaseError];
+        partial.DatabaseError = databaseError;
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("failed", row.Status);
+        Assert.Empty(row.Warnings);
+        Assert.Contains(databaseError, row.Error);
+        // The positions it reached stay saved, so the next pass reads on from them.
+        Assert.Equal(25, fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APartialPassTagsTheDownloadsItSavedAsync(bool batch)
+    {
+        await using var fixture = new ProcessorFixture(
+            transport: true,
+            events: DispatchProxy.Create<IEventsService, TaggingEvents>());
+
+        var run = fixture.Track(batch
+            ? fixture.Processor.StartProcessingAsync()
+            : fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        await fixture.Pipe!.ConnectAsync();
+        // log_processor after one rotated member failed: terminal "partial", exit 0, the file named
+        // "path: reason".
+        var partial = TerminalProgress(7, 11, "partial", sourcePosition: 25);
+        partial.FilesWithErrors =
+        [
+            Path.Combine(Path.GetDirectoryName(fixture.LogFilePath)!, "access.log.2.gz") + ": unexpected end of file"
+        ];
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("auto-tag", fixture.Messages.RefreshSources);
+    }
+
     [Fact]
     public async Task BatchUsesOneOperationAndKeepsTheFirstChildCountsAsync()
     {
@@ -997,6 +1058,15 @@ public sealed class LogProcessingOperationOwnershipTests
         }
     }
 
+    /// <summary>Tags one download whenever a pass runs its auto-tag, so the "auto-tag" refresh shows it ran.</summary>
+    internal class TaggingEvents : NullReturningProxy
+    {
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) =>
+            targetMethod!.Name == nameof(IEventsService.AutoTagActiveEventsAsync)
+                ? Task.FromResult(1)
+                : base.Invoke(targetMethod, args);
+    }
+
     private static OperationRepair RestoredRepair(RunNotice? notice)
     {
         return new OperationRepair
@@ -1163,7 +1233,8 @@ public sealed class LogProcessingOperationOwnershipTests
         public ProcessorFixture(
             IUnifiedOperationTracker? tracker = null,
             bool transport = false,
-            int datasourceCount = 1)
+            int datasourceCount = 1,
+            IEventsService? events = null)
         {
             if (datasourceCount is < 1 or > 2)
             {
@@ -1221,7 +1292,7 @@ public sealed class LogProcessingOperationOwnershipTests
                 .Build();
             var notifications = DispatchProxy.Create<ISignalRNotificationService, CompletionMessages>();
             Messages = (CompletionMessages)(object)notifications;
-            var events = DispatchProxy.Create<IEventsService, NullReturningProxy>();
+            events ??= DispatchProxy.Create<IEventsService, NullReturningProxy>();
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             Tracker = tracker ?? new UnifiedOperationTracker(
                 processManager,

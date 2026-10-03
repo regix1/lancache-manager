@@ -87,6 +87,13 @@ public class LogProcessingProgress : RustProgressBase
 
     [JsonPropertyName("files_with_errors")]
     public List<string> FilesWithErrors { get; set; } = new();
+
+    /// <summary>
+    /// The database error that stopped the run; null when none did. The processor stops reading every
+    /// source at it, so a partial run that carries one fails with this error.
+    /// </summary>
+    [JsonPropertyName("database_error")]
+    public string? DatabaseError { get; set; }
 }
 
 public sealed class LogProcessingBatchState
@@ -107,4 +114,7 @@ public sealed class LogProcessingBatchState
     public string? FailedDatasourceName { get; set; }
     /// <summary>The processor's "path: reason" entries for the files that had errors in this batch.</summary>
     public List<string> FailedFiles { get; } = new();
+
+    /// <summary>The database error that stopped the first failed child, named on the batch's failure.</summary>
+    public string? DatabaseError { get; set; }
 }
