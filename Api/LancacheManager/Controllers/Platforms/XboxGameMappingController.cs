@@ -95,14 +95,14 @@ public class XboxGameMappingController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Includes authenticated state, gamertag, last collection, and count. Mirrors Epic's
-    /// <c>GET auth-status</c>. Synchronous, no I/O.
+    /// <c>GET auth-status</c>. Synchronous, no I/O. With <c>attemptId</c>, also returns how that sign-in ended once it ended.
     /// </remarks>
     [HttpGet("auth-status")]
     [ProducesResponseType(typeof(XboxMappingAuthStatus), StatusCodes.Status200OK)]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006", Justification = "The existing public method name is retained for API compatibility.")]
-    public async Task<ActionResult<XboxMappingAuthStatus>> GetAuthStatus()
+    public async Task<ActionResult<XboxMappingAuthStatus>> GetAuthStatus([FromQuery] Guid? attemptId = null)
     {
-        return Ok(_xboxCatalogMappingService.GetAuthStatus(await IntegrationLease.ResolveCallerAsync(HttpContext)));
+        return Ok(_xboxCatalogMappingService.GetAuthStatus(await IntegrationLease.ResolveCallerAsync(HttpContext), attemptId));
     }
 
     /// <summary>

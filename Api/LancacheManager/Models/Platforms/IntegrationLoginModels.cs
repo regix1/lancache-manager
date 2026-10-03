@@ -21,6 +21,13 @@ public sealed record IntegrationAccess(
     Guid? AttemptId = null,
     DateTime? LoginExpiresAtUtc = null);
 
+/// <summary>How one sign-in ended, kept by its attempt id for a browser that missed the ending.</summary>
+public sealed record IntegrationLoginEnding(
+    Guid AttemptId,
+    OperationStatus Status,
+    string StageKey,
+    Dictionary<string, object?>? Context = null);
+
 public sealed class IntegrationLoginRequest
 {
     public Guid? AttemptId { get; set; }

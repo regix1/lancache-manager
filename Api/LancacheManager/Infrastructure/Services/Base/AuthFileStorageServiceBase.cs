@@ -31,6 +31,9 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private bool _releasing;
     private bool _dispatching;
     private readonly HashSet<Guid> _usedAttempts = [];
+    // Each sign-in's ending by its attempt id, for a browser that missed the ending event. Kept for the process lifetime,
+    // like _usedAttempts: one entry per sign-in a person started, and a restart ends every sign-in it was running.
+    private readonly Dictionary<Guid, (IntegrationLogin Login, IntegrationLoginEnding Ending)> _loginEndings = [];
     private long _releaseVersion;
 
     public long IntegrationReleaseVersion { get { lock (_lock) return _releaseVersion; } }
@@ -248,6 +251,25 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             _version++;
             finished?.Invoke();
             return true;
+        }
+    }
+
+    public void RecordIntegrationLoginEnding(IntegrationLogin login, IntegrationLoginEnding ending)
+    {
+        lock (_lock) _loginEndings[login.AttemptId] = (login, ending);
+    }
+
+    public IntegrationLoginEnding? GetIntegrationLoginEnding(IntegrationCaller caller, Guid attemptId)
+    {
+        if (!caller.AuthenticationEnabled) caller = new(null, null, false);
+        lock (_lock)
+        {
+            // Only the account and session that started the sign-in read its ending, as only they can cancel it.
+            return _loginEndings.TryGetValue(attemptId, out var recorded)
+                && recorded.Login.AccountId == caller.AccountId && recorded.Login.SessionId == caller.SessionId
+                && recorded.Login.Shared != caller.AuthenticationEnabled
+                    ? recorded.Ending
+                    : null;
         }
     }
 

@@ -70,7 +70,7 @@ public partial class XboxCatalogMappingService
     public bool AwaitingSignIn => _awaitingSignIn;
 
     /// <summary>Returns the current auth snapshot for the REST <c>auth-status</c> endpoint.</summary>
-    public XboxMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null)
+    public XboxMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null, Guid? attemptId = null)
     {
         var access = caller is null ? null : _authStorage.GetIntegrationAccess(caller);
         return new XboxMappingAuthStatus
@@ -88,6 +88,7 @@ public partial class XboxCatalogMappingService
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered,
             LoginInProgress = _loginReporter is not null,
+            LoginEnding = caller is null || attemptId is null ? null : _authStorage.GetIntegrationLoginEnding(caller, attemptId.Value),
             ExpiresAtUtc = _isAuthenticated && _lastCollectionUtc.HasValue
                 ? _lastCollectionUtc.Value.Add(XboxLoginValidity)
                 : null
@@ -226,7 +227,6 @@ public partial class XboxCatalogMappingService
             {
                 await EmitAuthStateAsync(
                     reporter.OperationId,
-                    login.AttemptId,
                     OperationStatus.Waiting,
                     XboxAwaitingSignInStageKey,
                     "Waiting for Microsoft sign-in...");
@@ -412,6 +412,12 @@ public partial class XboxCatalogMappingService
                 signer.Dispose();
                 lifetime.Dispose();
                 window.Dispose();
+                // Recorded before the sign-in stops counting as running, so a status read never finds it over with no ending.
+                if (ending is { } recorded)
+                {
+                    _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                        login.AttemptId, recorded.Status, recorded.StageKey, recorded.Context));
+                }
                 _authStorage.FinishIntegrationLogin(login);
                 await _authSessionLock.WaitAsync(CancellationToken.None);
                 try
@@ -431,7 +437,7 @@ public partial class XboxCatalogMappingService
 
         if (ending is { } end)
         {
-            await EmitAuthStateAsync(reporter.OperationId, login.AttemptId, end.Status, end.StageKey, end.Message, end.Error, end.Context);
+            await EmitAuthStateAsync(reporter.OperationId, end.Status, end.StageKey, end.Message, end.Error, end.Context);
         }
     }
 
@@ -585,7 +591,6 @@ public partial class XboxCatalogMappingService
 
     private async Task EmitAuthStateAsync(
         Guid operationId,
-        Guid attemptId,
         OperationStatus status,
         string stageKey,
         string? message = null,
@@ -602,8 +607,7 @@ public partial class XboxCatalogMappingService
                     stageKey,
                     message,
                     error,
-                    context,
-                    attemptId));
+                    context));
         }
         catch (Exception ex)
         {

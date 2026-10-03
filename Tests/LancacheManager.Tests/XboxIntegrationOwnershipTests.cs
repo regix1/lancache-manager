@@ -81,6 +81,27 @@ public partial class XboxScheduledRefreshProgressTests
             var terminals = harness.Notifications.XboxLifecycleEvents().Where(e => e.IsTerminal).ToList();
             var terminal = Assert.Single(terminals);
             Assert.Equal(OperationStatus.Completed, terminal.Status);
+
+            await WaitForAsync(() => harness.Service.GetAuthStatus(owner, first.AttemptId).LoginEnding is not null);
+            var firstEnding = harness.Service.GetAuthStatus(owner, first.AttemptId).LoginEnding;
+            Assert.Equal(OperationStatus.Cancelled, firstEnding!.Status);
+            Assert.Equal("signalr.xbox.mapping.cancelled", firstEnding.StageKey);
+            Assert.Equal(OperationStatus.Completed, harness.Service.GetAuthStatus(owner, next.AttemptId).LoginEnding!.Status);
+            Assert.Null(harness.Service.GetAuthStatus(owner with { SessionId = Guid.NewGuid() }, next.AttemptId).LoginEnding);
+            Assert.Null(harness.Service.GetAuthStatus(owner).LoginEnding);
+        }
+
+        [Fact]
+        public async Task ASharedModeSignInsEndingIsReadableByAnyoneInSharedModeAsync()
+        {
+            using var auth = new StubDeviceCodeHandler();
+            using var harness = new Harness(authHandler: auth);
+            var shared = new IntegrationCaller(null, null, false);
+            var start = await harness.Service.StartLoginAsync(null, caller: shared);
+            harness.Service.CancelLogin(shared, start.AttemptId);
+            await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+            await WaitForAsync(() => harness.Service.GetAuthStatus(shared, start.AttemptId).LoginEnding is not null);
+            Assert.Equal(OperationStatus.Cancelled, harness.Service.GetAuthStatus(shared, start.AttemptId).LoginEnding!.Status);
         }
 
         [Fact]

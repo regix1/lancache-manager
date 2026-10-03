@@ -38,9 +38,9 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
 
     private MappingOperationReporter? _currentMappingReporter;
 
-    // Serializes every Xbox catalog-mapping producer: the scheduled tick, manual refresh, and
-    // post-authentication harvest. Besides avoiding duplicate catalog work, this preserves the
-    // frontend's one-card/one-operation recovery contract for OperationType.XboxMapping.
+    // Serializes the Xbox catalog-mapping producers: the scheduled tick, manual refresh, and a sign-in from its approval
+    // wait until its account is saved. The sign-in's banner pass after the save runs outside it, so a refresh may run
+    // beside that pass.
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     // Service-lifetime token: links the fire-and-forget on-authentication refresh to shutdown so a

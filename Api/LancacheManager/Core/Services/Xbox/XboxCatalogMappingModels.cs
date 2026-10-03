@@ -1,3 +1,5 @@
+using LancacheManager.Models;
+
 namespace LancacheManager.Core.Services.Xbox;
 
 /// <summary>
@@ -21,12 +23,14 @@ public class XboxMappingAuthStatus
     public int GamesDiscovered { get; set; }
     /// <summary>
     /// True while a device-code login attempt is still alive - the approval wait AND the catalog
-    /// harvest that follows approval, unlike <c>AwaitingSignIn</c> which covers only the wait. False
-    /// together with <see cref="IsAuthenticated"/> false is the only pair that means the attempt is
-    /// over and did not succeed, so a client that lost the completion event can tell a dead login from
-    /// a busy one instead of waiting for a message that will never arrive.
+    /// harvest that follows approval, unlike <c>AwaitingSignIn</c> which covers only the wait.
     /// </summary>
     public bool LoginInProgress { get; set; }
+    /// <summary>
+    /// The ending of the sign-in the caller asked about by its attempt id, once it ended. A browser that missed the ending
+    /// event reads how its own sign-in ended here.
+    /// </summary>
+    public IntegrationLoginEnding? LoginEnding { get; set; }
     /// <summary>
     /// Approximate expiry of the MSA refresh token: last-auth time + ~90 days.
     /// Slides forward on each auto-renew (startup reconnect and the 12h schedule).

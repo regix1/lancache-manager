@@ -534,24 +534,30 @@ public partial class XboxScheduledRefreshProgressTests
     }
 
     [Fact]
-    public async Task AnXboxSignInsAuthEventsCarryItsAttemptIdAsync()
+    public async Task AnXboxSignInsEndingIsReadableByItsAttemptIdWhenItsEventIsSentAsync()
     {
-        using var auth = new StubDeviceCodeHandler
-        {
-            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
-            CompleteHarvest = true
-        };
+        using var auth = new StubDeviceCodeHandler { DeviceCodeExpiresIn = 2 };
         using var harness = new Harness(authHandler: auth);
         var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var attempt = Guid.NewGuid();
+        var endings = new ConcurrentQueue<IntegrationLoginEnding?>();
+        harness.Notifications.OnNotify = name =>
+        {
+            if (name == SignalREvents.XboxMappingAuthStateChanged)
+            {
+                endings.Enqueue(harness.Service.GetAuthStatus(owner, attempt).LoginEnding);
+            }
+        };
 
-        var challenge = await harness.Service.StartLoginAsync(null, caller: owner);
+        await harness.Service.StartLoginAsync(null, caller: owner, attemptId: attempt);
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
         await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
 
-        var events = harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged)
-            .Select(sent => Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(sent))
-            .ToList();
-        Assert.Equal([OperationStatus.Waiting, OperationStatus.Completed], events.Select(authState => authState.Status));
-        Assert.All(events, authState => Assert.Equal(challenge.AttemptId, authState.AttemptId));
+        Assert.Null(endings.First());
+        var ending = Assert.IsType<IntegrationLoginEnding>(endings.Last());
+        Assert.Equal(attempt, ending.AttemptId);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
     }
 
     [Fact]
