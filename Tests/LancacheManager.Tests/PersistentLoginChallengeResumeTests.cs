@@ -935,7 +935,7 @@ public class PersistentLoginChallengeResumeTests
         }
 
         public override Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" });
+            => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "not-logged-in" });
     }
 
     /// <summary>
