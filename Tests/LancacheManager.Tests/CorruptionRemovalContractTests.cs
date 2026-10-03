@@ -581,6 +581,28 @@ public sealed class CorruptionRemovalContractTests
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
+    public async Task AllServices_XThatTheCurrentServiceOutlivesStopsTheRemainingServicesAsync(CorruptionDetectionMethod method)
+    {
+        using var fixture = new RemovalRun(method);
+        // X, then the service ends green: its last steps ignore the token (the nginx reopen at the end of a removal).
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+            {
+                fixture.Tracker.CancelOperation(id);
+                fixture.Tracker.CompleteOperation(id, success: true);
+            }
+        };
+        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(aggregate.Cancelled);
+        Assert.Single(fixture.Messages.Started);
+        fixture.Messages.Resume.TrySetResult();
+    }
+
+    [Theory]
+    [InlineData(CorruptionDetectionMethod.Structural)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
     public async Task ProcessCompletion_AccumulatesBothDatasourcesAndPublishesAcceptedProgress(CorruptionDetectionMethod method)
     {
         await using var fixture = new RemovalRun(method, transport: true, datasourceCount: 2);
@@ -857,6 +879,46 @@ public sealed class CorruptionRemovalContractTests
         var repair = await fixture.WaitForCompletedRepairAsync(progress.OperationId);
         Assert.Equal(OperationStatus.Completed, repair.Outcome);
         Assert.Equal("common.notifications.warnings.datasourcesFailed", Assert.Single(repair.Warnings!).StageKey);
+        fixture.Messages.Resume.TrySetResult();
+    }
+
+    [Fact]
+    public async Task AForceStopThatLandsDuringACorruptionRemovalsSaveEndsGreenWithItsCountsAsync()
+    {
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, transport: true);
+        var operationId = Guid.Empty;
+        fixture.Messages.OnStarted = id => operationId = id;
+        var cancellation = new OperationCancellationService(
+            fixture.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            fixture.States,
+            NullLogger<OperationCancellationService>.Instance);
+        Task<bool>? stop = null;
+        // The force stop starts inside the removal's own outcome save and waits for the repair gate behind it.
+        fixture.State.OnRepairWrite = contents =>
+        {
+            if (stop is not null) return;
+            var repairs = JsonSerializer.Deserialize<List<OperationRepair>>(contents)!;
+            if (!repairs.Any(repair => repair.Id == operationId && repair.Outcome == OperationStatus.Completed)) return;
+            stop = Task.Run(() => cancellation.ForceKillAsync(operationId));
+            SpinWait.SpinUntil(() => fixture.Tracker.GetOperation(operationId)!.Cancelled, TimeSpan.FromSeconds(10));
+        };
+        var run = fixture.RunAsync();
+        await fixture.Pipe!.ConnectAsync();
+        await fixture.Pipe.SendAsync(Live("running", 25, 3, 20));
+        await fixture.Messages.WaitProgressAsync("running");
+        await fixture.Pipe.SendAsync(Completion(CorruptionDetectionMethod.Structural, second: false), 0);
+
+        // The force stop set the run's cancel mark, so the core reports the person's stop; the one-service caller ignores it.
+        await Assert.ThrowsAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.True(await stop!.WaitAsync(TimeSpan.FromSeconds(10)));
+        var complete = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(complete.Success);
+        Assert.False(complete.Cancelled);
+        Assert.Equal(1L, complete.Context!["count"]);
+        Assert.Equal(1L, complete.Context["files"]);
+        Assert.Equal(1024L, complete.Context["bytesFreed"]);
+        Assert.Equal(OperationStatus.Completed, fixture.Tracker.GetOperation(operationId)!.Status);
         fixture.Messages.Resume.TrySetResult();
     }
 

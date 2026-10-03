@@ -866,7 +866,7 @@ public class CacheController : ControllerBase
                 }
                 catch (OperationCanceledException)
                 {
-                    // The core already completed the operation as cancelled.
+                    // The core already completed the operation; a stop has nothing more to end here.
                 }
                 finally
                 {
@@ -2012,7 +2012,9 @@ public class CacheController : ControllerBase
             await FinishAndCompleteAsync(success: false, cancelled: false, error: ex.Message);
         }
         var terminal = await terminalCompletion.Task;
-        if (terminal.Cancelled)
+        // X or a force stop on this service stops Remove all even when the service finished after it: a successful
+        // ending reports no cancel, so the person's stop is read from the run's own cancel mark.
+        if (terminal.Cancelled || _operationTracker.GetOperation(operationId)?.Cancelled == true)
             throw new OperationCanceledException(cancellationToken);
         return terminal.Success;
 
