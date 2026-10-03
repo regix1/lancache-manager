@@ -422,6 +422,43 @@ public class LogRemovalProgressTests
         Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
     }
 
+    [Fact]
+    public async Task LogRemoval_AnotherServiceLogRecreatedByTheReopenIsStillNamedAndReadAgainAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync(recreatedByReopen: "blizzard-access.log");
+        File.Delete(Path.Combine(harness.LogPath, "access.log"));
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "steam-access.log"), "s1\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "blizzard-access.log"), "b1\n");
+        await File.WriteAllTextAsync(Path.Combine(harness.LogPath, "epicgames-access.log"), "e1\ne2\n");
+        harness.State.SetLogSourcePositions("default", new Dictionary<string, long>
+        {
+            ["steam-access.log"] = 1,
+            ["blizzard-access.log"] = 1,
+            ["epicgames-access.log"] = 2
+        });
+        harness.Rust.GoneAtLaunch = "blizzard-access.log";
+        var terminal = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Tracker.OperationTerminal += operation => terminal.TrySetResult(operation);
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // nginx put the deleted log back, empty, when it reopened its files.
+        Assert.True(File.Exists(Path.Combine(harness.LogPath, "blizzard-access.log")));
+        var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Completed, ended.Status);
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == ended.Id);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("signalr.logRemoval.otherLogsGone", warning.StageKey);
+        Assert.Equal("blizzard-access.log", warning.Context["fileNames"]);
+        Assert.True(row.Retained);
+        Assert.Equal(
+            new Dictionary<string, long> { ["epicgames-access.log"] = 2 },
+            harness.State.GetLogSourcePositions("default"));
+        var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(OperationStatus.Completed, repair.Outcome);
+        Assert.True(Assert.Single(repair.Sources).LogPositionsKept);
+    }
+
     /// <summary>
     /// A per-datasource log removal against a real repair owner, log lock and nginx reopen check,
     /// with a recording child in place of log_service_manager.
@@ -460,7 +497,7 @@ public class LogRemovalProgressTests
         public RecordingNotificationProxy CountsNotifications { get; }
         public RustLogRemovalService Removal { get; }
 
-        public static async Task<LogStepHarness> CreateAsync()
+        public static async Task<LogStepHarness> CreateAsync(string? recreatedByReopen = null)
         {
             var root = Path.Combine(Path.GetTempPath(), "log-removal-step-" + Guid.NewGuid().ToString("N"));
             var logs = Path.Combine(root, "logs");
@@ -508,11 +545,13 @@ public class LogRemovalProgressTests
                 DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
                 cache,
                 rust,
-                new NginxLogRotationService(
-                    NullLogger<NginxLogRotationService>.Instance,
-                    configuration,
-                    new ProcessManager(NullLogger<ProcessManager>.Instance),
-                    paths),
+                recreatedByReopen is null
+                    ? new NginxLogRotationService(
+                        NullLogger<NginxLogRotationService>.Instance,
+                        configuration,
+                        new ProcessManager(NullLogger<ProcessManager>.Instance),
+                        paths)
+                    : new RecreatingNginx(configuration, paths, logs, recreatedByReopen),
                 null!,
                 datasources,
                 repairs.Tracker,
@@ -554,6 +593,37 @@ public class LogRemovalProgressTests
         {
             await _repairs.DisposeAsync();
             Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// One host nginx writer over the test logs. Its reopen creates the named log empty, as nginx does
+    /// for a log it writes by a fixed path (its reopen opens every such file with create).
+    /// </summary>
+    private sealed class RecreatingNginx(IConfiguration configuration, IPathResolver paths, string logPath, string recreatedName)
+        : NginxLogRotationService(
+            NullLogger<NginxLogRotationService>.Instance,
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            paths)
+    {
+        protected override bool CanProbeHostWriters => true;
+
+        protected override Task<ProcessCommandResult> RunProcessAsync(
+            ProcessStartInfo start,
+            string label,
+            CancellationToken cancellationToken = default)
+        {
+            switch (label)
+            {
+                case "host nginx writer identity":
+                    return Task.FromResult(new ProcessCommandResult { ExitCode = 0, Output = "4242|reopen\n" });
+                case "host nginx verified reopen":
+                    File.WriteAllBytes(Path.Combine(logPath, recreatedName), []);
+                    return Task.FromResult(new ProcessCommandResult { ExitCode = 0 });
+                default:
+                    throw new InvalidOperationException($"Unexpected nginx command: {label}");
+            }
         }
     }
 

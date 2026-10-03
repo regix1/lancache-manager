@@ -837,6 +837,9 @@ public class RustLogRemovalService
             }
 
             var removalProgress = await ReadProgressFileAsync(progressPath);
+            // Read before the reopen: nginx recreates a log it writes by a fixed path, so after the reopen
+            // a file deleted outside the app is back, empty, and would no longer read as gone.
+            var goneBeforeReopen = reopenCheck.AffectedPaths.Where(path => !File.Exists(path)).ToList();
             // A cancel that lands after the child exited must still move nginx onto the rewritten files.
             var reopen = await _nginxLogRotationService.CompleteReopenCheckAsync(
                 reopenCheck,
@@ -865,8 +868,7 @@ public class RustLogRemovalService
                 // not this removal's to delete, and the child left it unchanged. A saved position counts
                 // lines across the whole series, so a vanished file shifts it past lines never read; that
                 // series is read again from its first line.
-                otherLogsGone = reopenCheck.AffectedPaths
-                    .Where(path => !File.Exists(path))
+                otherLogsGone = goneBeforeReopen
                     .Select(path => Path.GetFileName(path))
                     .Where(name => LancacheManager.Core.Services.LogSourceLayout.LogicalStem(name) is { } stem
                         && !serviceStems.Contains(stem))
