@@ -210,6 +210,11 @@ public class RustLogProcessorService
             batch.PercentComplete,
             batch.CompletedChildren * 100.0 / batch.ChildCount);
 
+        if (!succeeded)
+        {
+            batch.FailedDatasourceNames.Add(datasourceName);
+        }
+
         if (!succeeded && batch.FailedDatasourceName is null)
         {
             batch.FailedDatasourceName = datasourceName;
@@ -255,7 +260,7 @@ public class RustLogProcessorService
             return;
         }
 
-        if (batch.FailedDatasourceName is { } failedDatasourceName)
+        if (batch.FailedDatasourceName is { } failedDatasourceName && !(batchFinished && EndedPartly(batch)))
         {
             var message = batch.DatabaseError is { } databaseError
                 ? $"Log processing failed for datasource '{failedDatasourceName}': {databaseError}"
@@ -315,6 +320,17 @@ public class RustLogProcessorService
                     Path.GetFileName(entry[..entry.IndexOf(": ", StringComparison.Ordinal)]))),
                 ["entriesSaved"] = entriesSaved
             });
+
+    private static RunWarning DatabaseErrorAfterSavingWarning(long entriesSaved, string error) =>
+        new(
+            "common.notifications.warnings.databaseErrorAfterSaving",
+            new Dictionary<string, object?> { ["entriesSaved"] = entriesSaved, ["error"] = error });
+
+    // A finished batch worked, with errors, when another datasource finished or the failed one saved
+    // entries before it stopped; nothing done is a failure.
+    private static bool EndedPartly(LogProcessingBatchState batch) =>
+        batch.FailedDatasourceName is not null
+        && (batch.CompletedChildren > batch.FailedDatasourceNames.Count || batch.EntriesProcessed > 0);
 
     private async Task<bool> RunAllDatasourcesAsync()
     {
@@ -414,6 +430,16 @@ public class RustLogProcessorService
                 await repairOwner.SetRunWarningAsync(
                     batchOperationId,
                     SkippedLogFilesWarning(batch.FailedFiles, confirmed.EntriesProcessed));
+            }
+            if (EndedPartly(batch))
+            {
+                await repairOwner.SetRunWarningAsync(
+                    batchOperationId,
+                    batch.DatabaseError is { } databaseError && batch.EntriesProcessed > 0
+                        ? DatabaseErrorAfterSavingWarning(confirmed.EntriesProcessed, databaseError)
+                        : new RunWarning(
+                            "common.notifications.warnings.datasourcesFailed",
+                            new Dictionary<string, object?> { ["datasources"] = string.Join(", ", batch.FailedDatasourceNames) }));
             }
             CompleteBatchOperation(
                 batchOperationId,
@@ -889,7 +915,7 @@ public class RustLogProcessorService
                 null);
         }
 
-        if (batch.FailedDatasourceName is { } failedDatasourceName)
+        if (batch.FailedDatasourceName is { } failedDatasourceName && !(batchFinished && EndedPartly(batch)))
         {
             var message = batch.DatabaseError is { } databaseError
                 ? $"Log processing failed for datasource '{failedDatasourceName}': {databaseError}"
@@ -1559,13 +1585,15 @@ public class RustLogProcessorService
                     await logLock.DisposeAsync();
 
                     // A database error stopped every source, so the files after it were never read and no
-                    // log file is to blame: the pass fails with that error and keeps the positions it
-                    // reached, so the next pass reads on from them.
+                    // log file is to blame. A pass that saved entries before the error worked, with errors:
+                    // it completes amber naming the error; one that saved none fails with it. Either way it
+                    // keeps the positions it reached, so the next pass reads on from them.
                     if (finalProgress.DatabaseError is { } databaseError)
                     {
                         _logger.LogError("Log processing stopped by a database error: {Error}", databaseError);
                         if (ownerOperationId.HasValue && shouldFinalizeOperation)
                         {
+                            var savedSome = finalProgress.EntriesSaved > 0;
                             terminalMetrics = new LogProcessingTerminalMetrics(
                                 EntriesProcessed: finalProgress.EntriesSaved,
                                 LinesProcessed: finalProgress.LinesParsed,
@@ -1576,11 +1604,17 @@ public class RustLogProcessorService
                                 repairOwner!,
                                 ownerOperationId.Value,
                                 terminalMetrics,
-                                success: false,
+                                success: savedSome,
                                 cancelled: false,
-                                error: databaseError);
+                                error: savedSome ? null : databaseError);
                             repairFinished = true;
-                            _operationTracker.CompleteOperation(ownerOperationId.Value, false, databaseError, onCompleting: operation => operation.Metadata = terminalMetrics);
+                            if (savedSome)
+                            {
+                                await repairOwner!.SetRunWarningAsync(
+                                    ownerOperationId.Value,
+                                    DatabaseErrorAfterSavingWarning(finalProgress.EntriesSaved, databaseError));
+                            }
+                            _operationTracker.CompleteOperation(ownerOperationId.Value, savedSome, savedSome ? null : databaseError, onCompleting: operation => operation.Metadata = terminalMetrics);
                         }
                         return false;
                     }

@@ -112,6 +112,8 @@ public sealed class LogProcessingBatchState
     public long CurrentTotalBytes { get; set; }
     public double PercentComplete { get; set; }
     public string? FailedDatasourceName { get; set; }
+    /// <summary>Every datasource whose run failed, in order; the first also sets <see cref="FailedDatasourceName"/>.</summary>
+    public List<string> FailedDatasourceNames { get; } = new();
     /// <summary>The processor's "path: reason" entries for the files that had errors in this batch.</summary>
     public List<string> FailedFiles { get; } = new();
 

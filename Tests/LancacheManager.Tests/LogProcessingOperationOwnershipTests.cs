@@ -305,7 +305,7 @@ public sealed class LogProcessingOperationOwnershipTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ADatabaseErrorInAPassFailsItNamingTheErrorAsync(bool batch)
+    public async Task ADatabaseErrorAfterSomeEntriesWereSavedEndsAmberNamingTheErrorAsync(bool batch)
     {
         await using var fixture = new ProcessorFixture(transport: true);
         fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
@@ -330,10 +330,44 @@ public sealed class LogProcessingOperationOwnershipTests
 
         Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("completed", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.databaseErrorAfterSaving", warning.StageKey);
+        Assert.Equal(databaseError, warning.Context["error"]);
+        Assert.Equal(7L, warning.Context["entriesSaved"]);
+        // The positions it reached stay saved, so the next pass reads on from them.
+        Assert.Equal(25, fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ADatabaseErrorBeforeAnyEntryWasSavedFailsNamingTheErrorAsync(bool batch)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+
+        var run = fixture.Track(batch
+            ? fixture.Processor.StartProcessingAsync()
+            : fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        // The same ending as above when the database stops answering before the first entry is saved.
+        const string databaseError = "pool timed out while waiting for an open connection";
+        var partial = TerminalProgress(0, 11, "partial", sourcePosition: 25);
+        partial.FilesWithErrors = [fixture.LogFilePath + ": " + databaseError];
+        partial.DatabaseError = databaseError;
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
         Assert.Equal("failed", row.Status);
         Assert.Empty(row.Warnings);
         Assert.Contains(databaseError, row.Error);
-        // The positions it reached stay saved, so the next pass reads on from them.
         Assert.Equal(25, fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
     }
 
@@ -443,10 +477,42 @@ public sealed class LogProcessingOperationOwnershipTests
 
         Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
-        Assert.Equal("failed", row.Status);
-        var warning = Assert.Single(row.Warnings);
-        Assert.Equal("common.notifications.warnings.logFilesSkipped", warning.StageKey);
+        Assert.Equal("completed", row.Status);
+        Assert.Equal(2, row.Warnings.Count);
+        var warning = Assert.Single(row.Warnings, item => item.StageKey == "common.notifications.warnings.logFilesSkipped");
         Assert.Equal("access.log.2.gz", warning.Context["fileNames"]);
+        Assert.Contains(row.Warnings, item => item.StageKey == "common.notifications.warnings.datasourcesFailed");
+    }
+
+    [Fact]
+    public async Task ABatchInWhichOneDatasourceFailedEndsAmberNamingItAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        fixture.State.SetLogPosition("beta", 7);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(10, 20, "completed", sourcePosition: 25),
+            exitCode: 0);
+
+        await fixture.Pipe.ConnectAsync();
+        // The same ending FailedCheckpointWithExitOneKeepsCountsAndAllowsALaterLivePassAsync sends.
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(0, 0, "failed", sourcePosition: 7),
+            exitCode: 1);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("completed", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.datasourcesFailed", warning.StageKey);
+        Assert.Equal("beta", warning.Context["datasources"]);
     }
 
     [Fact]
@@ -967,12 +1033,12 @@ public sealed class LogProcessingOperationOwnershipTests
         var operationId = (Guid)begin.Invoke(fixture.Processor, null)!;
         var batch = new LogProcessingBatchState
         {
-            ChildCount = 2,
-            CompletedChildren = 2,
-            EntriesProcessed = 11,
+            ChildCount = 1,
+            CompletedChildren = 1,
             LinesProcessed = 17,
             PercentComplete = 100,
-            FailedDatasourceName = "alpha"
+            FailedDatasourceName = "alpha",
+            FailedDatasourceNames = { "alpha" }
         };
 
         fixture.Processor.CompleteBatchOperation(
