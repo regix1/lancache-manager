@@ -38,6 +38,25 @@ public sealed class OperationRunPublishingTests
         Assert.Contains(tracker.GetActiveOperations(), op => op.Id == id);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ARunThatLeavesTheQueueNamesNoBlocker(bool namedAtRegistration)
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting, blockedByName: namedAtRegistration ? "Scheduled Prefill" : null);
+        if (!namedAtRegistration)
+        {
+            tracker.SetBlockedByName(id, "Game Removal");
+        }
+
+        Assert.True(tracker.BeginQueuedOperation(id, new Dictionary<string, object?>(), null, null));
+
+        Assert.Null(tracker.GetOperation(id)!.BlockedByName);
+        Assert.Null(Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id).BlockedByName);
+    }
+
     [Fact]
     public void TheRunListHoldsEveryTrackedRunExceptThePrefillContainer()
     {

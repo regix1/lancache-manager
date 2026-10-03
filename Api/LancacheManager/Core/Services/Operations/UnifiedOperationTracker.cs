@@ -218,6 +218,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             }
 
             operation.Status = OperationStatus.Running;
+            // A run that left the queue waits for nothing, so its card stops naming the job it waited for.
+            operation.BlockedByName = null;
             operation.Message = $"Starting {operation.Name}...";
             operation.Metadata = state;
             operation.OnTerminalCleanup = onTerminalCleanup;
