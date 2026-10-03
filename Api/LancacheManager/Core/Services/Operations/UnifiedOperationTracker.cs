@@ -724,15 +724,18 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             try { onCompleting?.Invoke(operation); }
             catch (Exception ex) { publicationError = ex; }
 
-            if (cancelled) operation.Cancelled = true;
+            // The owner says whether its run ended by a cancel. X marks the run (CancelOperation), but a
+            // real failure the owner reports after X is a failure, and the card reads it red. A success
+            // keeps the latch: the queue reads it after a promotion handoff completes the waiting run.
+            if (!success) operation.Cancelled = cancelled;
 
-            // Skipped is successful but did no work. Cancellation keeps its own terminal outcome.
+            // Skipped is successful but did no work.
             operation.Status = success
                 ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
-                : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed);
+                : (cancelled ? OperationStatus.Cancelled : OperationStatus.Failed);
             operation.Message = success
                 ? (skipped ? (error ?? ScheduledRunReporter.NothingToDoStageKey) : "Operation completed successfully")
-                : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));
+                : (error ?? (cancelled ? "Operation cancelled" : "Operation failed"));
             operation.Success = success;
             operation.CompletedAt = DateTime.UtcNow;
 

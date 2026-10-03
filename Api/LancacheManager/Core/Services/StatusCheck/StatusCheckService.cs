@@ -383,7 +383,7 @@ public sealed class StatusCheckService : IStatusCheckService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Status Check sweep {OperationId} cancelled", operationId);
-            _operationTracker.CompleteOperation(operationId, false, "Cancelled");
+            _operationTracker.CompleteOperation(operationId, false, "Cancelled", cancelled: true);
             await _notifications.NotifyAllAsync(SignalREvents.StatusCheckComplete, new
             {
                 operationId,

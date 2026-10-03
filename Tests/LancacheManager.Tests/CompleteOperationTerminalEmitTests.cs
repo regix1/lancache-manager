@@ -267,14 +267,14 @@ public class CompleteOperationTerminalEmitTests
     }
 
     [Fact]
-    public async Task CompleteOperation_PassesCancelledAndError_ToOnTerminalEmitAsync()
+    public async Task CompleteOperation_AFailureReportedAfterXIsAFailure_ToOnTerminalEmitAsync()
     {
         var tracker = CreateTracker();
         var emitGate = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var operationId = tracker.RegisterOperation(
             OperationType.GameDetection,
-            "cancelled emit test",
+            "failure after X emit test",
             new CancellationTokenSource(),
             metadata: null,
             onTerminalCleanup: null,
@@ -284,15 +284,43 @@ public class CompleteOperationTerminalEmitTests
                 return Task.CompletedTask;
             });
 
-        // Mark the op cancelled (mirrors what CancelOperation/ForceKillOperation do) so CompleteOperation
-        // produces the Cancelled terminal state and forwards Cancelled=true to the emit.
+        // X marks the run, but the owner reports a real failure and does not say it ended by a cancel.
         tracker.CancelOperation(operationId);
         tracker.CompleteOperation(operationId, success: false, error: "Stopped before finishing");
 
         var info = await emitGate.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(info.Success);
-        Assert.True(info.Cancelled);
+        Assert.False(info.Cancelled);
         Assert.Equal("Stopped before finishing", info.Error);
+        Assert.Equal(OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
+    }
+
+    [Fact]
+    public async Task XPressedThenTheOwnersCancelEndsCancelledAsync()
+    {
+        var tracker = CreateTracker();
+        var emitGate = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var operationId = tracker.RegisterOperation(
+            OperationType.GameDetection,
+            "owner cancel after X emit test",
+            new CancellationTokenSource(),
+            metadata: null,
+            onTerminalCleanup: null,
+            onTerminalEmit: ended =>
+            {
+                emitGate.TrySetResult(ended);
+                return Task.CompletedTask;
+            });
+
+        tracker.CancelOperation(operationId);
+        tracker.CompleteOperation(operationId, success: false, cancelled: true);
+
+        var terminal = await emitGate.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(terminal.Success);
+        Assert.True(terminal.Cancelled);
+        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
     }
 }

@@ -290,6 +290,21 @@ public sealed class OperationRunPublishingTests
     }
 
     [Fact]
+    public Task XPressedThenARealFailureEndsFailedAsync()
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+
+        tracker.CancelOperation(id);
+        tracker.CompleteOperation(id, success: false, error: "Disk full");
+
+        var ended = Run(tracker, id);
+        Assert.Equal("failed", ended.Status);
+        Assert.Equal("Disk full", ended.Error);
+        return Task.CompletedTask;
+    }
+
+    [Fact]
     public void AWarningAddedAfterTheRunEndedIsNotReaped()
     {
         var tracker = CreateTracker();
