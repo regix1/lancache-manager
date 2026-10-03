@@ -403,9 +403,19 @@ function findBulkCardOwningOperation(
   return owningBulk.details?.itemRequestPending === true ? owningBulk : undefined;
 }
 
-/** A run that completed with a warning: its amber card names what it left undone, so it is never folded away. */
+/** A run that ended, completed or canceled, with a warning: its card names what it left undone, so it is never folded away. */
 function endedWithWarning(run: OperationRun): boolean {
-  return run.status === 'completed' && (run.warnings?.length ?? 0) > 0;
+  return (
+    (run.status === 'completed' || run.status === 'cancelled') && (run.warnings?.length ?? 0) > 0
+  );
+}
+
+/**
+ * A run that waits for another job: queued behind it, or started and held at its log step until the live
+ * import's pass ends. Both draw the purple waiting card and name what they wait for.
+ */
+function waitsForAnotherJob(run: OperationRun): boolean {
+  return run.status === 'waiting' || (run.status === 'running' && Boolean(run.blockedByName));
 }
 
 /**
@@ -1023,7 +1033,7 @@ export function settleBulkCards(
   const holding = new Set<string>();
   for (const entry of state.entries.values()) {
     // A kept run that is fading out was already closed; it holds nothing. A failed-out repair and
-    // a run that completed with a warning are always their own cards, which the batch card cannot
+    // a run that ended with a warning are always their own cards, which the batch card cannot
     // close, so they hold nothing either.
     const owner =
       entry.run.retained &&
@@ -1104,7 +1114,9 @@ function drawRun(entry: RunEntry): UnifiedNotification {
       ? 'failed'
       : live && (entry.cancel.cancelRequested || entry.cancel.cancelling)
         ? 'cancelling'
-        : run.status;
+        : waitsForAnotherJob(run)
+          ? 'waiting'
+          : run.status;
   const kept = run.retained === true && !live;
   // What an ended run left undone, worded by the locale key the server chose for each. A completed
   // run with one is an amber card; a canceled one stays gray and a failed one red, both showing
@@ -1149,7 +1161,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
             )
         : repairFailed
           ? i18n.t('common.notifications.repairFailed', { reason: run.repairError })
-          : run.status === 'waiting' || (run.status === 'running' && run.blockedByName)
+          : waitsForAnotherJob(run)
             ? // A background row prints the run's name beside its message, so it names only the blocker.
               waitingCardMessage(controlOnly ? { blockedByName: run.blockedByName } : run)
             : signIn
@@ -1191,7 +1203,10 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     progressMode: detail.progressMode,
     progressAriaValueText: detail.progressAriaValueText,
     startedAt: entry.startedAt,
-    error: run.status === 'failed' ? (detail.error ?? run.error ?? undefined) : undefined,
+    error:
+      run.status === 'failed'
+        ? (detail.error ?? (run.error ? translateStageKeyMessage(run.error) : undefined))
+        : undefined,
     details: {
       ...(run.serviceId ? { service: run.serviceId } : {}),
       ...(run.scheduleId ? { scheduleId: run.scheduleId } : {}),
@@ -1224,7 +1239,7 @@ export function deriveNotifications(
   const keptItems = new Map<string, string[]>();
   for (const entry of state.entries.values()) {
     // A failed-out repair is always its own card, so its Retry is never folded away, and a run that
-    // completed with a warning draws its own amber card because the batch card cannot name what it
+    // ended with a warning draws its own card because the batch card cannot name what it
     // left undone. A run that is only repairing stays folded while its parent or bulk card is
     // stored, then shows by its own visibility.
     const repairFailed = typeof entry.run.repairError === 'string';
@@ -1232,7 +1247,7 @@ export function deriveNotifications(
     const owner =
       repairFailed || endedWithWarning(entry.run) ? undefined : bulkOwner(entry, localCards);
     if (owner) {
-      if (entry.run.status === 'waiting') waitingItem.set(owner.id, entry.run);
+      if (waitsForAnotherJob(entry.run)) waitingItem.set(owner.id, entry.run);
       if (entry.run.retained && !entry.leaving)
         keptItems.set(owner.id, [...(keptItems.get(owner.id) ?? []), entry.run.operationId]);
       continue;

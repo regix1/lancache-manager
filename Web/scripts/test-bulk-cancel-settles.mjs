@@ -375,6 +375,37 @@ test('a warned item of a bulk removal draws its own amber card', () => {
   assert.equal(batchCard.details.closeOperationIds, undefined, 'the batch card does not own it');
 });
 
+test('an item canceled with a warning draws its own card', () => {
+  const notifications = [
+    {
+      id: 'bulk',
+      type: 'bulk_removal',
+      status: 'cancelled',
+      message: '',
+      details: { itemTypes: ['game_removal'], itemOperationIds: ['op-a'] }
+    }
+  ];
+  const state = pushRun(
+    storeModules,
+    createRunStoreState(),
+    operationRunRow('op-a', {
+      operationType: 'gameRemoval',
+      name: 'Game Removal',
+      status: 'cancelled',
+      retained: true,
+      warnings: [{ stageKey: 'datasourcesFailed', context: { datasources: 'beta' } }]
+    }),
+    notifications
+  );
+
+  const drawn = deriveNotifications(state, notifications);
+  const itemCard = drawn.find((n) => n.id === 'op-a');
+  assert.ok(itemCard, 'the item canceled with a warning draws a card of its own');
+  assert.equal(itemCard.details.cancelled, true);
+  const batchCard = drawn.find((n) => n.id === 'bulk');
+  assert.equal(batchCard.details.closeOperationIds, undefined, 'the batch card does not own it');
+});
+
 test('an item that failed before the server answered keeps its amber batch card', async () => {
   const { hook, notificationsModule } = await loadQueueHook('failed-without-run');
   const { notifications, updateNotification } = notificationsModule;

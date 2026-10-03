@@ -38,6 +38,8 @@ const TEMPLATES = {
   'prefill.auth.waitingForSignIn': 'Waiting for {{service}} sign-in',
   'prefill.persistent.services.steam': 'Steam',
   'signalr.gameDetect.error.fatal': 'Game detection failed: {{errorDetail}}',
+  'signalr.depotMapping.skippedSteamUnreachable':
+    'Depot mapping did not run: could not reach Steam',
   'signalr.generic.cancelled': 'Operation cancelled',
   'signalr.generic.failed': 'Operation failed',
   'signalr.generic.nothingToDo': 'Nothing to do',
@@ -1039,6 +1041,11 @@ test('a bulk removal owns its items: one purple card while an item waits, no ite
   );
   assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:waiting']);
   assert.equal(browser.card('bulk').message, 'Game Removal is waiting for Eviction Scan');
+
+  browser.push(
+    row('I1', { operationType: 'gameRemoval', name: 'Game Removal', blockedByName: 'Log Import' })
+  );
+  assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:waiting']);
 
   browser.push(row('I1', { operationType: 'gameRemoval' }));
   assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:running']);
@@ -2882,13 +2889,27 @@ test('a running job held at its log step names what holds it, then shows its own
     browser.detail('J', { message: 'Removing files' });
     browser.push(row('J', { ...fields, blockedByName: 'Log Import' }));
     assert.equal(browser.card('J').message, 'Job is waiting for Log Import', operationType);
-    assert.equal(browser.card('J').status, 'running');
+    // A job held at its log step draws the purple waiting card.
+    assert.equal(browser.card('J').status, 'waiting');
     browser.push(row('J', fields));
     assert.equal(browser.card('J').message, 'Removing files', operationType);
   }
   const waiting = new Browser();
   waiting.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
   assert.equal(waiting.card('W').message, 'Eviction Scan is waiting for Game Removal');
+});
+
+test("a depot mapping reason sent as a locale key reads in the reader's language", () => {
+  const browser = new Browser();
+  browser.push(
+    kept('D', {
+      operationType: 'depotMapping',
+      name: 'Depot Mapping',
+      status: 'failed',
+      error: 'signalr.depotMapping.skippedSteamUnreachable'
+    })
+  );
+  assert.equal(browser.card('D').error, 'Depot mapping did not run: could not reach Steam');
 });
 
 test('a card being cancelled says so instead of its last progress line', () => {
