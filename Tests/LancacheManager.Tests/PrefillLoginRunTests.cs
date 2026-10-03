@@ -237,6 +237,62 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
+    /// The expired reason belongs to the cancel that ends the sign-in. When the app's cancel fails and the
+    /// sign-in stays open, a later cancel by the person ends it gray with no warning.
+    /// </summary>
+    [Fact]
+    public async Task ASignInWhoseExpiryCancelFailedEndsGrayWhenThePersonCancelsItAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: true);
+        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, Guid.NewGuid());
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.CancelAcknowledged = false;
+
+        var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+
+        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(operationId)!.Status);
+        client.CancelAcknowledged = true;
+        await daemon.CancelLoginAsync(session.Id);
+
+        var operation = tracker.GetOperation(operationId)!;
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Empty(operation.Warnings);
+    }
+
+    /// <summary>
+    /// The sweep's cancel joins a cancel the person already started; the person's cancel owns the ending,
+    /// so the sign-in ends gray with no expired warning.
+    /// </summary>
+    [Fact]
+    public async Task AnExpiryCancelThatJoinsThePersonsCancelLeavesItGrayAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.HoldCancelLogin = true;
+
+        var personsCancel = daemon.CancelLoginAsync(session.Id);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var sweep = daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+        await Task.Delay(200);
+        Assert.False(sweep.IsCompleted);
+        client.ReleaseCancelLogin.SetResult();
+        await personsCancel;
+        await sweep;
+
+        var operation = tracker.GetOperation(operationId)!;
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Empty(operation.Warnings);
+    }
+
+    /// <summary>
     /// A session the app ends (expired or shutting down) ends its open sign-in red; any other
     /// termination reason is a person's choice and stays a gray cancel.
     /// </summary>

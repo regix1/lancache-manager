@@ -379,7 +379,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// session's handle on it. The terminal mirrors the auth state the attempt landed on: authenticated
     /// is a success, a fail-fast carries the daemon's own failure text, a sign-in the app ended (the sweep
     /// giving up on it, an expired or shutting-down session) is a failure that names why, and every other
-    /// ending (the user cancelling, a logout) ends as a cancelled run, which shows a gray card that leaves
+    /// ending (the user cancelling, a logout) ends as a canceled run, which shows a gray card that leaves
     /// on its own unless Keep Notifications Visible holds it; the login modal shows the refusal itself.
     /// Idempotent: the handle is cleared before the tracker is called, so two terminal paths racing on
     /// one session cannot both hand the tracker the same id.
@@ -1371,9 +1371,13 @@ public abstract partial class PrefillDaemonServiceBase
     /// The <see cref="DaemonSession.LoginAttempt"/> a browser cancel belongs to; null for a caller that ends
     /// whatever login is current. A cancel for an older attempt changes nothing.
     /// </param>
+    /// <param name="stopReason">
+    /// The reason an app-made cancel names. Applied only when this call ends the login, never by a call that
+    /// joins another cancel, fails, or meets a newer attempt.
+    /// </param>
     /// <returns>False when <paramref name="loginAttempt"/> names an older attempt and nothing was cancelled.</returns>
     public async Task<bool> CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default,
-        long? loginAttempt = null, Guid? loginId = null)
+        long? loginAttempt = null, Guid? loginId = null, string? stopReason = null)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -1528,6 +1532,7 @@ public abstract partial class PrefillDaemonServiceBase
                         Context = new() { ["sessionId"] = session.Id }
                     };
                 }
+                if (stopReason is not null) session.LoginStopReason = stopReason;
                 session.AuthState = DaemonAuthState.NotAuthenticated;
                 session.LoginSettled = true;
                 await NotifyAuthStateChangeAsync(session);
