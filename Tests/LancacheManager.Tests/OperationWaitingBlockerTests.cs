@@ -69,8 +69,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
             tracker.RecordHandoff(waiter, successor);
             tracker.CompleteOperation(waiter, true);
             if (reapWaiter) Reap(tracker, waiter);
-            // A force stop cancels the run and kills the child at once, so the successor's own ending can
-            // only come first; the force stop that follows must leave that ending as it is.
+            // The successor ended before the force stop arrived; the force stop must leave that ending as it is. An ending
+            // written while the force stop runs is covered by AnEndingTheJobWritesWhileTheForceStopRunsIsLeftAsItIsAsync.
             tracker.CompleteOperation(successor, false, "Original failure", onCompleting: operation => operation.PercentComplete = 63);
             var terminal = tracker.GetOperation(successor)!;
             var completedAt = terminal.CompletedAt;
@@ -689,6 +689,35 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal(OperationStatus.Completed, operation.Status);
         Assert.Equal(completedAt, operation.CompletedAt);
         Assert.False(operation.Repairing);
+        Assert.Equal(OperationRepairPhase.Running, Assert.Single(harness.Owner.GetPendingRepairs()).Phase);
+    }
+
+    [Fact]
+    public async Task AnEndingTheJobWritesWhileTheForceStopRunsIsLeftAsItIsAsync()
+    {
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        var cancellation = new OperationCancellationService(harness.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), harness.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var source = new CancellationTokenSource();
+        var id = harness.Tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", source,
+            ownerCompletes: true);
+        await harness.Owner.PrepareRepairAsync(OperationConflictTestServices.NewCacheClearRepair(id), CancellationToken.None);
+        await harness.Owner.StartWorkAsync(id, "alpha", CancellationToken.None);
+        DateTime? completedAt = null;
+        // The job's own success lands after the force stop's cancel and before its terminal check.
+        source.Token.Register(() =>
+        {
+            harness.Tracker.CompleteOperation(id, success: true);
+            completedAt = harness.Tracker.GetOperation(id)!.CompletedAt;
+        });
+
+        Assert.True(await cancellation.ForceKillAsync(id));
+
+        var operation = harness.Tracker.GetOperation(id)!;
+        Assert.Equal(OperationStatus.Completed, operation.Status);
+        Assert.NotNull(completedAt);
+        Assert.Equal(completedAt, operation.CompletedAt);
         Assert.Equal(OperationRepairPhase.Running, Assert.Single(harness.Owner.GetPendingRepairs()).Phase);
     }
 

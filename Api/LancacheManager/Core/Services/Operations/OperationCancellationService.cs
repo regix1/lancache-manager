@@ -95,9 +95,9 @@ public class OperationCancellationService
         {
             if (process is { HasExited: false })
             {
-                // P2-B / rust-kill-6: graceful-then-force, awaiting the REAL exit (replaces the blind
-                // Task.Delay(500)). Writes "CANCEL" to stdin, waits up to the grace period, then escalates
-                // to a hard kill and waits for the process tree to actually exit.
+                // ForceKillOperation above already canceled the token and killed the process tree, so the CANCEL line this
+                // writes reaches no reader; the call waits up to the grace period for the real exit and kills the tree again if
+                // it is still alive.
                 await _processManager.GracefulCancelAsync(process, TimeSpan.FromSeconds(5), $"force-kill op {operationId}");
             }
         }
