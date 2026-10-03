@@ -272,12 +272,19 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         return;
       }
 
+      // A tick belongs to the pass that was current when it fired. A pass whose completion was shown, or that a new pass
+      // replaced while this tick's reads were out, is left alone.
+      const pass = activeOperationIdRef.current;
+      const stale = () => activeOperationIdRef.current !== pass || completionHandledRef.current;
+
       try {
         const status = await ApiService.getProcessingStatus();
+        if (stale()) return;
         if (!status.isProcessing) {
-          // Once no pass runs the processing status only says idle, so the pass's own run says how it ended.
-          const operationId = activeOperationIdRef.current;
-          const run = operationId ? await ApiService.getTrackedOperation(operationId) : null;
+          // Once no pass runs the processing status only says idle, so the pass's own run says how it ended; the
+          // server keeps a dropped run's ending readable for 5 minutes, past this watchdog's longest wait.
+          const run = pass ? await ApiService.getTrackedOperation(pass) : null;
+          if (stale()) return;
           if (run?.status === 'running' || run?.status === 'cancelling') {
             // The pass is still saving its outcome; its run is read again at the next tick.
             endingPendingRef.current = true;

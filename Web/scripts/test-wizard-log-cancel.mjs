@@ -202,8 +202,8 @@ const mount = (name, extra) => {
 };
 
 // The server stub copies the real endpoints. The tracker drops a completed or canceled run 10 seconds after it ends
-// (UnifiedOperationTracker.cs) and keeps a failed one; GET /api/operations/{id} then answers 200 with no status
-// (OperationsController.cs); POST /api/operations/{id}/force-kill answers 404 "Operation not found or already
+// (UnifiedOperationTracker.cs) and keeps a failed one; a dropped run still answers its status for 5 minutes after the
+// drop, and after that GET /api/operations/{id} answers 200 with no status (OperationsController.cs); POST /api/operations/{id}/force-kill answers 404 "Operation not found or already
 // completed" once the run is gone (OperationsController.cs, OperationCancellationService.cs). The real ApiError
 // carries the HTTP status (apiError.ts).
 class ApiError extends Error {
@@ -220,12 +220,21 @@ async function startWizard(overrides) {
     endedAt: 0,
     runGone: false,
     endingOnForceStop: 'cancelled',
+    operationId: 'op',
     ...overrides
   };
   const ref = {};
+  const handlers = new Map();
+  let runGate = null;
+  // The hook returns the same objects on every render, so the step's effects run once, as in the app.
+  const translation = { t: (key) => key };
+  const hub = {
+    on: (event, handler) => handlers.set(event, handler),
+    off: () => undefined
+  };
   const runner = mount('LogProcessingStep', {
-    useTranslation: () => ({ t: (key) => key }),
-    useSignalR: () => ({ on: () => undefined, off: () => undefined }),
+    useTranslation: () => translation,
+    useSignalR: () => hub,
     useConfig: () => ({ config: { dataSources: [] } }),
     useSelectionSet: () => ({ selected: new Set(), toggle: () => undefined }),
     ApiError,
@@ -233,23 +242,28 @@ async function startWizard(overrides) {
       getProcessingStatus: () =>
         Promise.resolve(
           server.processing
-            ? { isProcessing: true, operationId: 'op', progress: 40, status: 'processing' }
+            ? {
+                isProcessing: true,
+                operationId: server.operationId,
+                progress: 40,
+                status: 'processing'
+              }
             : { isProcessing: false, operationId: null, status: 'idle' }
         ),
       getTrackedOperation: (id) => {
-        const dropped =
+        const forgotten =
           (server.runStatus === 'completed' || server.runStatus === 'cancelled') &&
-          ref.runner.now - server.endedAt >= 10000;
-        return Promise.resolve(
-          dropped
-            ? { id, active: false, percentComplete: 100 }
-            : {
-                id,
-                active: false,
-                status: server.runStatus,
-                error: server.runStatus === 'failed' ? 'Database unavailable' : null
-              }
-        );
+          ref.runner.now - server.endedAt >= 310000;
+        // The REST answer omits null fields, so a run without an error has no `error` key.
+        const body = forgotten
+          ? { id, active: false, percentComplete: 100 }
+          : {
+              id,
+              active: false,
+              status: server.runStatus,
+              ...(server.runStatus === 'failed' ? { error: 'Database unavailable' } : {})
+            };
+        return runGate ? runGate.then(() => body) : Promise.resolve(body);
       },
       forceKillOperation: () => {
         if (server.runGone) {
@@ -300,6 +314,11 @@ async function startWizard(overrides) {
         continueButton: found.some(
           (node) => node.type === 'Button' && node.props.color === 'secondary'
         ),
+        processAllButton: found.some(
+          (node) =>
+            node.type === 'Button' &&
+            node.props.children.includes('initialization.logProcessing.processAllLogs')
+        ),
         texts: found
           .filter((node) => node.type === 'p')
           .flatMap((node) => node.props.children)
@@ -313,6 +332,34 @@ async function startWizard(overrides) {
           .props.onConfirm()
       );
       await flush();
+    },
+    emit: async (event, completion) => {
+      runner.event(() => handlers.get(event)(completion));
+      await flush();
+    },
+    processAll: async () => {
+      runner.event(() =>
+        elements(runner.tree)
+          .find(
+            (node) =>
+              node.type === 'Button' &&
+              node.props.children.includes('initialization.logProcessing.processAllLogs')
+          )
+          .props.onClick()
+      );
+      await flush();
+    },
+    // Holds every run read until the returned function releases them, as a slow request would.
+    holdRunReads: () => {
+      let release;
+      runGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      return async () => {
+        runGate = null;
+        release();
+        await flush();
+      };
     },
     // Time passes in the watchdog's own 5 second ticks, reading the run the way each tick would.
     advanceTo: async (seconds) => {
@@ -378,5 +425,58 @@ test('a cancel that finds the run already gone shows no error', async () => {
   );
   await wizard.advanceTo(10);
   assert.equal(wizard.view().spinner, false, 'the watchdog ends the step');
+  wizard.dispose();
+});
+
+test('a lost completion event with no force stop shows Continue', async () => {
+  const wizard = await startWizard({});
+  await wizard.advanceTo(3);
+  wizard.server.processing = false;
+  wizard.server.runStatus = 'completed';
+  wizard.server.endedAt = 3000;
+  await wizard.advanceTo(45);
+  assert.equal(wizard.view().continueButton, true);
+  wizard.dispose();
+});
+
+test('a stale tick leaves a new pass running', async () => {
+  const wizard = await startWizard({});
+  const release = wizard.holdRunReads();
+  wizard.server.processing = false;
+  wizard.server.runStatus = 'cancelled';
+  wizard.server.endedAt = 0;
+  // The tick at 30 seconds reads the idle status, and its run read stays out.
+  await wizard.advanceTo(30);
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: false,
+    cancelled: true
+  });
+  wizard.server.processing = true;
+  wizard.server.operationId = 'op2';
+  await wizard.processAll();
+  await release();
+  const view = wizard.view();
+  assert.equal(view.spinner, true, 'the new pass keeps its running view');
+  assert.equal(view.processAllButton, false);
+  assert.ok(!view.texts.includes('initialization.logProcessing.cancelled'));
+  wizard.dispose();
+});
+
+test("a stale tick keeps the completion event's failure message", async () => {
+  const wizard = await startWizard({});
+  const release = wizard.holdRunReads();
+  wizard.server.processing = false;
+  wizard.server.runStatus = 'failed';
+  await wizard.advanceTo(30);
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: false,
+    message: 'Database unavailable'
+  });
+  await release();
+  const view = wizard.view();
+  assert.ok(view.texts.includes('Database unavailable'));
+  assert.ok(!view.texts.includes('initialization.logProcessing.failedToProcess'));
   wizard.dispose();
 });
