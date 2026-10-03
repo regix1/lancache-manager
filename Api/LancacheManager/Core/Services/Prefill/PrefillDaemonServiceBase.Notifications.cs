@@ -453,6 +453,15 @@ public abstract partial class PrefillDaemonServiceBase
                 session.NeedsRelogin = false;
             }
             ClearPendingLoginChallenge(session);
+            // A tracked sign-in that ended signed in is settled the same way an untracked status push settles one;
+            // nothing else marks it, and a persistent container's image update waits for it.
+            lock (session.PrefillLock)
+            {
+                if (!session.SuppressLoginChallengePublication)
+                {
+                    session.LoginSettled = true;
+                }
+            }
         }
 
         // The auth transition changes this platform's persistent-container/integration aggregate (and, for

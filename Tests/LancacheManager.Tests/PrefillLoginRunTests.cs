@@ -405,6 +405,59 @@ public class PrefillLoginRunTests
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
         Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.True(session.LoginSettled);
+    }
+
+    /// <summary>
+    /// A daemon whose sign-in finished in the same instant can answer the sweep's cancel before it announces the
+    /// sign-in. Its status already reads signed in, so the session stays signed in and the sweep counts no cancel.
+    /// </summary>
+    [Fact]
+    public async Task ASignInTheDaemonFinishedBeforeAnsweringTheExpiryCancelStaysSignedInAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.HoldCancelLogin = true;
+
+        var sweep = daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var status = RunClient.Capabilities(Guid.NewGuid().ToString());
+        status.Status = "logged-in";
+        client.StatusOverride = status;
+        client.LoginFinished = true;
+        client.ReleaseCancelLogin.TrySetResult();
+        var result = await sweep.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
+        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.True(session.LoginSettled);
+    }
+
+    /// <summary>
+    /// A sign-in that ends signed in is settled, the same way an untracked status push settles one, so a
+    /// persistent container's image update does not wait for a restart.
+    /// </summary>
+    [Fact]
+    public async Task ASignInThatEndsSignedInIsSettledAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        var status = RunClient.Capabilities(Guid.NewGuid().ToString());
+        status.Status = "logged-in";
+        ((ScriptedLoginDaemonClient)session.Client).StatusOverride = status;
+
+        await daemon.GetSessionStatusAsync(session.Id);
+
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
+        Assert.True(session.LoginSettled);
     }
 
     /// <summary>

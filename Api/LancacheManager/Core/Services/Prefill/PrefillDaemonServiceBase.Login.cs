@@ -1546,16 +1546,38 @@ public abstract partial class PrefillDaemonServiceBase
                         Context = new() { ["sessionId"] = session.Id }
                     };
                 }
-                // A daemon whose sign-in finished during the round trip announced it and leaves a finished sign-in alone
-                // when the cancel reaches it, so the session stays signed in instead of disagreeing with the daemon.
+                // A daemon whose sign-in finished in the same instant can answer the cancel before its logged-in
+                // announcement; its status already reads signed in by then, so a session not yet signed in asks once.
+                bool signedInBeforeAnswer;
+                lock (session.PrefillLock)
+                {
+                    signedInBeforeAnswer = session.AuthState == DaemonAuthState.Authenticated;
+                }
+                if (!signedInBeforeAnswer)
+                {
+                    try
+                    {
+                        if (await session.Client.GetStatusAsync(cancellationToken) is { Status: "logged-in" } daemonStatus)
+                        {
+                            await OnStatusChangeAsync(session, daemonStatus);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not read the daemon status after cancel-login for session {SessionId}", sessionId);
+                    }
+                }
+                // A daemon whose sign-in finished during the round trip leaves a finished sign-in alone when the cancel
+                // reaches it, so the session stays signed in instead of disagreeing with the daemon. Either way the
+                // sign-in is over, so the session is settled.
                 lock (session.PrefillLock)
                 {
                     signedInMeanwhile = session.AuthState == DaemonAuthState.Authenticated;
                     if (!signedInMeanwhile)
                     {
                         session.AuthState = DaemonAuthState.NotAuthenticated;
-                        session.LoginSettled = true;
                     }
+                    session.LoginSettled = true;
                 }
                 if (!signedInMeanwhile)
                 {

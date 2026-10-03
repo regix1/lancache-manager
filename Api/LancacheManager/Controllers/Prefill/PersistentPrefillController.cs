@@ -1225,7 +1225,10 @@ public class PersistentPrefillController : ControllerBase
                     var status = await daemon.GetSessionStatusAsync(
                         loginSession.Id,
                         cancellationToken);
-                    if (status?.Status == "logged-in")
+                    // A sign-in the daemon finished while the cancel was on its way is signed in all the same, so it is cleared the way one that finished before is.
+                    if (status?.Status == "logged-in"
+                        || !await daemon.CancelLoginAsync(loginSession.Id, cancellationToken)
+                            && loginSession.AuthState == DaemonAuthState.Authenticated)
                     {
                         var logout = await daemon.LogoutPersistentSessionAsync(
                             loginSession.Id,
@@ -1235,10 +1238,6 @@ public class PersistentPrefillController : ControllerBase
                             throw new InvalidOperationException(
                                 $"Edit-session-owned login could not be cleared from session {loginSession.Id}.");
                         }
-                    }
-                    else
-                    {
-                        await daemon.CancelLoginAsync(loginSession.Id, cancellationToken);
                     }
                 }
 

@@ -594,6 +594,35 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
+    public async Task CleanupSignsOutALoginTheDaemonFinishedWhileItsCancelWasOnTheWayAsync()
+    {
+        const string sessionId = "session-shared";
+        const string editSessionId = "edit-session-login-finished-during-cancel";
+        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(sessionId);
+        await controller.StartLoginAsync(
+            new PersistentLoginRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = sessionId,
+                EditSessionId = editSessionId,
+                EditActionId = "login-timeout"
+            },
+            CancellationToken.None);
+        // The daemon finished its sign-in and announced it before the cancel reached it, then answered "no login in progress".
+        activeClient.BeforeCancelAnswer = () => activeClient.EmitStatusAsync(new DaemonStatus { Status = "logged-in" });
+        activeClient.Logout = _ => Task.FromResult(new LogoutOutcome(Success: true, RequiresLogin: false));
+        // The cleanup reads the status before it cancels; the daemon still reads awaiting-login at that moment.
+        activeClient.LiveStatus = "awaiting-login";
+
+        var cleanup = await controller.CleanupEditSessionAsync(
+            CreateCleanupRequest(editSessionId, sessionId),
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(cleanup);
+        Assert.Contains(nameof(IDaemonClient.LogoutWithReasonAsync), activeClient.InvokedMethods);
+    }
+
+    [Fact]
     public async Task CancelLogin_BeforeDispatchWaitsForReceiptWithoutSendingDaemonCancel()
     {
         var (controller, _, client) = CreateControllerWithActiveSession("session-B");
@@ -1475,6 +1504,7 @@ public class PersistentLoginSessionPinningTests
         public TaskCompletionSource LoginResultEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseLoginResult { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool AcknowledgeLoginCancel { get; set; } = true;
+        public Func<Task>? BeforeCancelAnswer { get; set; }
         public string LiveStatus { get; set; } = "awaiting-login";
         public Func<Task<List<OwnedGame>>>? Games { get; set; }
         public Func<CancellationToken, Task<List<OwnedGame>>>? GamesWithToken { get; set; }
@@ -1522,7 +1552,9 @@ public class PersistentLoginSessionPinningTests
 
             if (targetMethod?.Name == nameof(IDaemonClient.CancelLoginWithOutcomeAsync))
             {
-                return Task.FromResult(AcknowledgeLoginCancel);
+                return BeforeCancelAnswer is null
+                    ? Task.FromResult(AcknowledgeLoginCancel)
+                    : BeforeCancelAnswer().ContinueWith(_ => AcknowledgeLoginCancel, TaskScheduler.Default);
             }
 
             if (targetMethod?.Name == nameof(IDaemonClient.LogoutWithReasonAsync)
