@@ -200,6 +200,9 @@ public partial class XboxCatalogMappingService
         CancellationTokenSource lifetime)
     {
         var refreshGateHeld = false;
+        // The ending is sent after the finally below clears the sign-in, so a browser that reads the sign-in's status when
+        // the event arrives finds it over; the dialog ignores an event while the status still says a sign-in runs.
+        (OperationStatus Status, string StageKey, string? Message, string? Error, Dictionary<string, object?>? Context)? ending = null;
         try
         {
             // The sign-in holds the gate for the whole approval wait so a scheduled refresh cannot enter
@@ -301,14 +304,31 @@ public partial class XboxCatalogMappingService
             await reporter.CompleteAsync(
                 success: true,
                 context: CreateXboxMappingContext(resolved: resolved));
-            await EmitAuthStateAsync(
-                reporter.OperationId,
-                OperationStatus.Completed,
-                "signalr.xbox.mapping.completed",
-                $"Xbox login complete - {harvest.CdnInfos.Count} games");
+            ending = (OperationStatus.Completed, "signalr.xbox.mapping.completed", $"Xbox login complete - {harvest.CdnInfos.Count} games", null, null);
 
             _logger.LogInformation("Xbox mapping login complete: {DisplayName}, {Games} games",
                 harvest.DisplayName, harvest.CdnInfos.Count);
+        }
+        catch (Exception ex) when (ex is TimeoutException
+            || ex is OperationCanceledException { InnerException: not TimeoutException }
+                && (lifetime.IsCancellationRequested && !_shutdownCts.IsCancellationRequested
+                    || DateTime.UtcNow >= login.ExpiresAtUtc))
+        {
+            // The device code's limit ended the sign-in, before or after the person approved it: the app's limit, not the
+            // person's cancel, named in the reader's language. The limit's timer runs on a monotonic clock, so a host
+            // clock stepped back still reads as the limit; the clock check covers a check that found the code over before
+            // the timer's callback ran.
+            _logger.LogInformation(ex, "Xbox mapping login expired");
+            if (reporter.IsStarted)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "errors.integration.attemptExpired",
+                    stageKey: "errors.integration.attemptExpired",
+                    context: CreateXboxMappingContext());
+            }
+
+            ending = (OperationStatus.Failed, "errors.integration.attemptExpired", null, null, null);
         }
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
         {
@@ -321,11 +341,7 @@ public partial class XboxCatalogMappingService
                     context: CreateXboxMappingContext());
             }
 
-            await EmitAuthStateAsync(
-                reporter.OperationId,
-                OperationStatus.Cancelled,
-                "signalr.xbox.mapping.cancelled",
-                "Xbox login cancelled");
+            ending = (OperationStatus.Cancelled, "signalr.xbox.mapping.cancelled", "Xbox login cancelled", null, null);
         }
         catch (XboxLogonException ex)
         {
@@ -347,21 +363,7 @@ public partial class XboxCatalogMappingService
                     context: mappingContext);
             }
 
-            await EmitAuthStateAsync(
-                reporter.OperationId,
-                OperationStatus.Failed,
-                ex.StageKey,
-                context: mappingContext);
-        }
-        catch (TimeoutException ex)
-        {
-            // The device code ran out before the person approved it: the app's limit, named in the reader's language.
-            // The poll is the only source of this exception and runs before the card starts.
-            _logger.LogInformation(ex, "Xbox mapping login expired");
-            await EmitAuthStateAsync(
-                reporter.OperationId,
-                OperationStatus.Failed,
-                "errors.integration.attemptExpired");
+            ending = (OperationStatus.Failed, ex.StageKey, null, null, mappingContext);
         }
         catch (Exception ex)
         {
@@ -374,12 +376,7 @@ public partial class XboxCatalogMappingService
                     context: CreateXboxMappingContext(errorDetail: ex.Message));
             }
 
-            await EmitAuthStateAsync(
-                reporter.OperationId,
-                OperationStatus.Failed,
-                "signalr.xbox.mapping.failed",
-                "Xbox login failed",
-                ex.Message);
+            ending = (OperationStatus.Failed, "signalr.xbox.mapping.failed", "Xbox login failed", ex.Message, null);
         }
         finally
         {
@@ -415,6 +412,11 @@ public partial class XboxCatalogMappingService
                     _authSessionLock.Release();
                 }
             }
+        }
+
+        if (ending is { } end)
+        {
+            await EmitAuthStateAsync(reporter.OperationId, end.Status, end.StageKey, end.Message, end.Error, end.Context);
         }
     }
 

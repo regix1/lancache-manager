@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Text;
@@ -440,6 +441,58 @@ public partial class XboxScheduledRefreshProgressTests
     }
 
     [Fact]
+    public async Task AnXboxSignInApprovedTooLateForItsCodeSaysItExpiredAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
+            CompleteHarvest = true,
+            HoldFirstHarvest = true,
+            DeviceCodeExpiresIn = 3
+        };
+        using var harness = new Harness(authHandler: auth);
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+
+        var challenge = await harness.Service.StartLoginAsync(null, caller: owner);
+        await auth.FirstHarvestReached.WaitAsync(TimeSpan.FromSeconds(20));
+        // Release only after the code's own limit has passed, so the harvest's next check finds the sign-in over.
+        while (DateTime.UtcNow <= challenge.ExpiresAtUtc.AddMilliseconds(200))
+        {
+            await Task.Delay(25);
+        }
+
+        auth.ReleaseFirstHarvest();
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
+            harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
+        Assert.Equal(OperationStatus.Failed, authState.Status);
+        Assert.Equal("errors.integration.attemptExpired", authState.StageKey);
+    }
+
+    [Fact]
+    public async Task TheEndOfAnXboxSignInIsSentAfterItsStatusEndsAsync()
+    {
+        using var auth = new StubDeviceCodeHandler { DeviceCodeExpiresIn = 2 };
+        using var harness = new Harness(authHandler: auth);
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var seen = new ConcurrentQueue<bool>();
+        harness.Notifications.OnNotify = name =>
+        {
+            if (name == SignalREvents.XboxMappingAuthStateChanged)
+            {
+                seen.Enqueue(harness.Service.GetAuthStatus().LoginInProgress);
+            }
+        };
+
+        await harness.Service.StartLoginAsync(null, caller: owner);
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+        await WaitForAsync(() => harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Count >= 2);
+
+        Assert.False(seen.Last());
+    }
+
+    [Fact]
     public void SuccessMarksTheSessionBeforeTheAttemptIsCleared()
     {
         // A client reads loginInProgress and isAuthenticated from one snapshot, and treats false/false
@@ -791,8 +844,12 @@ public partial class XboxScheduledRefreshProgressTests
         public TaskCompletionSource TerminalRecorded { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>Runs as an event is sent, so a test reads the sign-in's status the way a browser does when the event arrives.</summary>
+        public Action<string>? OnNotify { get; set; }
+
         public Task NotifyAllAsync(string eventName, object? data = null)
         {
+            OnNotify?.Invoke(eventName);
             bool terminal;
             lock (_sync)
             {
