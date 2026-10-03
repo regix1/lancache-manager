@@ -921,6 +921,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 new Dictionary<string, object?> { ["folders"] = string.Join(", ", folders) }));
         }
 
+        // A scan whose game detection failed ends amber after a restart too.
+        if (metrics.DetectionError is { } detectionError)
+        {
+            _operationTracker.SetWarning(repair.Id, new RunWarning(
+                "signalr.gameDetect.error.fatal",
+                new Dictionary<string, object?> { ["errorDetail"] = detectionError }));
+        }
+
         _evictionScanTerminalStates[repair.Id] = state;
         lock (_evictionScanTerminalStates)
         {
@@ -1237,7 +1245,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// source without a launch, a key scheme or a receipt cannot be scanned), and it wipes the
     /// prefill "Cached" badges; then it refreshes the projections built on those rows. A clear that
     /// did not complete leaves the rest to its full scan, but no scan can check a source without a
-    /// key scheme, so such a source that the clear finished is evicted here too.
+    /// key scheme, so such a source that the clear finished is evicted here too. A source with no key
+    /// scheme is evicted only when its clear kept nothing, whatever the outcome.
     /// </summary>
     public async Task EvictClearedSourcesAsync(
         OperationRepair repair,
@@ -1248,12 +1257,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // Matched case-insensitively: Downloads.Datasource drifts in case from the configured
         // name (rows stored as 'Default' against a 'default' config were observed live).
         var datasourceNames = repair.Sources
-            .Where(source => completed
-                ? skipsCacheScan
-                    || !source.NativeLaunchAuthorized
-                    || source.KeyScheme is null
-                    || !File.Exists(source.ReceiptPath)
-                : source.KeyScheme is null && source.NativeCompletionAccepted)
+            .Where(source => source.KeyScheme is null
+                ? source.NativeCompletionAccepted
+                : completed
+                    && (skipsCacheScan
+                        || !source.NativeLaunchAuthorized
+                        || !File.Exists(source.ReceiptPath)))
             .Select(source => source.Datasource.ToLowerInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -2087,15 +2096,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // A datasource whose log folder is missing keeps the lines of the rows this step deletes, and
         // reading its logs again from the start can bring them back, so the removal's card names it
         // once those rows are gone.
-        List<string> logFoldersMissing = [];
+        List<string> logFoldersMissing = _datasourceService.GetDatasources()
+            .Where(datasource => !string.IsNullOrWhiteSpace(datasource.LogPath)
+                && !Directory.Exists(datasource.LogPath))
+            .Select(datasource => datasource.Name)
+            .ToList();
         if (redoSources is null)
         {
-            logFoldersMissing = _datasourceService.GetDatasources()
-                .Where(datasource => !string.IsNullOrWhiteSpace(datasource.LogPath)
-                    && !Directory.Exists(datasource.LogPath))
-                .Select(datasource => datasource.Name)
-                .ToList();
-
             // Every start comes before the lock: a start waits for another operation's repair,
             // and that repair may need the lock for its own position reset.
             foreach (var datasource in datasources)
@@ -2406,7 +2413,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 .ToList();
             if (missingWithRows.Count > 0)
             {
-                _operationTracker.SetWarning(operationId, new RunWarning(
+                await repairOwner.SetRunWarningAsync(operationId, new RunWarning(
                     "common.notifications.warnings.logFoldersMissing",
                     new Dictionary<string, object?> { ["datasources"] = string.Join(", ", missingWithRows) }));
             }
@@ -2501,10 +2508,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         // Lines a permission error kept stay in the log, and reading it again from the start can bring
-        // their rows back; the removal's card names the datasources. A repair's redo has no card of its own.
-        if (reportProgress && logLinesKept.Count > 0)
+        // their rows back; the removal's card names the datasources, a repair's redo included (it runs
+        // under the same operation).
+        if (logLinesKept.Count > 0)
         {
-            _operationTracker.SetWarning(operationId, new RunWarning(
+            await repairOwner.SetRunWarningAsync(operationId, new RunWarning(
                 "common.notifications.warnings.logLinesKept",
                 new Dictionary<string, object?> { ["datasources"] = string.Join(", ", logLinesKept) }));
         }

@@ -180,6 +180,8 @@ public class CacheClearingService : ScheduledBackgroundService
         // Files a datasource's clear could not delete stay on disk, and every ending of the run names them.
         var undeletedFiles = 0UL;
         string? firstUndeleted = null;
+        // Linked cache folders whose disk could not be reached; their files stay there, and every ending names them.
+        var skippedFolders = new List<string>();
         try
         {
             _logger.LogInformation($"Executing cache clear operation {operationId}");
@@ -545,6 +547,10 @@ public class CacheClearingService : ScheduledBackgroundService
                     undeletedFiles += finalProgress.UndeletedFiles;
                     firstUndeleted ??= finalProgress.FirstUndeleted;
                 }
+                if (finalProgress is not null)
+                {
+                    skippedFolders.AddRange(finalProgress.SkippedFolders);
+                }
                 if (finalProgress != null)
                 {
                     totalBytesDeleted += (long)finalProgress.BytesDeleted;
@@ -561,15 +567,18 @@ public class CacheClearingService : ScheduledBackgroundService
                     });
                 }
 
+                // A datasource whose clear deleted no file and kept some cleared nothing, so no message names it as cleared.
+                var clearedSomething = !(finalProgress?.FilesDeleted == 0 && finalProgress.UndeletedFiles > 0);
                 await _operationStateService.SaveRepairAsync(
                     operationId,
                     repair =>
                     {
                         var source = repair.Sources.Single(item =>
                             item.Datasource.Equals(dsName, StringComparison.OrdinalIgnoreCase));
-                        // Files the clear could not delete are still cached, so the repair's full scan
-                        // decides this datasource's downloads instead of evicting them all.
-                        source.NativeCompletionAccepted = !(finalProgress?.UndeletedFiles > 0);
+                        // Files the clear could not delete, or a linked folder it could not reach, are still cached, so the
+                        // repair's full scan decides this datasource's downloads instead of evicting them all; a datasource
+                        // with no key scheme, which no scan can check, keeps its downloads as they were.
+                        source.NativeCompletionAccepted = !(finalProgress?.UndeletedFiles > 0 || finalProgress?.SkippedFolders.Count > 0);
                         repair.CacheClearing = new CacheClearingRepair
                         {
                             EntityKey = datasourceName ?? "all",
@@ -582,14 +591,17 @@ public class CacheClearingService : ScheduledBackgroundService
                             TotalDirectories = totalDirectoriesAllDatasources,
                             BytesDeleted = totalBytesDeleted,
                             FilesDeleted = totalFilesDeleted,
-                            DatasourcesCleared = clearedDatasourceNames.Count + 1
+                            DatasourcesCleared = clearedDatasourceNames.Count + (clearedSomething ? 1 : 0)
                         };
                     },
                     cancellationToken);
 
                 await _rustProcessHelper.DeleteTempFileAsync(progressFile);
                 _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
-                clearedDatasourceNames.Add(dsName);
+                if (clearedSomething)
+                {
+                    clearedDatasourceNames.Add(dsName);
+                }
             }
 
             if (firstFailure is not null)
@@ -655,18 +667,23 @@ public class CacheClearingService : ScheduledBackgroundService
                     };
                 },
                 CancellationToken.None);
+            if (undeletedFiles > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFilesKept",
+                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
+            }
+            if (skippedFolders.Count > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFoldersNotCleared",
+                    new Dictionary<string, object?> { ["folders"] = string.Join(", ", skippedFolders) }));
+            }
             await FinishClearRepairAsync(
                 operationId,
                 success: true,
                 cancelled: false,
                 error: null);
-
-            if (undeletedFiles > 0)
-            {
-                _operationTracker.SetWarning(operationId, new RunWarning(
-                    "common.notifications.warnings.cacheFilesKept",
-                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
-            }
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true,
@@ -686,6 +703,26 @@ public class CacheClearingService : ScheduledBackgroundService
             // Handle cancellation gracefully - this is expected when user cancels
             _logger.LogInformation("Cache clear operation {OperationId} was cancelled", operationId);
 
+            // A datasource that failed, or files that stayed, before the cancel are named on the canceled card.
+            if (failedDatasources.Count > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.datasourcesNotCleared",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+            }
+            if (undeletedFiles > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFilesNotDeleted",
+                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
+            }
+            if (skippedFolders.Count > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFoldersNotCleared",
+                    new Dictionary<string, object?> { ["folders"] = string.Join(", ", skippedFolders) }));
+            }
+
             if (repairPrepared)
             {
                 await FinishClearRepairAsync(
@@ -693,20 +730,6 @@ public class CacheClearingService : ScheduledBackgroundService
                     success: false,
                     cancelled: true,
                     error: null);
-            }
-
-            // A datasource that failed, or files that stayed, before the cancel are named on the canceled card.
-            if (failedDatasources.Count > 0)
-            {
-                _operationTracker.SetWarning(operationId, new RunWarning(
-                    "common.notifications.warnings.datasourcesNotCleared",
-                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
-            }
-            if (undeletedFiles > 0)
-            {
-                _operationTracker.SetWarning(operationId, new RunWarning(
-                    "common.notifications.warnings.cacheFilesNotDeleted",
-                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
             }
 
             // If a universal force-kill already completed this op, the CompletedFlag-gated
@@ -741,6 +764,19 @@ public class CacheClearingService : ScheduledBackgroundService
                 ? $"Cache clear failed after clearing {string.Join(", ", clearedDatasourceNames)}: {ex.Message}"
                 : $"Cache clear failed: {ex.Message}";
 
+            if (undeletedFiles > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFilesNotDeleted",
+                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
+            }
+            if (skippedFolders.Count > 0)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFoldersNotCleared",
+                    new Dictionary<string, object?> { ["folders"] = string.Join(", ", skippedFolders) }));
+            }
+
             if (repairPrepared)
             {
                 await FinishClearRepairAsync(
@@ -753,12 +789,6 @@ public class CacheClearingService : ScheduledBackgroundService
             // Mark operation as complete (failed) in unified tracker.
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
             // which reads this error string from OperationTerminalInfo.Error.
-            if (undeletedFiles > 0)
-            {
-                _operationTracker.SetWarning(operationId, new RunWarning(
-                    "common.notifications.warnings.cacheFilesNotDeleted",
-                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
-            }
             _operationTracker.CompleteOperation(operationId, success: false, error: failureMessage);
             if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
@@ -1030,6 +1060,7 @@ public class CacheClearingService : ScheduledBackgroundService
         public int ActiveCount { get; set; }
         public ulong UndeletedFiles { get; set; }
         public string? FirstUndeleted { get; set; }
+        public List<string> SkippedFolders { get; set; } = new();
     }
 
     /// <summary>

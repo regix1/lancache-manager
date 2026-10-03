@@ -170,6 +170,10 @@ public sealed class CacheScanDetectionPhaseTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        // The removal's warning is set through the repair owner, which must write to the same tracker.
+        typeof(OperationStateService)
+            .GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(ctx._operationStateService, tracker);
         var source = Assert.Single(ctx.Datasources.GetDatasources());
         // The key recipe is configured, so the missing folder does not turn the evidence unknown first.
         source.SchemeOverride = DatasourceSchemeOverride.Monolithic;
@@ -1190,6 +1194,10 @@ public sealed class CacheScanDetectionPhaseTests
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
 
         Assert.Equal(["/cache/missing"], saved);
+        var warning = Assert.Single(
+            Assert.Single(tracker.GetRuns().Runs, row => row.OperationId == scanId).Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFoldersUnchecked", warning.StageKey);
+        Assert.Equal("/cache/missing", warning.Context["folders"]);
     }
 
     [Theory]
@@ -1288,11 +1296,15 @@ public sealed class CacheScanDetectionPhaseTests
             Assert.Equal(7680UL, (await before.CachedDetectionSummaries.SingleAsync()).IdentifiedCacheBytes);
         }
 
+        // The clear kept no file of 'default', so its downloads go; 'secondary' is decided by the scan rules.
+        var defaultSource = ClearSource("default", keyScheme: null, receiptPath: null);
+        defaultSource.NativeCompletionAccepted = true;
+
         await harness.Scan.EvictClearedSourcesAsync(
             ClearRepair(
                 clearStartedAt,
                 OperationStatus.Completed,
-                ClearSource("default", keyScheme: null, receiptPath: null),
+                defaultSource,
                 ClearSource("secondary", "monolithic", receipt)),
             skipsCacheScan,
             CancellationToken.None);
@@ -1374,6 +1386,30 @@ public sealed class CacheScanDetectionPhaseTests
         var evicted = await verify.Downloads.ToDictionaryAsync(row => row.ClientIp, row => row.IsEvicted);
         Assert.False(evicted["failed-source"]);
         Assert.True(evicted["cleared-unscannable"]);
+    }
+
+    [Fact]
+    public async Task ACompletedClearThatKeptFilesOnASourceWithNoKeySchemeLeavesItsDownloadsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        using var harness = new DatabaseReconciliation(database, database.Options);
+        var clearStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(ClearedDownload("kept-files", "default", clearStartedAt.AddMinutes(-1), gameAppId: 10));
+            await seed.SaveChangesAsync();
+        }
+        // The clear kept files of this source, and no scan can check a source without a key scheme.
+        var kept = ClearSource("default", keyScheme: null, receiptPath: null);
+        kept.NativeCompletionAccepted = false;
+
+        await harness.Scan.EvictClearedSourcesAsync(
+            ClearRepair(clearStartedAt, OperationStatus.Completed, kept),
+            skipsCacheScan: false,
+            CancellationToken.None);
+
+        await using var verify = new AppDbContext(database.Options);
+        Assert.False((await verify.Downloads.SingleAsync()).IsEvicted);
     }
 
     [Fact]
@@ -1793,6 +1829,57 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task ACanceledEvictionRemovalStillNamesAMissingLogFolderItsRepairRemovedRowsFromAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(
+            ("alpha", new[] { "access.log" }, false),
+            ("beta", new[] { "access.log" }, false));
+        foreach (var name in new[] { "alpha", "beta" })
+        {
+            await SeedEvictedDownloadAsync(run.Database, name, $"/{name}-evicted");
+        }
+        var beta = run.Datasources.GetDatasource("beta")!;
+        // The key recipe is configured, so the missing folder does not turn the evidence unknown first.
+        beta.SchemeOverride = DatasourceSchemeOverride.Monolithic;
+        Directory.Delete(beta.LogPath, recursive: true);
+        run.Rust.OnRun = (index, operationId) =>
+        {
+            if (index == 1)
+            {
+                run.Tracker.CancelOperation(operationId);
+            }
+            return Task.CompletedTask;
+        };
+
+        var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        await run.WaitForCompletedRepairAsync(removalId);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == removalId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.logFoldersMissing", warning.StageKey);
+        Assert.Equal("beta", warning.Context["datasources"]);
+        await using var verify = new AppDbContext(run.Database.Options);
+        Assert.False(await verify.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
+    public async Task AnEvictionRemovalWhosePurgeHitAPermissionErrorNamesTheDatasourceAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", new[] { "access.log" }, false));
+        await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove");
+        run.Rust.PermissionErrors = 1;
+
+        var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Completed, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == removalId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.logLinesKept", warning.StageKey);
+        Assert.Equal("alpha", warning.Context["datasources"]);
+    }
+
+    [Fact]
     public async Task AnEvictionRemovalStartedBehindARepairThatOwesAResetLetsBothFinish()
     {
         await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
@@ -1998,6 +2085,105 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.True(row.Retained);
         var repair = await run.WaitForCompletedRepairAsync(clearId);
         Assert.False(Assert.Single(repair.Sources).NativeCompletionAccepted);
+        Assert.Equal("common.notifications.warnings.cacheFilesKept", Assert.Single(repair.Warnings!).StageKey);
+    }
+
+    [Fact]
+    public async Task AClearThatSkippedALinkedFolderWhoseDiskIsGoneEndsAmberNamingItAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var skipped = Path.Combine(alpha, "00");
+        // cache_clear for a 2-hex folder linked to a disk that is not mounted: it clears the rest, exits 0 and
+        // names the folder in skippedFolders of its final progress.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 4096,
+                filesDeleted = 1,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0,
+                skippedFolders = new[] { skipped }
+            }),
+            0,
+            string.Empty);
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFoldersNotCleared", warning.StageKey);
+        Assert.Equal(skipped, warning.Context["folders"]);
+        Assert.True(row.Retained);
+        var repair = await run.WaitForCompletedRepairAsync(clearId);
+        Assert.False(Assert.Single(repair.Sources).NativeCompletionAccepted);
+    }
+
+    [Fact]
+    public async Task AClearInWhichOneDatasourceFailedDoesNotNameADatasourceThatDeletedNothingAsClearedAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true), ("beta", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var beta = run.Datasources.GetDatasource("beta")!.CachePath;
+        var kept = Path.Combine(beta, "aa", "0123456789abcdef0123456789abcdef");
+        // cache_clear for a root it cannot list: main writes the failed progress, prints the error and exits 1.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "failed",
+                stageKey = "signalr.cacheClear.error.fatal",
+                context = new { errorDetail = "failed to enumerate cache root: Input/output error (os error 5)" },
+                directoriesProcessed = 0,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            1,
+            "Error: failed to enumerate cache root: Input/output error (os error 5)");
+        // cache_clear when no file could be deleted: it exits 0 with filesDeleted 0 and names the files it kept.
+        run.Rust.Clears[beta] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 2,
+                firstUndeleted = kept
+            }),
+            0,
+            string.Empty);
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.DoesNotContain("after clearing", terminal.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2290,6 +2476,29 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal("common.notifications.warnings.cacheFoldersUnchecked", warning.StageKey);
         Assert.Equal("/cache/missing", warning.Context["folders"]);
         Assert.True(ended.Retained);
+    }
+
+    [Fact]
+    public async Task ARestoredScanWhoseDetectionFailedEndsAmberWithTheErrorAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("default", ["access.log"], true));
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow.AddMinutes(-3),
+            Sources = [new OperationRepairSource { Datasource = "default" }],
+            EvictionScan = new EvictionScanRepair { Processed = 3, DetectionError = "detector crashed" }
+        };
+
+        await run.Scan.RestoreRepairAsync(repair, CancellationToken.None);
+        run.Tracker.CompleteOperation(repair.Id, success: true);
+
+        var ended = Assert.Single(run.Tracker.GetRuns().Runs, row => row.OperationId == repair.Id);
+        var warning = Assert.Single(ended.Warnings);
+        Assert.Equal("signalr.gameDetect.error.fatal", warning.StageKey);
+        Assert.Equal("detector crashed", warning.Context["errorDetail"]);
     }
 
     [Fact]
@@ -2882,6 +3091,8 @@ public sealed class CacheScanDetectionPhaseTests
         public List<(string Logs, string Input)> Runs { get; } = [];
         /// <summary>Runs once the child has rewritten the log, with its run number from 1 and its operation.</summary>
         public Func<int, Guid, Task>? OnRun { get; set; }
+        /// <summary>The permission_errors count each purge report carries, as cache_purge_log_entries writes it.</summary>
+        public int PermissionErrors { get; set; }
         /// <summary>The cache paths each cache_cleaner run was given, in order.</summary>
         public List<string> ClearedPaths { get; } = [];
         /// <summary>
@@ -2947,8 +3158,8 @@ public sealed class CacheScanDetectionPhaseTests
                 cancellationToken);
             await File.WriteAllTextAsync(
                 OutputPath,
-                """
-                {"success":true,"lines_removed":2,"log_lines_removed_by_source":{"access":2},"log_lines_removed_before_position_by_source":{"access":1},"permission_errors":0,"error":null}
+                $$"""
+                {"success":true,"lines_removed":2,"log_lines_removed_by_source":{"access":2},"log_lines_removed_before_position_by_source":{"access":1},"permission_errors":{{PermissionErrors}},"error":null}
                 """,
                 cancellationToken);
             if (OnRun is not null)
