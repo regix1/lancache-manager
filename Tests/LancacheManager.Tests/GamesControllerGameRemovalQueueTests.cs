@@ -1024,6 +1024,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         internal int HeldPurges { get; set; }
         internal long PurgeLinesRemoved { get; set; }
 
+        /// <summary>The permission_errors count a publishing purge reports, as cache_purge_log_entries writes it.</summary>
+        internal int PurgePermissionErrors { get; set; }
+
         /// <summary>
         /// When set, a purge that publishes removes the first line of its datasource's access.log,
         /// reports it per source as the binary does, then runs this with the datasource and the lines
@@ -1176,7 +1179,12 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             {
                 await File.WriteAllTextAsync(
                     quoted[2],
-                    JsonSerializer.Serialize(new { success = true, lines_removed = PurgeLinesRemoved }),
+                    JsonSerializer.Serialize(new
+                    {
+                        success = true,
+                        lines_removed = PurgeLinesRemoved,
+                        permission_errors = PurgePermissionErrors
+                    }),
                     cancellationToken);
                 return new ProcessExecutionResult { ExitCode = 0 };
             }

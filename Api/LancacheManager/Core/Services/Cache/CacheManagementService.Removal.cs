@@ -302,6 +302,18 @@ public partial class CacheManagementService
                     _logger)
                 .RunAsync(operationId, datasource, targets, onProgress, cancellationToken);
             linesRemoved = checked((ulong)report.LinesRemoved);
+
+            // Lines a permission error kept stay in the log, and reading it again from the start can bring
+            // their rows back, so the card names each such datasource.
+            if (report.PermissionErrors > 0)
+            {
+                var kept = _operationTracker.GetOperation(operationId)?.Warnings
+                    .FirstOrDefault(warning => warning.StageKey == "common.notifications.warnings.logLinesKept")
+                    ?.Context["datasources"] as string;
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.logLinesKept",
+                    new Dictionary<string, object?> { ["datasources"] = kept is null ? datasource.Name : $"{kept}, {datasource.Name}" }));
+            }
         }
         await CleanupRemovalAsync(selection, cancellationToken);
 

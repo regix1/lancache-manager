@@ -485,6 +485,49 @@ public sealed class RemovalLogStepTests
         Assert.False(await check.Downloads.AnyAsync(download => download.GameAppId == GameAppId));
     }
 
+    [Fact]
+    public async Task AGameRemovalWhosePurgeHitAPermissionErrorNamesTheDatasourceAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = true;
+        rust.PurgeLinesRemoved = 5;
+        rust.PurgePermissionErrors = 1;
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            foreach (var datasource in new[] { "alpha", "beta" })
+            {
+                AddRow(seed, datasource, "steam", GameAppId, depotId: 2, "/depot/2/" + datasource);
+            }
+            await seed.SaveChangesAsync();
+        }
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var warning = Assert.Single(terminal.Warnings);
+        Assert.Equal("common.notifications.warnings.logLinesKept", warning.StageKey);
+        Assert.Equal("alpha, beta", warning.Context["datasources"]);
+        Assert.Equal("common.notifications.warnings.logLinesKept", Assert.Single(repair.Warnings!).StageKey);
+    }
+
     private static string Root() =>
         Path.Combine(Path.GetTempPath(), "lm-removal-log-step-" + Guid.NewGuid().ToString("N"));
 
