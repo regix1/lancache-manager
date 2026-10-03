@@ -2191,7 +2191,10 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal("common.notifications.warnings.datasourcesNotCleared", warning.StageKey);
         Assert.Equal("beta", warning.Context["datasources"]);
         // The repair keeps the failed outcome so its full scan decides the datasource that failed.
-        Assert.Equal(OperationStatus.Failed, (await run.WaitForCompletedRepairAsync(clearId)).Outcome);
+        var repair = await run.WaitForCompletedRepairAsync(clearId);
+        Assert.Equal(OperationStatus.Failed, repair.Outcome);
+        // The card ended amber, so a restart during the repair restores it amber too.
+        Assert.True(repair.RunCompleted);
     }
 
     [Fact]
@@ -2278,6 +2281,84 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.True(row.Retained);
         var repair = await run.WaitForCompletedRepairAsync(clearId);
         Assert.False(Assert.Single(repair.Sources).NativeCompletionAccepted);
+    }
+
+    [Fact]
+    public async Task AClearOfARootWhoseOnlyFolderIsALinkWhoseDiskIsGoneEndsAmberNamingItAsync()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var skipped = Path.Combine(alpha, "00");
+        // The root holds only a 2-hex link whose target is not mounted.
+        Directory.Delete(Path.Combine(alpha, "aa"), recursive: true);
+        Directory.CreateSymbolicLink(skipped, Path.Combine(run.Root, "unmounted-disk"));
+        // cache_clear for that root: it names the link in skippedFolders of its final progress (cache_clear.rs
+        // reports a link whose target is gone), clears nothing and exits 0.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 0, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 0,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0,
+                skippedFolders = new[] { skipped }
+            }),
+            0,
+            string.Empty);
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFoldersNotCleared", warning.StageKey);
+        Assert.Equal(skipped, warning.Context["folders"]);
+        Assert.Equal([alpha], run.Rust.ClearedPaths);
+    }
+
+    [Fact]
+    public async Task XWhileAnEvictionScanPreparesItsRepairEndsItCanceledAsync()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var admissionGate = (SemaphoreSlim)typeof(OperationStateService)
+            .GetField("_admissionGate", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(ctx._operationStateService)!;
+        // The repair owner is busy admitting another repair, so the scan waits to prepare its own.
+        await admissionGate.WaitAsync();
+        try
+        {
+            var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
+                .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+
+            tracker.CancelOperation(scanId);
+
+            var terminal = await WaitForTerminalAsync(tracker, scanId);
+            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        }
+        finally
+        {
+            admissionGate.Release();
+        }
     }
 
     [Fact]

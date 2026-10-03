@@ -266,12 +266,13 @@ public class CacheClearingService : ScheduledBackgroundService
                     continue;
                 }
 
-                var cacheSubdirs = Directory.GetDirectories(ds.CachePath)
-                    .Where(d =>
-                    {
-                        var name = Path.GetFileName(d);
-                        return name.Length == 2 && IsHex(name);
-                    }).ToList();
+                // A 2-hex folder linked to a disk that is not mounted is a link whose target is gone, which
+                // Directory.GetDirectories leaves out; counted here, the native clear runs and names it.
+                var cacheSubdirs = new DirectoryInfo(ds.CachePath).EnumerateFileSystemInfos()
+                    .Where(entry => (entry is DirectoryInfo || entry.LinkTarget is not null)
+                        && entry.Name.Length == 2
+                        && IsHex(entry.Name))
+                    .ToList();
 
                 if (cacheSubdirs.Any())
                 {
@@ -686,7 +687,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 operationId,
                 success: true,
                 cancelled: false,
-                error: null);
+                error: null,
+                runCompleted: false);
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true,
@@ -732,7 +734,8 @@ public class CacheClearingService : ScheduledBackgroundService
                     operationId,
                     success: false,
                     cancelled: true,
-                    error: null);
+                    error: null,
+                    runCompleted: false);
             }
 
             // If a universal force-kill already completed this op, the CompletedFlag-gated
@@ -786,7 +789,8 @@ public class CacheClearingService : ScheduledBackgroundService
                     operationId,
                     success: false,
                     cancelled: false,
-                    error: failureMessage);
+                    error: failureMessage,
+                    runCompleted: partlyCleared);
             }
 
             // Mark operation as complete (failed) in unified tracker.
@@ -995,7 +999,8 @@ public class CacheClearingService : ScheduledBackgroundService
         Guid operationId,
         bool success,
         bool cancelled,
-        string? error)
+        string? error,
+        bool runCompleted)
     {
         var operation = _operationTracker.GetOperation(operationId);
         if (operation?.Status.IsTerminal() == true)
@@ -1011,7 +1016,8 @@ public class CacheClearingService : ScheduledBackgroundService
             operationId,
             success,
             cancelled,
-            error);
+            error,
+            repair => repair.RunCompleted = runCompleted);
     }
 
     /// <summary>

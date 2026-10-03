@@ -488,18 +488,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // No corruption invalidation: a scan deletes no cache file, so the results stay removable.
             })
             .ToList();
-        await repairOwner.PrepareRepairAsync(
-            new OperationRepair
-            {
-                Id = operationId,
-                Type = OperationType.EvictionScan,
-                Name = trackedOperation.Name,
-                StartedAt = trackedOperation.StartedAt,
-                Notice = notice,
-                Sources = repairSources,
-                EvictionScan = new EvictionScanRepair()
-            },
-            stoppingToken);
+        try
+        {
+            await repairOwner.PrepareRepairAsync(
+                new OperationRepair
+                {
+                    Id = operationId,
+                    Type = OperationType.EvictionScan,
+                    Name = trackedOperation.Name,
+                    StartedAt = trackedOperation.StartedAt,
+                    Notice = notice,
+                    Sources = repairSources,
+                    EvictionScan = new EvictionScanRepair()
+                },
+                stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested
+            && !_applicationLifetime.ApplicationStopping.IsCancellationRequested)
+        {
+            // X while the repair waited to be prepared: nothing ran and nothing is owed.
+            return new EvictionScanRunOutcome(Success: false, Error: null, Cancelled: true);
+        }
 
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
