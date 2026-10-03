@@ -111,6 +111,18 @@ export function formatCount(value: number | null | undefined): string {
   return value.toLocaleString();
 }
 
+/** A warning's context with each whole number printed with thousands separators, as every count on a card is. */
+export function formatWarningCounts(
+  context: Readonly<Record<string, unknown>>
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(context).map(([name, value]) => [
+      name,
+      typeof value === 'number' && Number.isInteger(value) ? formatCount(value) : value
+    ])
+  );
+}
+
 /**
  * Format relative time (e.g., "2 hours ago")
  */

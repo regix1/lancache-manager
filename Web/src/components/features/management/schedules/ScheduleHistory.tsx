@@ -15,7 +15,7 @@ import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTit
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ApiService from '@services/api.service';
 import { getErrorMessage, isAbortError } from '@utils/error';
-import { formatCount } from '@utils/formatters';
+import { formatCount, formatWarningCounts } from '@utils/formatters';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
@@ -346,7 +346,7 @@ export function ScheduleHistory() {
               const platform =
                 platformKey !== null && i18n.exists(platformKey) ? t(platformKey) : null;
               const detail = execution.warning
-                ? t(execution.warning.stageKey, execution.warning.context)
+                ? t(execution.warning.stageKey, formatWarningCounts(execution.warning.context))
                 : typeof execution.detail === 'string' && execution.detail.trim().length > 0
                   ? execution.detail
                   : null;

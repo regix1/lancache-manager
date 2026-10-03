@@ -22,7 +22,7 @@ import {
 } from '@components/features/management/cache/corruptionContractValidation';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
-import { formatCount } from '@utils/formatters';
+import { formatCount, formatWarningCounts } from '@utils/formatters';
 import { sessionStore } from '@utils/storage';
 import type { OperationStatus } from '../../types/operations';
 import type { OperationRun, OperationRunsSnapshot, RunVisibility } from '../SignalRContext/types';
@@ -401,6 +401,11 @@ function findBulkCardOwningOperation(
     return operationId && currentOperationId !== operationId ? undefined : owningBulk;
   }
   return owningBulk.details?.itemRequestPending === true ? owningBulk : undefined;
+}
+
+/** A run that completed with a warning: its amber card names what it left undone, so it is never folded away. */
+function endedWithWarning(run: OperationRun): boolean {
+  return run.status === 'completed' && (run.warnings?.length ?? 0) > 0;
 }
 
 /**
@@ -1017,10 +1022,14 @@ export function settleBulkCards(
 ): { next: RunStoreState; release: string[] } {
   const holding = new Set<string>();
   for (const entry of state.entries.values()) {
-    // A kept run that is fading out was already closed; it holds nothing. A failed-out repair is
-    // always its own card, which the batch card cannot close, so it holds nothing either.
+    // A kept run that is fading out was already closed; it holds nothing. A failed-out repair and
+    // a run that completed with a warning are always their own cards, which the batch card cannot
+    // close, so they hold nothing either.
     const owner =
-      entry.run.retained && !entry.leaving && typeof entry.run.repairError !== 'string'
+      entry.run.retained &&
+      !entry.leaving &&
+      typeof entry.run.repairError !== 'string' &&
+      !endedWithWarning(entry.run)
         ? bulkOwner(entry, localCards)
         : undefined;
     if (owner) holding.add(owner.id);
@@ -1060,8 +1069,7 @@ export function locateRun(
               operationId: run.operationId,
               status: endStatus(run.status),
               error: run.error ?? undefined,
-              warned:
-                run.status === 'completed' && (run.warnings?.length ?? 0) > 0 ? true : undefined
+              warned: endedWithWarning(run) ? true : undefined
             }
           : undefined
       };
@@ -1099,22 +1107,12 @@ function drawRun(entry: RunEntry): UnifiedNotification {
         : run.status;
   const kept = run.retained === true && !live;
   // What an ended run left undone, worded by the locale key the server chose for each. A completed
-  // or canceled run with one is an amber card; a failed one stays red and shows the same lines.
+  // run with one is an amber card; a canceled one stays gray and a failed one red, both showing
+  // the same lines.
   const warningLine =
     !live && !repairing && !repairFailed && run.warnings && run.warnings.length > 0
       ? run.warnings
-          .map((warning) =>
-            i18n.t(
-              warning.stageKey,
-              // Counts read with thousands separators, as every other count on a card does.
-              Object.fromEntries(
-                Object.entries(warning.context).map(([name, value]) => [
-                  name,
-                  typeof value === 'number' && Number.isInteger(value) ? formatCount(value) : value
-                ])
-              )
-            )
-          )
+          .map((warning) => i18n.t(warning.stageKey, formatWarningCounts(warning.context)))
           .join(' ')
       : undefined;
   const amber = warningLine !== undefined && run.status !== 'failed';
@@ -1225,12 +1223,14 @@ export function deriveNotifications(
   const waitingItem = new Map<string, OperationRun>();
   const keptItems = new Map<string, string[]>();
   for (const entry of state.entries.values()) {
-    // A failed-out repair is always its own card, so its Retry is never folded away. A run that is
-    // only repairing stays folded while its parent or bulk card is stored, then shows by its own
-    // visibility.
+    // A failed-out repair is always its own card, so its Retry is never folded away, and a run that
+    // completed with a warning draws its own amber card because the batch card cannot name what it
+    // left undone. A run that is only repairing stays folded while its parent or bulk card is
+    // stored, then shows by its own visibility.
     const repairFailed = typeof entry.run.repairError === 'string';
     if (!repairFailed && foldedUnderParent(state, entry)) continue;
-    const owner = repairFailed ? undefined : bulkOwner(entry, localCards);
+    const owner =
+      repairFailed || endedWithWarning(entry.run) ? undefined : bulkOwner(entry, localCards);
     if (owner) {
       if (entry.run.status === 'waiting') waitingItem.set(owner.id, entry.run);
       if (entry.run.retained && !entry.leaving)

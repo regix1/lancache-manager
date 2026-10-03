@@ -20,6 +20,8 @@ interface BatchQueueFinalizeArgs {
   succeeded: number;
   failed: number;
   cancelled: boolean;
+  /** An item failed after the user pressed X; the batch then ends red with it. */
+  failedAfterCancel: boolean;
   total: number;
 }
 
@@ -268,6 +270,7 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
         let succeeded = 0;
         let failed = 0;
         let cancelled = false;
+        let failedAfterCancel = false;
         let lastError: Error | null = null;
 
         const wasCancelled = () => cancelRequestedRef.current;
@@ -319,15 +322,17 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
             }
             succeeded += 1;
           } catch (err) {
-            if (wasCancelled()) {
-              cancelled = true;
-              break;
-            }
             failed += 1;
             lastError = err instanceof Error ? err : new Error(String(err));
             // Read before the finally clears it: no id means the request failed before the server
             // answered with one, or the item joined a removal this batch does not own.
             failedWithoutRun = currentItemOperationIdRef.current === null;
+            // A real failure after X is still a failure: it is counted and the batch ends red with it.
+            if (wasCancelled()) {
+              failedAfterCancel = true;
+              cancelled = true;
+              break;
+            }
             // Intentionally continue the queue - a single failure must not
             // abort the rest (mirrors the pre-refactor behaviour).
           } finally {
@@ -340,7 +345,7 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
         // Finalize hook - callers transition the notification to its terminal
         // state here (see BatchQueueFinalizeArgs docs). The notification store
         // decides when the card leaves.
-        finalize({ id: notifId, succeeded, failed, cancelled, total });
+        finalize({ id: notifId, succeeded, failed, cancelled, failedAfterCancel, total });
 
         setState({
           status: lastError && !cancelled ? 'error' : 'done',

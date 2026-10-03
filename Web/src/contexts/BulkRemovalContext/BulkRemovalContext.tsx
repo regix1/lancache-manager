@@ -278,13 +278,21 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             }
           }
         },
-        finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
+        finalize: ({
+          id,
+          succeeded,
+          failed,
+          cancelled,
+          failedAfterCancel,
+          total: finalizeTotal
+        }) => {
           finalizeBulkRemovalNotification({
             id,
             succeeded,
             failed,
             total: finalizeTotal,
             cancelled,
+            failedAfterCancel,
             warned,
             t,
             updateNotification,
@@ -406,13 +414,21 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             warned++;
           }
         },
-        finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
+        finalize: ({
+          id,
+          succeeded,
+          failed,
+          cancelled,
+          failedAfterCancel,
+          total: finalizeTotal
+        }) => {
           finalizeBulkRemovalNotification({
             id,
             succeeded,
             failed,
             total: finalizeTotal,
             cancelled,
+            failedAfterCancel,
             warned,
             t,
             updateNotification,
@@ -514,13 +530,21 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             warned++;
           }
         },
-        finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
+        finalize: ({
+          id,
+          succeeded,
+          failed,
+          cancelled,
+          failedAfterCancel,
+          total: finalizeTotal
+        }) => {
           finalizeBulkRemovalNotification({
             id,
             succeeded,
             failed,
             total: finalizeTotal,
             cancelled,
+            failedAfterCancel,
             warned,
             t,
             updateNotification,

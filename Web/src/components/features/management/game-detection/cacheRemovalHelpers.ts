@@ -45,6 +45,7 @@ interface FinalizeBulkRemovalNotificationArgs {
   failed: number;
   total: number;
   cancelled: boolean;
+  failedAfterCancel: boolean;
   warned: number;
   t: TFunction;
   updateNotification: NotificationsContextType['updateNotification'];
@@ -179,6 +180,7 @@ export const finalizeBulkRemovalNotification = ({
   failed,
   total,
   cancelled,
+  failedAfterCancel,
   warned,
   t,
   updateNotification,
@@ -186,11 +188,11 @@ export const finalizeBulkRemovalNotification = ({
 }: FinalizeBulkRemovalNotificationArgs): void => {
   // A canceled batch follows the run ending rules. `details` merges only at the top level, so the
   // function form keeps the item ids that hold the batch's kept failures inside this card. An item
-  // that failed before the server gave it a run is held by this card alone, so the card turns red
-  // and stays until closed rather than leaving gray with that failure.
+  // that failed after X, or before the server gave it a run, is a failure this card must keep, so
+  // the card turns red and stays until closed rather than leaving gray with that failure.
   if (cancelled) {
     updateNotification(id, (card) => {
-      const holdsFailure = card.details?.failedWithoutRun === true;
+      const holdsFailure = failedAfterCancel || card.details?.failedWithoutRun === true;
       return {
         status: holdsFailure ? 'failed' : 'cancelled',
         message:

@@ -159,7 +159,7 @@ test('cancel keeps the batch card live until the in-flight item settles', async 
   await runPromise;
 
   assert.deepEqual(finalizeCalls, [
-    { id: 'bulk', succeeded: 0, failed: 0, cancelled: true, total: 2 }
+    { id: 'bulk', succeeded: 0, failed: 0, cancelled: true, failedAfterCancel: false, total: 2 }
   ]);
   assert.equal(itemContexts.length, 1, 'the second item must never start after a cancel');
 });
@@ -213,7 +213,7 @@ test('an uncancelled run still finalizes with its full tally', async () => {
   });
 
   assert.deepEqual(finalizeCalls, [
-    { id: 'bulk', succeeded: 2, failed: 0, cancelled: false, total: 2 }
+    { id: 'bulk', succeeded: 2, failed: 0, cancelled: false, failedAfterCancel: false, total: 2 }
   ]);
   assert.deepEqual(api.cancelCalls, []);
 });
@@ -250,13 +250,14 @@ const openBatchCard = (notifications) => () => {
 
 const finalizeWith =
   (updateNotification) =>
-  ({ id, succeeded, failed, cancelled, total }) =>
+  ({ id, succeeded, failed, cancelled, failedAfterCancel, total }) =>
     finalizeBulkRemovalNotification({
       id,
       succeeded,
       failed,
       total,
       cancelled,
+      failedAfterCancel,
       t: (key) => key,
       updateNotification,
       text: FINALIZE_TEXT
@@ -312,6 +313,66 @@ test('a kept failure stays folded inside a batch that is then canceled', async (
     'the kept failure draws no card beside the batch card'
   );
   assert.deepEqual(drawn[0].details.closeOperationIds, ['op-a']);
+});
+
+test('an item that fails after X ends the batch red and counts it', async () => {
+  const { hook, react, notificationsModule } = await loadQueueHook('failed-after-cancel');
+  const { notifications, updateNotification } = notificationsModule;
+  const { run } = hook.useBatchQueue();
+  let failSecond;
+
+  const runPromise = run({
+    items: ['a', 'b', 'c'],
+    openNotification: openBatchCard(notifications),
+    processItem: (item, ctx) => {
+      ctx.setOperationId(`op-${item}`);
+      return new Promise((_resolve, reject) => {
+        failSecond = reject;
+      });
+    },
+    finalize: finalizeWith(updateNotification)
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  clickCancel(notifications, react.__effects);
+  failSecond(new Error('Game removal failed for a'));
+  await runPromise;
+
+  const card = notifications.find((n) => n.id === 'bulk');
+  assert.equal(card.status, 'failed', 'a failure after X keeps the batch card red');
+  assert.equal(card.details.cancelled, false);
+  assert.equal(card.message, 'cancelledWithFailures', 'the failure is counted in the message');
+});
+
+test('a warned item of a bulk removal draws its own amber card', () => {
+  const notifications = [
+    {
+      id: 'bulk',
+      type: 'bulk_removal',
+      status: 'completed',
+      message: '',
+      details: { itemTypes: ['game_removal'], itemOperationIds: ['op-a'] }
+    }
+  ];
+  const state = pushRun(
+    storeModules,
+    createRunStoreState(),
+    operationRunRow('op-a', {
+      operationType: 'gameRemoval',
+      name: 'Game Removal',
+      status: 'completed',
+      retained: true,
+      warnings: [{ stageKey: 'datasourcesFailed', context: { datasources: 'beta' } }]
+    }),
+    notifications
+  );
+
+  const drawn = deriveNotifications(state, notifications);
+  const itemCard = drawn.find((n) => n.id === 'op-a');
+  assert.ok(itemCard, 'the warned item draws a card of its own');
+  assert.equal(itemCard.details.notificationType, 'warning');
+  const batchCard = drawn.find((n) => n.id === 'bulk');
+  assert.equal(batchCard.details.closeOperationIds, undefined, 'the batch card does not own it');
 });
 
 test('an item that failed before the server answered keeps its amber batch card', async () => {
@@ -400,6 +461,7 @@ test('a bulk removal whose item completed with a warning ends amber', () => {
     failed: 0,
     total: 2,
     cancelled: false,
+    failedAfterCancel: false,
     warned: 1,
     t: (key) => key,
     updateNotification,

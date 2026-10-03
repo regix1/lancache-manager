@@ -8,8 +8,10 @@ import ts from 'typescript';
 import {
   bindLifted,
   compileToUrl,
+  compileTree,
   findSoleNode,
   liftHookCallback,
+  moduleUrl,
   parseSource,
   transpile
 } from './transpile-module.mjs';
@@ -39,6 +41,12 @@ const [displayNames, rowToggles, platformConstants, notificationConstants, title
       '../src/contexts/notifications/notificationTitleKeys.ts'
     ].map(async (path) => import(await compileToUrl(path)))
   );
+
+const { formatWarningCounts } = await import(
+  await compileTree('../src/utils/formatters.ts', {
+    '@/i18n': moduleUrl('export default { t: (key) => key };')
+  })
+);
 
 const localeValues = {
   en: JSON.parse(readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')),
@@ -275,6 +283,7 @@ const makeComponent = (capture, language = 'en') => {
     getErrorMessage: (error) => error.message,
     isAbortError: (error) => error?.name === 'AbortError',
     formatCount: (value) => value.toString(),
+    formatWarningCounts,
     rowToggleHandlers: (toggle) => {
       const handlers = rowToggles.rowToggleHandlers(toggle);
       capture.rows.push(handlers);
@@ -629,6 +638,28 @@ test('a completed row with a warning draws amber and prints the warning sentence
   const { capture, html } = renderHistory(response, query(), new Set([1]));
   assert.equal(capture.badges[0].variant, 'warning');
   assert.match(html, /schedule-history-terminal-detail">1 of 3 games failed to download</);
+});
+
+test('a history warning prints its counts with thousands separators', () => {
+  const items = [
+    {
+      id: 1,
+      operationId: 'warned',
+      serviceKey: 'scheduledPrefill',
+      status: 'completed',
+      startedAt: '2026-09-27T10:00:00Z',
+      completedAt: '2026-09-27T10:00:05Z',
+      workerStarted: true,
+      actorKind: 'server',
+      warning: {
+        stageKey: 'signalr.scheduledPrefill.failedApps',
+        context: { failed: 1250, total: 3000 }
+      }
+    }
+  ];
+  const response = { items, page: 1, pageSize: 20, totalCount: 1, totalPages: 1 };
+  const { html } = renderHistory(response, query(), new Set([1]));
+  assert.match(html, /schedule-history-terminal-detail">1,250 of 3,000 games failed to download</);
 });
 
 test('the exact endpoint response renders all raw items without sanitizing omitted fields', () => {
