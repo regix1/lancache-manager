@@ -33,6 +33,12 @@ public sealed class OperationRepair
     public EvictionRemovalRepair? EvictionRemoval { get; set; }
     /// <summary>The warnings the job's run carries, so a run restored after a restart ends with them.</summary>
     public List<RunWarning>? Warnings { get; set; }
+    /// <summary>
+    /// The job's run completed, with a warning, while the repair keeps a failed outcome for the part that
+    /// failed (a partly cleared cache, a log removal whose nginx reopen failed); a run restored after a
+    /// restart completes as it did.
+    /// </summary>
+    public bool RunCompleted { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

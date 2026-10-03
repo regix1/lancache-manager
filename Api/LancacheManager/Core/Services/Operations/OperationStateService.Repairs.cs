@@ -2136,7 +2136,8 @@ public partial class OperationStateService
             return;
         }
 
-        // The job's warnings ride on its record, so the restored run ends amber as it did before the restart.
+        // The restored run ends with the warnings and the ending it had before the restart: a run that
+        // completed amber stays completed even though the repair keeps a failed outcome.
         if (repair.Warnings is { } warnings)
         {
             foreach (var warning in warnings)
@@ -2145,12 +2146,12 @@ public partial class OperationStateService
             }
         }
 
-        var success = repair.Outcome == OperationStatus.Completed;
+        var success = repair.Outcome == OperationStatus.Completed || repair.RunCompleted;
         var cancelled = repair.Outcome == OperationStatus.Cancelled;
         _operationTracker.CompleteOperation(
             operationId,
             success,
-            repair.Error,
+            success ? null : repair.Error,
             cancelled);
     }
 }

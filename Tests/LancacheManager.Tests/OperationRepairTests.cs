@@ -2444,6 +2444,84 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task ARestoredClearThatEndedAmberStaysCompletedWithItsWarningAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Failed;
+        repair.Error = "Cache clear failed after clearing alpha: boom";
+        repair.RunCompleted = true;
+        repair.Warnings =
+        [
+            new RunWarning(
+                "common.notifications.warnings.datasourcesNotCleared",
+                new Dictionary<string, object?> { ["datasources"] = "beta" })
+        ];
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("completed", row.Status);
+        Assert.Null(row.Error);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.datasourcesNotCleared", warning.StageKey);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Fact]
+    public async Task ARestoredLogRemovalWhoseReopenFailedStaysCompletedWithItsWarningAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Failed;
+        repair.Error = "Failed to reopen nginx writer 'host' with exit code 1";
+        repair.RunCompleted = true;
+        repair.Warnings =
+        [
+            new RunWarning(
+                "common.notifications.warnings.nginxReopenFailed",
+                new Dictionary<string, object?> { ["error"] = "Failed to reopen nginx writer 'host' with exit code 1" })
+        ];
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("completed", row.Status);
+        Assert.Null(row.Error);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.nginxReopenFailed", warning.StageKey);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Fact]
     public async Task MaintenanceSkipsTheDatabaseWhileSetupIsPendingAsync()
     {
         await using var harness = await RepairHarness.CreateAsync(_root, start: false);
