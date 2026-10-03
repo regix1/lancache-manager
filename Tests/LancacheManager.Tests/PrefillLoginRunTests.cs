@@ -215,6 +215,49 @@ public class PrefillLoginRunTests
         Assert.Equal(!isPersistent, tracker.GetRuns().Runs.Any(row => row.OperationId == operationId && row.Retained));
     }
 
+    /// <summary>
+    /// A sign-in nobody came back to is ended by the app, so it draws red and names why instead of
+    /// drawing the gray card of a cancel the person asked for.
+    /// </summary>
+    [Fact]
+    public async Task AnAbandonedSignInTheAppEndedIsRedAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+
+        var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+
+        Assert.Equal(1, result.AbandonedLoginsCancelled);
+        var operation = tracker.GetOperation(operationId)!;
+        Assert.Equal(OperationStatus.Failed, operation.Status);
+        Assert.Equal("common.notifications.warnings.signInExpired", Assert.Single(operation.Warnings).StageKey);
+    }
+
+    /// <summary>
+    /// A session the app ends (expired or shutting down) ends its open sign-in red; any other
+    /// termination reason is a person's choice and stays a gray cancel.
+    /// </summary>
+    [Theory]
+    [InlineData("Session expired", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
+    [InlineData("Service shutdown", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
+    [InlineData("User requested", OperationStatus.Cancelled, null)]
+    public async Task ATerminatedSessionEndsItsSignInByWhoEndedIt(string reason, OperationStatus expected, string? warningKey)
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+
+        await daemon.TerminateSessionAsync(session.Id, reason);
+
+        var operation = tracker.GetOperation(operationId)!;
+        Assert.Equal(expected, operation.Status);
+        Assert.Equal(warningKey, operation.Warnings.SingleOrDefault()?.StageKey);
+    }
+
     private static void AssertSignIn(UnifiedOperationTracker tracker, Guid operationId, Guid ownerSessionId)
     {
         var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(operationId));

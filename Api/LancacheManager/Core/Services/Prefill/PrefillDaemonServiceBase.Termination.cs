@@ -117,6 +117,9 @@ public abstract partial class PrefillDaemonServiceBase
             ClearPendingLoginChallenge(session);
             session.Client.ClearPendingChallenges();
             var cancellation = session.CancellationTokenSource.CancelAsync();
+            // The app ended the session, not the person signing in.
+            if (termination.Reason is "Session expired" or "Service shutdown")
+                session.LoginStopReason ??= "common.notifications.warnings.signInSessionEnded";
             CompleteLoginOperation(session);
             await removal;
             termination.Removed = true;

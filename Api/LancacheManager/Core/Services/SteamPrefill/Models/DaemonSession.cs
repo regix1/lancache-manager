@@ -85,6 +85,9 @@ public class DaemonSession
     /// </summary>
     public DateTime? LoginExpiresAtUtc { get; set; }
 
+    /// <summary>The locale key naming why the app ended the current sign-in; null when a person ended it or it is still running.</summary>
+    public string? LoginStopReason { get; set; }
+
     /// <summary>
     /// The <see cref="CredentialChallenge.ChallengeId"/> of the login challenge most recently answered via
     /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync"/> on this session. The daemon delivers each

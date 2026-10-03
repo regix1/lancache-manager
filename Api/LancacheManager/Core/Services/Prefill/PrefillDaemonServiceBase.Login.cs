@@ -377,10 +377,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Ends the tracked operation raised for this session's login, if there is one, and clears the
     /// session's handle on it. The terminal mirrors the auth state the attempt landed on: authenticated
-    /// is a success, a fail-fast carries the daemon's own failure text, and every other ending (the user
-    /// cancelling, a logout, a login the sweep gave up on) ends as a cancelled run, which shows a gray
-    /// card that leaves on its own unless Keep Notifications Visible holds it; the login modal shows the
-    /// refusal itself.
+    /// is a success, a fail-fast carries the daemon's own failure text, a sign-in the app ended (the sweep
+    /// giving up on it, an expired or shutting-down session) is a failure that names why, and every other
+    /// ending (the user cancelling, a logout) ends as a cancelled run, which shows a gray card that leaves
+    /// on its own unless Keep Notifications Visible holds it; the login modal shows the refusal itself.
     /// Idempotent: the handle is cleared before the tracker is called, so two terminal paths racing on
     /// one session cannot both hand the tracker the same id.
     /// </summary>
@@ -395,11 +395,17 @@ public abstract partial class PrefillDaemonServiceBase
         session.LoginExpiresAtUtc = null;
 
         var authenticated = session.AuthState == DaemonAuthState.Authenticated;
+        var stoppedByApp = !authenticated && session.LoginStopReason is not null;
+        if (stoppedByApp)
+        {
+            _operationTracker.SetWarning(operationId, new RunWarning(session.LoginStopReason!, new Dictionary<string, object?>()));
+        }
+        session.LoginStopReason = null;
         _operationTracker.CompleteOperation(
             operationId,
             success: authenticated,
             error: authenticated ? null : session.LastLoginFailureMessage,
-            cancelled: !authenticated && session.LastLoginFailureMessage is null);
+            cancelled: !authenticated && !stoppedByApp && session.LastLoginFailureMessage is null);
 
         // A guest's browser has no notification bar and cannot reach the close route, so a kept ending
         // would stay until restart with nobody able to see or close it. A persistent container's failed
