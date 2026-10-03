@@ -193,7 +193,7 @@ public sealed class DepotImportTests
 
         var run = Assert.Single(fixture.Tracker.GetRuns().Runs);
         Assert.Equal("failed", run.Status);
-        Assert.Equal("Depot mapping did not run: could not reach Steam", run.Error);
+        Assert.Equal("signalr.depotMapping.skippedSteamUnreachable", run.Error);
         Assert.Contains(fixture.Events.Snapshots, snapshot =>
             snapshot.Content.TryGetProperty("StageKey", out var stageKey)
             && stageKey.GetString() == "signalr.depotMapping.skippedSteamUnreachable");

@@ -54,15 +54,16 @@ public partial class SteamKit2Service
 
     /// <summary>
     /// Reports a run that could not start because something it needs is missing (setup not finished, Steam
-    /// not reachable). Red, named by its key; a run with nothing to do still reports skipped. The reason rides
-    /// as the error too, so the run row, another browser and Schedule History keep it.
+    /// not reachable). Red, named by its key; a run with nothing to do still reports skipped. The stage key
+    /// rides as the error too, so the run row, another browser and Schedule History keep the reason in the
+    /// reader's language.
     /// </summary>
-    private async Task ReportRunNotStartedAsync(string stageKey, string error, CancellationToken stoppingToken)
+    private async Task ReportRunNotStartedAsync(string stageKey, CancellationToken stoppingToken)
     {
         await using var reporter = CreateDepotMappingReporter(stoppingToken, CurrentRunNotice);
         reporter.SuppressProgress();
         await reporter.StartAsync(CreateDepotContext());
-        await reporter.CompleteAsync(success: false, stageKey: stageKey, error: error, context: CreateDepotContext());
+        await reporter.CompleteAsync(success: false, stageKey: stageKey, error: stageKey, context: CreateDepotContext());
     }
 
     /// <summary>
@@ -94,8 +95,7 @@ public partial class SteamKit2Service
         // Skip if setup hasn't been completed yet (fresh install)
         if (!_stateService.GetSetupCompleted())
         {
-            await ReportRunNotStartedAsync(
-                SetupIncompleteSkipStageKey, "Depot mapping did not run: setup is not finished yet", stoppingToken);
+            await ReportRunNotStartedAsync(SetupIncompleteSkipStageKey, stoppingToken);
             return;
         }
 
@@ -151,8 +151,7 @@ public partial class SteamKit2Service
                     {
                         _logger.LogWarning("Scheduled incremental scan skipped - failed to connect to Steam: {Error}", viability.Error);
                         _logger.LogInformation("Will retry on next scheduled check. If this persists, check network connectivity and Steam service status.");
-                        await ReportRunNotStartedAsync(
-                            SteamUnreachableSkipStageKey, "Depot mapping did not run: could not reach Steam", stoppingToken);
+                        await ReportRunNotStartedAsync(SteamUnreachableSkipStageKey, stoppingToken);
                         return;
                     }
 

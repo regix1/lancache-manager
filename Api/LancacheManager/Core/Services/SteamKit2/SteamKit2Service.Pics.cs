@@ -1101,7 +1101,8 @@ public partial class SteamKit2Service
         using var subscription = _manager.Subscribe(handler!);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         // Use longer timeout for PICS operations which can be slow with unreliable connections
-        linkedCts.CancelAfter(timeout ?? TimeSpan.FromMinutes(5));
+        var limit = timeout ?? TimeSpan.FromMinutes(5);
+        linkedCts.CancelAfter(limit);
 
         while (!tcs.Task.IsCompleted)
         {
@@ -1114,7 +1115,12 @@ public partial class SteamKit2Service
             }
 
             _manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(50));
-            linkedCts.Token.ThrowIfCancellationRequested();
+            if (linkedCts.Token.IsCancellationRequested)
+            {
+                ct.ThrowIfCancellationRequested();
+                // The limit ran out, not the run: Steam never answered this job, which is a failure, not a cancel.
+                throw new TimeoutException($"Steam did not answer the PICS request within {limit.TotalMinutes:0} minutes");
+            }
             await Task.Yield();
         }
 
@@ -1149,7 +1155,8 @@ public partial class SteamKit2Service
 
         using var subscription = _manager.Subscribe(handler!);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        linkedCts.CancelAfter(TimeSpan.FromMinutes(10)); // batches can be slow, especially with reconnections
+        var limit = TimeSpan.FromMinutes(10);
+        linkedCts.CancelAfter(limit); // batches can be slow, especially with reconnections
 
         while (!isCompleted && !linkedCts.Token.IsCancellationRequested)
         {
@@ -1165,7 +1172,12 @@ public partial class SteamKit2Service
             await Task.Yield();
         }
 
-        linkedCts.Token.ThrowIfCancellationRequested();
+        if (linkedCts.Token.IsCancellationRequested)
+        {
+            ct.ThrowIfCancellationRequested();
+            // The limit ran out, not the run: Steam never answered this job, which is a failure, not a cancel.
+            throw new TimeoutException($"Steam did not answer the PICS request within {limit.TotalMinutes:0} minutes");
+        }
         // Return a new list to avoid collection modification exceptions if late callbacks arrive
         return callbacks.ToList().AsReadOnly();
     }
