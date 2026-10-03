@@ -79,6 +79,9 @@ struct ProgressData {
     /// The first file the clear could not delete; none when it deleted everything.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_undeleted: Option<String>,
+    /// 2-hex cache folders linked to a disk that could not be reached; the clear could not touch them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    skipped_folders: Vec<String>,
 }
 
 impl ProgressData {
@@ -111,6 +114,7 @@ impl ProgressData {
             timestamp: progress_utils::current_timestamp(),
             undeleted_files: 0,
             first_undeleted: None,
+            skipped_folders: Vec::new(),
         }
     }
 }
@@ -695,6 +699,7 @@ where
 
     // Find all hex directories (00-ff) without hiding enumeration or inspection failures.
     let mut hex_dirs = Vec::new();
+    let mut skipped_folders = Vec::new();
     let entries = fs::read_dir(cache_dir)
         .with_context(|| format!("failed to enumerate cache root {}", cache_dir.display()))?;
     for entry in entries {
@@ -711,8 +716,12 @@ where
         let is_dir = if file_type.is_symlink() {
             match cache_utils::linked_hex_folder_target(&path) {
                 Ok(target) => target.is_some(),
-                // A link whose target is gone has nothing to clear.
-                Err(error) if error.kind() == ErrorKind::NotFound => false,
+                // A link whose target is gone (its disk not mounted) keeps its files there; the
+                // clear names it instead of reading it as empty.
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    skipped_folders.push(path.display().to_string());
+                    false
+                }
                 Err(error) => {
                     return Err(error).with_context(|| {
                         format!("failed to inspect linked cache path {}", path.display())
@@ -1014,6 +1023,12 @@ where
     if undeleted_files > 0 {
         eprintln!("  Files that could not be deleted: {}", undeleted_files);
     }
+    if !skipped_folders.is_empty() {
+        eprintln!(
+            "  Linked cache folders whose disk could not be reached: {}",
+            skipped_folders.join(", ")
+        );
+    }
 
     // Final progress
     let mut progress = ProgressData::new(
@@ -1030,6 +1045,7 @@ where
     );
     progress.undeleted_files = undeleted_files;
     progress.first_undeleted = first_undeleted;
+    progress.skipped_folders = skipped_folders;
     write_progress(progress_path, &progress)?;
 
     Ok((final_dirs, total_dirs))
@@ -1398,6 +1414,38 @@ mod tests {
             );
             assert!(target.path().is_dir(), "{mode}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_cache_folder_whose_disk_is_gone_is_named_as_not_cleared() {
+        let root = tempfile::tempdir().unwrap();
+        let kept = create_cache_file(root.path(), FIRST_DIGEST, b"old");
+        let gone = tempfile::tempdir().unwrap();
+        let link = root.path().join("00");
+        std::os::unix::fs::symlink(gone.path(), &link).unwrap();
+        gone.close().unwrap();
+        let progress_path = root.path().join("progress.json");
+        let reporter = Arc::new(ProgressReporter::new(false));
+
+        clear_cache_with(
+            root.path().to_str().unwrap(),
+            &progress_path,
+            1,
+            "preserve",
+            None,
+            &reporter,
+            |_| {},
+        )
+        .unwrap();
+
+        let progress: serde_json::Value =
+            serde_json::from_slice(&fs::read(&progress_path).unwrap()).unwrap();
+        assert_eq!(
+            progress["skippedFolders"],
+            json!([link.display().to_string()])
+        );
+        assert!(!kept.exists());
     }
 
     #[test]
