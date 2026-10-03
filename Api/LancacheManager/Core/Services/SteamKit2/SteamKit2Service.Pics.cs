@@ -11,6 +11,7 @@ public partial class SteamKit2Service
 {
     private int _emitTotalMappings;
     private int _emitDownloadsUpdated;
+    private int _failedPicsBatches;
 
     public bool TryStartRebuild(
         CancellationToken cancellationToken = default,
@@ -505,6 +506,7 @@ public partial class SteamKit2Service
         _processedApps = 0;
         _totalBatches = allBatches.Count;
         _processedBatches = 0;
+        _failedPicsBatches = 0;
         _currentStatus = DepotScanPhase.Processing;
 
         // Reset session start count to track new mappings found
@@ -632,6 +634,7 @@ public partial class SteamKit2Service
                 // Session-fatal failures abort the crawl - the session could not be
                 // re-established even after FetchProductInfoBatchAsync's retries, so every
                 // later batch would fail the same way. Anything else is a per-batch hiccup.
+                _failedPicsBatches++;
                 _logger.LogWarning(ex, "Failed to process batch {Batch}/{Total}. Continuing...",
                     _processedBatches + 1, allBatches.Count);
             }
@@ -737,6 +740,12 @@ public partial class SteamKit2Service
         var changeNumber = _lastChangeNumberSeen;
         var reporter = _currentMappingReporter
             ?? throw new InvalidOperationException("Depot mapping operation is not active");
+        if (_failedPicsBatches > 0)
+        {
+            reporter.SetWarning(new RunWarning(
+                "common.notifications.warnings.depotBatchesFailed",
+                new Dictionary<string, object?> { ["failed"] = _failedPicsBatches, ["total"] = _totalBatches }));
+        }
         await reporter.CompleteAsync(
             success: true,
             stageKey: "signalr.depotMapping.finalized",

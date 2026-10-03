@@ -195,6 +195,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                             // Epic's catalog call fails on an expired session or a bad response.
                             // The stored URLs still fetch, so the pass carries on.
                             _logger.LogWarning(ex, "[GameImageFetch] Epic image URL refresh failed");
+                            reporter.SetWarning(new RunWarning(
+                                "common.notifications.warnings.epicImageLinksNotRefreshed",
+                                new Dictionary<string, object?>()));
                         }
                     }
                 }

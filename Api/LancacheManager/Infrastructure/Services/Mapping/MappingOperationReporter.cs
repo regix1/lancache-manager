@@ -92,6 +92,8 @@ public sealed class MappingOperationReporter : IAsyncDisposable
             skipped,
             commit);
 
+    public void SetWarning(RunWarning warning) => _inner.SetWarning(warning);
+
     public bool RequestCancellation() => _inner.RequestCancellation();
 
     public ValueTask DisposeAsync() => _inner.DisposeAsync();

@@ -343,6 +343,8 @@ public partial class EpicMappingService
             _lastUpdatedGames += result.UpdatedGames;
         }
 
+        var failedSteps = 0;
+
         _currentProgressPercent = 40;
         await reporter.ReportAsync(
             40,
@@ -361,6 +363,7 @@ public partial class EpicMappingService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            failedSteps++;
             _logger.LogWarning(ex, "Failed to refresh Epic CDN patterns");
         }
 
@@ -388,6 +391,7 @@ public partial class EpicMappingService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            failedSteps++;
             _logger.LogDebug(ex, "Epic free-game discovery skipped");
         }
 
@@ -402,7 +406,15 @@ public partial class EpicMappingService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            failedSteps++;
             _logger.LogWarning(ex, "Failed to resolve Epic downloads");
+        }
+
+        if (failedSteps > 0)
+        {
+            reporter.SetWarning(new RunWarning(
+                "common.notifications.warnings.epicStepsFailed",
+                new Dictionary<string, object?> { ["count"] = failedSteps }));
         }
 
         EnsureCurrent();

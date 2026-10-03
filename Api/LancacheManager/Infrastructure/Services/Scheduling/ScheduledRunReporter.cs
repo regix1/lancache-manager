@@ -225,6 +225,9 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         }
     }
 
+    /// <summary>Names what the run left undone; it then ends amber.</summary>
+    public void SetWarning(RunWarning warning) => _tracker.SetWarning(_operationId, warning);
+
     /// <summary>
     /// Completes the run exactly once. The terminal event is produced by the tracker's terminal-emit
     /// gate, so a later duplicate completion (e.g. a racing force-kill) is a no-op.

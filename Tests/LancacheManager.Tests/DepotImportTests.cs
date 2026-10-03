@@ -630,6 +630,30 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task APicsRunWithAFailedBatchEndsAmberAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        Set(fixture.Service, "_lastChangeNumberSeen", 200u);
+        // The crawl counts a batch that threw a non-fatal error and carried on; two of five here.
+        Set(fixture.Service, "_failedPicsBatches", 2);
+        Set(fixture.Service, "_totalBatches", 5);
+        using var source = new CancellationTokenSource();
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
+        await reporter.StartAsync();
+
+        await (Task)Invoke(fixture.Service, "FinalizeAndNotifyAsync", false, reporter.Token)!;
+
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == reporter.OperationId);
+        Assert.Equal("completed", run.Status);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.depotBatchesFailed", warning.StageKey);
+        Assert.Equal(2, warning.Context["failed"]);
+        Assert.Equal(5, warning.Context["total"]);
+    }
+
+    [Fact]
     public async Task LocalImportAndApplyDoNotClaimFreshness()
     {
         await using var fixture = await Fixture.CreateAsync();

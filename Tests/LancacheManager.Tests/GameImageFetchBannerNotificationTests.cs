@@ -2,6 +2,7 @@ using System.Net;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
@@ -109,7 +110,69 @@ public sealed class GameImageFetchBannerNotificationTests
         Assert.True(emits == 2, $"expected exactly two GameImagesUpdated, saw {emits}");
     }
 
-    private static ServiceProvider BuildProvider(IHttpClientFactory httpClients)
+    [Fact]
+    public async Task AnImagePassWhoseEpicLinkRefreshFailedEndsAmberAsync()
+    {
+        var httpClients = new SingleHandlerHttpClients(new FailingHandler());
+        using var epicHttp = new HttpClient(new DroppedConnectionHandler());
+        using var epicMapping = new EpicMappingService(
+            NullLogger<EpicMappingService>.Instance,
+            new EpicApiDirectClient(epicHttp, NullLogger<EpicApiDirectClient>.Instance),
+            null!,
+            NullProxy<ISignalRNotificationService>(),
+            null!,
+            NullProxy<IUnifiedOperationTracker>(),
+            NullProxy<IServiceScopeFactory>(),
+            NullProxy<IStateService>());
+        // Signed in with a token that has not expired, so RefreshImagesAsync goes on to ask Epic for the catalog.
+        typeof(EpicMappingService)
+            .GetField("_isAuthenticated", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(epicMapping, true);
+        typeof(EpicMappingService)
+            .GetField("_currentTokens", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(epicMapping, new EpicOAuthTokens
+            {
+                AccessToken = "access",
+                RefreshToken = "refresh",
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+            });
+        await using var imageServices = BuildProvider(httpClients, services => services.AddSingleton(epicMapping));
+        using (var scope = imageServices.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Downloads.Add(new Download
+            {
+                Service = "origin",
+                ClientIp = "10.0.0.1",
+                GameName = "Some Origin Game"
+            });
+            db.GameImages.Add(new GameImage
+            {
+                AppId = "570",
+                Service = "steam",
+                ImageData = new byte[6000],
+                SourceUrl = "https://example.com/570.jpg",
+                FetchedAtUtc = DateTime.UtcNow.AddDays(-10)
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
+        var service = NewService(imageServices, tracker, notifications);
+
+        var operationId = await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: true, RunTrigger.Scheduled);
+        Assert.NotNull(operationId);
+        await WaitForPassesToFinishAsync(tracker);
+
+        var run = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == operationId);
+        Assert.Equal("completed", run.Status);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.epicImageLinksNotRefreshed", warning.StageKey);
+    }
+
+    private static ServiceProvider BuildProvider(
+        IHttpClientFactory httpClients, Action<IServiceCollection>? configure = null)
     {
         // The name is captured once here rather than generated inside the options lambda: that
         // lambda runs again on every DbContext instantiation, so a fresh Guid there would hand
@@ -118,6 +181,7 @@ public sealed class GameImageFetchBannerNotificationTests
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(databaseName));
         services.AddSingleton(httpClients);
+        configure?.Invoke(services);
         return services.BuildServiceProvider();
     }
 
@@ -173,6 +237,14 @@ public sealed class GameImageFetchBannerNotificationTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    /// <summary>Fails every request the way a dropped connection does.</summary>
+    private sealed class DroppedConnectionHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+            => throw new HttpRequestException("connection dropped");
     }
 
     /// <summary>Succeeds on every request with a payload past MinImageBytes, so any phase given a
