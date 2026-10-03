@@ -7,6 +7,7 @@ public partial class OperationStateService
     // Read and written only under _admissionGate, so every grant is decided in one place. A
     // semaphore would grant in arrival order and let an import that queued first pass a waiting step.
     private LogFileLock? _logHolder;
+    private LogFileLock? _reopenHolder;
     private int _logStepWaiters;
     private int _ingestWaiters;
     private bool _ingestTurnOwed;
@@ -14,7 +15,9 @@ public partial class OperationStateService
 
     /// <summary>
     /// A step waits for the current import pass to end and for the speed tracker to stop; no new
-    /// pass starts while a step waits, and an import that waited through a step goes next.
+    /// pass starts while a step waits, and an import that waited through a step goes next. A reopen
+    /// waits only for a step, and a step waits for a reopen; neither the import nor the speed tracker
+    /// waits for a reopen.
     /// </summary>
     public async Task<LogFileLock> LockLogFilesAsync(
         Guid? operationId,
@@ -23,7 +26,7 @@ public partial class OperationStateService
         CancellationToken cancellationToken)
     {
         var request = new LogFileLock(this, operationId, operationType, kind);
-        var step = kind != LogFileLockKind.Ingest;
+        var step = kind is LogFileLockKind.Rows or LogFileLockKind.Rewrite;
         await _admissionGate.WaitAsync(cancellationToken);
         try
         {
@@ -31,7 +34,7 @@ public partial class OperationStateService
             {
                 _logStepWaiters++;
             }
-            else
+            else if (kind == LogFileLockKind.Ingest)
             {
                 _ingestWaiters++;
             }
@@ -53,16 +56,25 @@ public partial class OperationStateService
                 await _admissionGate.WaitAsync(cancellationToken);
                 try
                 {
-                    granted = _logHolder is null &&
-                        (step ? !_ingestTurnOwed : _logStepWaiters == 0 || _ingestTurnOwed);
+                    granted = kind == LogFileLockKind.Reopen
+                        ? _reopenHolder is null && (_logHolder is null || _logHolder.Kind == LogFileLockKind.Ingest)
+                        : _logHolder is null
+                            && (step ? _reopenHolder is null && !_ingestTurnOwed : _logStepWaiters == 0 || _ingestTurnOwed);
                     if (granted)
                     {
-                        _logHolder = request;
+                        if (kind == LogFileLockKind.Reopen)
+                        {
+                            _reopenHolder = request;
+                        }
+                        else
+                        {
+                            _logHolder = request;
+                        }
                         if (step)
                         {
                             _logStepWaiters--;
                         }
-                        else
+                        else if (kind == LogFileLockKind.Ingest)
                         {
                             _ingestWaiters--;
                             _ingestTurnOwed = false;
@@ -72,7 +84,7 @@ public partial class OperationStateService
                         SignalWorkChanged();
                         break;
                     }
-                    holder = _logHolder;
+                    holder = _logHolder ?? (step ? _reopenHolder : null);
                     workChanged = _workChanged.Task;
                 }
                 finally
@@ -105,7 +117,7 @@ public partial class OperationStateService
                     {
                         _logStepWaiters--;
                     }
-                    else if (--_ingestWaiters == 0)
+                    else if (kind == LogFileLockKind.Ingest && --_ingestWaiters == 0)
                     {
                         _ingestTurnOwed = false;
                     }
@@ -163,6 +175,12 @@ public partial class OperationStateService
         await _admissionGate.WaitAsync(CancellationToken.None);
         try
         {
+            if (_reopenHolder == held)
+            {
+                _reopenHolder = null;
+                SignalWorkChanged();
+                return;
+            }
             if (_logHolder != held)
             {
                 return;

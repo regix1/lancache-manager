@@ -1627,6 +1627,99 @@ public sealed class NginxLogRotationServiceTests
     }
 
     [Fact]
+    public async Task ScheduledRotationRunsWhileAnImportPassAndTheSpeedTrackerRunAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-rotation-reopen-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+            service.DetectionResult = (null, "No container with nginx found");
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0, Output = "42|1234\n" });
+            service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+            var rotation = new NginxLogRotationHostedService(
+                service,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                NullLogger<NginxLogRotationHostedService>.Instance,
+                new TestPathResolver(NullLogger.Instance),
+                harness.StateService,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                harness.Tracker,
+                harness.Owner);
+            var executeWork = typeof(NginxLogRotationHostedService).GetMethod(
+                "ExecuteWorkAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            Task run;
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogProcessing,
+                LogFileLockKind.Ingest,
+                CancellationToken.None))
+            {
+                Assert.True(harness.Owner.TryBeginSpeedTrackerRun());
+                run = (Task)executeWork.Invoke(rotation, [CancellationToken.None])!;
+                await run.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+
+            Assert.Equal(
+                new[] { "host nginx writer identity", "host nginx verified reopen" },
+                service.Commands.Select(command => command.Label));
+            harness.Owner.EndSpeedTrackerRun();
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task ACancelWhileTheRotationWaitsForALogStepEndsItCanceledWithoutSignalingAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-nginx-rotation-cancel-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using (var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false))
+        {
+            var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+            var rotation = new NginxLogRotationHostedService(
+                service,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                NullLogger<NginxLogRotationHostedService>.Instance,
+                new TestPathResolver(NullLogger.Instance),
+                harness.StateService,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                harness.Tracker,
+                harness.Owner);
+            var executeWork = typeof(NginxLogRotationHostedService).GetMethod(
+                "ExecuteWorkAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogRemoval,
+                LogFileLockKind.Rewrite,
+                CancellationToken.None))
+            {
+                var run = (Task)executeWork.Invoke(rotation, [CancellationToken.None])!;
+                OperationInfo? operation = null;
+                for (var attempt = 0; attempt < 200 && operation is null; attempt++)
+                {
+                    operation = harness.Tracker.GetActiveOperations(OperationType.LogRotation).FirstOrDefault();
+                    if (operation is null)
+                    {
+                        await Task.Delay(25);
+                    }
+                }
+                Assert.NotNull(operation);
+
+                harness.Tracker.CancelOperation(operation.Id);
+                await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+                Assert.Empty(service.Commands);
+                Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(operation.Id)!.Status);
+            }
+        }
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
     public async Task ReopenNginxLogsAsync_NoContainer_SignalsHostWithExpectedCommandAsync()
     {
         var logger = new CapturingLogger<NginxLogRotationService>();

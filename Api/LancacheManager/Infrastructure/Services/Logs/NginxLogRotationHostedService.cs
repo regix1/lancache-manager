@@ -147,16 +147,26 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         // run it, then complete from the rotation result.
         await reporter.ReportAsync(50, $"{StageBase}.running");
 
-        // A step that deletes or rewrites a log holds this lock. A reopen inside it makes nginx recreate
-        // a file the step just deleted, and the step then fails and runs again.
+        // A step that deletes or rewrites a log holds the log lock, and a reopen inside it makes nginx
+        // recreate a file the step just deleted, so the reopen waits for the step and keeps the next one
+        // out. It changes no file, row or position, so the import and the speed tracker keep running.
         LogRotationResult result;
-        await using (await _operationStateService.LockLogFilesAsync(
-            reporter.OperationId,
-            OperationType.LogRotation,
-            LogFileLockKind.Rewrite,
-            stoppingToken))
+        try
         {
-            result = await _rotationService.ReopenNginxLogsAsync();
+            await using (await _operationStateService.LockLogFilesAsync(
+                reporter.OperationId,
+                OperationType.LogRotation,
+                LogFileLockKind.Reopen,
+                reporter.Token))
+            {
+                result = await _rotationService.ReopenNginxLogsAsync();
+            }
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            // Canceled from its card while it waited: nginx was not signaled, and disposing the reporter
+            // ends the card as canceled.
+            return;
         }
 
         if (result.Success)

@@ -279,6 +279,47 @@ public sealed class LogFileLockTests : IDisposable
     }
 
     [Fact]
+    public async Task AReopenRunsBesideAnImportPassAndTheSpeedTrackerAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+
+        var pass = await LockAsync(owner, LogFileLockKind.Ingest);
+        Assert.True(owner.TryBeginSpeedTrackerRun());
+        var reopen = await LockAsync(owner, LogFileLockKind.Reopen).WaitAsync(_wait);
+
+        // No step holds the logs, so the speed tracker is not asked to stop, and the next import pass
+        // starts while the reopen signals.
+        await owner.WaitForLogStepAsync(active: false, CancellationToken.None).WaitAsync(_wait);
+        await pass.DisposeAsync();
+        await using (await LockAsync(owner, LogFileLockKind.Ingest).WaitAsync(_wait))
+        {
+        }
+
+        await reopen.DisposeAsync();
+        owner.EndSpeedTrackerRun();
+    }
+
+    [Fact]
+    public async Task AReopenWaitsForAStepAndKeepsTheNextStepOutAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+
+        var step = await LockAsync(owner, LogFileLockKind.Rows);
+        var reopen = LockAsync(owner, LogFileLockKind.Reopen);
+        Assert.False(reopen.IsCompleted);
+
+        await step.DisposeAsync();
+        var reopenLock = await reopen.WaitAsync(_wait);
+        var nextStep = LockAsync(owner, LogFileLockKind.Rewrite);
+        Assert.False(nextStep.IsCompleted);
+
+        await reopenLock.DisposeAsync();
+        await using var nextLock = await nextStep.WaitAsync(_wait);
+    }
+
+    [Fact]
     public async Task WaitForLogStepCompletesOnlyOnTheMatchingChangeAsync()
     {
         await using var harness = await CreateHarnessAsync();
