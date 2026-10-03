@@ -430,6 +430,8 @@
         "nginxReopenFailed": "The change was made, but nginx could not be told to reopen its logs: {{error}}. Until it does, new lines may not reach the log file.",
         "logReopenPartlyFailed": "Some nginx writers reopened their logs, but these could not be signaled: {{errors}}. Until they reopen, their new lines may not reach the log file.",
         "resetLeftovers": "The tables were cleared, but these could not be reset: {{items}}.",
+        "signInsNotReset": "The tables were cleared, but these sign-ins could not be reset: {{platforms}}.",
+        "prefillSignInsNotReset": "The tables were cleared, but these prefill sign-ins could not be reset: {{platforms}}.",
         "depotBatchesFailed": "{{failed}} of {{total}} Steam app info batches failed, so their depots were not mapped this run.",
         "epicStepsFailed": "The Epic catalog was refreshed, but follow-up steps failed: {{count}}. The server log names them.",
         "epicImageLinksNotRefreshed": "Epic image links could not be refreshed, so Epic art was fetched from the links already stored.",

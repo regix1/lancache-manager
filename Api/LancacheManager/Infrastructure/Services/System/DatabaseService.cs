@@ -393,7 +393,9 @@ public class DatabaseService
             // loop so the completion report can name them instead of claiming a clean sweep.
             var failedPersistentLogins = new List<string>();
 
-            // Sign-ins and files the reset could not clear; named on the amber completion card.
+            // Platforms whose sign-in the reset could not clear, and files it could not delete; each is
+            // named on the amber completion card.
+            var signInsNotReset = new List<string>();
             var notReset = new List<string>();
 
             if (tablesToClear.Contains("UserSessions"))
@@ -410,7 +412,7 @@ public class DatabaseService
                 }
                 catch (Exception steamEx)
                 {
-                    notReset.Add("Steam sign-in");
+                    signInsNotReset.Add("Steam");
                     _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
                 }
 
@@ -420,7 +422,7 @@ public class DatabaseService
                 }
                 catch (Exception xboxEx)
                 {
-                    notReset.Add("Xbox sign-in");
+                    signInsNotReset.Add("Xbox");
                     _logger.LogWarning(xboxEx, "Error clearing Xbox auth during session reset");
                 }
 
@@ -430,7 +432,7 @@ public class DatabaseService
                 }
                 catch (Exception epicEx)
                 {
-                    notReset.Add("Epic sign-in");
+                    signInsNotReset.Add("Epic");
                     _logger.LogWarning(epicEx, "Error clearing Epic auth during session reset");
                 }
 
@@ -484,8 +486,11 @@ public class DatabaseService
                 // re-runs this whole lambda. Both accumulators live outside it and would otherwise
                 // carry the abandoned attempt's values into the next one: a doubled row total, and a
                 // progress bar that resumes from where the failed attempt stopped instead of restarting.
+                // The same holds for the files it could not delete: one the abandoned attempt could not
+                // delete may be gone after the retry.
                 deletedRows = 0;
                 currentProgress = 0;
+                notReset.Clear();
 
                 using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
                 try
@@ -1186,14 +1191,27 @@ public class DatabaseService
                 tablesCleared: tablesToClear.Count,
                 totalTables: tablesToClear.Count);
 
-            // The tables were cleared; a sign-in or file it could not reset makes the reset amber.
-            // The file deletes run inside the retried transaction, so a retry can name one twice.
-            notReset.AddRange(failedPersistentLogins.Select(platform => $"{platform} prefill sign-in"));
+            // The tables were cleared; each sign-in or file it could not reset makes the reset amber.
+            // A retry starts the file list again, so a file is named once.
+            if (signInsNotReset.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.signInsNotReset",
+                    new Dictionary<string, object?> { ["platforms"] = string.Join(", ", signInsNotReset) }));
+            }
+
+            if (failedPersistentLogins.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.prefillSignInsNotReset",
+                    new Dictionary<string, object?> { ["platforms"] = string.Join(", ", failedPersistentLogins) }));
+            }
+
             if (notReset.Count > 0)
             {
                 _operationTracker.SetWarning(operationId, new RunWarning(
                     "common.notifications.warnings.resetLeftovers",
-                    new Dictionary<string, object?> { ["items"] = string.Join(", ", notReset.Distinct()) }));
+                    new Dictionary<string, object?> { ["items"] = string.Join(", ", notReset) }));
             }
 
             _operationTracker.CompleteOperation(operationId, success: true);

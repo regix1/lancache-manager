@@ -430,6 +430,8 @@
         "nginxReopenFailed": "更改已完成，但无法通知 nginx 重新打开其日志：{{error}}。在此之前，新的日志行可能不会写入日志文件。",
         "logReopenPartlyFailed": "部分 nginx 写入进程已重新打开日志，但以下进程无法收到信号：{{errors}}。在它们重新打开之前，其新的日志行可能不会写入日志文件。",
         "resetLeftovers": "数据表已清除，但以下项目无法重置：{{items}}。",
+        "signInsNotReset": "数据表已清除，但以下平台的登录无法重置：{{platforms}}。",
+        "prefillSignInsNotReset": "数据表已清除，但以下平台的预填充登录无法重置：{{platforms}}。",
         "depotBatchesFailed": "{{total}} 个 Steam 应用信息批次中有 {{failed}} 个失败，因此本次未映射其仓库。",
         "epicStepsFailed": "Epic 目录已刷新，但有后续步骤失败：{{count}} 个。服务器日志中列出了这些步骤。",
         "epicImageLinksNotRefreshed": "无法刷新 Epic 图片链接，因此 Epic 图片是从已保存的链接获取的。",

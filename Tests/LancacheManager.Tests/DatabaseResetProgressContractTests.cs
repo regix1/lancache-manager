@@ -157,9 +157,12 @@ public class DatabaseResetProgressContractTests
         var terminal = await trackerState.Terminal.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.True(terminal.Success, terminal.Error);
-        var warning = Assert.Single(trackerState.Warnings);
-        Assert.Equal("common.notifications.warnings.resetLeftovers", warning.StageKey);
-        Assert.Contains("Steam sign-in", (string)warning.Context["items"]!, StringComparison.Ordinal);
+        var warning = Assert.Single(
+            trackerState.Warnings,
+            candidate => candidate.StageKey == "common.notifications.warnings.signInsNotReset");
+        var platforms = (string)warning.Context["platforms"]!;
+        Assert.Contains("Steam", platforms, StringComparison.Ordinal);
+        Assert.DoesNotContain("sign-in", platforms, StringComparison.Ordinal);
     }
 
     /// <summary>
